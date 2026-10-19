@@ -3,6 +3,19 @@ import type { ObjectRef, ObjectSnapshot, PlayerId } from '../effects/contract.js
 import type { PipelineHost } from '../events/pipeline-types.js';
 import type { TimingEmission } from '../events/pipeline-types.js';
 import { TurnCombatBlockedError } from '../turn/flow.js';
+import {
+  completeDuelBaseCombatAllocation,
+  validateDuelBaseCombatAllocation,
+  type DuelBaseCombatCompleteAllocation,
+  type DuelBaseCombatOrderedUIDAmount,
+  type DuelBaseCombatPlan,
+} from './base-combat-allocation.js';
+import { emitCombatWave, runCombatTransaction } from './transactions/atomic.js';
+import {
+  combatDamageEventDetails,
+  createCombatDamagePlan,
+  type CombatDamageRuntime,
+} from './transactions/damage.js';
 
 export interface BattlefieldState {
   readonly id: string;
@@ -13,39 +26,163 @@ export interface BattlefieldState {
 type MutableField = { -readonly [K in keyof BattlefieldState]: BattlefieldState[K] };
 type Engagement = {
   field: string;
-  step: 'showdown' | 'control';
+  step: 'showdown' | 'damage' | 'result' | 'control';
   scorer?: PlayerId;
   queued?: boolean;
+  attacker?: PlayerId;
+  defender?: PlayerId;
+  combatId?: string;
+  damage?: {
+    readonly plan: DuelBaseCombatPlan;
+    readonly attacker?: DuelBaseCombatCompleteAllocation['attacker'];
+  };
+  result?: CombatResult;
 };
+
+export interface CombatStartResult {
+  readonly field: string;
+  readonly combatId: string;
+  readonly attacker: PlayerId;
+  readonly defender: PlayerId;
+  readonly focus: PlayerId;
+}
+
+export interface CombatDamageResult {
+  readonly field: string;
+  readonly combatId: string;
+  readonly attackerPlayerId: PlayerId;
+  readonly defenderPlayerId: PlayerId;
+  readonly batchId: string;
+}
+
+export type CombatLifecyclePhase = 'showdown' | 'damage' | 'result' | 'control';
+
+export interface CombatDamageAllocationView {
+  readonly combatId: string;
+  readonly battlefieldId: string;
+  readonly attackerPlayerId: PlayerId;
+  readonly defenderPlayerId: PlayerId;
+  readonly attackerMight: number;
+  readonly defenderMight: number;
+  readonly attackerSubmitted: boolean;
+}
+
+export interface CombatResult {
+  readonly combatId: string;
+  readonly battlefieldId: string;
+  readonly winnerId: PlayerId | null;
+  readonly loserId: PlayerId | null;
+  readonly unitResults: readonly { readonly unitId: string; readonly result: 'won' | 'lost' | 'no-result' }[];
+  readonly noResult: boolean;
+}
 
 /** Batch 5 structural tasks; Priority, Focus, triggers and Chain stay in batch 4. */
 export class CombatFlow {
   private fields: MutableField[];
   private engagement: Engagement | null = null;
+  private combatSequence = 0;
+  private transactionDepth = 0;
+  private readonly combatRoles = new Map<string, 'attacker' | 'defender'>();
+  private readonly eventsEnabled: boolean;
+  private readonly lifecycleEnabled: boolean;
   constructor(
     private readonly chain: ChainEngine,
     private readonly host: PipelineHost,
     fields: readonly { readonly id: string; readonly controller: PlayerId | null }[],
     private readonly conquer: (player: PlayerId, field: string) => void,
+    options: { readonly events?: boolean; readonly lifecycle?: boolean } = {},
   ) {
     this.fields = fields.map(field => ({ ...field, contestedBy: null, staged: 'none' }));
+    this.eventsEnabled = options.events === true;
+    this.lifecycleEnabled = options.lifecycle === true;
   }
   get battlefields(): readonly BattlefieldState[] { return structuredClone(this.fields); }
   get active(): boolean { return this.engagement !== null; }
   get current(): Readonly<Engagement> | null { return this.engagement && { ...this.engagement }; }
+  get lifecycle(): Readonly<{ phase: CombatLifecyclePhase; field: string; combatId: string;
+    attacker: PlayerId; defender: PlayerId }> | null {
+    const active = this.engagement;
+    if (active?.attacker === undefined || active.defender === undefined || active.combatId === undefined) return null;
+    return Object.freeze({ phase: active.step, field: active.field, combatId: active.combatId,
+      attacker: active.attacker, defender: active.defender });
+  }
   checkpoint() {
-    return { fields: structuredClone(this.fields), engagement: this.engagement && { ...this.engagement } };
+    const engagement = this.engagement;
+    return {
+      fields: structuredClone(this.fields),
+      engagement: engagement === null ? null : {
+        ...engagement,
+        ...(engagement.damage === undefined ? {} : {
+          damage: { ...engagement.damage },
+        }),
+      },
+      combatSequence: this.combatSequence,
+      combatRoles: new Map(this.combatRoles),
+      transactionDepth: this.transactionDepth,
+    };
   }
   restore(snapshot: ReturnType<CombatFlow['checkpoint']>): void {
-    this.fields = snapshot.fields; this.engagement = snapshot.engagement;
+    this.fields = snapshot.fields;
+    this.engagement = snapshot.engagement;
+    this.combatSequence = snapshot.combatSequence;
+    this.combatRoles.clear();
+    for (const [key, role] of snapshot.combatRoles) this.combatRoles.set(key, role);
+    this.transactionDepth = snapshot.transactionDepth;
+  }
+  private withTransaction<T>(run: () => T): T {
+    if (this.transactionDepth > 0) return run();
+    return runCombatTransaction(this.chain, this, () => {
+      const savedDepth = this.transactionDepth;
+      this.transactionDepth = savedDepth + 1;
+      try { return run(); }
+      finally { this.transactionDepth = savedDepth; }
+    });
+  }
+  /** Restore a checkpoint captured before the chain performs a nested state change. */
+  restoreHostAndEvents(checkpoint: { readonly host: unknown; readonly events: unknown }): void {
+    this.host.restore(checkpoint.host);
+    this.chain.pipeline.restore(checkpoint.events as ReturnType<ChainEngine['pipeline']['checkpoint']>);
+  }
+  /** Let a caller atomically combine a state mutation and its trigger wave. */
+  transaction<T>(run: () => T): T { return this.withTransaction(run); }
+  private refKey(ref: ObjectRef): string { return `${ref.id}:${ref.zoneEntryId}`; }
+  private role(object: ObjectSnapshot): 'attacker' | 'defender' | null {
+    return object.combatRole ?? this.combatRoles.get(this.refKey(object.ref)) ?? null;
+  }
+  private withRole(object: ObjectSnapshot, role: 'attacker' | 'defender' | null): ObjectSnapshot {
+    return Object.freeze({ ...object, combatRole: role });
+  }
+  /** Read-only view used by tests and diagnostics; it never grants command authority. */
+  snapshot(object: ObjectSnapshot): ObjectSnapshot {
+    const role = this.combatRoles.get(this.refKey(object.ref));
+    return role === undefined ? object : this.withRole(object, role);
+  }
+  private layerObjects(): readonly ObjectSnapshot[] {
+    return this.host.objects().map(object => {
+      const role = this.combatRoles.get(this.refKey(object.ref));
+      return role === undefined ? object : this.withRole(object, role);
+    });
   }
   private units(field: string): readonly ObjectSnapshot[] {
-    this.chain.layers.setObjects(this.host.objects());
+    this.chain.layers.setObjects(this.layerObjects());
     return this.chain.layers.evaluateAll().filter(object => object.zone === 'board' && object.types.includes('unit') &&
-      object.location?.type === 'battlefield' && object.location.id === field);
+      object.location?.type === 'battlefield' && object.location.id === field)
+      .map(object => this.withRole(object, this.role(object)));
   }
   private emit(timingPoint: Parameters<ChainEngine['emit']>[0]['timingPoint'], field: string, player?: string, object?: ObjectSnapshot): void {
     this.chain.emit({ timingPoint, player, object, details: { battlefieldId: field } });
+  }
+  /** CR 468.1.a.1: heal every Unit only in this Combat Special Cleanup. */
+  private healCombatUnits(): void {
+    const active = this.engagement;
+    if (active === null) return;
+    for (const unit of this.units(active.field)) {
+      if (unit.damage === 0) continue;
+      const outcome = this.chain.commit({ type: 'heal', object: unit.ref, amount: unit.damage });
+      if (outcome.status !== 'done') {
+        throw new TurnCombatBlockedError('combat-cleanup-heal', 'Combat Special Cleanup could not heal a Unit');
+      }
+    }
   }
   /** Contested is applied by the actual entry action, before its trigger wave. */
   entered(object: ObjectSnapshot): TimingEmission[] {
@@ -55,6 +192,85 @@ export class CombatFlow {
     if (field.controller === object.controller || field.contestedBy !== null) return [];
     field.contestedBy = object.controller;
     return [{ timingPoint: 'contested-applied', player: object.controller, object, details: { battlefieldId: field.id } }];
+  }
+  private establishRoles(field: string): readonly ObjectSnapshot[] {
+    const engagement = this.engagement;
+    if (engagement === null || engagement.field !== field || engagement.attacker === undefined) {
+      throw new TurnCombatBlockedError('combat-role-state', 'Combat has no committed Attacker designation');
+    }
+    const attacker = engagement.attacker;
+    const defender = engagement.defender;
+    if (defender === undefined) throw new TurnCombatBlockedError('combat-role-state', 'Combat has no committed Defender designation');
+    const units = this.units(field);
+    const byController = new Map<PlayerId, 'attacker' | 'defender'>([[attacker, 'attacker'], [defender, 'defender']]);
+    for (const unit of units) {
+      const role = byController.get(unit.controller);
+      if (role === undefined) throw new TurnCombatBlockedError('combat-role-state', 'A Combat battlefield has a third controller');
+      this.combatRoles.set(this.refKey(unit.ref), role);
+    }
+    return units.map(unit => this.withRole(unit, byController.get(unit.controller)!));
+  }
+  /** Apply 323.2 to units that arrive after the opening designation wave. */
+  private refreshRoles(field: string): boolean {
+    const engagement = this.engagement;
+    if (engagement?.attacker === undefined || engagement.defender === undefined) return false;
+    let changed = false;
+    const byController = new Map<PlayerId, 'attacker' | 'defender'>([
+      [engagement.attacker, 'attacker'], [engagement.defender, 'defender'],
+    ]);
+    const present = new Set<string>();
+    for (const unit of this.units(field)) {
+      present.add(this.refKey(unit.ref));
+      const role = byController.get(unit.controller);
+      if (role === undefined) throw new TurnCombatBlockedError('combat-role-state', 'A Combat battlefield has a third controller');
+      if (this.combatRoles.get(this.refKey(unit.ref)) !== role) {
+        this.combatRoles.set(this.refKey(unit.ref), role); changed = true;
+      }
+    }
+    for (const key of [...this.combatRoles.keys()]) {
+      if (!present.has(key)) { this.combatRoles.delete(key); changed = true; }
+    }
+    return changed;
+  }
+  private clearRoles(): void { this.combatRoles.clear(); }
+  private openCombat(field: MutableField): CombatStartResult {
+    if (!this.eventsEnabled) {
+      throw new TurnCombatBlockedError('combat-start-transaction', 'Combat start needs an atomic simultaneous timing wave + roles (CR 466.2)');
+    }
+    const result = this.withTransaction(() => {
+      const attacker = field.contestedBy;
+      if (attacker === null) throw new TurnCombatBlockedError('combat-role-state', 'Staged Combat has no Contested player');
+      const defender = [...new Set(this.units(field.id).map(unit => unit.controller))].find(id => id !== attacker);
+      if (defender === undefined) throw new TurnCombatBlockedError('combat-role-state', 'Staged Combat has no Defender');
+      const combatId = `combat:${field.id}:${++this.combatSequence}`;
+      this.engagement = { field: field.id, step: 'showdown', attacker, defender, combatId };
+      field.staged = 'none';
+      const units = this.establishRoles(field.id);
+      const details = { combatId, battlefieldId: field.id, attackerId: attacker, defenderId: defender };
+      const openings: TimingEmission[] = [
+        { timingPoint: 'combat-start', player: attacker, details },
+        ...units.map(unit => ({
+          timingPoint: this.role(unit) === 'attacker' ? 'attack-declared' as const : 'defense-declared' as const,
+          player: unit.controller,
+          object: unit,
+          details,
+        })),
+      ];
+      this.chain.openShowdown(attacker);
+      const host = this.host.checkpoint();
+      const events = this.chain.pipeline.checkpoint();
+      try {
+        emitCombatWave(this.chain, this, openings, combatId);
+        this.chain.requestCleanup('combat-opened');
+      } catch (error) {
+        this.host.restore(host);
+        this.chain.pipeline.restore(events);
+        throw error;
+      }
+      return Object.freeze({ field: field.id, combatId, attacker, defender, focus: attacker });
+    });
+    this.chain.advance();
+    return result;
   }
   /** Called inside the Score action's host transaction, before its timing wave. */
   establish(player: PlayerId, fieldId: string): TimingEmission {
@@ -86,6 +302,7 @@ export class CombatFlow {
   cleanup(): boolean {
     let changed = false;
     const active = this.engagement;
+    if (active?.field !== undefined && this.refreshRoles(active.field)) changed = true;
     for (const field of this.fields) {
       if (field.id === active?.field) continue;
       const units = this.units(field.id);
@@ -111,6 +328,11 @@ export class CombatFlow {
   /** Open staged work after Cleanup has exited, before another player command. */
   advance(): void {
     if (this.chain.items.length) return;
+    if (this.engagement?.result !== undefined && this.engagement.step !== 'control' &&
+        this.chain.turnState === 'neutral-open') {
+      this.finishCombat();
+      return;
+    }
     if (this.engagement) {
       const active = this.engagement;
       if (active.step === 'control') {
@@ -118,8 +340,18 @@ export class CombatFlow {
         return;
       }
       if (this.chain.turnState.startsWith('showdown')) {
-        if (new Set(this.units(active.field).map(unit => unit.controller)).size === 2) {
-          throw new TurnCombatBlockedError('showdown-conversion', 'Batch 4 needs an atomic Combat start + designation task preserving existing Focus');
+        if (new Set(this.units(active.field).map(unit => unit.controller)).size === 2) return;
+        return;
+      }
+      if (active.step === 'damage') {
+        if (this.chain.turnState === 'neutral-open') this.finishCombat();
+        return;
+      }
+      if (active.step === 'result') {
+        if (this.chain.turnState === 'neutral-open') {
+          const damaged = this.units(active.field).some(unit => unit.damage > 0);
+          if (damaged) this.healCombatUnits();
+          else this.finishCombat();
         }
         return;
       }
@@ -146,15 +378,267 @@ export class CombatFlow {
     const field = candidates.find(value => value.id === id);
     if (!field) throw new TypeError('Invalid staged engagement choice');
     if (field.staged === 'combat') {
-      // start-combat and start-showdown are simultaneous and must order their
-      // trigger wave before attack/defense. Public batch 4 emit() cannot do this.
-      throw new TurnCombatBlockedError('combat-start-transaction', 'Combat start needs an atomic simultaneous timing wave + roles (CR 466.2)');
+      if (this.lifecycleEnabled) this.openCombat(field);
+      else throw new TurnCombatBlockedError('combat-start-transaction',
+        'Combat start needs an atomic simultaneous timing wave + roles (CR 466.2)');
+      return;
     }
     this.chain.openShowdown(field.contestedBy!);
     this.engagement = { field: id, step: 'showdown' };
     this.chain.requestCleanup('showdown-opened');
   }
+  /** Start a staged Combat directly; used by the real Cleanup/advance path and production tests. */
+  startCombat(fieldId: string): CombatStartResult {
+    const field = this.fields.find(candidate => candidate.id === fieldId);
+    if (field === undefined || field.staged !== 'combat') {
+      throw new TurnCombatBlockedError('combat-not-staged', 'No Combat is staged at this Battlefield');
+    }
+    if (this.engagement !== null || this.chain.turnState !== 'neutral-open' || this.chain.items.length !== 0) {
+      throw new TurnCombatBlockedError('combat-state', 'Combat cannot open in the current state');
+    }
+    return this.openCombat(field);
+  }
+  /** A Showdown may convert only while its state is open and still has no Chain items. */
+  convertShowdown(fieldId: string): CombatStartResult {
+    const field = this.fields.find(candidate => candidate.id === fieldId);
+    if (field === undefined || field.staged !== 'combat' || this.engagement?.field !== fieldId ||
+        this.engagement.step !== 'showdown' || this.chain.turnState !== 'showdown-open' || this.chain.items.length !== 0) {
+      throw new TurnCombatBlockedError('showdown-conversion', 'Showdown cannot convert in the current state');
+    }
+    if (!this.eventsEnabled) {
+      throw new TurnCombatBlockedError('showdown-conversion', 'Showdown conversion needs an atomic Combat start transaction');
+    }
+    const existingFocus = this.chain.focus;
+    if (existingFocus === null) throw new TurnCombatBlockedError('combat-focus', 'Combat Showdown has no Focus holder');
+    const attacker = field.contestedBy;
+    if (attacker === null) throw new TurnCombatBlockedError('combat-role-state', 'Staged Combat has no Contested player');
+    const defender = [...new Set(this.units(fieldId).map(unit => unit.controller))].find(id => id !== attacker);
+    if (defender === undefined) throw new TurnCombatBlockedError('combat-role-state', 'Staged Combat has no Defender');
+    const combatId = `combat:${fieldId}:${++this.combatSequence}`;
+    this.engagement = { field: fieldId, step: 'showdown', attacker, defender, combatId };
+    field.staged = 'none';
+    const units = this.establishRoles(fieldId);
+    const details = { combatId, battlefieldId: fieldId, attackerId: attacker, defenderId: defender, focus: existingFocus };
+    emitCombatWave(this.chain, this, [
+      { timingPoint: 'combat-start', player: attacker, details },
+      ...units.map(unit => ({
+        timingPoint: this.role(unit) === 'attacker' ? 'attack-declared' as const : 'defense-declared' as const,
+        player: unit.controller,
+        object: unit,
+        details,
+      })),
+    ], combatId);
+    this.chain.requestCleanup('showdown-converted');
+    return Object.freeze({ field: fieldId, combatId, attacker, defender, focus: existingFocus });
+  }
+  private runtime(): CombatDamageRuntime {
+    const active = this.engagement;
+    if (active === null || active.attacker === undefined || active.defender === undefined ||
+        active.combatId === undefined) throw new TurnCombatBlockedError('damage-state', 'No active Combat identity');
+    const units = this.units(active.field).map(object => Object.freeze({
+      object,
+      combatRole: this.role(object),
+    }));
+    return Object.freeze({
+      stateVersion: this.chain.pipeline.events.length,
+      fieldId: active.field,
+      attackerPlayerId: active.attacker,
+      defenderPlayerId: active.defender,
+      players: this.chain.pipeline.turnOrder,
+      fields: this.fields.map(field => Object.freeze({
+        ...field,
+        active: field.id === active.field && active.step !== 'result' && active.step !== 'control',
+      })),
+      units,
+      layers: this.chain.layers,
+      pipeline: this.chain.pipeline,
+      host: this.host,
+      replacementCount: (this.chain.pipeline.checkpoint() as {
+        readonly replacements?: ReadonlyMap<string, unknown>;
+      }).replacements?.size ?? 0,
+    });
+  }
+  /** Freeze one live allocation plan after the Combat Showdown has closed. */
+  prepareDamage(): DuelBaseCombatPlan {
+    return this.withTransaction(() => {
+      const active = this.engagement;
+      if (active === null || active.step !== 'showdown' || this.chain.turnState !== 'neutral-open') {
+        throw new TurnCombatBlockedError('damage-state', 'Combat damage requires a closed Combat Showdown');
+      }
+      const plan = createCombatDamagePlan(this.runtime());
+      active.step = 'damage';
+      active.damage = { plan };
+      return plan;
+    });
+  }
+  damageView(): CombatDamageAllocationView {
+    const active = this.engagement;
+    if (active?.step !== 'damage' || active.damage === undefined || active.attacker === undefined ||
+        active.defender === undefined || active.combatId === undefined) {
+      throw new TurnCombatBlockedError('damage-state', 'No Combat damage allocation is pending');
+    }
+    const { plan } = active.damage;
+    return Object.freeze({
+      combatId: active.combatId,
+      battlefieldId: active.field,
+      attackerPlayerId: active.attacker,
+      defenderPlayerId: active.defender,
+      attackerMight: plan.attacker.budget,
+      defenderMight: plan.defender.budget,
+      attackerSubmitted: active.damage.attacker !== undefined,
+    });
+  }
+  /** Validate and retain the Attacker choice without mutating the board. */
+  submitAttackerDamage(actor: PlayerId, orderedUIDAmounts: readonly DuelBaseCombatOrderedUIDAmount[]): void {
+    this.withTransaction(() => {
+      const active = this.engagement;
+      if (active?.step !== 'damage' || active.damage === undefined || active.attacker !== actor) {
+        throw new TurnCombatBlockedError('damage-choice', 'Only the Attacker may submit the first allocation');
+      }
+      const allocation = validateDuelBaseCombatAllocation(active.damage.plan, actor, orderedUIDAmounts,
+        this.chain.pipeline.events.length);
+      active.damage = { plan: active.damage.plan, attacker: allocation };
+    });
+  }
+  /** The Defender's legal choice completes and atomically deals both sides. */
+  submitDefenderDamage(actor: PlayerId, orderedUIDAmounts: readonly DuelBaseCombatOrderedUIDAmount[]): CombatDamageResult {
+    try {
+      return this.withTransaction(() => {
+        const active = this.engagement;
+        if (active?.step !== 'damage' || active.damage?.attacker === undefined || active.defender !== actor ||
+            active.combatId === undefined) {
+          throw new TurnCombatBlockedError('damage-choice', 'Only the Defender may submit the completing allocation');
+        }
+        const version = this.chain.pipeline.events.length;
+        const defender = validateDuelBaseCombatAllocation(active.damage.plan, actor, orderedUIDAmounts, version);
+        const complete = completeDuelBaseCombatAllocation(active.damage.attacker, defender, version);
+        const details = combatDamageEventDetails(active.damage.plan);
+        const batchId = `${active.combatId}:damage`;
+        const before = this.units(active.field);
+        const sourceFor = (player: PlayerId): ObjectSnapshot => {
+          const source = before.find(unit => unit.controller === player && this.role(unit) !== null);
+          if (source === undefined) throw new TurnCombatBlockedError('damage-source', 'Combat side has no damage source');
+          return source;
+        };
+        const attackerSource = sourceFor(complete.sideIDs[0]);
+        const defenderSource = sourceFor(complete.sideIDs[1]);
+        const actions = [
+          ...complete.attacker.assignments.map(assignment => {
+            const target = before.find(unit => unit.ref.id === assignment.uid);
+            if (target === undefined) throw new TurnCombatBlockedError('damage-target', `Allocation names unknown Unit ${assignment.uid}`);
+            return { type: 'damage' as const, source: attackerSource.ref, target: target.ref,
+              amount: assignment.amount, combat: true };
+          }),
+          ...complete.defender.assignments.map(assignment => {
+            const target = before.find(unit => unit.ref.id === assignment.uid);
+            if (target === undefined) throw new TurnCombatBlockedError('damage-target', `Allocation names unknown Unit ${assignment.uid}`);
+            return { type: 'damage' as const, source: defenderSource.ref, target: target.ref,
+              amount: assignment.amount, combat: true };
+          }),
+        ];
+        emitCombatWave(this.chain, this,
+          [{ timingPoint: 'combat-damage-before', player: active.attacker, details }], `${batchId}:before`);
+        const execution = this.chain.pipeline.host.executeContract === undefined ? undefined :
+          this.chain.pipeline.host.executeContract({ type: 'batch', transactionId: batchId, actions });
+        if (execution === undefined || execution.outcome.status !== 'done') {
+          throw new TurnCombatBlockedError('simultaneous-damage-transaction',
+            'Both combat damage allocations could not be committed atomically');
+        }
+        const damageEmissions = [
+          ...complete.attacker.assignments.map(assignment => ({
+            timingPoint: 'damage-dealt' as const,
+            player: complete.sideIDs[0],
+            source: attackerSource,
+            object: before.find(unit => unit.ref.id === assignment.uid),
+            target: before.find(unit => unit.ref.id === assignment.uid),
+            amount: assignment.amount,
+            batchId,
+            simultaneousGroup: batchId,
+            details: { ...details, combat: true },
+          })),
+          ...complete.defender.assignments.map(assignment => ({
+            timingPoint: 'damage-dealt' as const,
+            player: complete.sideIDs[1],
+            source: defenderSource,
+            object: before.find(unit => unit.ref.id === assignment.uid),
+            target: before.find(unit => unit.ref.id === assignment.uid),
+            amount: assignment.amount,
+            batchId,
+            simultaneousGroup: batchId,
+            details: { ...details, combat: true },
+          })),
+        ];
+        emitCombatWave(this.chain, this, damageEmissions, batchId);
+        emitCombatWave(this.chain, this,
+          [{ timingPoint: 'combat-damage-after', player: active.attacker, details }], `${batchId}:after`);
+        active.step = 'result';
+        this.chain.requestCleanup('combat-damage-dealt');
+        return Object.freeze({ field: active.field, combatId: active.combatId, attackerPlayerId: complete.sideIDs[0],
+          defenderPlayerId: complete.sideIDs[1], batchId });
+      });
+    } catch (error) { throw error; }
+  }
+  /** Start the 468 Resolution step after Combat Cleanup has killed lethal Units. */
+  resolveCombatResult(): CombatResult {
+    const active = this.engagement;
+    if (active?.step !== 'result' || active.combatId === undefined) {
+      throw new TurnCombatBlockedError('combat-result', 'No Combat is awaiting resolution');
+    }
+    if (active.result !== undefined) return active.result;
+    const units = this.units(active.field);
+    const attackerUnits = units.filter(unit => this.role(unit) === 'attacker');
+    const defenderUnits = units.filter(unit => this.role(unit) === 'defender');
+    const noResult = attackerUnits.length > 0 && defenderUnits.length > 0 ||
+      attackerUnits.length === 0 && defenderUnits.length === 0;
+    const winner = noResult ? null : attackerUnits.length > 0 ? active.attacker! : active.defender!;
+    const loser = noResult ? null : winner === active.attacker ? active.defender! : active.attacker!;
+    const details: CombatResult = Object.freeze({
+      combatId: active.combatId,
+      battlefieldId: active.field,
+      winnerId: winner,
+      loserId: loser,
+      unitResults: Object.freeze(units.map(unit => Object.freeze({ unitId: unit.ref.id,
+        result: noResult ? 'no-result' : unit.controller === winner ? 'won' : 'lost' }))),
+      noResult,
+    });
+    emitCombatWave(this.chain, this,
+      [{ timingPoint: 'combat-result', player: winner ?? undefined, details: { ...details } }],
+      `${active.combatId}:result`);
+    active.result = details;
+    return details;
+  }
+  private finishCombat(): void {
+    const active = this.engagement;
+    if (active === null) return;
+    if (active.step === 'control') return;
+    const field = this.fields.find(candidate => candidate.id === active.field)!;
+    if (field === undefined) throw new TurnCombatBlockedError('unknown-battlefield', 'Combat references an unknown Battlefield');
+    if (active.combatId === undefined) {
+      field.contestedBy = null; field.staged = 'none'; this.engagement = null;
+      return;
+    }
+    const controllers = [...new Set(this.units(active.field).map(unit => unit.controller))];
+    const result = active.result ?? this.resolveCombatResult();
+    if (this.chain.items.length > 0) return;
+    this.clearRoles();
+    const resultEvents = this.chain.pipeline.events.filter(event => event.details?.combatId === active.combatId &&
+      event.timingPoint === 'combat-result');
+    if (resultEvents.length === 1) {
+      emitCombatWave(this.chain, this,
+        [{ timingPoint: 'combat-end', details: { combatId: active.combatId, battlefieldId: active.field } }],
+        `${active.combatId}:end`);
+    }
+    if (!result.noResult && controllers.length === 1 && field.controller !== controllers[0]) {
+      active.step = 'control'; active.scorer = controllers[0]!;
+      this.conquer(active.scorer, field.id); active.queued = true;
+      return;
+    }
+    if (controllers.length === 0 && field.controller !== null) field.controller = null;
+    field.contestedBy = null; field.staged = 'none'; this.engagement = null;
+  }
+  /** Legacy command entry cannot invent either player's assignment choice. */
   dealDamage(): never {
-    throw new TurnCombatBlockedError('simultaneous-damage-transaction', 'Batch 4 needs commitBatch with deferred trigger scan and rollback across both sides (CR 467.2.c.1.a / 467.3)');
+    throw new TurnCombatBlockedError('simultaneous-damage-transaction',
+      'Combat damage requires prepareDamage plus both submitted allocations (CR 467.2.c)');
   }
 }
