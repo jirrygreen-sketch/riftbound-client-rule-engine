@@ -122,6 +122,28 @@ export interface ActionExecution {
   readonly outcome: ActionOutcome;
   readonly emissions: readonly TimingEmission[];
 }
+
+/**
+ * Versioned capability for state owners that can pause a confirmed Kill before
+ * the zone transition. The callback runs after the state owner has applied all
+ * replacements and validated the exact source incarnation, but while the
+ * source is still in its authoritative pre-transition zone.
+ */
+export const PIPELINE_DEATH_BOUNDARY_VERSION = 'riftbound.pipeline-death-boundary.v1' as const;
+
+export interface PipelineDeathBoundaryContext {
+  readonly batchId: string;
+  readonly action: GameAction | ContractGameAction;
+  readonly before: readonly ObjectSnapshot[];
+  /** Frozen death timings to publish before the state owner resumes. */
+  readonly emissions: readonly TimingEmission[];
+}
+
+export interface PipelineDeathBoundaryCapability {
+  readonly version: typeof PIPELINE_DEATH_BOUNDARY_VERSION;
+  execute(action: GameAction, boundary: (context: PipelineDeathBoundaryContext) => void): ActionExecution;
+  executeContract(action: ContractGameAction, boundary: (context: PipelineDeathBoundaryContext) => void): ActionExecution;
+}
 /** The state owner implements these operations atomically with pipeline checkpoints. */
 export interface PipelineHost {
   checkpoint(): unknown;
@@ -129,6 +151,8 @@ export interface PipelineHost {
   execute(action: GameAction): ActionExecution;
   /** Optional typed seam for Recall and atomic Batch actions. */
   executeContract?(action: ContractGameAction): ActionExecution;
+  /** Optional pre-zone-change seam for confirmed deaths. */
+  deathBoundary?: PipelineDeathBoundaryCapability;
   context(source: ObjectSnapshot, controller: PlayerId, at: TimingPointId): ResolveContext;
   objects(): readonly ObjectSnapshot[];
   choose<T>(request: ChoiceRequest<T>): T;

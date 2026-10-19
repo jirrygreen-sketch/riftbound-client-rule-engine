@@ -133,6 +133,7 @@ export class EventPipeline {
     if (this.replacements.has(registration.id)) throw new Error(`Duplicate replacement ${registration.id}`);
     this.replacements.set(registration.id, registration);
   }
+  unregisterReplacement(id: string): void { this.replacements.delete(id); }
   /** O(1) lifecycle probe; never snapshots or exposes the mutable registry. */
   hasReplacementRegistration(id: string): boolean { return this.replacements.has(id); }
   private frequencyKey(registration: TriggerRegistration, source: ObjectSnapshot, event: PipelineEvent): string | null {
@@ -349,13 +350,22 @@ export class EventPipeline {
       if (this.host.executeContract === undefined) {
         throw new Error('Contract action execution is unavailable');
       }
-      const execution = this.host.executeContract(action);
+      const boundary = this.host.deathBoundary;
+      const isDeath = action.type === 'kill' ||
+        action.type === 'batch' && action.actions.length > 0 && action.actions.every(leaf => leaf.type === 'kill');
+      const execution = boundary === undefined || !isDeath
+        ? this.host.executeContract(action)
+        : boundary.executeContract(action, context => {
+            if (context.batchId.length === 0 || context.emissions.length === 0) return;
+            this.emitBatch(context.emissions, undefined, context.batchId);
+          });
       if (execution.outcome.status !== 'done') {
         if (execution.emissions.length) throw new Error('Unperformed contract actions cannot emit trigger timings');
         return execution.outcome;
       }
       const events = this.publish(execution.emissions);
-      return { ...execution.outcome, events: [...execution.outcome.events, ...events] };
+      const hostEvents = isDeath && boundary !== undefined ? [] : execution.outcome.events;
+      return { ...execution.outcome, events: [...hostEvents, ...events] };
     } catch (error) {
       this.host.restore(checkpoint);
       this.restore(own);
@@ -399,12 +409,19 @@ export class EventPipeline {
       const events = result.actions.flatMap(next => [...this.apply(next, original, applied).events]);
       return { status: 'replaced', events };
     }
-    const execution = this.routeAction?.(current) ?? this.host.execute(current);
+    const boundary = this.host.deathBoundary;
+    const execution = boundary !== undefined && current.type === 'kill'
+      ? boundary.execute(current, context => {
+          if (context.batchId.length === 0 || context.emissions.length === 0) return;
+          this.emitBatch(context.emissions, current, context.batchId);
+        })
+      : this.routeAction?.(current) ?? this.host.execute(current);
     if (execution.outcome.status !== 'done') {
       if (execution.emissions.length) throw new Error('Unperformed actions cannot emit trigger timings');
       return execution.outcome;
     }
     const events = this.publish(execution.emissions, current);
-    return changed ? { status: 'replaced', events: [...execution.outcome.events, ...events] } : { ...execution.outcome, events: [...execution.outcome.events, ...events] };
+    const hostEvents = current.type === 'kill' && boundary !== undefined ? [] : execution.outcome.events;
+    return changed ? { status: 'replaced', events: [...hostEvents, ...events] } : { ...execution.outcome, events: [...hostEvents, ...events] };
   }
 }
