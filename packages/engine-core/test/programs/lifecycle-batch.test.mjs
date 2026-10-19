@@ -89,11 +89,14 @@ test('emit routes a single event through the same lifecycle boundary exactly onc
 
 test('a real atomic Kill batch runs one leave detach and leaves no stale program registration', () => {
   const f = runtime([
-    { id: 'a', cardId: 'observer' },
-    { id: 'b', cardId: 'observer' },
+    { id: 'a', cardId: 'observer', zone: 'hand' },
+    { id: 'b', cardId: 'observer', zone: 'hand' },
   ], [card('observer', [{ kind: 'triggered', trigger: { at: 'object-killed', filter: {} }, optional: false,
     body: [{ id: 'draw', op: 'effect.draw', args: { amount: constant(1) } }] }])]);
   const lifecycle = f.binding.attachLifecycle(f.engine);
+  for (const id of ['a', 'b']) {
+    assert.equal(f.engine.commit({ type: 'move-zone', object: f.kernel.ref(id), to: 'battlefield', location: battlefield }).status, 'done');
+  }
   const outcome = f.engine.commit(killBatch([f.kernel.ref('a'), f.kernel.ref('b')], 'kill-wave'));
   assert.equal(outcome.status, 'done');
   const deaths = f.engine.pipeline.events.filter(event => event.timingPoint === 'object-killed');
@@ -106,8 +109,11 @@ test('a real atomic Kill batch runs one leave detach and leaves no stale program
 test('typed commitContract runs the same one-wave death triggers and LKI as commit', () => {
   const observer = card('observer', [{ kind: 'triggered', trigger: { at: 'object-killed', filter: {} }, optional: false,
     body: [{ id: 'draw', op: 'effect.draw', args: { amount: constant(1) } }] }]);
-  const f = runtime([{ id: 'a', cardId: 'observer' }, { id: 'b', cardId: 'observer' }], [observer]);
+  const f = runtime([{ id: 'a', cardId: 'observer', zone: 'hand' }, { id: 'b', cardId: 'observer', zone: 'hand' }], [observer]);
   const lifecycle = f.binding.attachLifecycle(f.engine);
+  for (const id of ['a', 'b']) {
+    assert.equal(f.engine.commit({ type: 'move-zone', object: f.kernel.ref(id), to: 'battlefield', location: battlefield }).status, 'done');
+  }
   const outcome = f.engine.pipeline.commitContract(killBatch([f.kernel.ref('a'), f.kernel.ref('b')], 'typed-kill-wave'));
   assert.equal(outcome.status, 'done');
   const deaths = f.engine.pipeline.events.filter(event => event.timingPoint === 'object-killed');
@@ -124,15 +130,20 @@ test('typed commitContract runs the same one-wave death triggers and LKI as comm
 test('typed commitContract failure rolls back and retries the same incarnation without duplicate bindings', () => {
   const observer = card('observer', [{ kind: 'triggered', trigger: { at: 'object-killed', filter: {} }, optional: false,
     body: [{ id: 'draw', op: 'effect.draw', args: { amount: constant(1) } }] }]);
-  const f = runtime([{ id: 'a', cardId: 'observer' }, { id: 'b', cardId: 'observer' }], [observer]);
+  const f = runtime([{ id: 'a', cardId: 'observer', zone: 'hand' }, { id: 'b', cardId: 'observer', zone: 'hand' }], [observer]);
   const lifecycle = f.binding.attachLifecycle(f.engine);
+  for (const id of ['a', 'b']) {
+    assert.equal(f.engine.commit({ type: 'move-zone', object: f.kernel.ref(id), to: 'battlefield', location: battlefield }).status, 'done');
+  }
+  const eventsAfterEntry = f.engine.pipeline.events.length;
+  const triggersAfterEntry = f.engine.pipeline.checkpoint().triggers.size;
   const originalOnTrigger = f.engine.pipeline.onTrigger;
   f.engine.pipeline.onTrigger = () => { throw new Error('typed trigger failure'); };
   assert.throws(() => f.engine.pipeline.commitContract(killBatch([f.kernel.ref('a'), f.kernel.ref('b')], 'typed-fail')), /typed trigger failure/);
   assert.equal(f.kernel.getObject('a').zone, 'board');
   assert.equal(f.kernel.getObject('b').zone, 'board');
-  assert.equal(f.engine.pipeline.events.length, 0);
-  assert.equal(f.engine.pipeline.checkpoint().triggers.size, 0);
+  assert.equal(f.engine.pipeline.events.length, eventsAfterEntry);
+  assert.equal(f.engine.pipeline.checkpoint().triggers.size, triggersAfterEntry);
   f.engine.pipeline.onTrigger = originalOnTrigger;
   const outcome = f.engine.pipeline.commitContract(killBatch([f.kernel.ref('a'), f.kernel.ref('b')], 'typed-retry'));
   assert.equal(outcome.status, 'done');
@@ -282,6 +293,60 @@ test('a real Chain failure rolls back a newly installed static registration on t
   const records = f.engine.layers.registry.list();
   assert.equal(records.length, 1);
   assert.match(records[0].effect.id, /^program-static:rollback:2:/);
+  lifecycle.detach();
+  assert.deepEqual(f.engine.layers.registry.list(), []);
+});
+
+test('detach removes custom replacement registration IDs discovered from the actual binder', () => {
+  const program = card('custom-replacement', [
+    { kind: 'replacement', replaces: { event: 'object-killed', filter: { self: true } }, with: [] },
+  ]);
+  const f = runtime([{ id: 'custom', cardId: 'custom-replacement', zone: 'hand' }], [program]);
+  const registrationIds = [];
+  let cancellations = 0;
+  const binder = {
+    bindReplacement: (_ability, source) => {
+      const id = `custom-replacement:${source.ref.id}:${source.ref.zoneEntryId}`;
+      registrationIds.push(id);
+      f.engine.pipeline.registerReplacement({
+        id,
+        source,
+        matches: () => false,
+        apply: () => ({ status: 'prevent' }),
+      });
+      return { unbind: () => { cancellations += 1; } };
+    },
+  };
+  const binding = createProgramBinding({ cardPrograms: [program], staticBinder: binder });
+  const lifecycle = binding.attachLifecycle(f.engine);
+  assert.equal(f.engine.commit({ type: 'move-zone', object: f.kernel.ref('custom'), to: 'chain' }).status, 'done');
+  assert.equal(f.engine.commit({ type: 'move-zone', object: f.kernel.ref('custom'), to: 'battlefield', location: battlefield }).status, 'done');
+  assert.equal(registrationIds.length, 1);
+  assert.match(registrationIds[0], /^custom-replacement:custom:\d+$/);
+  assert.equal(f.engine.pipeline.hasReplacementRegistration(registrationIds[0]), true);
+
+  lifecycle.detach();
+  assert.equal(cancellations, 1);
+  assert.equal(f.engine.pipeline.hasReplacementRegistration(registrationIds[0]), false);
+});
+
+test('a real control change rebinds the exact incarnation without duplicating registrations', () => {
+  const program = card('controller', [
+    { kind: 'static', effect: { kind: 'continuous.might', layer: 'arithmetic', appliesTo: 'self', amount: constant(2) } },
+  ]);
+  const f = runtime([{ id: 'source', cardId: 'controller', zone: 'hand' }], [program]);
+  const lifecycle = f.binding.attachLifecycle(f.engine);
+  assert.equal(f.engine.commit({ type: 'move-zone', object: f.kernel.ref('source'), to: 'battlefield', location: battlefield }).status, 'done');
+  const entered = f.kernel.ref('source');
+  assert.equal(f.engine.layers.registry.list().length, 1);
+  assert.equal(f.engine.commit({ type: 'take-control', object: entered, player: 'B' }).status, 'done');
+  assert.deepEqual(f.kernel.ref('source'), entered);
+  assert.equal(f.kernel.getObject('source').controller, 'B');
+  const records = f.engine.layers.registry.list();
+  assert.equal(records.length, 1);
+  assert.deepEqual(records[0].effect.source, entered);
+  f.engine.layers.setObjects(f.kernel.objects);
+  assert.equal(f.engine.layers.snapshot(entered).might, 4);
   lifecycle.detach();
   assert.deepEqual(f.engine.layers.registry.list(), []);
 });

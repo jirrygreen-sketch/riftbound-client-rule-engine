@@ -62,9 +62,16 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   };
   const effectList = () => engine.layers.registry.list();
   const programExists = (source: ObjectSnapshot) => registry.inspect(source.cardId) !== undefined;
-  const currentFor = (source: ObjectSnapshot) => pipeline.host.objects().find(object => object.ref.id === source.ref.id && object.ref.zoneEntryId === source.ref.zoneEntryId) ?? null;
-  const sourceFor = (source: ObjectSnapshot) => effectiveBinder.sourceFor?.(source) ?? currentFor(source);
+  const currentForRef = (ref: ObjectSnapshot['ref']) => pipeline.host.objects().find(object => object.ref.id === ref.id && object.ref.zoneEntryId === ref.zoneEntryId) ?? null;
+  const currentFor = (source: ObjectSnapshot) => currentForRef(source.ref);
   const active = (source: ObjectSnapshot) => source.zone === 'board' || source.zone === 'chain';
+
+  const unregisterReplacementRegistrations = (ids: readonly string[]) => {
+    if (ids.length === 0 || !ids.some(id => pipeline.hasReplacementRegistration(id))) return;
+    const checkpoint = pipeline.checkpoint();
+    for (const id of ids) checkpoint.replacements.delete(id);
+    pipeline.restore(checkpoint);
+  };
 
   const detach = (source: ObjectSnapshot) => {
     const k = refKey(source);
@@ -73,6 +80,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     unregisterProgramTriggers(engine, binding.triggerIds);
     for (const handle of binding.staticHandles) { try { handle.unbind(); } catch (error) { report(error, binding.source); } }
     for (const handle of binding.replacementHandles) { try { handle.unbind(); } catch (error) { report(error, binding.source); } }
+    unregisterReplacementRegistrations(binding.replacementIds);
     bindings.delete(k);
   };
 
@@ -98,6 +106,14 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       report(error, source);
       return undefined;
     }
+    const abilities = expandProgram(registry.get(source.cardId), source).abilities;
+    const replacementAbilities = abilities.filter((ability): ability is Extract<typeof ability, { kind: 'replacement' }> => ability.kind === 'replacement');
+    const expectedReplacementIds = bindReplacementOnChain && replacementAbilities.length > 0
+      ? [`replacement:${source.ref.id}:${source.ref.zoneEntryId}`]
+      : [];
+    const replacementBefore = bindReplacement && !bindReplacementOnChain && replacementAbilities.length > 0
+      ? pipeline.checkpoint().replacements
+      : undefined;
     const staticHandles: StaticBindingHandle[] = [];
     const staticEffectIds: string[] = [];
     const replacementHandles: StaticBindingHandle[] = [];
@@ -105,7 +121,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     try {
       if (bindStatic) {
         const before = new Set(effectList().map(entry => entry.effect.id));
-        for (const ability of expandProgram(registry.get(source.cardId), source).abilities) {
+        for (const ability of abilities) {
           if (ability.kind !== 'static') continue;
           try { staticHandles.push(bindStaticAbility(effectiveBinder, ability, source)); }
           catch (error) { report(error, source); }
@@ -113,21 +129,32 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
         for (const entry of effectList()) if (!before.has(entry.effect.id)) staticEffectIds.push(entry.effect.id);
       }
       if (bindReplacement) {
-        for (const ability of expandProgram(registry.get(source.cardId), source).abilities) {
-          if (ability.kind !== 'replacement') continue;
+        for (const ability of replacementAbilities) {
           try {
             const handle = bindReplacementAbility(effectiveBinder, ability, source);
             replacementHandles.push(handle);
-            const id = `replacement:${source.ref.id}:${source.ref.zoneEntryId}`;
-            if (pipeline.hasReplacementRegistration(id)) replacementIds.push(id);
           }
           catch (error) { report(error, source); }
+        }
+        if (expectedReplacementIds.length > 0) {
+          for (const id of expectedReplacementIds) if (pipeline.hasReplacementRegistration(id)) replacementIds.push(id);
+        }
+        else if (replacementBefore !== undefined) {
+          const after = pipeline.checkpoint().replacements;
+          for (const id of after.keys()) if (!replacementBefore.has(id)) replacementIds.push(id);
         }
       }
     } catch (error) {
       unregisterProgramTriggers(engine, triggerIds);
       for (const handle of staticHandles) { try { handle.unbind(); } catch { /* best effort */ } }
       for (const handle of replacementHandles) { try { handle.unbind(); } catch { /* best effort */ } }
+      if (expectedReplacementIds.length > 0) {
+        unregisterReplacementRegistrations(expectedReplacementIds);
+      }
+      else if (replacementBefore !== undefined) {
+        const after = pipeline.checkpoint().replacements;
+        unregisterReplacementRegistrations([...after.keys()].filter(id => !replacementBefore.has(id)));
+      }
       report(error, source);
       return undefined;
     }
@@ -138,6 +165,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       unregisterProgramTriggers(engine, binding.triggerIds);
       for (const handle of binding.staticHandles) { try { handle.unbind(); } catch { /* best effort */ } }
       for (const handle of binding.replacementHandles) { try { handle.unbind(); } catch { /* best effort */ } }
+      unregisterReplacementRegistrations(binding.replacementIds);
       bindings.delete(k);
     });
     return binding;
@@ -146,7 +174,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   const ensure = (source: ObjectSnapshot) => {
     const k = refKey(source);
     const existing = bindings.get(k);
-    const current = sourceFor(source);
+    const current = effectiveBinder.sourceFor?.(source) ?? currentFor(source);
     if (!current || !programExists(current) || !active(current)) { if (existing) detach(existing.source); return; }
     if (existing && existing.signature === signature(current) && bindingIntact(existing)) return;
     if (existing) detach(existing.source);
@@ -154,18 +182,6 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     // The Chain commit hook installs them before its state transition. Static
     // layers become active only once the Board entry is authoritative.
     attach(current, current.zone === 'board', current.zone === 'board' || bindReplacementOnChain);
-  };
-
-  const reconcile = () => {
-    for (const binding of [...bindings.values()]) {
-      const current = currentFor(binding.source);
-      if (!current || !programExists(current) || !active(current) || binding.signature !== signature(current) || !bindingIntact(binding)) detach(binding.source);
-    }
-    for (const source of pipeline.host.objects()) {
-      if (!active(source)) continue;
-      const existing = bindings.get(refKey(source));
-      if (!existing || existing.signature !== signature(source) || !bindingIntact(existing)) ensure(source);
-    }
   };
 
   const queueExit = (source: ObjectSnapshot) => {
@@ -179,25 +195,32 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     const exits = [...pendingExits.values()];
     pendingExits.clear();
     for (const source of exits) detach(source);
-    reconcile();
   }
 
   const syncCurrent = (source: ObjectSnapshot) => {
-    const current = sourceFor(source);
-    if (!current || !active(current)) return;
     const binding = bindings.get(refKey(source));
-    if (!binding || binding.signature === signature(current)) return;
+    if (!binding || !active(source) || binding.signature === signature(source)) return;
     detach(binding.source);
-    attach(current, current.zone === 'board', current.zone === 'board' || bindReplacementOnChain);
+    attach(source, source.zone === 'board', source.zone === 'board' || bindReplacementOnChain);
   };
-  const syncBindings = () => {
-    for (const source of pipeline.host.objects()) syncCurrent(source);
+  const syncAction = (action: GameAction | ContractGameAction) => {
+    if (action.type === 'batch') {
+      for (const leaf of action.actions) syncAction(leaf);
+      return;
+    }
+    if (!('object' in action) || action.type !== 'take-control') return;
+    const current = currentForRef(action.object);
+    if (current) syncCurrent(current);
   };
 
   const isEntry = (event: TimingEmission) => event.timingPoint === 'object-enters-board' || event.timingPoint === 'object-enters-chain';
   const isExit = (event: TimingEmission) => event.timingPoint === 'object-leaves-board' || event.timingPoint === 'object-killed';
 
   const observe = (emissions: readonly TimingEmission[], run: () => readonly PipelineEvent[]) => transaction(() => {
+    // A lifecycle attached after initial setup can encounter a pre-existing
+    // Board source in its first real event. Resolve only the emitted objects,
+    // never the entire derived host view; entries install before publication,
+    // and exits retain their registration through the suspended scan wave.
     for (const emission of emissions) if (emission.object && isEntry(emission)) ensure(emission.object);
     const events = run();
     for (const emission of emissions) if (emission.object && isExit(emission)) queueExit(emission.object);
@@ -208,33 +231,36 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     observe(emissions, () => originalEmitBatch(emissions, action, batchId))) as typeof pipeline.emitBatch;
   pipeline.commit = ((action: GameAction) => transaction(() => {
     if (bindReplacementOnChain && action.type === 'move-zone' && action.to === 'chain') {
-      const source = pipeline.host.objects().find(object => object.ref.id === action.object.id && object.ref.zoneEntryId === action.object.zoneEntryId);
-      if (source && programExists(source)) attach(source, false, true);
+      const source = currentForRef(action.object);
+      if (source && programExists(source)) {
+        attach(source, false, true);
+      }
     }
     const outcome = originalCommit(action);
-    if (outcome.status === 'done' || outcome.status === 'replaced') {
-      syncBindings();
-    }
+    if (outcome.status === 'done' || outcome.status === 'replaced') syncAction(action);
     return outcome;
   })) as typeof pipeline.commit;
   pipeline.commitContract = ((action: ContractGameAction) => transaction(() => {
-    reconcile();
-    const outcome = originalCommitContract(action);
-    if (outcome.status === 'done' || outcome.status === 'replaced') {
-      syncBindings();
+    // Initial Board objects have no earlier lifecycle edge. Resolve the exact
+    // action objects once at the production transaction boundary so their
+    // triggers exist before the suspended batch scan, without a per-event
+    // evaluateAll over the host-derived layer view.
+    const leaves = action.type === 'batch' ? action.actions : [action];
+    for (const leaf of leaves) {
+      if (!('object' in leaf)) continue;
+      const source = currentForRef(leaf.object);
+      if (source && programExists(source)) ensure(source);
     }
+    const outcome = originalCommitContract(action);
+    if (outcome.status === 'done' || outcome.status === 'replaced') syncAction(action);
     return outcome;
   })) as typeof pipeline.commitContract;
   pipeline.onEvent = event => {
     transaction(() => {
-      // Chain publication keeps the scanner suspended through emitBatch.
-      // Entry callbacks may observe the pre-transition incarnation, so never
-      // reuse that ref for a registration whose source has already changed.
-      if (event.object && isEntry(event)) {
-        const current = sourceFor(event.object);
-        if (current && (current.ref.zoneEntryId !== event.object.ref.zoneEntryId || current.zone !== event.object.zone)) ensure(current);
-      }
-      if (event.object) syncBindings();
+      // Leave events carry the pre-transition incarnation. Keep their source
+      // registration installed through the whole suspended publish wave so it
+      // can collect its own death trigger; flushExits detaches after scanning.
+      if (event.object && !isExit(event)) syncCurrent(event.object);
       originalOnEvent?.(event);
       if (event.object && isEntry(event)) ensure(event.object);
       if (event.object && isExit(event)) queueExit(event.object);
