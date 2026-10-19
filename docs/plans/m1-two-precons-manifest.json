@@ -85,6 +85,15 @@
         "effectiveDate": "2025-12-12",
         "sha256": "c085e3a1b89df98df6c4458d195b276430eb49e601533d80a247786598bb3111"
       }
+    },
+    "frozenAuditSnapshot": {
+      "frozenIntegrationCommit": "3ef041a1e78cc964b2d4c23d3af95f5c7d6302bd",
+      "immutable": true,
+      "semantics": "Hashes in this object and in each card program, golden, and goldenExecution block describe the frozen audit snapshot only. They do not assert that active production source remains unchanged.",
+      "liveSourceComparison": {
+        "mode": "report-only",
+        "onDrift": "record a revalidation item; do not fail the business acceptance test merely because a legitimate implementation fix changed source"
+      }
     }
   },
   "decks": [
@@ -1929,7 +1938,7 @@
         "templates": []
       },
       "dependencies": [],
-      "sourceConflict": "blocked:current program uses uncontrolled while selected SFD printing and official errata use open",
+      "sourceConflict": "resolved:official NEW TEXT uses uncontrolled, matching the selected current catalog text and CardProgram",
       "ir": {
         "inspectedAt": "2026-10-19",
         "source": "packages/card-dsl/src/cards/registry.generated.ts",
@@ -5477,7 +5486,10 @@
       "privacyChecks": 312,
       "exceptions": [],
       "observedAt": "2026-10-19T11:19:28.750Z",
-      "evidencePath": "/tmp/RIFT-857-m1-two-precons-acceptance/probe-current.json"
+      "evidencePath": "/tmp/RIFT-857-m1-two-precons-acceptance/probe-current.json",
+      "kind": "last-observed-diagnostic",
+      "releaseGate": false,
+      "note": "Diagnostic output is recorded for review only. Tests do not require a blocked outcome; only runM1Acceptance can establish M1 acceptance."
     },
     "existingRegression": {
       "preserved": true,
@@ -7350,7 +7362,24 @@
     "owner": "engine-core",
     "remainingDependencies": [
       "combat-event-payload-location-hold"
-    ]
+    ],
+    "evidenceKind": "frozen-audit-snapshot",
+    "frozenEvidence": {
+      "frozenIntegrationCommit": "3ef041a1e78cc964b2d4c23d3af95f5c7d6302bd",
+      "lifecycle": {
+        "sourceSha256": "9172c97c4fcda86998e5ac6d98810ccb56724fdf1d3bd181919270a48512adbd",
+        "testSha256": "1f485460f8dc6921fa331c32a83284e978d72ee3a33575945a3ad689953d2153"
+      },
+      "note": "Historical audit evidence; not a live checksum requirement."
+    },
+    "liveSourcePolicy": {
+      "mode": "report-only",
+      "checks": [
+        "path exists",
+        "file parses or builds if applicable"
+      ],
+      "onDrift": "report stale-manifest evidence for revalidation; do not freeze the prior implementation"
+    }
   },
   "parallelWorkstreams": {
     "policy": "The generic shared ports are gateways. A card file and its same-name independent golden stay together; do not change the program status based on source inspection alone.",
@@ -9109,5 +9138,83 @@
         "action": "Existing assertion may encode an absent feature; update only when the mapped behavior is truly implemented, otherwise retain the failure and missing dependency. Never delete or weaken it."
       }
     ]
-  }
+  },
+  "sourceBackedAcceptance": [
+    {
+      "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+      "cardName": "Fiora, Worthy",
+      "officialSource": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-180a-221",
+        "cardText": "When a unit you control becomes [Mighty], you may pay :rb_rune_order: to ready it."
+      },
+      "status": "pending-whole-card",
+      "requirements": [
+        {
+          "id": "decline-pays-nothing",
+          "ruleRefs": [
+            "383.3.a",
+            "383.3.a.1",
+            "383.3.a.2"
+          ],
+          "expected": [
+            "declining Finalize removes the ability without paying Order or readying a unit"
+          ]
+        },
+        {
+          "id": "pay-exactly-one-order",
+          "ruleRefs": [
+            "383.3.b",
+            "383.3.b.1"
+          ],
+          "expected": [
+            "accepting Finalize pays exactly one Order rune or power once before Resolve"
+          ]
+        },
+        {
+          "id": "mighty-crosses-four-to-five-once",
+          "ruleRefs": [
+            "708",
+            "709",
+            "710",
+            "711"
+          ],
+          "expected": [
+            "a live friendly unit 4 to 5 triggers once",
+            "5 to 6 does not trigger",
+            "non-board Might uses printed Might and cannot newly satisfy this board transition"
+          ]
+        },
+        {
+          "id": "ready-exact-event-incarnation",
+          "ruleRefs": [
+            "337",
+            "340"
+          ],
+          "expected": [
+            "Resolve readies the frozen event.it incarnation",
+            "a different incarnation or current-id fallback is rejected"
+          ]
+        },
+        {
+          "id": "pay-failure-atomic-rollback",
+          "ruleRefs": [
+            "383.3.b.1"
+          ],
+          "expected": [
+            "unpayable Order cost leaves no payment, ready, pending item, receipt, or trigger-frequency consumption"
+          ]
+        }
+      ],
+      "evidenceStatus": {
+        "decline": "engine Finalize/payment infrastructure merged; original Fiora IR payment path pending",
+        "pay": "pure Order conversion and exact payment primitives merged; original Fiora IR payment node pending",
+        "transition": "matcher/producer and default event binding merged; original card whole-path pending",
+        "incarnation": "event:it production bridge merged; original Fiora whole-path pending",
+        "rollback": "cost transaction path exists; original Fiora payment continuation pending"
+      },
+      "owner": "existing Fiora card/golden owners plus engine-core 835 payment-continuation owner",
+      "acceptanceCommand": "M1 acceptance will report 100/100 only after all five requirements pass"
+    }
+  ]
 }

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   RULESET_ID,
   PROTOCOL_VERSION,
@@ -15,9 +15,21 @@ import { ProtocolWebSocketClient } from "./test-support/websocket-client.js";
 import { catalogFixture, startCatalogServer } from "./test-support/card-catalog-fixture.js";
 
 type CreateGameServer = typeof import("@riftbound/game-server-src").createGameServer;
+let createGameServer: CreateGameServer;
 
 const clients: ProtocolWebSocketClient[] = [];
 const servers: GameServer[] = [];
+
+beforeAll(async () => {
+  // Source transformation of the real server is one-time harness setup. Server
+  // creation, start, WebSocket, and every game/room operation stay in each
+  // business test under the unchanged 10-second timeout.
+  const module = await import("@riftbound/game-server-src");
+  if (typeof module.createGameServer !== "function") {
+    throw new Error("The real game server must export createGameServer.");
+  }
+  createGameServer = module.createGameServer as CreateGameServer;
+}, 60_000);
 
 afterEach(async () => {
   for (const client of clients.splice(0)) client.close();
@@ -25,11 +37,6 @@ afterEach(async () => {
 });
 
 async function startMultiplayerServer(): Promise<string> {
-  const module = await import("@riftbound/game-server-src");
-  if (typeof module.createGameServer !== "function") {
-    throw new Error("The real game server must export createGameServer.");
-  }
-  const createGameServer = module.createGameServer as CreateGameServer;
   let roomNumber = 0;
   const server = createGameServer({
     host: "127.0.0.1",

@@ -106,6 +106,7 @@ export interface M1AcceptanceRun {
   readonly replayMismatches: number;
   readonly freshWorldReplayMismatches: number;
   readonly privacyLeaks: number;
+  readonly planMismatches: number;
   readonly exceptionGames: number;
   readonly blockedGames: number;
   readonly guardGames: number;
@@ -153,12 +154,20 @@ export function aggregateM1Evidence(results: readonly M1GameEvidence[]): M1Accep
   const replayMismatches = results.filter(result => !result.replayMatches).length;
   const freshWorldReplayMismatches = results.filter(result => !result.freshWorldReplayMatches).length;
   const privacyLeaks = results.filter(result => !result.privacySafe).length;
+  const planMismatches = results.filter(result => {
+    const expected = M1_ACCEPTANCE_PLAN[result.caseIndex];
+    return expected === undefined ||
+      expected.seed !== result.seed ||
+      expected.orientation !== result.orientation ||
+      expected.decks.A !== result.decks.A ||
+      expected.decks.B !== result.decks.B;
+  }).length;
   const exceptionGames = results.filter(result => result.exceptions.length > 0 || result.termination === "exception").length;
   const concessionGames = results.filter(result => result.termination === "concede" || result.concedeCommands > 0).length;
   return {
     expectedGames: M1_ACCEPTANCE_GAMES,
     attemptedGames: results.length,
-    passed: results.length === M1_ACCEPTANCE_GAMES && naturalGames === M1_ACCEPTANCE_GAMES &&
+    passed: results.length === M1_ACCEPTANCE_GAMES && naturalGames === M1_ACCEPTANCE_GAMES && planMismatches === 0 &&
       replayMismatches === 0 && freshWorldReplayMismatches === 0 && privacyLeaks === 0 &&
       exceptionGames === 0 && concessionGames === 0,
     naturalGames,
@@ -167,6 +176,7 @@ export function aggregateM1Evidence(results: readonly M1GameEvidence[]): M1Accep
     replayMismatches,
     freshWorldReplayMismatches,
     privacyLeaks,
+    planMismatches,
     exceptionGames,
     blockedGames: terminationReasons.blocked,
     guardGames: terminationReasons.guard,
