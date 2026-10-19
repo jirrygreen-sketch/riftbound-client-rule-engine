@@ -35,6 +35,7 @@ test("explicit linked Resolve picks accept proven filter, bounds, and selection 
     pick({ ordered: true, linked: linked(), filter: { type: "unit" }, min: 1, max: 1, selection: "one" }),
     pick({ ordered: true, linked: linked(), filter: { type: "unit" }, min: 0, max: 2, selection: "up-to" }),
     pick({ ordered: true, linked: linked(), min: 0, max: 3, selection: "any" }),
+    pick({ ordered: true, linked: linked(), selection: "all" }),
     pick({ ordered: true, linked: { kind: "linked", instructionId: "produce", key: "objects" }, max: null, selection: "up-to" })
   ]) {
     const result = check([shape]);
@@ -47,6 +48,14 @@ test("the original sole linked-value option remains valid without an explicit so
   assert.equal(result.ok, true, JSON.stringify(result));
 });
 
+test("linked options reject static mixtures and combinations with another source", () => {
+  rejected([pick({ options: [linked(), "static"] })], ".picks[0].options", "ambiguous-linked-pick-source");
+  rejected([pick({ options: [linked(), linked()] })], ".picks[0].options", "ambiguous-linked-pick-source");
+  rejected([pick({ options: [linked()], zoneSlice: { zone: "deck", from: "top" } })], ".picks[0].options", "ambiguous-linked-pick-source");
+  rejected([pick({ options: [linked()], linked: linked() })], ".picks[0].options", "ambiguous-linked-pick-source");
+  rejected([pick({ options: [linked()], exclude: linked("used") })], ".picks[0].options", "ambiguous-linked-pick-source");
+});
+
 test("linked sources remain singular and cannot mix another source or linked option", () => {
   rejected([pick({ ordered: true, linked: linked(), zoneSlice: { zone: "deck", from: "top" } })], ".picks[0]", "ambiguous-pick-source");
   rejected([pick({ ordered: true, linked: linked(), options: [linked()] })], ".picks[0]", "invalid-ordered-pick-source");
@@ -56,7 +65,6 @@ test("linked sources remain singular and cannot mix another source or linked opt
 test("linked Resolve bounds and selection stay in the runtime-supported vocabulary", () => {
   rejected([pick({ ordered: true, linked: linked(), min: 2, max: 1 })], ".picks[0]", "invalid-selection-bounds");
   rejected([pick({ ordered: true, linked: linked(), selection: "some" })], ".picks[0].selection", "invalid-selection");
-  rejected([pick({ ordered: true, linked: linked(), selection: "all" })], ".picks[0].selection", "invalid-linked-selection");
   rejected([pick({ ordered: true, linked: linked(), min: -1 })], ".picks[0].min", "invalid-number");
 });
 
@@ -64,16 +72,16 @@ test("linked instruction/key identity is required and its scope remains precedin
   rejected([pick({ ordered: true, linked: { kind: "linked-value", key: "objects" } })], ".picks[0].linked.instructionId", "invalid-string");
   rejected([pick({ ordered: true, linked: { kind: "linked-value", instructionId: "produce" } })], ".picks[0].linked", "invalid-pick-link");
   rejected([pick({ ordered: true, linked: linked("later") })], ".picks[0].linked.instructionId", "linked-instruction-not-prior");
-  rejected([pick({ ordered: true, linked: linked("produce", "bad key") })], ".picks[0].linked.key", "invalid-string");
+  rejected([pick({ ordered: true, linked: linked("produce", "   ") })], ".picks[0].linked.key", "invalid-linked-source-key");
 });
 
 test("zoneSlice remains Finalize-bound and cannot borrow linked Resolve restrictions", () => {
   const slice = { zone: "deck", from: "top", count: constant(3) };
   for (const [shape, code] of [
-    [pick({ ordered: true, zoneSlice: slice, selection: "up-to" }), "invalid-zone-slice-restriction"],
-    [pick({ ordered: true, zoneSlice: slice, filter: { type: "unit" }, selection: "all" }), "invalid-zone-slice-restriction"],
-    [pick({ ordered: true, zoneSlice: slice, min: 1, selection: "all" }), "invalid-zone-slice-restriction"],
-    [pick({ ordered: true, zoneSlice: slice, max: 2, selection: "all" }), "invalid-zone-slice-restriction"]
+    [pick({ ordered: true, zoneSlice: slice, selection: "up-to" }), "invalid-ordered-pick-source"],
+    [pick({ ordered: true, zoneSlice: slice, filter: { type: "unit" }, selection: "all" }), "invalid-ordered-pick-source"],
+    [pick({ ordered: true, zoneSlice: slice, min: 1, selection: "all" }), "invalid-ordered-pick-source"],
+    [pick({ ordered: true, zoneSlice: slice, max: 2, selection: "all" }), "invalid-ordered-pick-source"]
   ]) rejected([shape], ".picks[0]", code);
 
   assert.equal(check([pick({ options: [], ordered: true, selection: "all", zoneSlice: slice })]).ok, true);

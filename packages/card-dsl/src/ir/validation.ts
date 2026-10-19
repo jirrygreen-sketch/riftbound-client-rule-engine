@@ -229,7 +229,7 @@ function validateExpr(value: unknown, path: string, context: ValidationContext):
   } else if (kind === "linked" || kind === "linked-value") {
     valid = validateString(value.instructionId, `${path}.instructionId`, context, "Expected a linked instruction id.") && valid;
     if (hasOwn(value, "key")) {
-      valid = validateString(value.key, `${path}.key`, context, "Expected a linked value key.", SYMBOL_PATTERN) && valid;
+      valid = validateString(value.key, `${path}.key`, context, "Expected a linked value key.") && valid;
     }
     if (typeof value.instructionId === "string") {
       const instructionId = value.instructionId as string;
@@ -686,6 +686,15 @@ function validatePick(value: unknown, path: string, context: ValidationContext):
       valid = validateValue(option, `${path}.options[${index}]`, context) && valid;
     });
   }
+  if (Array.isArray(value.options) && value.options.some(option =>
+    isRecord(option) && (option.kind === "linked" || option.kind === "linked-value"))) {
+    const linkedOptions = value.options.length === 1 && isRecord(value.options[0]) &&
+      ["linked", "linked-value"].includes(String(value.options[0].kind));
+    if (!linkedOptions || ["zoneSlice", "linked", "exclude"].some(key => hasOwn(value, key))) {
+      addIssue(context, `${path}.options`, "ambiguous-linked-pick-source", "A linked-value option must be the sole source and cannot mix zoneSlice, explicit linked, exclude, or static options.");
+      valid = false;
+    }
+  }
   valid = validateSelectionBounds(value, path, context) && valid;
   if (hasOwn(value, "filter")) valid = validateFilter(value.filter, `${path}.filter`, context) && valid;
   if (hasOwn(value, "ordered") && typeof value.ordered !== "boolean") {
@@ -703,12 +712,15 @@ function validatePick(value: unknown, path: string, context: ValidationContext):
     }
     if (hasOwn(value, "zoneSlice") && (value.selection !== "all" || hasOwn(value, "filter") ||
       hasOwn(value, "min") || hasOwn(value, "max"))) {
-      addIssue(context, path, "invalid-zone-slice-restriction", "A zone slice is a Finalize source and requires selection: all with no filter or bounds; Resolve restrictions belong to linked sources.");
+      addIssue(context, path, "invalid-ordered-pick-source", "A zone slice is a Finalize source and requires selection: all with no filter or bounds; Resolve restrictions belong to linked sources.");
       valid = false;
     }
-    if (hasOwn(value, "linked") && value.selection === "all") {
-      addIssue(context, `${path}.selection`, "invalid-linked-selection", "A linked Resolve source supports selection one, any, or up-to.");
-      valid = false;
+    if (hasOwn(value, "linked") && isRecord(value.linked) && hasOwn(value.linked, "key")) {
+      const key = value.linked.key;
+      if (typeof key !== "string" || key.trim().length === 0) {
+        addIssue(context, `${path}.linked.key`, "invalid-linked-source-key", "A linked Resolve source requires a non-empty result key.");
+        valid = false;
+      }
     }
   }
   if (hasOwn(value, "zoneSlice")) valid = validatePickZoneSlice(value.zoneSlice, `${path}.zoneSlice`, context) && valid;
