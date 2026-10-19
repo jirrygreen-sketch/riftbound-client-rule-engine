@@ -174,42 +174,63 @@ test("Power-only ignore keeps the selected card's printed Energy and pays its ac
   assert.deepEqual(plan.parameters.costPlan.modifications, [{ kind: "ignore-base", ignore: "power" }]);
 });
 
-test("Here to Help's shipped -3 Energy descriptor derives the selected unit's plan through the production Chain", () => {
+test("Here to Help's original IR derives the selected unit's -3 Energy plan through the production Chain", () => {
   const optional = hereToHelp.abilities.find(ability => ability.kind === "play").body[0];
   const battlefieldChoice = optional.args.body.value[0];
   const play = optional.args.body.value[1];
   assert.equal(play.args.cost.value.amount, -3);
-  const program = {
-    ...hereToHelp,
-    canonicalCardId: "test:eg-play-here-to-help",
-    abilities: [{
-      kind: "play",
-      cost: hereToHelp.abilities.find(ability => ability.kind === "play").cost,
-      body: [battlefieldChoice, {
-        ...play,
-        args: { ...play.args, pick: { kind: "constant", value: "unit" } },
-        picks: [{ id: "unit", options: ["dynamic:unit-card-in-controller-hand"], filter: { zone: "hand", type: "unit", owner: "self" }, min: 1, max: 1, selection: "one" }],
-      }],
-    }],
-  };
-  const f = runtime([program, supernova], builder => {
+  const f = runtime([hereToHelp, supernova], builder => {
     builder.unit("field-1", { owner: "A", controller: "A", types: ["battlefield"], location: { type: "battlefield", id: "field-1" } });
     builder.hand("unit", { cardId: supernova.canonicalCardId, types: ["unit"], energy: 9, power: ["Order"], owner: "A" });
     builder.unit("victim", { owner: "B", controller: "B", types: ["unit"], might: 20 });
-    builder.hand("spell", { cardId: program.canonicalCardId, types: ["spell"], energy: 2, power: ["Chaos"] });
+    builder.hand("spell", { cardId: HERE_TO_HELP_ID, types: ["spell"], energy: 2, power: ["Chaos"] });
   });
-  f.answers.set("here-to-help.choose-battlefield/here-to-help.battlefield", { type: "battlefield", id: "field-1" });
+  f.answers.set("here-to-help.may-play-unit/optional", true);
+  f.answers.set("here-to-help.may-play-unit/here-to-help.choose-battlefield/here-to-help.battlefield", { type: "battlefield", id: "field-1" });
   f.kernel.setPicks("here-to-help.unit", [f.kernel.ref("unit")]);
   playFromHand(f, "spell");
   settle(f.engine);
   assert.equal(f.kernel.getObject("unit").zone, "board");
   assert.equal(f.kernel.player("A").energy, 22, "outer 2 plus selected card's 9-3 discounted Energy");
   assert.deepEqual(f.kernel.player("A").power, ["Chaos", "Order"]);
-  const plan = f.kernel.linked("here-to-help.play-unit.playedCostPlans");
+  const plan = f.kernel.linked("here-to-help.may-play-unit/here-to-help.play-unit.playedCostPlans");
   assert.equal(plan[0].energy, 6);
   assert.deepEqual(plan[0].power, ["Order"]);
   assert.equal(plan[0].parameters.discounts[0].before, 9);
   assert.equal(plan[0].parameters.discounts[0].after, 6);
+});
+
+test("effect.play rejects malformed object-choice answers without playing or committing", () => {
+  const invalidAnswers = [
+    { min: 1, max: 1, answer: [] },
+    { min: 1, max: 1, answer: (one, two) => [one, two] },
+    { min: 1, max: 1, answer: one => [{ ...one, id: "outside" }] },
+    { min: 1, max: 2, answer: one => [one, one] },
+  ];
+  for (const [index, invalid] of invalidAnswers.entries()) {
+    const kernel = world().hand("one").hand("two").build();
+    const one = kernel.ref("one");
+    const two = kernel.ref("two");
+    const answer = typeof invalid.answer === "function" ? invalid.answer(one, two) : invalid.answer;
+    const context = bindResolveContext(kernel, {
+      source: kernel.getObject("one"),
+      controller: "A",
+      timingPoint: "chain-item-resolve",
+      picks: id => id === "cards" ? [one, two] : [],
+      choose: () => answer,
+      perform: action => kernel.perform(action),
+    });
+    assert.throws(
+      () => instructionDefinitionsById.get("effect.play").execute(context, {
+        pick: "cards",
+        choice: { id: `invalid-${index}`, min: invalid.min, max: invalid.max },
+      }),
+      /Invalid effect\.play object choice answer/
+    );
+    assert.equal(kernel.history({ action: "play" }), 0);
+    assert.equal(kernel.getObject("one").zone, "hand");
+    assert.equal(kernel.getObject("two").zone, "hand");
+  }
 });
 
 test("an exact catalog cost preserves later mandatory additions and increases in the nested Play", () => {

@@ -193,8 +193,12 @@ function chooseRefs(ctx: ResolveContext, args: EffectPlayArgs, refs: readonly Ob
     max
   });
   const selected = Array.isArray(answer) ? answer : [answer];
-  const allowed = new Set(refs.map(refKey));
-  return uniqueRefs(selected.filter(ref => isObjectRef(ref) && allowed.has(refKey(ref))));
+  if (selected.length < min || selected.length > max || selected.some((ref, index) =>
+    !isObjectRef(ref) || !refs.some(option => refKey(option) === refKey(ref)) ||
+    selected.slice(0, index).some(previous => isObjectRef(previous) && refKey(previous) === refKey(ref)))) {
+    throw new TypeError("Invalid effect.play object choice answer");
+  }
+  return selected.map(cloneRef);
 }
 
 function currentRef(ctx: ResolveContext, id: string): ObjectRef | null {
