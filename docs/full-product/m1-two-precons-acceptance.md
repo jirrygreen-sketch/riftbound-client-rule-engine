@@ -45,11 +45,13 @@ The manifest deliberately separates four states:
 - `missing-source-evidence`: the old survey identified a printing difference
   or unmatched functional clause. Yone, Blademaster and Riposte remain here
   even though their current program files say `executable`.
+- `blocked-source-conflict`: an official card source directly conflicts with
+  the current program. Yone is moved here from `missing-source-evidence`.
 - `verified-no-ability`: an official printing has no ability text and the
   current no-ability program is the complete capability.
 
 The current distribution is 21 merged awaiting acceptance, 24 dependency not
-ready, 2 missing source evidence, and 4 verified no-ability. Across the card
+ready, 1 missing source evidence, 1 blocked source conflict, and 4 verified no-ability. Across the card
 program files, the literal statuses are 23 `executable`, 24
 `judge-required`, and 4 `no-ability`. A status string is not an execution
 proof, and merged code is not an acceptance result. The 21 merged-but-unaccepted
@@ -118,6 +120,56 @@ is `packages/engine-core/test/engine-gaps/lifecycle.test.mjs`. The sibling
 commit `cd266f2bffe2dff9cd2851e647f00aa4c3e7b361` is not an ancestor of this
 task HEAD. These lifecycle tests prove setup/leave boundaries; they do not
 prove the two full precon programs execute.
+
+## Official effect order and source precedence
+
+The machine-readable evidence is under `effectOrderPolicy`,
+`officialEffectOrderEvidence`, and `cardSourceConflicts` in the manifest. It
+uses the official policy snapshot (`official-effect-order-policy.json`, SHA-256
+`1d5f9b0faae6cfd31861b61c0d6c430e3775f05a88ae4ca4fa6a2023d1d0f2f6`), its
+source snapshot index, and the cached Core Rules v1.5 text. Core Rules v1.5 is
+dated 2026-10-09 and effective 2026-10-16. The official Radiance rulings are
+dated 2026-10-09 and effective 2026-10-16. The cached Spiritforged errata was
+published 2026-01-14 and states no separate effective date; the Spiritforged
+rules patch states an effective date of 2025-12-12.
+
+The policy separates the source rules rather than assigning every card a
+numeric priority. CR 002 allows a card to control when it fundamentally
+contradicts the rules. CR 051 interprets card terminology through the rules.
+CR 054.1 applies a prohibition to the same action or effect under its concrete
+conditions. CR 303.2.a orders simultaneous actions, effects, and triggers by
+the applicable turn/controller rule; it does not collapse the Chain into a
+single FIFO or LIFO rule. Finalize remains oldest-first and Resolve
+newest-first under CR 337 and CR 340.
+
+The evidence index covers Priority/Focus and legal Reaction windows; cost and
+optional additional-cost choice, payment, legality, and rollback; replacement
+and prevent ordering; continuous layers and object dependencies; simultaneous
+trigger order; Pending/Finalize/Resolve; invalid targets, Ignored/Negated
+instructions, linked instructions, and LKI; and combat designation and
+simultaneous damage. Each entry records official URLs, publication/effective
+dates where stated, rule numbers, M1 canonical IDs, a timeline, player choice
+and response windows, current production entry, and an exact existing test
+title. The current index has 4 verified mechanisms, 5 pending integrations, and
+3 blocked interactions. A verified mechanism is not a whole-card or whole-deck
+pass.
+
+The official Radiance Chronobreak ruling is indexed as blocked and not
+generalized. It requires each owner to order only its own played-back units,
+then groups are placed in turn order; the full interaction is not implemented.
+The index also records the official Spiritforged Yone errata conflict: the
+selected `sfd-233-star-221` printing and official errata use “open
+battlefield”, while the current CardProgram in
+`packages/card-dsl/src/cards/rad/yone-blademaster.ts` uses “uncontrolled”. The
+card is blocked for review by the existing card-dsl owner; this task does not
+modify it or expand phase-one scope.
+
+The official source set and their SHA-256 values are recorded in the manifest.
+The source snapshots are authoritative evidence; the local HTML/PDF cache is
+not a replacement for the linked official pages. Community FAQs and videos
+remain discovery aids only. A later Core Rules version requires a separate
+versioned diff and must not silently replace the current game or replay
+ruleset profile.
 
 ## Minimum follow-up sequence
 

@@ -56,6 +56,30 @@ interface Manifest {
   readonly acceptance: { readonly seeds: readonly string[] };
   readonly canonicalWhitelist: readonly ManifestCard[];
   readonly decks: readonly ManifestDeck[];
+  readonly effectOrderPolicy: {
+    readonly nonUniformPriority: boolean;
+    readonly targetRules: { readonly version: string; readonly effectiveDate: string };
+    readonly interpretationRules: readonly { readonly rule: string; readonly status: string }[];
+  };
+  readonly officialEffectOrderEvidence: {
+    readonly entries: readonly {
+      readonly id: string;
+      readonly status: "verified" | "pending" | "blocked";
+      readonly canonicalCardId: string;
+      readonly m1CardIds: readonly string[];
+      readonly assertions: readonly {
+        readonly path: string;
+        readonly testTitle: string;
+        readonly result: "verified" | "partial" | "blocked";
+      }[];
+      readonly missingEvidence?: string | readonly string[];
+    }[];
+  };
+  readonly cardSourceConflicts: readonly {
+    readonly canonicalCardId: string;
+    readonly selectedPrintingId: string;
+    readonly status: string;
+  }[];
 }
 
 function readManifest(): Manifest {
@@ -205,6 +229,46 @@ describe("RIFT-857 two-precon acceptance", () => {
     expect(aggregate.freshWorldReplayMismatches).toBe(1);
     expect(aggregate.privacyLeaks).toBe(1);
     expect(aggregate.concessionGames).toBe(1);
+  });
+
+  it("binds the official effect-order evidence to real files, tests, and M1 identities", () => {
+    const manifest = readManifest();
+    const whitelist = new Set(manifest.canonicalWhitelist.map(card => card.canonicalCardId));
+    expect(manifest.effectOrderPolicy.nonUniformPriority).toBe(true);
+    expect(manifest.effectOrderPolicy.targetRules).toEqual(expect.objectContaining({
+      version: "1.5",
+      effectiveDate: "2026-10-16",
+    }));
+    expect(manifest.effectOrderPolicy.interpretationRules.map(rule => rule.rule)).toEqual(
+      expect.arrayContaining(["CR 002", "CR 051", "CR 054.1", "CR 303.2.a"]),
+    );
+    expect(manifest.officialEffectOrderEvidence.entries.map(entry => entry.id)).toEqual(expect.arrayContaining([
+      "priority-focus-response-windows",
+      "cost-selection-targets-payment",
+      "replacement-prevent-ordering",
+      "layer-dependencies",
+      "simultaneous-trigger-order",
+      "pending-finalize-resolve",
+      "target-loss-ignored-negated-linked-lki",
+      "chronobreak-303-2a-no-global-fifo-lifo",
+    ]));
+    for (const entry of manifest.officialEffectOrderEvidence.entries) {
+      if (!["general", "card.hash-2875b065844462e761acfeb152cf2feea180924a496740b05903caac24a3d795"].includes(entry.canonicalCardId)) {
+        expect(whitelist.has(entry.canonicalCardId), entry.id).toBe(true);
+      }
+      for (const cardId of entry.m1CardIds) expect(whitelist.has(cardId), entry.id).toBe(true);
+      expect(entry.assertions.length, entry.id).toBeGreaterThan(0);
+      for (const assertion of entry.assertions) {
+        expect(readFileSync(repositoryPath(assertion.path), "utf8"), `${entry.id}: ${assertion.path}`)
+          .toContain(assertion.testTitle);
+      }
+      if (entry.status !== "verified") expect(entry.missingEvidence, entry.id).toBeTruthy();
+    }
+    const yoneConflict = manifest.cardSourceConflicts.find(conflict => conflict.selectedPrintingId === "sfd-233-star-221");
+    expect(yoneConflict).toEqual(expect.objectContaining({
+      canonicalCardId: "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
+      status: "blocked",
+    }));
   });
 
   it("stops after one explicit probe and returns the current initialization diagnosis", () => {

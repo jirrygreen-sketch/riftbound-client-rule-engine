@@ -1570,9 +1570,9 @@
         "ability": "[Weaponmaster] (When you play me, you may [Equip] one of your Equipment to me for :rb_rune_rainbow: less, even if it's already attached.)\nWhen I conquer an open battlefield, deal damage equal to my Might to an enemy unit in a base."
       },
       "programStatus": "executable",
-      "verificationStatus": "missing-source-evidence",
+      "verificationStatus": "blocked-source-conflict",
       "productionAcceptance": "pending",
-      "planEvidenceGap": "rule-review:non-reminder-printing-difference",
+      "planEvidenceGap": "rule-review:non-reminder-printing-difference; official-errata-open-vs-uncontrolled",
       "program": {
         "path": "packages/card-dsl/src/cards/rad/yone-blademaster.ts",
         "sha256": "97063d125ee3e03f28fe325a15f548e3bcf882c0388ac5829a4dc491e0bee125"
@@ -1584,7 +1584,8 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "sourceConflict": "blocked:current program uses uncontrolled while selected SFD printing and official errata use open"
     },
     {
       "canonicalCardId": "card.hash-2ebf1fe6e5ed7bb875f1c112b3e0ed1635b557c0c0ad550d752b8dd376243007",
@@ -3888,9 +3889,10 @@
     },
     "verificationStatus": {
       "dependency-not-ready": 24,
-      "missing-source-evidence": 2,
+      "missing-source-evidence": 1,
       "merged-awaiting-acceptance": 21,
-      "verified-no-ability": 4
+      "verified-no-ability": 4,
+      "blocked-source-conflict": 1
     },
     "nullEnergyCardCount": 12,
     "nullPowerCardCount": 33,
@@ -4877,5 +4879,891 @@
         "acceptance": "Keep existing goldens intact; add whole-card production scenarios for legal, illegal, stale-target, declined, and rollback paths before changing the status to accepted."
       }
     ]
-  }
+  },
+  "effectOrderPolicy": {
+    "id": "official-effect-order-20261019",
+    "createdAt": "2026-10-19T07:15:04.193212+00:00",
+    "path": "/root/swarm-rift/shared/official-effect-order-policy.json",
+    "sha256": "1d5f9b0faae6cfd31861b61c0d6c430e3775f05a88ae4ca4fa6a2023d1d0f2f6",
+    "sourceSnapshotsPath": "/root/swarm-rift/shared/rules/official-order/source-snapshots.json",
+    "sourceSnapshotsSha256": "0883794853dbbee21282ce7e417699016d97c1fa3c385b57295a5832c2e8321e",
+    "targetRules": {
+      "version": "1.5",
+      "lastUpdated": "2026-10-09",
+      "effectiveDate": "2026-10-16",
+      "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+      "cachedText": "/root/swarm-rift/shared/rules/CR-v1.5.txt",
+      "cachedTextSha256": "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2",
+      "manifestPath": "docs/rule-source-manifest.json",
+      "manifestStatus": "published-future"
+    },
+    "officialSources": [
+      {
+        "id": "rules-hub",
+        "title": "Riftbound Rules Hub",
+        "url": "https://playriftbound.com/en-us/rules-hub/",
+        "finalUrl": "https://playriftbound.com/en-us/rules-hub/",
+        "publishedAt": null,
+        "effectiveDate": null,
+        "observedAt": "2026-10-19T07:13:19.031529+00:00",
+        "cachedFile": "/root/swarm-rift/shared/rules/official-order/rules-hub.html",
+        "sha256": "ee9edae6913fa16cf7de822049b3f6a42f4b0688e7362f112d09dae710d7e78b",
+        "bytes": 144580,
+        "notes": "Rules entry point; no publication or effective date is asserted by the snapshot."
+      },
+      {
+        "id": "radiance-rulings",
+        "title": "Core Rules: Radiance Patch Notes (Effective October 16, 2026)",
+        "url": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+        "finalUrl": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+        "publishedAt": "2026-10-09T16:00:00.000Z",
+        "effectiveDate": "2026-10-16",
+        "observedAt": "2026-10-19T07:13:20.540309+00:00",
+        "cachedFile": "/root/swarm-rift/shared/rules/official-order/radiance-rulings.html",
+        "sha256": "dfba4f3ecf6956c32c19327330eaca96d317bedbf2c211c80a8fe1f1dccb569f",
+        "bytes": 194870,
+        "notes": "Official rulings state that a later Core Rules document takes precedence over differing rulings."
+      },
+      {
+        "id": "spiritforged-errata",
+        "title": "Riftbound Spiritforged Errata",
+        "url": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/",
+        "finalUrl": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/",
+        "publishedAt": "2026-01-14T02:00:00.000Z",
+        "effectiveDate": null,
+        "observedAt": "2026-10-19T07:13:21.407996+00:00",
+        "cachedFile": "/root/swarm-rift/shared/rules/official-order/spiritforged-errata.html",
+        "sha256": "dca55c2d013473ffca82fb649a70d16d4b4356c22f74bd5a71b3aa3a9a4c94af",
+        "bytes": 156217,
+        "notes": "Published official errata. The page states no separate effective date; do not invent one."
+      },
+      {
+        "id": "spiritforged-rulings",
+        "title": "Riftbound Core Rules: Spiritforged Patch Notes",
+        "url": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-core-rules-spiritforged-patch-notes/",
+        "finalUrl": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-core-rules-spiritforged-patch-notes/",
+        "publishedAt": "2025-12-05T02:00:00.000Z",
+        "effectiveDate": "2025-12-12",
+        "observedAt": "2026-10-19T07:13:22.213588+00:00",
+        "cachedFile": "/root/swarm-rift/shared/rules/official-order/spiritforged-rulings.html",
+        "sha256": "c085e3a1b89df98df6c4458d195b276430eb49e601533d80a247786598bb3111",
+        "bytes": 172969,
+        "notes": "The official page states an effective date of December 12, 2025."
+      }
+    ],
+    "interpretationRules": [
+      {
+        "id": "cr-002-card-text-exception",
+        "rule": "CR 002",
+        "shortQuote": "Whenever a card fundamentally contradicts the rules, the card’s indication is what is true.",
+        "conclusion": "Card text can create a specific exception only for a fundamental contradiction; it is not a blanket numerical priority.",
+        "status": "verified-source"
+      },
+      {
+        "id": "cr-051-terminology",
+        "rule": "CR 051",
+        "shortQuote": "Card text should be interpreted according to these rules, not as though it were text within these rules.",
+        "conclusion": "Card terms use the Core Rules definitions and do not automatically override definitions by sharing a word.",
+        "status": "verified-source"
+      },
+      {
+        "id": "cr-054-1-cant-beats-can",
+        "rule": "CR 054.1",
+        "shortQuote": "Cards that forbid actions or effects, as a broad method of determination, supersede cards that allow or permit that same action or effect.",
+        "conclusion": "Apply the prohibition only to the same action or effect and under its concrete conditions; do not create one global source-order number.",
+        "status": "verified-source"
+      },
+      {
+        "id": "cr-303-2-a-no-global-fifo-lifo",
+        "rule": "CR 303.2.a",
+        "shortQuote": "Game Actions cannot be performed simultaneously for any reason.",
+        "conclusion": "When simultaneous actions/effects/triggers are ordered, use the applicable turn-order/controller rule. This does not make every chain FIFO or LIFO and does not replace Finalize oldest-first plus Resolve newest-first.",
+        "status": "verified-source"
+      }
+    ],
+    "nonUniformPriority": true,
+    "sourcePrecedence": "Use the applicable current Core Rules, effective card errata and official rulings for the concrete interaction. A newer Core Rules document supersedes conflicting official rulings; community FAQ/video is not authoritative."
+  },
+  "officialEffectOrderEvidence": {
+    "schema": "riftbound.official-effect-order-evidence.v1",
+    "requiredInteractionIds": [
+      "priority-focus-response-windows",
+      "cost-selection-targets-payment",
+      "m1-repeat-additional-weaponmaster-costs",
+      "replacement-prevent-ordering",
+      "layer-dependencies",
+      "simultaneous-trigger-order",
+      "pending-finalize-resolve",
+      "target-loss-ignored-negated-linked-lki",
+      "combat-designation-simultaneous-damage",
+      "chronobreak-303-2a-no-global-fifo-lifo",
+      "yone-spiritforged-errata-source-conflict",
+      "riposte-counter-linked-lki"
+    ],
+    "entries": [
+      {
+        "id": "priority-focus-response-windows",
+        "interaction": "Player Priority/Focus and legal Reaction windows",
+        "status": "verified",
+        "canonicalCardId": "general",
+        "m1CardIds": [
+          "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
+          "card.hash-8d49727ab9ae782b8a21802c9ae0b51e5d712a37a072d991629bfbf3645535b3"
+        ],
+        "source": {
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules v1.5 / Radiance",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveDate": "2026-10-16",
+          "rulesetVersion": "core-1.5",
+          "lastUpdated": "2026-10-09",
+          "rules": [
+            "309.1.a",
+            "312.2.a",
+            "312.2.b",
+            "313.1",
+            "313.2",
+            "313.3",
+            "338.1",
+            "339.2"
+          ]
+        },
+        "timeline": [
+          "Up to one player holds Priority and up to one player holds Focus.",
+          "A player who gains Focus also gains Priority; passing Priority does not pass Focus.",
+          "In a Closed State, only Reaction cards/abilities are legally timed.",
+          "A new Pending item restarts the Execute/Pass sequence and cannot be resolved with a stale pass count."
+        ],
+        "playerChoiceWindow": "The Priority holder chooses a legally timed card/ability or passes; Focus additionally governs Showdown discretionary actions.",
+        "responseWindow": "Reaction may be played during Closed States on any player turn and before the current spell/ability resolves.",
+        "productionEntry": "packages/engine-core/src/chain/engine.ts",
+        "defaultM1Entry": "packages/integration-tests/src/headless/duel.ts",
+        "assertions": [
+          {
+            "path": "packages/engine-core/test/duel-showdown-cardplay-focus-v1.test.mjs",
+            "testTitle": "opt-in Showdown Focus Reaction Spell uses native Chain and preserves the Focus handoff contract",
+            "result": "verified"
+          },
+          {
+            "path": "packages/engine-core/test/rules/chain/309.1.a-reaction-spell-allowed-in-closed.test.mjs",
+            "testTitle": "chain-reaction-spell-allowed-in-closed: a Reaction spell plays normally into a Closed State",
+            "result": "verified"
+          },
+          {
+            "path": "packages/engine-core/test/rules/chain/339.2-pass-reset-when-item-added.test.mjs",
+            "testTitle": "chain-pass-not-resolve-if-item-added: the pass count restarts for a newly added item",
+            "result": "verified"
+          }
+        ],
+        "owner": "engine-core"
+      },
+      {
+        "id": "cost-selection-targets-payment",
+        "interaction": "Cost choice, target/choice locking, atomic payment, legality and rollback",
+        "status": "verified",
+        "canonicalCardId": "general",
+        "m1CardIds": [
+          "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
+          "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+          "card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7"
+        ],
+        "source": {
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules v1.5 / Radiance",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveDate": "2026-10-16",
+          "rulesetVersion": "core-1.5",
+          "lastUpdated": "2026-10-09",
+          "rules": [
+            "329.2",
+            "355.9.a.2",
+            "356.1",
+            "356.2",
+            "356.4",
+            "357.1",
+            "357.2",
+            "358.1",
+            "358.2",
+            "358.3",
+            "358.5"
+          ]
+        },
+        "timeline": [
+          "Make the card choices and add the item as Pending.",
+          "Determine the total cost in the CR 356 order, including chosen optional additions.",
+          "Pay Energy/Power and nonstandard costs in CR 357.",
+          "Check choices, payment, outcome and timing in CR 358.",
+          "If Finalize fails, undo the play and all actions caused by it."
+        ],
+        "playerChoiceWindow": "The playing controller chooses optional additions and legal choices before the applicable Finalize checks.",
+        "responseWindow": "A legally timed Reaction can be added while the item is Pending/Finalized; Finalizing itself does not pass Priority.",
+        "productionEntry": "packages/engine-core/src/chain/engine.ts",
+        "defaultM1Entry": "packages/integration-tests/src/headless/duel.ts",
+        "assertions": [
+          {
+            "path": "packages/engine-core/test/duel-cost-resolver-v2.test.mjs",
+            "testTitle": "base rewrite/ignore precede optional additions and increases; component before total discounts",
+            "result": "verified"
+          },
+          {
+            "path": "packages/engine-core/test/duel-optional-cost-zero-v2.test.mjs",
+            "testTitle": "a chosen optional 1 Energy + 1 Fury additional cost accumulates on top of the trusted base (356.2.b.1)",
+            "result": "verified"
+          },
+          {
+            "path": "packages/engine-core/test/rules/costs/356.2.a.1-mandatory-additional-kill.test.mjs",
+            "testTitle": "costs-mandatory-additional-kill: base Energy and the kill fee are both paid",
+            "result": "verified"
+          },
+          {
+            "path": "packages/engine-core/test/rules/costs/358.2-basic-energy-insufficient.test.mjs",
+            "testTitle": "costs-basic-energy-insufficient: Finalize rejects and rolls the play back",
+            "result": "verified"
+          }
+        ],
+        "owner": "engine-core"
+      },
+      {
+        "id": "m1-repeat-additional-weaponmaster-costs",
+        "interaction": "M1 card-specific optional/Repeat/Weaponmaster cost timing",
+        "status": "pending",
+        "canonicalCardId": "general",
+        "m1CardIds": [
+          "card.hash-3c1c01b405853556e3e1c12bbd758e94d73f5ed474a5643bb068eaa7cb549c6e",
+          "card.hash-153eb4df721b70662a63652ba1602985ceed08d81a0b23fc0d6b10349ee15ca9",
+          "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+          "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+          "card.hash-44e95dd0a87b7dfcd7565b73a33e204f85c97ac82e004a6127ff7ed649fb41ad",
+          "card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7",
+          "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56"
+        ],
+        "source": {
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules v1.5 / Radiance",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveDate": "2026-10-16",
+          "rulesetVersion": "core-1.5",
+          "lastUpdated": "2026-10-09",
+          "rules": [
+            "356.2.b.1",
+            "356.4.f.1",
+            "357.2",
+            "383.3.b.1",
+            "821.1.c.2",
+            "821.1.c.3",
+            "821.1.c.5"
+          ]
+        },
+        "timeline": [
+          "Choose whether to pay the printed optional/Repeat/Weaponmaster cost.",
+          "Determine and pay the modified Equip or Repeat cost at the correct Finalize boundary.",
+          "Bind the paid instance and lock the selected target/pick before Resolve.",
+          "Rollback atomically when payment or attachment is impossible."
+        ],
+        "playerChoiceWindow": "The controller chooses the optional additional cost and the selected Equipment/non-target pick; the opponent can respond only in a legal Reaction window.",
+        "responseWindow": "Responses occur on the Chain; resolution never re-prompts for a cost or choice already locked at Finalize.",
+        "productionEntry": "packages/engine-core/src/chain/engine.ts",
+        "defaultM1Entry": "packages/integration-tests/src/headless/duel.ts",
+        "assertions": [
+          {
+            "path": "packages/engine-core/test/duel-optional-cost-zero-v2.test.mjs",
+            "testTitle": "a legal component discount can reduce a chosen optional cost to 0 while keeping chosen source data (356.4.f.1)",
+            "result": "verified"
+          },
+          {
+            "path": "packages/card-dsl/test/cards/sfd/danger-zone.test.mjs",
+            "testTitle": "sfd-182-221 Danger Zone: program is structurally valid and judge-required",
+            "result": "partial"
+          },
+          {
+            "path": "packages/card-dsl/test/cards/sfd/veteran-poro.test.mjs",
+            "testTitle": "sfd-099-221 Veteran Poro: the chosen Equipment's Equip cost still fails closed without an authoritative binding (821.1.c.2/.3)",
+            "result": "blocked"
+          }
+        ],
+        "missingEvidence": "Repeat paid-instance binding, CardProgram static/Weaponmaster cost decoding, authoritative Equip symbol provenance, and M1 whole-card production scenarios remain incomplete.",
+        "owner": "engine-core"
+      },
+      {
+        "id": "replacement-prevent-ordering",
+        "interaction": "Replacement/prevent application before the qualifying event",
+        "status": "pending",
+        "canonicalCardId": "general",
+        "m1CardIds": [
+          "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab",
+          "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f"
+        ],
+        "source": {
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules v1.5 / Radiance",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveDate": "2026-10-16",
+          "rulesetVersion": "core-1.5",
+          "lastUpdated": "2026-10-09",
+          "rules": [
+            "369",
+            "370.1.b",
+            "370.1.c",
+            "370.2",
+            "371",
+            "372",
+            "373",
+            "438.7"
+          ]
+        },
+        "timeline": [
+          "Identify the qualifying event before it occurs.",
+          "Choose the affected object/controller order where multiple replacements apply.",
+          "Apply the replacement and record the rewritten event.",
+          "Continue only through the rewritten state; do not reapply the same replacement."
+        ],
+        "playerChoiceWindow": "The controller of the affected object chooses the order of applicable replacement effects; may-effects also choose whether to apply.",
+        "responseWindow": "Replacement choices are made while Finalize/action execution is underway, before the event becomes committed; ordinary Reactions use their separate legal Chain window.",
+        "productionEntry": "packages/engine-core/src/replacement/index.ts",
+        "defaultM1Entry": "packages/integration-tests/src/headless/duel.ts",
+        "assertions": [
+          {
+            "path": "packages/engine-core/test/replacement/interaction.test.mjs",
+            "testTitle": "multiple bound replacements order by the affected controller",
+            "result": "verified"
+          },
+          {
+            "path": "packages/engine-core/test/replacement/enter.test.mjs",
+            "testTitle": "accelerate-style static declaration replaces entry exhaust with ready",
+            "result": "verified"
+          },
+          {
+            "path": "packages/engine-core/test/rules/combat/808.1.d.1-death-replaced-removes-trigger.test.mjs",
+            "testTitle": "combat-deathknell-removed-when-death-replaced (808.1.d.1): a replaced death never adds the Deathknell trigger to the chain",
+            "result": "verified"
+          }
+        ],
+        "missingEvidence": "Delayed Prevent/remaining Prevent Value and its combat allocation consumer are not yet a complete production interaction.",
+        "owner": "engine-core"
+      },
+      {
+        "id": "layer-dependencies",
+        "interaction": "Continuous layer order, object dependencies and dependency loops",
+        "status": "pending",
+        "canonicalCardId": "general",
+        "m1CardIds": [
+          "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+          "card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7",
+          "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab",
+          "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40",
+          "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870"
+        ],
+        "source": {
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules v1.5 / Radiance",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveDate": "2026-10-16",
+          "rulesetVersion": "core-1.5",
+          "lastUpdated": "2026-10-09",
+          "rules": [
+            "478",
+            "478.1",
+            "478.1.a",
+            "478.1.b",
+            "478.1.c",
+            "478.2",
+            "478.3",
+            "478.4",
+            "479.1",
+            "479.2",
+            "479.3",
+            "479.4",
+            "479.4.e"
+          ]
+        },
+        "timeline": [
+          "Evaluate continuously, but pause a dependent object while referenced objects are evaluated.",
+          "Resolve a dependency chain from its far endpoint; evaluate a loop simultaneously layer by layer.",
+          "Apply copy, trait, ability and arithmetic layers in order.",
+          "Reapply layers until a fixed point and re-check conditions after changes."
+        ],
+        "playerChoiceWindow": "Layer evaluation itself has no player choice; ordering is determined by layer/dependency rules.",
+        "responseWindow": "Players do not receive Priority merely because layers recompute; any new trigger follows its own trigger rules.",
+        "productionEntry": "packages/engine-core/src/layers/engine.ts",
+        "defaultM1Entry": "packages/integration-tests/src/headless/duel.ts",
+        "assertions": [
+          {
+            "path": "packages/engine-core/test/rules/layers/478.1.b-dependency-chain-evaluate-from-endpoint.test.mjs",
+            "testTitle": "layers-dependency-chain-evaluate-from-endpoint: a three-link dependency chain resolves from the far endpoint",
+            "result": "verified"
+          },
+          {
+            "path": "packages/engine-core/test/rules/layers/478.1.c-siphon-power-mutual-dependency.test.mjs",
+            "testTitle": "layers-siphon-power-mutual-dependency: mutually referencing units terminate at the official 4 [M] in either evaluation order",
+            "result": "verified"
+          },
+          {
+            "path": "packages/engine-core/test/rules/layers/479.1-copy-layer-precedes-trait-layer.test.mjs",
+            "testTitle": "layers-copy-layer-precedes-trait-layer: the trait layer overwrites traits gained in the copy layer",
+            "result": "verified"
+          },
+          {
+            "path": "packages/engine-core/test/rules/layers/479.4.e-arithmetic-increases-before-decreases.test.mjs",
+            "testTitle": "layers-arithmetic-increases-before-decreases: increases are applied before decreases inside the arithmetic layer",
+            "result": "verified"
+          },
+          {
+            "path": "packages/engine-core/test/rules/layers/478.1.a-object-dependency-pause-and-evaluate.test.mjs",
+            "testTitle": "layers-object-dependency-pause-and-evaluate: 计算“拥有全部标签”的单位前先暂停求值被引用对象（缺：特征层重查与集合依赖谓词）",
+            "result": "blocked"
+          }
+        ],
+        "missingEvidence": "General object-dependency/pause-and-evaluate for set predicates remains a test.todo; M1 granted-keyword and Mighty consumers also remain incomplete.",
+        "owner": "engine-core"
+      },
+      {
+        "id": "simultaneous-trigger-order",
+        "interaction": "Simultaneous Triggered Ability ordering",
+        "status": "verified",
+        "canonicalCardId": "general",
+        "m1CardIds": [
+          "card.hash-d4e849d845765608b07bf4af4aa19877f6303dfff539b541d0d070320dd05d91",
+          "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+          "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870"
+        ],
+        "source": {
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules v1.5 / Radiance",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveDate": "2026-10-16",
+          "rulesetVersion": "core-1.5",
+          "lastUpdated": "2026-10-09",
+          "rules": [
+            "303.2.a",
+            "383.3.d",
+            "383.3.d.1",
+            "466.2.d.1"
+          ]
+        },
+        "timeline": [
+          "Collect all abilities whose trigger conditions were met.",
+          "Each player orders their own simultaneously triggered abilities.",
+          "Multiple players place their groups in turn order starting with the Turn Player.",
+          "Combat uses the separate 466.2.d.1 attacker/non-defender/defender order."
+        ],
+        "playerChoiceWindow": "The controller chooses the order of its own simultaneous triggers; no player chooses another controller’s internal order.",
+        "responseWindow": "After items become Pending/Finalized, normal Priority/Reaction rules apply.",
+        "productionEntry": "packages/engine-core/src/events/pipeline.ts",
+        "defaultM1Entry": "packages/integration-tests/src/headless/duel.ts",
+        "assertions": [
+          {
+            "path": "packages/engine-core/test/rules/chain/303.2.a-simultaneous-triggers-turn-order.test.mjs",
+            "testTitle": "chain-simultaneous-triggers-turn-order: the turn player appends first and resolves last",
+            "result": "verified"
+          },
+          {
+            "path": "packages/engine-core/test/rules/chain/383.3.d-simultaneous-triggers-same-player-orders.test.mjs",
+            "testTitle": "chain-simultaneous-triggers-same-player-orders: the controller picks the append order and LIFO resolves it",
+            "result": "verified"
+          },
+          {
+            "path": "packages/engine-core/test/rules/turn/303.2.a-phase-triggers-turn-order.test.mjs",
+            "testTitle": "turn-simultaneous-phase-triggers-turn-order (303.2.a / 383.3.d.1): each side orders its own simultaneous phase triggers",
+            "result": "verified"
+          }
+        ],
+        "sourceConflict": "The combat-specific 466.2.d.1 order remains blocked separately; the verified generic rule must not be substituted for it.",
+        "owner": "engine-core"
+      },
+      {
+        "id": "pending-finalize-resolve",
+        "interaction": "Pending, Finalize, Priority/Pass and Resolve lifecycle",
+        "status": "verified",
+        "canonicalCardId": "general",
+        "m1CardIds": [
+          "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
+          "card.hash-f67321dac096b3ad1e49b55231663e26f3f9d96efafe79d75719a6eb72fc5caa",
+          "card.hash-5b08b5b8648e8c5c057d15279d1b4e677457eb0b43fcf2810e2ec4f4c4d1b7cf",
+          "card.hash-600e0796e82099284b213e87b112b1c5df42777ef72b70a3b4cd49a84d27dd10"
+        ],
+        "source": {
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules v1.5 / Radiance",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveDate": "2026-10-16",
+          "rulesetVersion": "core-1.5",
+          "lastUpdated": "2026-10-09",
+          "rules": [
+            "329",
+            "337",
+            "337.1",
+            "337.1.a",
+            "337.1.b",
+            "338",
+            "338.1",
+            "339",
+            "339.1",
+            "339.2",
+            "340",
+            "340.1",
+            "340.4",
+            "359.1",
+            "359.3.a",
+            "359.3.d"
+          ]
+        },
+        "timeline": [
+          "The played object/ability enters as a Pending Chain Item.",
+          "Finalize items oldest-first; Finalizing does not pass Priority.",
+          "Execute/Pass restarts whenever a new item is added.",
+          "After consecutive passes, the newest Finalized item resolves.",
+          "Priority then follows the remaining newest item; an empty Chain returns to an Open State."
+        ],
+        "playerChoiceWindow": "The Priority holder chooses to add a legally timed item or pass; the controller of each Pending item supplies required Finalize choices/costs.",
+        "responseWindow": "Reaction may be added during Closed State; Finalization does not itself open a Priority grant.",
+        "productionEntry": "packages/engine-core/src/chain/engine.ts",
+        "defaultM1Entry": "packages/integration-tests/src/headless/duel.ts",
+        "assertions": [
+          {
+            "path": "packages/engine-core/test/rules/chain/329.1-329.3-359.3.a-spell-lifecycle.test.mjs",
+            "testTitle": "chain-spell-lifecycle-pending-finalize-resolve: the spell passes Pending -> Finalized -> Resolve into Trash",
+            "result": "verified"
+          },
+          {
+            "path": "packages/engine-core/test/rules/chain/337.1.a-finalize-does-not-pass-priority.test.mjs",
+            "testTitle": "chain-finalize-does-not-pass-priority: Priority is not granted while items are Pending",
+            "result": "verified"
+          },
+          {
+            "path": "packages/engine-core/test/rules/chain/340.1-lifo-resolution-order.test.mjs",
+            "testTitle": "chain-lifo-resolution-order: the newest Finalized item resolves first",
+            "result": "verified"
+          },
+          {
+            "path": "packages/engine-core/test/rules/chain/338.1.a.7-reaction-restarts-finalize.test.mjs",
+            "testTitle": "chain-reaction-added-restarts-finalize: a new Pending item is Finalized before resolution",
+            "result": "verified"
+          }
+        ],
+        "sourceConflict": "Finalize oldest-first and Resolve newest-first are distinct from CR 303.2.a ordering; the implementation must not flatten them into one FIFO/LIFO rule.",
+        "owner": "engine-core"
+      },
+      {
+        "id": "target-loss-ignored-negated-linked-lki",
+        "interaction": "Invalid targets, Ignored/Negated instructions, linked instructions and LKI",
+        "status": "pending",
+        "canonicalCardId": "general",
+        "m1CardIds": [
+          "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
+          "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+          "card.hash-f67321dac096b3ad1e49b55231663e26f3f9d96efafe79d75719a6eb72fc5caa",
+          "card.hash-600e0796e82099284b213e87b112b1c5df42777ef72b70a3b4cd49a84d27dd10",
+          "card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3"
+        ],
+        "source": {
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules v1.5 / Radiance",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveDate": "2026-10-16",
+          "rulesetVersion": "core-1.5",
+          "lastUpdated": "2026-10-09",
+          "rules": [
+            "124",
+            "124.1",
+            "135.2.b.7",
+            "359.3.e.2",
+            "359.3.e.5",
+            "359.3.e.6",
+            "359.3.e.8",
+            "359.3.e.9",
+            "359.3.e.12",
+            "359.3.e.13",
+            "359.3.e.14",
+            "359.3.e.15",
+            "383.2.c.3.b"
+          ]
+        },
+        "timeline": [
+          "Lock choices/targets at Finalize and retain their incarnation information.",
+          "At Resolve, recheck target legality and distinguish Ignored from Negated.",
+          "Read LKI only where a linked/zone-changing instruction authorizes it.",
+          "Skip later linked instructions only when the earlier linked instruction was Ignored or when “if you do” directly requires the action."
+        ],
+        "playerChoiceWindow": "Choices made after Finalize occur only where the rule text requires them; already locked costs/targets are not reselected.",
+        "responseWindow": "Opponents may change zones/target legality through legal Reactions before Resolve; Finalize locks do not bypass later rechecks.",
+        "productionEntry": "packages/engine-core/src/effects/interpreter.ts",
+        "defaultM1Entry": "packages/integration-tests/src/headless/duel.ts",
+        "assertions": [
+          {
+            "path": "packages/engine-core/test/rules/targeting/359.3.e.8-partial-target-loss.test.mjs",
+            "testTitle": "targeting-partial-target-loss-executes-rest: the remaining target still takes its damage",
+            "result": "verified"
+          },
+          {
+            "path": "packages/engine-core/test/rules/targeting/359.3.e.13-lookback-after-zone-change.test.mjs",
+            "testTitle": "targeting-lookback-after-zone-change: an instruction may read the pre-move characteristics",
+            "result": "verified"
+          },
+          {
+            "path": "packages/engine-core/test/engine-gaps/lifecycle.test.mjs",
+            "testTitle": "original Deathknell IR queues a Pending item, preserves source LKI, and resolves once",
+            "result": "verified"
+          },
+          {
+            "path": "packages/card-dsl/test/cards/sfd/riposte.test.mjs",
+            "testTitle": "sfd-206-221 Riposte golden: a spell that already left the Chain ignores the whole body (359.3.e.6)",
+            "result": "verified"
+          }
+        ],
+        "missingEvidence": "M1 non-target picks, equipment detachment, source-card interactions and every Ignored/Negated/linked boundary have not yet run through the complete default path.",
+        "owner": "engine-core"
+      },
+      {
+        "id": "combat-designation-simultaneous-damage",
+        "interaction": "Combat attacker/defender designation, trigger order and simultaneous damage",
+        "status": "blocked",
+        "canonicalCardId": "general",
+        "m1CardIds": [
+          "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+          "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6",
+          "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+          "card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef"
+        ],
+        "source": {
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules v1.5 / Radiance",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveDate": "2026-10-16",
+          "rulesetVersion": "core-1.5",
+          "lastUpdated": "2026-10-09",
+          "rules": [
+            "466.2",
+            "466.2.c.3",
+            "466.2.c.3.a",
+            "466.2.d",
+            "466.2.d.1",
+            "467.2",
+            "467.2.c.1.a",
+            "467.2.d",
+            "467.3",
+            "468.7.a"
+          ]
+        },
+        "timeline": [
+          "Open Combat and perform start-of-combat effects.",
+          "Establish Attacker/Defender and assign Focus/designations atomically.",
+          "Order combat triggers by attacker, non-defender turn order, then defender.",
+          "Assign damage, then deal all assigned combat damage simultaneously.",
+          "Run combat cleanup/result and remove designations."
+        ],
+        "playerChoiceWindow": "Players make legal combat choices and trigger order selections; late arrivals gain designation in the following Cleanup.",
+        "responseWindow": "Combat Showdown/Chain windows apply; combat start itself is an atomic task and cannot publish partially.",
+        "productionEntry": "packages/engine-core/src/combat/flow.ts",
+        "defaultM1Entry": "packages/integration-tests/src/headless/duel.ts",
+        "assertions": [
+          {
+            "path": "packages/engine-core/test/rules/combat/466.2-combat-start-and-designation.test.mjs",
+            "testTitle": "combat-showdown-ends-after-all-pass",
+            "result": "blocked"
+          },
+          {
+            "path": "packages/engine-core/test/rules/combat/467.2.d-simultaneous-combat-damage.test.mjs",
+            "testTitle": "combat-damage-dealt-simultaneously-shared-deathknell",
+            "result": "blocked"
+          },
+          {
+            "path": "packages/engine-core/test/rules/triggers/466.2.d.1-combat-attacker-first-then-defender.test.mjs",
+            "testTitle": "triggers-combat-attacker-first-then-defender (466.2.d.1)",
+            "result": "blocked"
+          }
+        ],
+        "missingEvidence": "Combat start and simultaneous damage remain explicit TurnCombatBlockedError transactions; 466.2.d.1 trigger order and real combat victory are not executable.",
+        "owner": "engine-core"
+      },
+      {
+        "id": "chronobreak-303-2a-no-global-fifo-lifo",
+        "interaction": "Official Chronobreak example for CR 303.2.a",
+        "status": "blocked",
+        "canonicalCardId": "card.hash-2875b065844462e761acfeb152cf2feea180924a496740b05903caac24a3d795",
+        "m1CardIds": [],
+        "source": {
+          "id": "radiance-rulings",
+          "title": "Core Rules: Radiance Patch Notes (Effective October 16, 2026)",
+          "url": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+          "finalUrl": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveDate": "2026-10-16",
+          "observedAt": "2026-10-19T07:13:20.540309+00:00",
+          "cachedFile": "/root/swarm-rift/shared/rules/official-order/radiance-rulings.html",
+          "sha256": "dfba4f3ecf6956c32c19327330eaca96d317bedbf2c211c80a8fe1f1dccb569f",
+          "bytes": 194870,
+          "notes": "Official rulings state that a later Core Rules document takes precedence over differing rulings.",
+          "rulesetVersion": "core-1.5",
+          "rules": [
+            "303.2.a"
+          ],
+          "relevantParagraph": "Items cannot be placed on the chain simultaneously for any reason. Each player orders its own units; players place their groups in turn order; Pending items are finalized oldest-to-newest and units resolve as soon as finalized."
+        },
+        "timeline": [
+          "Chronobreak banishes selected units.",
+          "Each owner chooses the order of its own units played back.",
+          "Owners place their groups in turn order starting with the turn player.",
+          "Pending items are finalized oldest-to-newest; the applicable unit resolves when finalized.",
+          "After the group, play effects are finalized in the order they triggered; players may react to the most recent item."
+        ],
+        "playerChoiceWindow": "Each owner chooses only the order of its own units; no single player chooses all players’ units.",
+        "responseWindow": "Reactions occur only at the actual Chain window after the applicable items have been finalized; there is no invented global “simultaneous chain”.",
+        "productionEntry": "packages/engine-core/src/chain/engine.ts",
+        "defaultM1Entry": null,
+        "assertions": [
+          {
+            "path": "packages/engine-core/test/rules/chain/303.2.a-chronobreak-multiplayer-turn-order.test.mjs",
+            "testTitle": "chain-chronobreak-multiplayer-turn-order",
+            "result": "blocked"
+          }
+        ],
+        "missingEvidence": "Chronobreak is judge-required and its variable additional cost, pre-Banish location, per-owner play-back and ignored-cost path are missing. This is an official example only and does not expand phase-one card scope.",
+        "sourceConflict": "Do not summarize the official example as a single global FIFO or LIFO order.",
+        "owner": "engine-core"
+      },
+      {
+        "id": "yone-spiritforged-errata-source-conflict",
+        "interaction": "Yone, Blademaster conquer-condition card text",
+        "status": "blocked",
+        "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
+        "m1CardIds": [
+          "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56"
+        ],
+        "source": {
+          "id": "spiritforged-errata",
+          "title": "Riftbound Spiritforged Errata",
+          "url": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/",
+          "finalUrl": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/",
+          "publishedAt": "2026-01-14T02:00:00.000Z",
+          "effectiveDate": null,
+          "observedAt": "2026-10-19T07:13:21.407996+00:00",
+          "cachedFile": "/root/swarm-rift/shared/rules/official-order/spiritforged-errata.html",
+          "sha256": "dca55c2d013473ffca82fb649a70d16d4b4356c22f74bd5a71b3aa3a9a4c94af",
+          "bytes": 156217,
+          "notes": "Published official errata. The page states no separate effective date; do not invent one.",
+          "rulesetVersion": "core-1.5",
+          "rules": [
+            "002",
+            "051",
+            "170.11.b",
+            "170.11.c",
+            "383.4.c"
+          ],
+          "relevantParagraph": "The official Spiritforged errata changes the condition from conquering a battlefield that was uncontrolled to conquering an open battlefield."
+        },
+        "timeline": [
+          "Resolve the selected card printing and applicable errata before evaluating the card program.",
+          "Evaluate the printed conquer condition for the selected SFD printing.",
+          "Place the trigger on the Chain only if that condition is fulfilled.",
+          "Lock the enemy-unit-in-base target and evaluate current Might at Resolve."
+        ],
+        "playerChoiceWindow": "The trigger is mandatory when its condition is met; target selection follows the normal target rules.",
+        "responseWindow": "After the trigger becomes Pending/Finalized, normal Reaction and Priority rules apply.",
+        "productionEntry": "packages/card-dsl/src/cards/rad/yone-blademaster.ts",
+        "defaultM1Entry": "packages/integration-tests/src/headless/duel.ts",
+        "assertions": [
+          {
+            "path": "packages/card-dsl/test/cards/rad/yone-blademaster.test.mjs",
+            "testTitle": "rad-181-167 Yone, Blademaster: Weaponmaster keyword + conquer trigger",
+            "result": "blocked"
+          },
+          {
+            "path": "packages/card-dsl/test/cards/rad/yone-blademaster.test.mjs",
+            "testTitle": "rad-181-167 Yone, Blademaster: Weaponmaster 关键词展开",
+            "result": "blocked"
+          }
+        ],
+        "missingEvidence": "Current program sourceText uses “uncontrolled” from RAD-181-167. The selected M1 printing sfd-233-star-221 and the official Spiritforged errata use “open”. The program must be reviewed against the selected printing/current errata by the existing card-dsl owner.",
+        "sourceConflict": "Official Spiritforged errata: sfd-233-star-221 uses “When I conquer an open battlefield”; current CardProgram uses “When I conquer a battlefield that was uncontrolled”.",
+        "owner": "existing-card-dsl-owner",
+        "affectedPrintings": [
+          "rad-181-167",
+          "sfd-116-221",
+          "sfd-233-221",
+          "sfd-233-star-221"
+        ],
+        "selectedPrintingId": "sfd-233-star-221"
+      },
+      {
+        "id": "riposte-counter-linked-lki",
+        "interaction": "Riposte Reaction, counter, linked printed-cost read and LKI",
+        "status": "pending",
+        "canonicalCardId": "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
+        "m1CardIds": [
+          "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d"
+        ],
+        "source": {
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules v1.5 / Radiance",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveDate": "2026-10-16",
+          "rulesetVersion": "core-1.5",
+          "lastUpdated": "2026-10-09",
+          "rules": [
+            "355.9.a.2",
+            "359.3.e.6",
+            "359.3.e.12",
+            "359.3.e.13",
+            "426.1",
+            "426.1.a",
+            "426.1.b",
+            "426.1.c",
+            "813.1.c.1"
+          ]
+        },
+        "timeline": [
+          "Riposte is played as a Reaction and becomes a Pending Chain Item.",
+          "At Finalize, lock the friendly unit and target spell; pay 2 Energy + 2 Power.",
+          "At Resolve, counter the spell and retain the printed Energy value needed by the linked instruction.",
+          "Register the Might modification for the chosen unit and expire it this turn."
+        ],
+        "playerChoiceWindow": "The Riposte controller chooses the friendly unit and the spell on the Chain; those choices lock at Finalize.",
+        "responseWindow": "Riposte is legally timed in a Closed State; opponents can respond before it resolves.",
+        "productionEntry": "packages/card-dsl/src/cards/sfd/riposte.ts",
+        "defaultM1Entry": "packages/integration-tests/src/headless/duel.ts",
+        "assertions": [
+          {
+            "path": "packages/card-dsl/test/cards/sfd/riposte.test.mjs",
+            "testTitle": "sfd-206-221 Riposte golden: real counter plus an end-of-turn Might grant worth the printed Energy cost",
+            "result": "verified"
+          },
+          {
+            "path": "packages/card-dsl/test/cards/sfd/riposte.test.mjs",
+            "testTitle": "sfd-206-221 Riposte golden: a spell that already left the Chain ignores the whole body (359.3.e.6)",
+            "result": "verified"
+          },
+          {
+            "path": "packages/card-dsl/test/cards/sfd/riposte.test.mjs",
+            "testTitle": "sfd-206-221 Riposte golden: the end-of-turn duration expires the granted Might (317.1.a / 468.7.c)",
+            "result": "verified"
+          }
+        ],
+        "missingEvidence": "The old M1 survey still records an unmatched functional clause. The card golden exercises the body, but the selected deck has not reached a real full-game acceptance and the source review is not closed.",
+        "sourceConflict": "No direct official errata conflict found in the cached Spiritforged errata page; the original M1 survey evidence gap remains open.",
+        "owner": "existing-card-dsl-owner"
+      }
+    ],
+    "statusSummary": {
+      "verified": 4,
+      "pending": 5,
+      "blocked": 3
+    },
+    "acceptancePolicy": "A verified entry proves only the named mechanism through the listed real production component assertion. It does not prove any whole M1 deck or the 100-game gate. Pending/blocked entries cannot be approximated."
+  },
+  "cardSourceConflicts": [
+    {
+      "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
+      "selectedPrintingId": "sfd-233-star-221",
+      "officialSource": {
+        "url": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/",
+        "title": "Riftbound Spiritforged Errata",
+        "publishedAt": "2026-01-14T02:00:00.000Z",
+        "sha256": "dca55c2d013473ffca82fb649a70d16d4b4356c22f74bd5a71b3aa3a9a4c94af"
+      },
+      "selectedPrintingText": "When I conquer an open battlefield, deal damage equal to my Might to an enemy unit in a base.",
+      "currentProgramText": "When I conquer a battlefield that was uncontrolled, deal damage equal to my Might to an enemy unit in a base.",
+      "status": "blocked",
+      "owner": "existing-card-dsl-owner"
+    }
+  ]
 }
