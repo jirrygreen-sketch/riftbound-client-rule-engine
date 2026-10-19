@@ -364,9 +364,8 @@ describe("default createGameServer v2 Rune resource path", () => {
     await Promise.all([sync(running.alice, running.sessionA, "sync-fail-a0"),
       sync(running.bob, running.sessionB, "sync-fail-b0")]);
     let [viewA, viewB] = await Promise.all([projection(running.alice), projection(running.bob)]);
-    // Six passes reach B's second Main. The three Runes channeled in B's first
-    // Channel Phase are exhausted, so this is the first authoritative window
-    // where B has a ready Rune from the prior Awaken Phase.
+    // Six passes reach A's third Main. Previously channeled Runes have been
+    // readied by Awaken, while the unspent prior pool is empty.
     for (const index of [0, 1, 2, 3, 4, 5]) {
       const view = viewA.activePlayerId === running.sessionA.playerId ? viewA : viewB;
       const client = view.activePlayerId === running.sessionA.playerId ? running.alice : running.bob;

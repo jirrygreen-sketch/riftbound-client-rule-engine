@@ -234,6 +234,49 @@ describe("RIFT-861 real MatchRuntime Basic Rune resources", () => {
     expect(duplicate.projection.players.find(player => player.playerId === "A")?.energy).toBe(1);
   }, 120_000);
 
+  it("recycles a ready Order Rune during B's legal Main and adds only Order Power of that Rune", () => {
+    const deckA = m1Deck("rumble-sfd");
+    const deckB = m1Deck("fiora-sfd");
+    const runtime = createEngineRuntime({
+      matchId: "duel:r861-power-priority", roomId: "r861-power-priority",
+      decks: [deckA, deckB], seed: "r861-1", firstPlayer: "A", programs: programs(deckA, deckB),
+    }).start();
+    // Pass sequence: A, B, A, B, A reaches B's second Main. Awaken has readied
+    // the Runes channeled in B's previous turn.
+    toMain(runtime, 5);
+    const view = runtime.projectFor("B");
+    expect(view.activePlayerId).toBe("B");
+    expect(view.phase).toBe("main");
+    const orderRune = readyRunes(runtime, "B").find(rune => rune.name === "Order Rune");
+    expect(orderRune).toBeTruthy();
+    const runeDeckBefore = view.zones.find(zone => zone.zone === "rune-deck" && zone.ownerPlayerId === "B")!.count;
+    const runeZoneBefore = view.zones.find(zone => zone.zone === "rune-zone" && zone.ownerPlayerId === "B")!.count;
+    const energyBefore = view.players.find(player => player.playerId === "B")!.energy;
+    const result = runtime.submit("B", {
+      type: "rune-power", commandId: "priority-order-power", stateVersion: view.stateVersion,
+      runeObjectId: orderRune!.objectId, zoneEntryId: orderRune!.zoneEntryId!,
+    });
+    expect(result.receipt.status, JSON.stringify(result.receipt)).toBe("accepted");
+    expect(result.receipt.result).toMatchObject({
+      resource: "power", energyAdded: 0, powerAdded: ["Order"], runeZoneAfter: "rune-deck",
+    });
+    expect(result.projection.players.find(player => player.playerId === "B")).toMatchObject({
+      energy: energyBefore, power: { Order: 1 },
+    });
+    // Rune Deck order and identities are intentionally never projected, even
+    // to the owner. The receipt names the recycled incarnation and the public
+    // pool transition proves the same operation did not add Energy.
+    expect(result.receipt.result).toMatchObject({
+      runeAfter: orderRune!.objectId.startsWith("token:")
+        ? { id: orderRune!.objectId, zoneEntryId: orderRune!.zoneEntryId! + 1 }
+        : {},
+    });
+    expect(result.projection.zones.find(zone => zone.zone === "rune-deck" && zone.ownerPlayerId === "B"))
+      .toMatchObject({ count: runeDeckBefore + 1 });
+    expect(result.projection.zones.find(zone => zone.zone === "rune-zone" && zone.ownerPlayerId === "B"))
+      .toMatchObject({ count: runeZoneBefore - 1 });
+  }, 120_000);
+
   it("rejects a Power Request outside an authoritative Priority or parent payment window", () => {
     const deckA = m1Deck("rumble-sfd");
     const deckB = m1Deck("fiora-sfd");
