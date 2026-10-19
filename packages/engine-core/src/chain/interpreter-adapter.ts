@@ -11,11 +11,32 @@ import { bindResolveContext } from '../events/action-adapter.js';
  * its own schema validation and executes with the interpreter's scoped ctx.
  * This is a local runtime adapter, never a rewrite of card data or journals.
  */
+function targetObjectSelector(instruction: Instruction): Expr | undefined {
+  if (!GRANT_OBJECT_OPS.has(instruction.op)) return undefined;
+  const raw = instruction.args as Record<string, Expr>;
+  // An authored selector is authoritative. Do not manufacture a second one
+  // for source/pick/choose/query forms or for multi-target instructions.
+  if (SELECTOR_FIELDS.some(key => raw[key] !== undefined) || raw.appliesTo !== undefined) return undefined;
+  const targets = instruction.targets ?? [];
+  if (targets.length !== 1 || typeof targets[0]?.id !== 'string') return undefined;
+  return { kind: 'constant', value: { kind: 'target', id: targets[0].id } as Value };
+}
+
 function prepare(body: readonly Instruction[]): Instruction[] {
   return body.map(instruction => {
-    if (instructionDefinitionsById.has(instruction.op)) return {
-      ...instruction, args: { primitiveArgs: { kind: 'constant', value: instruction.args as unknown as Value } }
-    };
+    if (instructionDefinitionsById.has(instruction.op)) {
+      const selector = targetObjectSelector(instruction);
+      const authored = instruction.args as Record<string, Expr>;
+      return {
+        ...instruction,
+        args: {
+          primitiveArgs: {
+            kind: 'constant',
+            value: (selector === undefined ? authored : { ...authored, objects: selector }) as unknown as Value
+          }
+        }
+      };
+    }
     const args = Object.fromEntries(Object.entries(instruction.args).map(([key, expr]) => {
       if ((expr.kind === 'constant' || expr.kind === 'literal') && key === 'body' && Array.isArray(expr.value)) return [key, { ...expr, value: prepare(expr.value as unknown as readonly Instruction[]) }];
       if ((expr.kind === 'constant' || expr.kind === 'literal') && key === 'modes' && Array.isArray(expr.value)) return [key, { ...expr, value: expr.value.map(mode => {
@@ -41,6 +62,10 @@ const LITERAL_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'effect.play': ['target', 'pick', 'choice', 'linkKey'],
   'effect.recycle': ['target', 'from'],
   'effect.reveal': ['target', 'pick', 'choiceId'],
+  // The Shield Value reader takes a symbolic object selector and its stable
+  // receipt key. Both are literal metadata for the primitive schema; the
+  // selector may itself contain a dynamic linked instruction reference.
+  'effect.shield-value': ['object', 'linkKey'],
   'effect.stun': ['target', 'pick', 'choose'],
   'effect.zone': ['target', 'pick', 'choice'],
   'effect.repeat': ['actions', 'action', 'effect', 'choices', 'choice', 'linkKey', 'resultKey'],
@@ -49,11 +74,22 @@ const LITERAL_FIELDS: Readonly<Record<string, readonly string[]>> = {
     'baseModifications', 'optionalAdditional', 'mandatoryAdditional',
     'discountOrder', 'modifier', 'modifiers', 'ignoreAllCosts', 'linkKey'
   ],
-  'continuous.might': ['target', 'pick', 'choose', 'filter'],
-  'continuous.combat': ['target', 'pick', 'choose', 'filter'],
-  'continuous.keyword': ['target', 'pick', 'choose', 'filter'],
-  'continuous.grant-keyword': ['target', 'pick', 'choose', 'filter']
+  'continuous.might': ['target', 'pick', 'choose', 'objects', 'filter'],
+  'continuous.combat': ['target', 'pick', 'choose', 'objects', 'filter'],
+  'continuous.keyword': ['target', 'pick', 'choose', 'objects', 'filter'],
+  'continuous.grant-keyword': ['target', 'pick', 'choose', 'filter'],
+  'continuous.bonus-damage': ['target'],
+  'continuous.lethal-threshold': ['target'],
+  'continuous.modify-might-reduction': ['target']
 };
+
+// These schemas accept a concrete TargetSpec id directly. Only those declared
+// fields are unwrapped; filter, amount, appliesTo and scope remain Expr values
+// and are evaluated by the interpreter at the documented timing.
+const GRANT_OBJECT_OPS: ReadonlySet<string> = new Set([
+  'continuous.grant-keyword', 'continuous.might', 'continuous.combat', 'continuous.keyword'
+]);
+const SELECTOR_FIELDS = ['target', 'pick', 'choose', 'objects', 'filter'] as const;
 function primitiveArgs(op: string, value: unknown, definition: InstructionDef<unknown>): unknown {
   const raw = { ...(value as { primitiveArgs: Record<string, unknown> }).primitiveArgs };
   for (const key of LITERAL_FIELDS[op] ?? []) {
