@@ -1,7 +1,7 @@
 import type { Ability } from '@riftbound/card-dsl';
 import type { ChainEngine } from '../../chain/engine.js';
 import type { ObjectSnapshot } from '../../effects/contract.js';
-import { effectCondition, layerSpec, normalizeStaticFilter, record } from './model.js';
+import { bindingSource, effectCondition, layerSpec, normalizeStaticFilter, record } from './model.js';
 
 type StaticAbility = Extract<Ability, { kind: 'static' }>;
 
@@ -21,16 +21,14 @@ export function registerAbilityGrant(
     throw new TypeError('Ability-grant adapter requires a grant or ignore effect');
   }
   const filter = normalizeStaticFilter(effect.filter);
-  const condition = effectCondition(engine, ability, source, filter);
-  const currentCondition = ability.condition === undefined ? undefined : (object: ObjectSnapshot): boolean => {
-    const live = engine.pipeline.host.objects().find(candidate => candidate.ref.id === source.ref.id && candidate.cardId === source.cardId);
-    if (live === undefined || !effectCondition(engine, ability, live, filter)?.(object)) return false;
-    return true;
-  };
+  const authoredCondition = effectCondition(engine, ability, source, filter);
+  const condition = (object: ObjectSnapshot): boolean =>
+    bindingSource(engine, source) !== null && (authoredCondition === undefined || authoredCondition(object));
   const { duration } = layerSpec(engine, ability, source, id, 'ability', filter, {
     ...effect,
     filter,
-    ...(condition === undefined ? {} : { staticCondition: currentCondition ?? condition }),
+    condition,
+    staticCondition: condition,
   });
   engine.layers.addContinuous({
     id,
@@ -40,7 +38,8 @@ export function registerAbilityGrant(
     effect: {
       ...effect,
       filter,
-      ...(condition === undefined ? {} : { staticCondition: currentCondition ?? condition }),
+      condition,
+      staticCondition: condition,
     } as never,
   }, duration);
   return { unbind: () => { engine.layers.removeContinuous(id); } };
