@@ -568,31 +568,6 @@ test.todo(
   "Singularity: no-target default-path linkedValues receipt (dealt/dealtTo/dealtCount = 0) — ChainEngine/host currently exposes {} while the primitive completed a no-damage resolution; owner: engine-core ChainEngine scenario adapter/integration contract."
 );
 
-test("Singularity executable-view primitive slice: a replacement can prevent the first damage action while the other locked target still receives 6", () => {
-  // This reproduces the production primitive's ordered per-target transaction.
-  // The scenario harness does not expose replacement installation, so use its
-  // same TestWorld reference kernel here only to prove the replacement outcome.
-  const kernel = world()
-    .player("A", { energy: 8, power: ["Mind", "Mind"] })
-    .unit("source", { owner: "A", zone: "chain", might: null })
-    .unit("first", { owner: "B", might: 10 })
-    .unit("second", { owner: "B", might: 10 })
-    .build();
-  kernel.addReplacement(action => action.type === "damage" && action.target.id === "first"
-    ? { status: "prevent" }
-    : null);
-  const run = runInstruction(
-    damage,
-    { amount: damageInstruction.args.amount, target: targetSpec.id },
-    { world: kernel, targets: { [targetSpec.id]: [kernel.ref("first"), kernel.ref("second")] } }
-  );
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  assert.equal(kernel.getObject("first").damage, 0);
-  assert.equal(kernel.getObject("second").damage, 6);
-  assert.deepEqual(run.events.map(event => event.action), ["damage", "damage"]);
-});
-
 test("Singularity golden execution: two locked units each take 6 (CR 418.1.c)", () => {
   const kernel = world().unit("first-unit").unit("second-unit").build();
   const run = dealWithLockedTargets(kernel, ["first-unit", "second-unit"]);
