@@ -27,7 +27,8 @@ function runtime(builder, programs = [], chooseOverride) {
     asked.push(request);
     const answer = chooseOverride?.(request);
     if (answer !== undefined) return answer;
-    if (request.type === 'mode' || request.type === 'order') return request.options[0];
+    if (request.type === 'mode') return request.options[0];
+    if (request.type === 'order') return [...request.options];
     if (request.type === 'optional') return true;
     if (request.type === 'select-objects' && request.min === request.max && request.options.length === request.min) return [...request.options];
     throw new AwaitChoice(request);
@@ -155,6 +156,24 @@ test('ordinary and typed multi-source Kill batches install exact sources, scan o
   }
 });
 
+test('an illegal typed Kill batch is rejected without publishing deaths or pending triggers', () => {
+  const observer = card('observer', [{
+    kind: 'triggered', trigger: { at: 'object-killed', filter: {} }, optional: false,
+    body: [{ id: 'observer.draw', op: 'effect.draw', args: { amount: constant(1) } }],
+  }]);
+  const f = runtime(world().player('A').player('B')
+    .hand('left', { cardId: 'observer' }).hand('right', { cardId: 'observer' }), [observer]);
+  const refs = [f.kernel.ref('left'), f.kernel.ref('right')];
+  const eventsBefore = f.engine.pipeline.events.length;
+  const outcome = f.engine.pipeline.commitContract(killBatch(refs, 'illegal-wave'));
+  assert.equal(outcome.status, 'impossible');
+  assert.deepEqual([f.kernel.getObject('left').ref, f.kernel.getObject('right').ref], refs);
+  assert.equal(f.engine.items.length, 0);
+  assert.equal(f.engine.pipeline.events.length, eventsBefore);
+  assert.equal(f.engine.pipeline.checkpoint().triggers.size, 0);
+  f.lifecycle.detach();
+});
+
 test('a replaced Kill never collects its Deathknell trigger and leaves the original registration intact', () => {
   const sourceProgram = admitted(undercoverAgent);
   const f = runtime(world().player('A').player('B').hand('agent', { cardId: sourceProgram.canonicalCardId, types: ['unit'] }), [sourceProgram]);
@@ -194,6 +213,8 @@ test('detach restores every hook and original IR remains judge-required', () => 
   const f = runtime(world().player('A').player('B').unit('treasure', {
     cardId: treasureTrove.canonicalCardId, types: ['gear'], energy: null, power: null,
   }).deck(['draw-a'], { owner: 'A' }).rune(['rune-a'], { owner: 'A' }), [admitted(treasureTrove)]);
+  assert.equal(f.kernel.getObject('treasure').energy, null);
+  assert.equal(f.kernel.getObject('treasure').power, null);
   const hooks = ['emitBatch', 'commit', 'commitContract', 'onEvent', 'deferTriggerScan'];
   const originalHooks = Object.fromEntries(hooks.map(hook => [hook, f.engine.pipeline[hook]]));
   f.lifecycle.detach();
