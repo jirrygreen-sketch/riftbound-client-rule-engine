@@ -44,6 +44,7 @@ describe("M1 headless dual-bot regression", () => {
     expect(summary.results.every(result => result.judgeRequiredRejections >= 0)).toBe(true);
     expect(summary.actionCoverage.commands.concede).toBe(0);
     expect(summary.judgeRequiredCardCounts.length).toBeGreaterThan(0);
+    expect(summary.results.every(result => /^[0-9a-f]{64}$/.test(result.journalDigest))).toBe(true);
   }, 600_000);
 
   it("builds the four JSON-backed M1 deck shapes without changing printed null costs", () => {
