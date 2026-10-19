@@ -1523,9 +1523,9 @@
         "ability": "When a unit you control becomes [Mighty], you may pay :rb_rune_order: to ready it. (A unit is Mighty while it has 5+ :rb_might:.)"
       },
       "programStatus": "executable",
-      "verificationStatus": "merged-awaiting-acceptance",
+      "verificationStatus": "contract-request-required",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
+      "planEvidenceGap": "status executable is not proof; parent full-seed probe blocks on Unsupported filter field becomesMighty; printed optional Order Power payment has no IR instruction",
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
         "sha256": "1a1cc1e25845c56e853d1d22e0db1eae727060d97771ab0b14fb1f5fc37064f6"
@@ -1537,7 +1537,101 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [
+        {
+          "key": "might-changed-becomes-mighty-trigger-binding",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/programs/filters.ts",
+            "packages/engine-core/src/events/pipeline-match.ts",
+            "packages/engine-core/src/events/pipeline-types.ts",
+            "packages/engine-core/src/events/action-adapter.ts",
+            "packages/engine-core/src/events/producers/might-change.ts"
+          ],
+          "gapLabels": [
+            "EG-TRIGGERS",
+            "EG-FILTER",
+            "EG-PAYLOAD",
+            "EG-EVENTS"
+          ],
+          "reason": "translateObjectFilter rejects becomesMighty. The production trigger path must consume the authoritative might-changed previousMight/currentMight payload, match only controller=you and the <5 to >=5 transition, and preserve the event object/it identity.",
+          "evidence": {
+            "parentProbe": "/root/swarm-rift/shared/parent-reviews/integration-f036b0e5-20261019-0745/full-seed-probe.json",
+            "parentProbeSha256": "e366720c974fcda8c18ccd742ef347386c071acc7cbed566be8af966d38c6c23",
+            "observedBlocker": "ProgramBindingError: Unsupported filter field becomesMighty"
+          }
+        },
+        {
+          "key": "event-it-authoritative-bridge",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/programs/trigger-adapters/event-it.ts",
+            "packages/engine-core/src/events/pipeline-types.ts",
+            "packages/engine-core/src/chain/engine.ts",
+            "packages/engine-core/src/effects/interpreter/selectors.ts"
+          ],
+          "gapLabels": [
+            "EG-TRIGGERS",
+            "EG-CONTRACT",
+            "EG-FINALIZE"
+          ],
+          "reason": "The trigger must ready the exact unit that became Mighty. Production Finalize must install the frozen event:it binding from that trigger event; a current-id lookup or source lookup would be wrong after incarnation/control changes.",
+          "evidence": {
+            "frozenBindingPath": "packages/engine-core/src/programs/trigger-adapters/event-it.ts",
+            "existingContractTest": "packages/engine-core/test/engine-gaps/event-it-contract.test.mjs",
+            "existingBridgeStatus": "event-it ready fails closed until the 835 bridge"
+          }
+        },
+        {
+          "key": "triggered-optional-order-power-finalize",
+          "owner": "parent-and-engine-core",
+          "state": "contract-request-required",
+          "paths": [
+            "packages/card-dsl/src/ir/types.ts",
+            "packages/engine-core/src/programs/triggers.ts",
+            "packages/engine-core/src/programs/trigger-adapters/finalize-cost.ts",
+            "packages/engine-core/src/chain/engine.ts"
+          ],
+          "gapLabels": [
+            "EG-TRIGGERS",
+            "EG-COSTCHOICE",
+            "EG-FINALIZE"
+          ],
+          "reason": "TriggeredAbility currently has no cost field. The printed optional one Order Power payment must become real IR, then be asked/paid/rolled back at Finalize before Resolve. This needs a parent-owned additive contract change plus the engine-core Finalize consumer.",
+          "evidence": {
+            "programPath": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+            "programSha256": "1a1cc1e25845c56e853d1d22e0db1eae727060d97771ab0b14fb1f5fc37064f6",
+            "observedIrInstructionCount": 1,
+            "observedOps": [
+              "effect.ready"
+            ],
+            "missingPaymentInstruction": true,
+            "triggeredAbilityCostFieldPresent": false
+          },
+          "contractRequest": {
+            "type": "additive-ir-and-wire-contract",
+            "requestedBy": "RIFT-857",
+            "status": "requested-not-approved",
+            "targetOwners": [
+              "parent-contract-owner",
+              "engine-core-finalize-owner"
+            ],
+            "proposedShape": {
+              "field": "TriggeredAbility.cost?: CostSpec",
+              "flow": "translate to TriggerRegistration.cost; ask/decline/pay at Finalize; preserve rollback; do not change old schemas or replays"
+            },
+            "compatibility": "Additive optional field only; old journals/profiles 1-9 and existing CardPrograms remain unchanged.",
+            "minimumAcceptance": [
+              "decline pays nothing",
+              "chosen Order Power paid exactly once",
+              "unpayable payment rolls back atomically",
+              "Resolve never re-prompts for cost"
+            ]
+          }
+        }
+      ]
     },
     {
       "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
@@ -3889,10 +3983,11 @@
     },
     "verificationStatus": {
       "dependency-not-ready": 24,
-      "missing-source-evidence": 1,
-      "merged-awaiting-acceptance": 21,
+      "merged-awaiting-acceptance": 20,
+      "contract-request-required": 1,
+      "blocked-source-conflict": 1,
       "verified-no-ability": 4,
-      "blocked-source-conflict": 1
+      "missing-source-evidence": 1
     },
     "nullEnergyCardCount": 12,
     "nullPowerCardCount": 33,
@@ -3901,11 +3996,15 @@
       "token-entry-deathknell": 4,
       "production-lifecycle-keyword-reexpansion": 4,
       "cost-repeat-additional-cost": 5,
+      "might-changed-becomes-mighty-trigger-binding": 1,
+      "event-it-authoritative-bridge": 1,
+      "triggered-optional-order-power-finalize": 1,
       "mighty-query-consumer": 4,
       "nontarget-picks-equipment": 3,
       "legion-history-condition": 1
     },
-    "dependencyMappingCount": 32
+    "dependencyMappingCount": 35,
+    "contractChangeRequests": 1
   },
   "proofPolicy": {
     "programStatusIsNotExecutionProof": true,
@@ -3925,193 +4024,123 @@
       "all player and spectator privacy checks pass"
     ],
     "mergedAwaitingAcceptanceGoldens": {
-      "cardsWithTodo": 20,
-      "todoCount": 24,
+      "cardsWithTodo": 19,
+      "todoCount": 23,
       "note": "A test.todo is retained evidence of an unfinished boundary. It is not an execution pass and does not prevent the card from being represented as merged-awaiting-acceptance.",
       "cards": [
         {
           "canonicalCardId": "card.hash-0ba141b975db96cac65aab56bfd7dbb63904c538cc3d9c32bdfb3b2d98e486de",
           "name": "Royal Guard",
           "path": "packages/card-dsl/test/cards/sfd/royal-guard.test.mjs",
-          "todoCount": 1,
-          "todos": [
-            "\"sfd-157-221 Royal Guard: mode \\\"play\\\"（440.2.c 链上生成 + effect.play 打出流程）\" + \"依赖链上 token 创建与打出管线（RIFT-26 scenarios-chain / RIFT-66+ effect.play 完整化）； \" + \"当前 effect.token 对 mode \\\"play\\\" 显式 blocked（token-play-requires-chain-creation）\""
-          ]
+          "todoCount": 1
         },
         {
           "canonicalCardId": "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b",
           "name": "Singularity",
           "path": "packages/card-dsl/test/cards/ogn/singularity.test.mjs",
-          "todoCount": 1,
-          "todos": [
-            "\"Singularity: Finalize-time target selection, the 0..2 cap enforcement, became-target \" + \"triggers, and target legality re-verification belong to the target system (RIFT-90).\""
-          ]
+          "todoCount": 1
         },
         {
           "canonicalCardId": "card.hash-1504d8f14af5ce1b9f7a3663c23e6ef7cb57d59a6274dc921cd9296ee8e2494b",
           "name": "Production Surge",
           "path": "packages/card-dsl/test/cards/sfd/production-surge.test.mjs",
-          "todoCount": 2,
-          "todos": [
-            "\"Production Surge: applying the conditional -2 energy reduction at Finalize needs the \" + \"cost modification consumer in the cost plan (RIFT-89) and the layers condition \" + \"evaluation of 'you control a Mech' (RIFT-91).\"",
-            "\"Production Surge: actually playing the Mech token needs create-token's chain \" + \"destination plus the effect.play handoff (440.2.c / 185.2.a / 350.2 / 354, contract \" + \"changelog RIFT-62; effect.token RIFT-63 follow-up).\""
-          ]
-        },
-        {
-          "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
-          "name": "Fiora, Worthy",
-          "path": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
-          "todoCount": 1,
-          "todos": [
-            "\"sfd-180-221 Fiora, Worthy: \\\"becomes Mighty\\\" 的事件化（might-changed 时点的 \" + \"previousMight/currentMight → becomesMighty 过滤，CR 709）依赖触发管线与图层结算 \" + \"（RIFT-33 scenarios-triggers / RIFT-32 scenarios-layers）；:rb_rune_order: 符文费用 \" + \"的 Finalize 询问与支付依赖费用管线（RIFT-27 scenarios-costs）\""
-          ]
+          "todoCount": 2
         },
         {
           "canonicalCardId": "card.hash-2ebf1fe6e5ed7bb875f1c112b3e0ed1635b557c0c0ad550d752b8dd376243007",
           "name": "Consult the Past",
           "path": "packages/card-dsl/test/cards/ogn/consult-the-past.test.mjs",
-          "todoCount": 1,
-          "todos": [
-            "\"Consult the Past: Hide for [A] and the facedown Reaction play window need the Hidden \" + \"keyword expansion and facedown-zone support (RIFT-84), plus chain Closed/Open timing \" + \"permissions (RIFT-85 expansion lands with the layers/chain consumers in RIFT-91).\""
-          ]
+          "todoCount": 1
         },
         {
           "canonicalCardId": "card.hash-34880fcae16bd9461e4c318dfb455365ff9e353db357f948b4a15dea7e01b389",
           "name": "Bubble Bot",
           "path": "packages/card-dsl/test/cards/sfd/bubble-bot.test.mjs",
-          "todoCount": 1,
-          "todos": [
-            "\"execute ready-mech through the merged effect.ready primitive with a friendly Mech target (blocked on target resolution, RIFT-81)\""
-          ]
+          "todoCount": 1
         },
         {
           "canonicalCardId": "card.hash-600e0796e82099284b213e87b112b1c5df42777ef72b70a3b4cd49a84d27dd10",
           "name": "Void Seeker",
           "path": "packages/card-dsl/test/cards/ogn/void-seeker.test.mjs",
-          "todoCount": 1,
-          "todos": [
-            "\"Void Seeker full chain play: spell cast pays 3 energy + 1 Fury power and [Action] showdown \" + \"permission is enforced (依赖 RIFT-82 费用系统 / RIFT-81 目标解析 / RIFT-89 continuous.timing)\""
-          ]
+          "todoCount": 1
         },
         {
           "canonicalCardId": "card.hash-8d49727ab9ae782b8a21802c9ae0b51e5d712a37a072d991629bfbf3645535b3",
           "name": "Punch First",
           "path": "packages/card-dsl/test/cards/sfd/punch-first.test.mjs",
-          "todoCount": 2,
-          "todos": [
-            "\"sfd-097-221 Punch First: the printed [Action] Showdown admission (806.1.b/806.1.c) needs the chain's \" + \"canAct check to read the merged continuous.timing grant (CR 806 / 159.2.a) — RIFT-259 query + RIFT-257 binding\"",
-            "\"sfd-097-221 Punch First: the end-of-turn expiry in the real turn flow (317.1.a / 468.7.c) is applied by \" + \"layers/duration at the turn-end timing point; the golden asserts the registered end-of-turn duration\""
-          ]
+          "todoCount": 2
         },
         {
           "canonicalCardId": "card.hash-902c6a1366a1a0e653ccb65102ff621b109af3b0b40f5bbeb7d8d3a5aeae2322",
           "name": "Warmog's Armor",
           "path": "packages/card-dsl/test/cards/sfd/warmogs-armor.test.mjs",
-          "todoCount": 1,
-          "todos": [
-            "\"Warmog's Armor: Equip keyword expansion (Body power cost, controlled-unit target, effect.attach body) is owned by the engine keyword registry (RIFT-81~91)\""
-          ]
+          "todoCount": 1
         },
         {
           "canonicalCardId": "card.hash-959c19d68f06f8f929625bfde93a1132701da5a5d0b49e91583db341384f0bfe",
           "name": "B.F. Sword",
           "path": "packages/card-dsl/test/cards/sfd/bf-sword.test.mjs",
-          "todoCount": 1,
-          "todos": [
-            "\"B.F. Sword: Equip keyword expansion (Order power cost, controlled-unit target, effect.attach body) is owned by the engine keyword registry (RIFT-81~91)\""
-          ]
+          "todoCount": 1
         },
         {
           "canonicalCardId": "card.hash-a1ee07f71d453092ab7d54f9491684e972b735b22bb1f3fda73f2641bcedbfe1",
           "name": "Doran's Blade",
           "path": "packages/card-dsl/test/cards/sfd/dorans-blade.test.mjs",
-          "todoCount": 1,
-          "todos": [
-            "\"Doran's Blade: Equip keyword expansion (Body power cost, controlled-unit target, effect.attach body) is owned by the engine keyword registry (RIFT-81~91)\""
-          ]
+          "todoCount": 1
         },
         {
           "canonicalCardId": "card.hash-afc40c373a9fb4e48492323d7af26d3a58b824c385707dd3c269e97fee236103",
           "name": "Unsung Hero",
           "path": "packages/card-dsl/test/cards/sfd/unsung-hero.test.mjs",
-          "todoCount": 1,
-          "todos": [
-            "\"sfd-167-221 Unsung Hero: Deathknell keyword expansion (订阅 object-killed、808.1.d.1 \" + \"死亡被替代时移出链、808.1.d.3 进链前记录 last-known) 依赖关键词注册表与触发管线\" + \"（RIFT-81~91 关键词任务）；触发条件的 might-changed/Mighty 判定依赖图层结算\" + \"（RIFT-32 scenarios-layers）\""
-          ]
+          "todoCount": 1
         },
         {
           "canonicalCardId": "card.hash-cab923a670e4baa826aa3de381c8b992bf33987fcb0d65feb75ca538a8681010",
           "name": "Long Sword",
           "path": "packages/card-dsl/test/cards/sfd/long-sword.test.mjs",
-          "todoCount": 2,
-          "todos": [
-            "\"Long Sword: Equip keyword expansion (action-speed activated ability, Fury power cost, controlled-unit target, effect.attach body) is owned by the engine keyword registry (RIFT-81~91)\"",
-            "\"Long Sword: Quick-Draw keyword expansion (inherent Reaction plus a card-played trigger that attaches to a unit you control) is owned by the engine keyword registry (RIFT-81~91)\""
-          ]
+          "todoCount": 2
         },
         {
           "canonicalCardId": "card.hash-ccfc067dad8a1bf92c6ae1aa5f7110e9d211a1842a9254bb9320705c2f96c6c4",
           "name": "Grand Duelist",
           "path": "packages/card-dsl/test/cards/sfd/grand-duelist.test.mjs",
-          "todoCount": 2,
-          "todos": [
-            "\"trigger registration at might-changed with becameMighty predicate and optional (may) choice — pending trigger/choice engine (RIFT-81~91)\"",
-            "\"full trigger body: exhaust-self as cost-like sequencing gating the linked channel — pending effect.exhaust primitive (RIFT-81~91)\""
-          ]
+          "todoCount": 2
         },
         {
           "canonicalCardId": "card.hash-cf0b322a78010676e3d8b287830194a3bdc8970e65a141578ae8a3074ebd956f",
           "name": "Dauntless Vanguard",
           "path": "packages/card-dsl/test/cards/sfd/dauntless-vanguard.test.mjs",
-          "todoCount": 1,
-          "todos": [
-            "\"sfd-093-221 Dauntless Vanguard: occupied-enemy-battlefield play destination is accepted \" + \"by Finalize once the layers/continuous-effect consumer for play-location-permission \" + \"lands (RIFT-32 scenarios-layers / RIFT-27 scenarios-costs 打出位置校验)\""
-          ]
+          "todoCount": 1
         },
         {
           "canonicalCardId": "card.hash-d3579e6825470471f5ce05c53533806a5244c5e84364fe57b2aab0b7cc0f14e0",
           "name": "Sacred Shears",
           "path": "packages/card-dsl/test/cards/sfd/sacred-shears.test.mjs",
-          "todoCount": 1,
-          "todos": [
-            "\"Sacred Shears: Equip keyword expansion (Order power cost, controlled-unit target, effect.attach body) is owned by the engine keyword registry (RIFT-81~91)\""
-          ]
+          "todoCount": 1
         },
         {
           "canonicalCardId": "card.hash-d490b51d08bdd7f97b1708aabfa6309995106f10de815b6fd927368e4a630569",
           "name": "Assembly Rig",
           "path": "packages/card-dsl/test/cards/sfd/assembly-rig.test.mjs",
-          "todoCount": 1,
-          "todos": [
-            "\"Assembly Rig: energy/Fury-power payment, the recycle-a-unit-from-trash cost, and source exhaustion are charged at Finalize by the chain (RIFT-81~91)\""
-          ]
+          "todoCount": 1
         },
         {
           "canonicalCardId": "card.hash-e2638655ff5ed3a1e60a501be3c23d74e46ef7f1900bed31b436f1a579b316ed",
           "name": "Pit Rookie",
           "path": "packages/card-dsl/test/cards/ogn/pit-rookie.test.mjs",
-          "todoCount": 1,
-          "todos": [
-            "\"Target legality at Finalize: exclude Pending chain items and re-check 'another friendly unit' \" + \"when the trigger goes on the chain (RIFT-8x target/chain workstream)\""
-          ]
+          "todoCount": 1
         },
         {
           "canonicalCardId": "card.hash-f67321dac096b3ad1e49b55231663e26f3f9d96efafe79d75719a6eb72fc5caa",
           "name": "Vengeance",
           "path": "packages/card-dsl/test/cards/ogn/vengeance.test.mjs",
-          "todoCount": 1,
-          "todos": [
-            "\"ogn-229-298 Vengeance: full chain play (cost payment, Action timing admission, became-target trigger emission) — depends on the chain/cost integration tasks RIFT-84/RIFT-85 (cost.printed + chain admission).\""
-          ]
+          "todoCount": 1
         },
         {
           "canonicalCardId": "card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7",
           "name": "Mechanized Menace",
           "path": "packages/card-dsl/test/cards/sfd/mechanized-menace.test.mjs",
-          "todoCount": 1,
-          "todos": [
-            "\"layer evaluation of grant-keyword (Mech units gain Shield 1; +1 might while defenders) — pending Shield KeywordDef / layers expansion (RIFT-81~91)\""
-          ]
+          "todoCount": 1
         }
       ]
     }
@@ -4259,8 +4288,8 @@
       "cardName": "Ferrous Forerunner",
       "cardProgramStatus": "judge-required",
       "reason": "runHeadlessGame threw during initialization before the first command; no game result was attempted, so attemptedGames remains 0. Seeds 002-100 are not attempted.",
-      "observedAt": "2026-10-19T07:14Z",
-      "evidencePath": "/tmp/RIFT-857-m1-two-precons-acceptance/probe-final.json",
+      "observedAt": "2026-10-19T08:22:33Z",
+      "evidencePath": "/tmp/RIFT-857-m1-two-precons-acceptance/probe-current.json",
       "evidenceSha256": "d748ff5192d2cd0f1f8ca525cb62fe8e233d22d815a2b596e770b78c7e86999c"
     },
     "existingRegression": {
@@ -4271,16 +4300,30 @@
     }
   },
   "lifecycleSetupEvidence": {
-    "mergedCommits": [
-      "75b000695c208267c5460a5a909dafa1be4f7e4c",
-      "21c9cb1524f38bb47779e3baf29d49488292e9e6"
-    ],
-    "currentAncestry": true,
-    "nonAncestorObserved": "cd266f2bffe2dff9cd2851e647f00aa4c3e7b361",
-    "focusedTest": "packages/engine-core/test/engine-gaps/lifecycle.test.mjs",
-    "lifecyclePath": "packages/engine-core/src/programs/lifecycle.ts",
-    "lifecycleSha256": "59aa7584e929afef458df2a862e643e0462bebbbc4497eec872ff67fa2f1166e",
-    "note": "RIFT-831 setup/leave lifecycle regressions are present in current HEAD. They cover lifecycle boundaries; they do not prove the two full precon programs execute."
+    "currentHead": "f6c0ed7dc002e9e4eae3c667549d1b2b08d2e75a",
+    "reviewHead": "f036b0e5026aba1668ae88be2d74a05abeb55670",
+    "reviewHeadAncestorOfCurrent": false,
+    "requiredNewsourceCommit": "b6dc9debd813125413085a8a301f1ccdec5ef092",
+    "requiredNewsourceAncestorOfCurrent": false,
+    "currentLifecycle": {
+      "path": "packages/engine-core/src/programs/lifecycle.ts",
+      "sha256": "59aa7584e929afef458df2a862e643e0462bebbbc4497eec872ff67fa2f1166e",
+      "test": "packages/engine-core/test/engine-gaps/lifecycle.test.mjs",
+      "testSha256": "4c03026f9610dc9f4ef00c61fc9f254d88770fd23e153d4bd976d7ebc9ce883e"
+    },
+    "requiredNewsource": {
+      "path": "packages/engine-core/src/programs/lifecycle.ts",
+      "sha256": "9172c97c4fcda86998e5ac6d98810ccb56724fdf1d3bd181919270a48512adbd",
+      "test": "packages/engine-core/test/engine-gaps/lifecycle.test.mjs",
+      "testSha256": "1f485460f8dc6921fa331c32a83284e978d72ee3a33575945a3ad689953d2153"
+    },
+    "state": "parent-wiring-required",
+    "owner": "parent",
+    "note": "f6c0ed7d and parent review f036b0e5 do not contain b6dc9deb. The current lifecycle preserves judge-required Board programs and does not include the later secret-zone-only replacement/leave setup fix. Parent must integrate the newsource lifecycle before claiming the refreshed 831 setup boundary.",
+    "focusedLifecycleRegression": {
+      "currentCommand": "pnpm --filter @riftbound/engine-core build && node --test packages/engine-core/test/engine-gaps/lifecycle.test.mjs",
+      "lastResult": "8/8 pass on current source; not evidence for b6dc9deb newsource"
+    }
   },
   "followUpPlan": {
     "order": [
@@ -4348,7 +4391,18 @@
           "packages/engine-core/src/programs/keyword-grants.ts",
           "packages/engine-core/src/programs/statics.ts",
           "packages/engine-core/src/layers/rules/query.ts",
-          "packages/engine-core/src/replacement/bind.ts"
+          "packages/engine-core/src/replacement/bind.ts",
+          "packages/engine-core/src/programs/filters.ts",
+          "packages/engine-core/src/events/pipeline-match.ts",
+          "packages/engine-core/src/events/pipeline-types.ts",
+          "packages/engine-core/src/events/action-adapter.ts",
+          "packages/engine-core/src/events/producers/might-change.ts",
+          "packages/engine-core/src/programs/trigger-adapters/event-it.ts",
+          "packages/engine-core/src/chain/engine.ts",
+          "packages/engine-core/src/effects/interpreter/selectors.ts",
+          "packages/card-dsl/src/ir/types.ts",
+          "packages/engine-core/src/programs/triggers.ts",
+          "packages/engine-core/src/programs/trigger-adapters/finalize-cost.ts"
         ],
         "sourceEvidence": "Judge reasons in the mapped CardPrograms plus current engine source behavior.",
         "cardFiles": [
@@ -4383,17 +4437,32 @@
             "templateGoldens": [
               "packages/card-dsl/test/cards/templates/static-642.test.mjs"
             ]
+          },
+          {
+            "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+            "name": "Fiora, Worthy",
+            "program": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+            "templateGoldens": []
           }
         ],
-        "acceptance": "Production lifecycle does not consume every dynamic keyword and replacement condition. Target tax, Ganking, Vision, Assault designation, and entry-ready gating need real consumers.",
+        "acceptance": "Production lifecycle must consume the listed dynamic keyword and replacement interactions without approximating unsupported semantics.",
         "gapLabels": [
           "EG-GRANTS",
           "EG-KEYWORDS",
           "EG-LAYERS",
           "EG-PERMISSIONS",
           "EG-TAX",
-          "EG-REPLACEMENT"
-        ]
+          "EG-REPLACEMENT",
+          "EG-TRIGGERS",
+          "EG-FILTER",
+          "EG-PAYLOAD",
+          "EG-EVENTS",
+          "EG-CONTRACT",
+          "EG-FINALIZE",
+          "EG-COSTCHOICE"
+        ],
+        "reason": "Fiora, Worthy additionally needs becomesMighty payload/filter matching, the frozen event:it bridge, and an actual optional Order Power payment IR consumed at Finalize."
       },
       {
         "key": "combat-event-payload-location-hold",
@@ -4725,6 +4794,340 @@
         "acceptance": "Resolve the non-reminder printing difference and unmatched functional clause from authoritative card and rule evidence before accepting executable labels. Keep judge-required until evidence and real execution both exist."
       },
       {
+        "key": "status-not-proof-fiora-and-mighty",
+        "state": "dependency-not-ready",
+        "cards": [
+          {
+            "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+            "name": "Fiora, Worthy",
+            "verificationStatus": "contract-request-required",
+            "programStatus": "executable",
+            "program": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+            "name": "Fiora, Peerless",
+            "verificationStatus": "dependency-not-ready",
+            "programStatus": "judge-required",
+            "program": "packages/card-dsl/src/cards/sfd/fiora-peerless.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/fiora-peerless.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+            "name": "Rumble, Hotheaded",
+            "verificationStatus": "dependency-not-ready",
+            "programStatus": "judge-required",
+            "program": "packages/card-dsl/src/cards/sfd/rumble-hotheaded.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab",
+            "name": "Breakneck Mech",
+            "verificationStatus": "dependency-not-ready",
+            "programStatus": "judge-required",
+            "program": "packages/card-dsl/src/cards/sfd/breakneck-mech.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/breakneck-mech.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40",
+            "name": "Forecaster",
+            "verificationStatus": "dependency-not-ready",
+            "programStatus": "judge-required",
+            "program": "packages/card-dsl/src/cards/sfd/forecaster.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/forecaster.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+            "name": "Jaull-Fish",
+            "verificationStatus": "dependency-not-ready",
+            "programStatus": "judge-required",
+            "program": "packages/card-dsl/src/cards/sfd/jaull-fish.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/jaull-fish.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f",
+            "name": "Show of Strength",
+            "verificationStatus": "dependency-not-ready",
+            "programStatus": "judge-required",
+            "program": "packages/card-dsl/src/cards/sfd/show-of-strength.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/show-of-strength.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-c225141f743b61c67ddf269932c6bbdef739f37888f62163906faa7fa1e6dc2b",
+            "name": "Sunken Temple",
+            "verificationStatus": "dependency-not-ready",
+            "programStatus": "judge-required",
+            "program": "packages/card-dsl/src/cards/sfd/sunken-temple.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/sunken-temple.test.mjs"
+          }
+        ],
+        "dependencies": [
+          {
+            "key": "might-changed-becomes-mighty-trigger-binding",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/programs/filters.ts",
+              "packages/engine-core/src/events/pipeline-match.ts",
+              "packages/engine-core/src/events/pipeline-types.ts",
+              "packages/engine-core/src/events/action-adapter.ts",
+              "packages/engine-core/src/events/producers/might-change.ts"
+            ],
+            "gapLabels": [
+              "EG-TRIGGERS",
+              "EG-FILTER",
+              "EG-PAYLOAD",
+              "EG-EVENTS"
+            ],
+            "cardFiles": [
+              {
+                "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+                "name": "Fiora, Worthy",
+                "program": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+                "golden": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+                "templateGoldens": []
+              }
+            ]
+          },
+          {
+            "key": "event-it-authoritative-bridge",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/programs/trigger-adapters/event-it.ts",
+              "packages/engine-core/src/events/pipeline-types.ts",
+              "packages/engine-core/src/chain/engine.ts",
+              "packages/engine-core/src/effects/interpreter/selectors.ts"
+            ],
+            "gapLabels": [
+              "EG-TRIGGERS",
+              "EG-CONTRACT",
+              "EG-FINALIZE"
+            ],
+            "cardFiles": [
+              {
+                "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+                "name": "Fiora, Worthy",
+                "program": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+                "golden": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+                "templateGoldens": []
+              }
+            ]
+          },
+          {
+            "key": "triggered-optional-order-power-finalize",
+            "owner": "parent-and-engine-core",
+            "state": "contract-request-required",
+            "paths": [
+              "packages/card-dsl/src/ir/types.ts",
+              "packages/engine-core/src/programs/triggers.ts",
+              "packages/engine-core/src/programs/trigger-adapters/finalize-cost.ts",
+              "packages/engine-core/src/chain/engine.ts"
+            ],
+            "gapLabels": [
+              "EG-TRIGGERS",
+              "EG-COSTCHOICE",
+              "EG-FINALIZE"
+            ],
+            "cardFiles": [
+              {
+                "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+                "name": "Fiora, Worthy",
+                "program": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+                "golden": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+                "templateGoldens": []
+              }
+            ]
+          },
+          {
+            "key": "combat-event-payload-location-hold",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/combat/flow.ts",
+              "packages/engine-core/src/turn/flow.ts",
+              "packages/engine-core/src/events/pipeline-match.ts",
+              "packages/engine-core/src/events/trigger-spec.ts",
+              "packages/engine-core/src/programs/filters.ts"
+            ],
+            "gapLabels": [
+              "EG-COMBAT",
+              "EG-COMBATPRIORITY",
+              "EG-PAYLOAD",
+              "EG-FILTER",
+              "EG-EVENTS",
+              "EG-TURN",
+              "EG-LOCATIONS",
+              "EG-MOVE"
+            ],
+            "cardFiles": [
+              {
+                "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+                "name": "Fiora, Peerless",
+                "program": "packages/card-dsl/src/cards/sfd/fiora-peerless.ts",
+                "golden": "packages/card-dsl/test/cards/sfd/fiora-peerless.test.mjs",
+                "templateGoldens": []
+              },
+              {
+                "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+                "name": "Rumble, Hotheaded",
+                "program": "packages/card-dsl/src/cards/sfd/rumble-hotheaded.ts",
+                "golden": "packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs",
+                "templateGoldens": []
+              },
+              {
+                "canonicalCardId": "card.hash-c225141f743b61c67ddf269932c6bbdef739f37888f62163906faa7fa1e6dc2b",
+                "name": "Sunken Temple",
+                "program": "packages/card-dsl/src/cards/sfd/sunken-temple.ts",
+                "golden": "packages/card-dsl/test/cards/sfd/sunken-temple.test.mjs",
+                "templateGoldens": []
+              }
+            ]
+          },
+          {
+            "key": "mighty-query-consumer",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/effects/keywords/Mighty.ts",
+              "packages/engine-core/src/layers/filter.ts",
+              "packages/engine-core/src/programs/filters.ts",
+              "packages/engine-core/src/programs/statics.ts",
+              "packages/engine-core/src/effects/interpreter/expr.ts"
+            ],
+            "gapLabels": [
+              "EG-MIGHT",
+              "EG-EXPR",
+              "EG-FILTER",
+              "EG-STATIC"
+            ],
+            "cardFiles": [
+              {
+                "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+                "name": "Fiora, Peerless",
+                "program": "packages/card-dsl/src/cards/sfd/fiora-peerless.ts",
+                "golden": "packages/card-dsl/test/cards/sfd/fiora-peerless.test.mjs",
+                "templateGoldens": []
+              },
+              {
+                "canonicalCardId": "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+                "name": "Jaull-Fish",
+                "program": "packages/card-dsl/src/cards/sfd/jaull-fish.ts",
+                "golden": "packages/card-dsl/test/cards/sfd/jaull-fish.test.mjs",
+                "templateGoldens": [
+                  "packages/card-dsl/test/cards/templates/keyword-only.test.mjs"
+                ]
+              },
+              {
+                "canonicalCardId": "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f",
+                "name": "Show of Strength",
+                "program": "packages/card-dsl/src/cards/sfd/show-of-strength.ts",
+                "golden": "packages/card-dsl/test/cards/sfd/show-of-strength.test.mjs",
+                "templateGoldens": [
+                  "packages/card-dsl/test/cards/templates/keyword-play-effect-draw-688.test.mjs"
+                ]
+              },
+              {
+                "canonicalCardId": "card.hash-c225141f743b61c67ddf269932c6bbdef739f37888f62163906faa7fa1e6dc2b",
+                "name": "Sunken Temple",
+                "program": "packages/card-dsl/src/cards/sfd/sunken-temple.ts",
+                "golden": "packages/card-dsl/test/cards/sfd/sunken-temple.test.mjs",
+                "templateGoldens": []
+              }
+            ]
+          },
+          {
+            "key": "production-lifecycle-keyword-reexpansion",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/programs/lifecycle.ts",
+              "packages/engine-core/src/programs/keyword-grants.ts",
+              "packages/engine-core/src/programs/statics.ts",
+              "packages/engine-core/src/layers/rules/query.ts",
+              "packages/engine-core/src/replacement/bind.ts"
+            ],
+            "gapLabels": [
+              "EG-GRANTS",
+              "EG-KEYWORDS",
+              "EG-LAYERS",
+              "EG-PERMISSIONS",
+              "EG-TAX",
+              "EG-REPLACEMENT"
+            ],
+            "cardFiles": [
+              {
+                "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+                "name": "Rumble, Hotheaded",
+                "program": "packages/card-dsl/src/cards/sfd/rumble-hotheaded.ts",
+                "golden": "packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs",
+                "templateGoldens": []
+              },
+              {
+                "canonicalCardId": "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab",
+                "name": "Breakneck Mech",
+                "program": "packages/card-dsl/src/cards/sfd/breakneck-mech.ts",
+                "golden": "packages/card-dsl/test/cards/sfd/breakneck-mech.test.mjs",
+                "templateGoldens": [
+                  "packages/card-dsl/test/cards/templates/static-replacement-effect-ready-677.test.mjs"
+                ]
+              },
+              {
+                "canonicalCardId": "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40",
+                "name": "Forecaster",
+                "program": "packages/card-dsl/src/cards/sfd/forecaster.ts",
+                "golden": "packages/card-dsl/test/cards/sfd/forecaster.test.mjs",
+                "templateGoldens": [
+                  "packages/card-dsl/test/cards/templates/static-642.test.mjs"
+                ]
+              }
+            ]
+          },
+          {
+            "key": "cost-repeat-additional-cost",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/programs/play.ts",
+              "packages/engine-core/src/chain/engine.ts",
+              "packages/engine-core/src/chain/interpreter-adapter.ts",
+              "packages/engine-core/src/effects/keywords/Repeat.ts",
+              "packages/engine-core/src/effects/instructions/effect.repeat.ts",
+              "packages/engine-core/src/cost/discounts/collect.ts",
+              "packages/engine-core/src/programs/statics.ts"
+            ],
+            "gapLabels": [
+              "EG-COSTBIND",
+              "EG-COSTCHOICE",
+              "EG-DISCOUNTS",
+              "EG-FINALIZE",
+              "EG-PLAY",
+              "EG-STATIC"
+            ],
+            "cardFiles": [
+              {
+                "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+                "name": "Rumble, Hotheaded",
+                "program": "packages/card-dsl/src/cards/sfd/rumble-hotheaded.ts",
+                "golden": "packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs",
+                "templateGoldens": []
+              },
+              {
+                "canonicalCardId": "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+                "name": "Jaull-Fish",
+                "program": "packages/card-dsl/src/cards/sfd/jaull-fish.ts",
+                "golden": "packages/card-dsl/test/cards/sfd/jaull-fish.test.mjs",
+                "templateGoldens": [
+                  "packages/card-dsl/test/cards/templates/keyword-only.test.mjs"
+                ]
+              }
+            ]
+          }
+        ],
+        "acceptance": "After the mapped generic engine and additive IR owners land, execute the original programs through the default path: 4-to-5 Mighty transition, controller scope, event-it identity, optional Order Power decline/pay/unpayable rollback, and no state changes on failure."
+      },
+      {
         "key": "executable-whitelist-reverification",
         "state": "merged-awaiting-acceptance",
         "cards": [
@@ -4747,13 +5150,6 @@
             "name": "Production Surge",
             "program": "packages/card-dsl/src/cards/sfd/production-surge.ts",
             "golden": "packages/card-dsl/test/cards/sfd/production-surge.test.mjs",
-            "templateGoldens": []
-          },
-          {
-            "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
-            "name": "Fiora, Worthy",
-            "program": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
-            "golden": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
             "templateGoldens": []
           },
           {
@@ -4876,7 +5272,7 @@
             "templateGoldens": []
           }
         ],
-        "acceptance": "Keep existing goldens intact; add whole-card production scenarios for legal, illegal, stale-target, declined, and rollback paths before changing the status to accepted."
+        "acceptance": "Keep existing goldens intact; execute each original program through whole-card production scenarios for legal, illegal, stale-target, declined, and rollback boundaries before changing the card status to accepted."
       }
     ]
   },

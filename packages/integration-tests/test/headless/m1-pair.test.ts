@@ -80,6 +80,35 @@ interface Manifest {
     readonly selectedPrintingId: string;
     readonly status: string;
   }[];
+  readonly lifecycleSetupEvidence: {
+    readonly currentHead: string;
+    readonly reviewHead: string;
+    readonly requiredNewsourceCommit: string;
+    readonly requiredNewsourceAncestorOfCurrent: boolean;
+    readonly currentLifecycle: { readonly sha256: string; readonly testSha256: string };
+    readonly requiredNewsource: { readonly sha256: string; readonly testSha256: string };
+    readonly state: string;
+  };
+  readonly followUpPlan: {
+    readonly cardWorkstreams: readonly {
+      readonly key: string;
+      readonly state: string;
+      readonly cards: readonly { readonly canonicalCardId: string; readonly name: string }[];
+      readonly dependencies: readonly { readonly key: string; readonly cardFiles: readonly { readonly canonicalCardId: string }[] }[];
+    }[];
+  };
+}
+
+interface DetailedManifestCard extends ManifestCard {
+  readonly verificationStatus: string;
+  readonly planEvidenceGap: string | null;
+  readonly productionAcceptance: string;
+  readonly dependencies: readonly {
+    readonly key: string;
+    readonly state: string;
+    readonly paths: readonly string[];
+    readonly contractRequest?: { readonly type: string; readonly targetOwners: readonly string[] };
+  }[];
 }
 
 function readManifest(): Manifest {
@@ -269,6 +298,58 @@ describe("RIFT-857 two-precon acceptance", () => {
       canonicalCardId: "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
       status: "blocked",
     }));
+  });
+
+  it("keeps Fiora, Worthy dependency-not-ready and records the newsource lifecycle gap", () => {
+    const manifest = readManifest() as Omit<Manifest, "canonicalWhitelist"> & {
+      readonly canonicalWhitelist: readonly DetailedManifestCard[];
+    };
+    const fioraWorthy = manifest.canonicalWhitelist.find(card => card.name === "Fiora, Worthy");
+    expect(fioraWorthy).toEqual(expect.objectContaining({
+      canonicalCardId: "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+      verificationStatus: "contract-request-required",
+      productionAcceptance: "pending",
+    }));
+    expect(fioraWorthy!.planEvidenceGap).toMatch(/Unsupported filter field becomesMighty/);
+    expect(fioraWorthy!.dependencies.map(dependency => dependency.key)).toEqual(expect.arrayContaining([
+      "might-changed-becomes-mighty-trigger-binding",
+      "triggered-optional-order-power-finalize",
+      "event-it-authoritative-bridge",
+    ]));
+    expect(fioraWorthy!.dependencies.find(dependency => dependency.key === "triggered-optional-order-power-finalize"))
+      .toEqual(expect.objectContaining({
+        state: "contract-request-required",
+        contractRequest: expect.objectContaining({
+          type: "additive-ir-and-wire-contract",
+          targetOwners: ["parent-contract-owner", "engine-core-finalize-owner"],
+        }),
+      }));
+    expect(manifest.lifecycleSetupEvidence).toEqual(expect.objectContaining({
+      currentHead: "f6c0ed7dc002e9e4eae3c667549d1b2b08d2e75a",
+      reviewHead: "f036b0e5026aba1668ae88be2d74a05abeb55670",
+      requiredNewsourceCommit: "b6dc9debd813125413085a8a301f1ccdec5ef092",
+      requiredNewsourceAncestorOfCurrent: false,
+      state: "parent-wiring-required",
+    }));
+    expect(manifest.lifecycleSetupEvidence.currentLifecycle.sha256).not.toBe(
+      manifest.lifecycleSetupEvidence.requiredNewsource.sha256,
+    );
+    const fioraWorkstream = manifest.followUpPlan.cardWorkstreams.find(workstream =>
+      workstream.key === "status-not-proof-fiora-and-mighty");
+    expect(fioraWorkstream).toEqual(expect.objectContaining({ state: "dependency-not-ready" }));
+    expect(fioraWorkstream!.cards).toEqual(expect.arrayContaining([
+      expect.objectContaining({ canonicalCardId: fioraWorthy!.canonicalCardId, name: "Fiora, Worthy" }),
+    ]));
+    for (const key of [
+      "might-changed-becomes-mighty-trigger-binding",
+      "triggered-optional-order-power-finalize",
+      "event-it-authoritative-bridge",
+    ]) {
+      expect(fioraWorkstream!.dependencies.find(dependency => dependency.key === key)!.cardFiles)
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({ canonicalCardId: fioraWorthy!.canonicalCardId }),
+        ]));
+    }
   });
 
   it("stops after one explicit probe and returns the current initialization diagnosis", () => {

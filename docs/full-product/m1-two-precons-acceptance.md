@@ -42,20 +42,24 @@ The manifest deliberately separates four states:
   acceptance scenario.
 - `dependency-not-ready`: the program is `judge-required` because a named
   engine, event, cost, target, or lifecycle dependency is incomplete.
-- `missing-source-evidence`: the old survey identified a printing difference
-  or unmatched functional clause. Yone, Blademaster and Riposte remain here
-  even though their current program files say `executable`.
+- `missing-source-evidence`: the old survey identified an unmatched functional
+  clause. Riposte remains here even though its current program file says
+  `executable`.
 - `blocked-source-conflict`: an official card source directly conflicts with
   the current program. Yone is moved here from `missing-source-evidence`.
+- `contract-request-required`: the card needs an additive shared contract before
+  its real semantics can be represented. Fiora, Worthy uses this state because
+  its triggered optional Order Power cost has no IR field or payment node.
 - `verified-no-ability`: an official printing has no ability text and the
   current no-ability program is the complete capability.
 
-The current distribution is 21 merged awaiting acceptance, 24 dependency not
-ready, 1 missing source evidence, 1 blocked source conflict, and 4 verified no-ability. Across the card
+The current distribution is 20 merged awaiting acceptance, 24 dependency not
+ready, 1 contract-request-required, 1 missing source evidence, 1 blocked source
+conflict, and 4 verified no-ability. Across the card
 program files, the literal statuses are 23 `executable`, 24
 `judge-required`, and 4 `no-ability`. A status string is not an execution
-proof, and merged code is not an acceptance result. The 21 merged-but-unaccepted
-goldens retain 24 `test.todo` boundaries; the manifest indexes each one. A TODO
+proof, and merged code is not an acceptance result. The 20 merged-but-unaccepted
+goldens retain 23 `test.todo` boundaries; the manifest indexes each one. A TODO
 does not count as an execution pass.
 
 ## Dedicated bounded entry
@@ -99,8 +103,8 @@ real lifecycle rejects Ferrous Forerunner's shipped `judge-required`
 `card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3`.
 This is why the full 100-game acceptance has not run. Zero games have been
 accepted; the pair is not a pass.
-The captured probe evidence is
-`/tmp/RIFT-857-m1-two-precons-acceptance/probe-final.json`, SHA-256
+The captured current probe evidence is
+`/tmp/RIFT-857-m1-two-precons-acceptance/probe-current.json`, SHA-256
 `d748ff5192d2cd0f1f8ca525cb62fe8e233d22d815a2b596e770b78c7e86999c`.
 
 The existing four-deck Vex/Vi regression remains in
@@ -113,13 +117,30 @@ the two-precon gate.
 
 ## RIFT-831 setup status
 
-The current HEAD contains the RIFT-831 lifecycle setup work from
-`75b000695c208267c5460a5a909dafa1be4f7e4c` and the later merge
-`21c9cb1524f38bb47779e3baf29d49488292e9e6`. The focused lifecycle regression
-is `packages/engine-core/test/engine-gaps/lifecycle.test.mjs`. The sibling
-commit `cd266f2bffe2dff9cd2851e647f00aa4c3e7b361` is not an ancestor of this
-task HEAD. These lifecycle tests prove setup/leave boundaries; they do not
-prove the two full precon programs execute.
+The current task HEAD `f6c0ed7dc002e9e4eae3c667549d1b2b08d2e75a` does not
+contain the required newsource merge `b6dc9debd813125413085a8a301f1ccdec5ef092`.
+The parent review HEAD `f036b0e5026aba1668ae88be2d74a05abeb55670` is also not
+an ancestor of this task HEAD. The current lifecycle is SHA-256
+`59aa7584e929afef458df2a862e643e0462bebbbc4497eec872ff67fa2f1166e`;
+the newsource lifecycle is
+`9172c97c4fcda86998e5ac6d98810ccb56724fdf1d3bd181919270a48512adbd`.
+Their focused lifecycle tests also differ. The current test passes 8/8, but it
+does not prove the refreshed newsource setup/leave boundary. The manifest marks
+this as `parent-wiring-required`; the parent must integrate the newsource
+before treating the 831 boundary as refreshed.
+
+Fiora, Worthy is not certified by its `executable` label. The parent full-seed
+probe at `/root/swarm-rift/shared/parent-reviews/integration-f036b0e5-20261019-0745/full-seed-probe.json`
+(SHA-256 `e366720c974fcda8c18ccd742ef347386c071acc7cbed566be8af966d38c6c23`)
+reaches a real `ProgramBindingError: Unsupported filter field becomesMighty`.
+Its printed optional one Order Power payment appears only in comments: the
+program has one `effect.ready` instruction and no payment IR. The manifest now
+maps these to the might-changed payload/filter producer, triggered optional
+Finalize cost, and the authoritative event:it bridge, all owned by
+`engine-core`. The optional Order Power portion also needs a parent-owned
+additive IR/wire change because `TriggeredAbility` has no cost field. The
+manifest records that contract request and keeps the card
+`contract-request-required`; it does not silently certify the executable label.
 
 ## Official effect order and source precedence
 
@@ -182,7 +203,7 @@ ruleset profile.
    template goldens, source evidence, and acceptance obligations.
 2. Resolve Yone and Riposte source evidence from official card text and Core
    Rules v1.5. Do not promote them from `executable` status alone.
-3. Reverify the 21 merged-but-unaccepted programs through whole-card
+3. Reverify the 20 merged-but-unaccepted programs through whole-card
    production scenarios, preserving every existing golden and adding legal,
    illegal, stale-target, declined, and atomic rollback boundaries.
 4. Run the explicit 100-game gate. Acceptance requires 100/100 natural
@@ -191,6 +212,21 @@ ruleset profile.
    through the real public room path. This document does not claim that run.
 
 No new task IDs are assigned here, and phase two is not authorized.
+
+## Contract change request
+
+The manifest requests one additive contract from the parent contract owner:
+`TriggeredAbility.cost?: CostSpec`. The current type has no triggered-cost
+field, so Fiora, Worthy's printed optional one Order Power payment cannot be
+represented by the existing program even though the card file comments claim
+it. The matching engine change is to translate that cost into
+`TriggerRegistration.cost` and ask, decline, pay, or roll back at Finalize
+before Resolve. The field must be optional, old profiles 1–9 and old journals
+must remain unchanged, and no replay/schema version may be silently upgraded.
+Minimum acceptance is: decline pays nothing; a chosen Order Power is paid once;
+an unpayable payment rolls back atomically; and Resolve never re-prompts for a
+cost already locked or declined at Finalize. This request is recorded, not
+approved by this task.
 
 ## Review commands
 
