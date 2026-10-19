@@ -19,10 +19,12 @@ export interface CombatDamageFieldFact {
   readonly staged: 'none' | 'showdown' | 'combat';
   readonly active: boolean;
 }
+
 export interface CombatDamageUnitFact {
   readonly object: ObjectSnapshot;
   readonly combatRole: 'attacker' | 'defender' | null;
 }
+
 export interface CombatDamageRuntime {
   readonly stateVersion: number;
   readonly fieldId: string;
