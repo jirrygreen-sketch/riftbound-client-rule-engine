@@ -4,7 +4,12 @@ import test from 'node:test';
 import udyrWildman from '../../../card-dsl/dist/cards/ogn/udyr-wildman.js';
 import vayneHunter from '../../../card-dsl/dist/cards/ogn/vayne-hunter.js';
 import ironRevenant from '../../../card-dsl/dist/cards/rad/iron-revenant.js';
+import sealOfRage from '../../../card-dsl/dist/cards/ogn/seal-of-rage.js';
+import theHarrowing from '../../../card-dsl/dist/cards/ogn/the-harrowing.js';
+import supernova from '../../../card-dsl/dist/cards/rad/supernova.js';
+import smokeAndMirrors from '../../../card-dsl/dist/cards/unl/smoke-and-mirrors.js';
 import { ChainEngine } from '../../dist/chain/engine.js';
+import { activateReactionAddDuringPayment } from '../../dist/chain/finalize/add-window.js';
 import { AwaitChoice } from '../../dist/effects/contract.js';
 import { world } from '../../dist/effects/testing/index.js';
 import { bindResolveContext, createActionPipelineHost } from '../../dist/events/action-adapter.js';
@@ -15,12 +20,16 @@ const constant = value => ({ kind: 'constant', value });
 const field = id => ({ type: 'battlefield', id });
 const admitted = program => ({ ...program, status: 'executable', judgeReason: undefined });
 
-function scene(builder, programs = [], answers = {}) {
+function scene(builder, programs = [], answers = {}, hooks = {}) {
   const kernel = builder.build();
   const answerMap = new Map(Object.entries(answers));
   const asked = [];
+  let engine;
+  let binding;
   const choose = request => {
     asked.push(request);
+    const injected = hooks.onChoose?.({ request, kernel, engine, binding });
+    if (injected !== undefined) return structuredClone(injected.value);
     if (answerMap.has(request.id)) return structuredClone(answerMap.get(request.id));
     if (request.type === 'mode' && request.id.includes(':order:')) return request.options[0];
     if (request.type === 'select-objects' && request.min === request.max && request.options.length === request.min) {
@@ -38,8 +47,8 @@ function scene(builder, programs = [], answers = {}) {
     choose,
     context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
   });
-  const binding = createProgramBinding({ cardPrograms: programs.map(admitted) });
-  const engine = new ChainEngine({
+  binding = createProgramBinding({ cardPrograms: programs.map(admitted) });
+  engine = new ChainEngine({
     turnOrder: ['A', 'B'], turnPlayer: 'A', phase: 'main', host, cleanup: () => false,
     describePlay: binding.describePlay,
   });
@@ -303,4 +312,101 @@ test('contractActions.perform routes a batch through commitContract and emits bo
   assert.ok(observed.every(snapshot => snapshot.batchId === 'contract-wave'), 'the scans retain the one batch identity');
   assert.equal(f.kernel.getObject('first').zone, 'trash');
   assert.equal(f.kernel.getObject('second').zone, 'trash');
+});
+
+test('original Smoke and Mirrors relation consumes the first finalized target in the default Chain', () => {
+  const play = smokeAndMirrors.abilities.find(ability => ability.kind === 'play');
+  const program = { ...admitted(smokeAndMirrors), abilities: [play] };
+  const f = scene(
+    world().player('A').player('B')
+      .hand('spell', { cardId: program.canonicalCardId, types: ['spell'], energy: 0, power: [] })
+      .unit('one', { cardId: program.canonicalCardId, location: field('one') })
+      .unit('two', { cardId: program.canonicalCardId, location: field('two') }),
+    [program],
+    { 'target:smoke-and-mirrors.unit-a': [{ id: 'one', zoneEntryId: 1 }] },
+  );
+
+  f.engine.execute(f.binding.describePlay(
+    { type: 'play', player: 'A', object: f.kernel.ref('spell') },
+    f.kernel.getObject('spell'),
+  ));
+  const [item] = f.engine.items;
+  assert.equal(item.status, 'finalized');
+  assert.deepEqual(item.targetPlans.map(plan => plan.selected), [
+    [f.kernel.ref('one')],
+    [f.kernel.ref('two')],
+  ]);
+  assert.deepEqual(f.asked.map(request => request.id), [
+    'target:smoke-and-mirrors.unit-a',
+    'target:smoke-and-mirrors.unit-b',
+  ]);
+  assert.equal(smokeAndMirrors.status, 'judge-required');
+});
+
+test('original Seal of Rage Add resolves inside the parent payment through the default Chain', () => {
+  let receipt;
+  const f = scene(
+    world().player('A', { power: ['Fury'] }).player('B')
+      .base('source', { cardId: sealOfRage.canonicalCardId, types: ['gear'], energy: null, power: null })
+      .deck(['A:deck:1'], { owner: 'A' }).deck(['B:deck:1'], { owner: 'B' }),
+    [sealOfRage],
+    {},
+    { onChoose: ({ request, kernel, engine, binding }) => {
+      if (request.id !== 'cost:parent:base') return undefined;
+      receipt = activateReactionAddDuringPayment({
+        engine,
+        registry: binding.registry,
+        source: kernel.getObject('source'),
+        controller: 'A',
+      });
+      return { value: 'normal' };
+    } },
+  );
+  const source = f.kernel.getObject('source');
+  f.engine.execute({
+    id: 'parent', controller: 'A', source, kind: 'activated', speed: 'normal', body: [],
+    cost: {
+      id: 'cost:parent',
+      cost: { power: constant(['Fury']) },
+      baseChoices: [{ id: 'normal', cost: { power: constant(['Fury']) } }],
+    },
+  });
+
+  assert.equal(receipt.status, 'resolved');
+  assert.deepEqual(receipt.resources, { energy: 0, power: ['Fury'] });
+  assert.equal(f.kernel.getObject('source').exhausted, true);
+  settle(f.engine);
+  assert.deepEqual(f.kernel.player('A').power, ['Fury']);
+  assert.equal(f.engine.trace.some(event => event.item === receipt.itemId && event.step === 'priority-granted'), false);
+});
+
+test('original Harrowing IR creates and settles a nested Play chain item through the default Chain', () => {
+  const harrowingPlay = theHarrowing.abilities.find(ability => ability.kind === 'play');
+  const harrowing = { ...admitted(theHarrowing), abilities: [harrowingPlay] };
+  const unit = admitted(supernova);
+  const f = scene(
+    world().player('A', { energy: 30, power: ['Chaos', 'Chaos', 'Order'] }).player('B')
+      .hand('spell', { cardId: harrowing.canonicalCardId, types: ['spell'], energy: 6, power: ['Chaos'] })
+      .card('unit', { cardId: unit.canonicalCardId, types: ['unit'], zone: 'trash', energy: 9, power: ['Order'] })
+      .unit('victim', { owner: 'B', might: 20 })
+      .deck(['A:deck:1', 'A:deck:2'], { owner: 'A' }).deck(['B:deck:1'], { owner: 'B' }),
+    [harrowing, unit],
+    {
+      'target:the-harrowing.unit': [{ id: 'unit', zoneEntryId: 1 }],
+      'target:supernova.target-unit': [{ id: 'victim', zoneEntryId: 1 }],
+    },
+  );
+
+  f.engine.execute(f.binding.describePlay(
+    { type: 'play', player: 'A', object: f.kernel.ref('spell') },
+    f.kernel.getObject('spell'),
+  ));
+  settle(f.engine);
+
+  assert.equal(f.kernel.getObject('unit').zone, 'board');
+  assert.equal(f.kernel.getObject('spell').zone, 'trash');
+  assert.equal(f.kernel.player('A').energy, 24);
+  assert.deepEqual(f.kernel.player('A').power, []);
+  assert.equal(f.engine.trace.filter(entry => entry.step === 'pending').length, 2);
+  assert.equal(theHarrowing.status, 'judge-required');
 });
