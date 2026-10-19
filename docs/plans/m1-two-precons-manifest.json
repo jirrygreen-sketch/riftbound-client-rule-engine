@@ -1,0 +1,4881 @@
+{
+  "schema": "riftbound.m1-two-precons-manifest.v1",
+  "generatedAt": "2026-10-19",
+  "baseline": {
+    "commit": "fed9528e137b95c52c9642c26dc8034a79e88468",
+    "branch": "task/RIFT-857-m1-two-precons-acceptance",
+    "authority": {
+      "userDecision": "2026-10-19 two-precons first",
+      "plan": "/root/swarm-rift/shared/m1-two-precons-plan.json",
+      "planSha256": "0b9ad08f0ed30602c43a479007e1584df211363729815b9b8c6e92e2833e308f"
+    }
+  },
+  "scope": {
+    "pair": {
+      "A": "rumble-sfd",
+      "B": "fiora-sfd"
+    },
+    "phaseOne": "Only the canonical identities in canonicalWhitelist are approved for two-precon rule-engine work.",
+    "phaseTwoAuthorized": false,
+    "fullFeederPaused": true,
+    "whitelistIsNotCompletion": true,
+    "unknownOfficialSemanticsRemain": "judge-required"
+  },
+  "sources": {
+    "deckPlan": {
+      "path": "docs/plans/m1-decks.json",
+      "sha256": "17227200ed8b5db2f09cd5e7e05949b72c7c13bdab50ac1e954739c76b14ff04",
+      "schema": "riftbound.m1-precon-decks.v1",
+      "generated": "2026-10-15"
+    },
+    "cardCatalog": {
+      "path": "packages/card-data/data/deck-catalog.json",
+      "gitIgnored": true,
+      "sha256": "06d99a589fed6046bff8072847946d5304a8ca43ef1e4e2c680c4a7a0f1df766",
+      "digest": "sha256:53b974c8472d82053bf61f6836842c8f0d62c2fafb4411fa502256912a504d10",
+      "dataVersion": "2026-10-12-official-gallery",
+      "printingCount": 1381,
+      "canonicalIdentityCount": 1080
+    },
+    "cardProgramRegistry": {
+      "path": "packages/card-dsl/src/cards/registry.generated.ts",
+      "sha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+    },
+    "programAndGoldenMappingSha256": "044fcb9728b2ec1cb01c9b08ee68211f7d3f9fddef32ce59cb15eccb0e79659b",
+    "canonicalIdsSha256": "ba94d4805a8ecf16e3e7958c9e6411642c7a52eeaf572c2851afdab1247f794b",
+    "selectedDeckEntriesSha256": "f5855588629daab2f5bd973d8d348ced01218b513481eab804d881de54c0f1a5"
+  },
+  "decks": [
+    {
+      "id": "rumble-sfd",
+      "name": "Rumble (Mechanized Menace)",
+      "product": "Spiritforged Champion Preconstructed Deck",
+      "set": "sfd",
+      "sourceUrl": "https://playriftbound.com/en-us/news/announcements/spiritforged-precons-fiora-rumble/",
+      "legend": {
+        "displayName": "Rumble, Mechanized Menace",
+        "canonicalCardId": "card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7",
+        "domains": [
+          "Fury",
+          "Mind"
+        ]
+      },
+      "championOptions": [
+        "Rumble, Hotheaded",
+        "Rumble, Scrapper"
+      ],
+      "chosenChampion": "Rumble, Hotheaded",
+      "officialTotal": 40,
+      "finalAdjustment": "选定 Rumble, Hotheaded 为 Chosen Champion：1 张进 Champion 区，主牌组保留其另 1 张（共 2 张），其余不动，主牌组+Champion 区=40。",
+      "officialTable": {
+        "counts": {
+          "legend": 1,
+          "champion": 3,
+          "mainDeck": 40,
+          "battlefields": 3,
+          "runes": 12
+        },
+        "entries": [
+          {
+            "zone": "legend",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7",
+            "name": "Mechanized Menace"
+          },
+          {
+            "zone": "champion",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+            "name": "Rumble, Hotheaded",
+            "note": "champion option"
+          },
+          {
+            "zone": "champion",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c",
+            "name": "Rumble, Scrapper",
+            "note": "champion option"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3",
+            "name": "Ferrous Forerunner"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+            "name": "Rumble, Hotheaded"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9",
+            "name": "Gem Jammer"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-d4e849d845765608b07bf4af4aa19877f6303dfff539b541d0d070320dd05d91",
+            "name": "Dangerous Duo"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40",
+            "name": "Forecaster"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-34880fcae16bd9461e4c318dfb455365ff9e353db357f948b4a15dea7e01b389",
+            "name": "Bubble Bot"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-569dc9079a6d404c0d850d27b510585b856ab3def5e1e0bbafa30a3bf9d48e82",
+            "name": "Plundering Poro"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab",
+            "name": "Breakneck Mech"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c",
+            "name": "Rumble, Scrapper"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-2ebf1fe6e5ed7bb875f1c112b3e0ed1635b557c0c0ad550d752b8dd376243007",
+            "name": "Consult the Past"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b",
+            "name": "Singularity"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
+            "name": "Wages of Pain"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-153eb4df721b70662a63652ba1602985ceed08d81a0b23fc0d6b10349ee15ca9",
+            "name": "Frigid Touch"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-1504d8f14af5ce1b9f7a3663c23e6ef7cb57d59a6274dc921cd9296ee8e2494b",
+            "name": "Production Surge"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-5b08b5b8648e8c5c057d15279d1b4e677457eb0b43fcf2810e2ec4f4c4d1b7cf",
+            "name": "Stupefy"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-600e0796e82099284b213e87b112b1c5df42777ef72b70a3b4cd49a84d27dd10",
+            "name": "Void Seeker"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-3c1c01b405853556e3e1c12bbd758e94d73f5ed474a5643bb068eaa7cb549c6e",
+            "name": "Danger Zone"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-d490b51d08bdd7f97b1708aabfa6309995106f10de815b6fd927368e4a630569",
+            "name": "Assembly Rig"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-cab923a670e4baa826aa3de381c8b992bf33987fcb0d65feb75ca538a8681010",
+            "name": "Long Sword"
+          },
+          {
+            "zone": "battlefields",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-0c36f22df8ffa7bed49f59fd138d24b9b0a52a7b8ad4c720afcaa12ec816eee4",
+            "name": "Minefield"
+          },
+          {
+            "zone": "battlefields",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-5a86b358540e9ab2512400c77f3291739c2aa6ccb7b537449298a640b02b0e82",
+            "name": "Ravenbloom Conservatory"
+          },
+          {
+            "zone": "battlefields",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-77763eae5320de558954776a37677e8638b6d4af73399e5a7c4f5d5321a2b564",
+            "name": "Treasure Hoard"
+          },
+          {
+            "zone": "runes",
+            "quantity": 6,
+            "canonicalCardId": "card.hash-a8a4cb783649a0339782e2d3808d6144661c621634da7c9f79b4f87981fac97b",
+            "name": "Mind Rune"
+          },
+          {
+            "zone": "runes",
+            "quantity": 6,
+            "canonicalCardId": "card.hash-30497c69657abd1d3abf17f9b3766e7d064817473a88828ca2ef4ab9b51f7902",
+            "name": "Fury Rune"
+          }
+        ]
+      },
+      "selectedDeck": {
+        "counts": {
+          "legend": 1,
+          "champion": 1,
+          "mainDeck": 39,
+          "battlefields": 3,
+          "runes": 12
+        },
+        "canonicalIdentityCount": 25,
+        "entries": [
+          {
+            "zone": "legend",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7",
+            "name": "Mechanized Menace",
+            "sourcePrintingId": "sfd-240-221",
+            "energy": null,
+            "power": null,
+            "might": null
+          },
+          {
+            "zone": "champion",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+            "name": "Rumble, Hotheaded",
+            "sourcePrintingId": "sfd-026a-221",
+            "energy": 4,
+            "power": null,
+            "might": 4,
+            "note": "chosen champion"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3",
+            "name": "Ferrous Forerunner",
+            "sourcePrintingId": "sfd-021-221",
+            "energy": 6,
+            "power": 1,
+            "might": 6
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+            "name": "Rumble, Hotheaded",
+            "sourcePrintingId": "sfd-026a-221",
+            "energy": 4,
+            "power": null,
+            "might": 4
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9",
+            "name": "Gem Jammer",
+            "sourcePrintingId": "sfd-007-221",
+            "energy": 2,
+            "power": null,
+            "might": 2
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-d4e849d845765608b07bf4af4aa19877f6303dfff539b541d0d070320dd05d91",
+            "name": "Dangerous Duo",
+            "sourcePrintingId": "ogn-016-298",
+            "energy": 3,
+            "power": null,
+            "might": 3
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40",
+            "name": "Forecaster",
+            "sourcePrintingId": "sfd-065-221",
+            "energy": 2,
+            "power": null,
+            "might": 2
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-34880fcae16bd9461e4c318dfb455365ff9e353db357f948b4a15dea7e01b389",
+            "name": "Bubble Bot",
+            "sourcePrintingId": "sfd-062-221",
+            "energy": 3,
+            "power": null,
+            "might": 3
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-569dc9079a6d404c0d850d27b510585b856ab3def5e1e0bbafa30a3bf9d48e82",
+            "name": "Plundering Poro",
+            "sourcePrintingId": "unl-222-219",
+            "energy": 2,
+            "power": null,
+            "might": 2
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab",
+            "name": "Breakneck Mech",
+            "sourcePrintingId": "sfd-071-221",
+            "energy": 8,
+            "power": 2,
+            "might": 7
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c",
+            "name": "Rumble, Scrapper",
+            "sourcePrintingId": "sfd-089a-221",
+            "energy": 5,
+            "power": 1,
+            "might": 4
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-2ebf1fe6e5ed7bb875f1c112b3e0ed1635b557c0c0ad550d752b8dd376243007",
+            "name": "Consult the Past",
+            "sourcePrintingId": "ogn-083-298",
+            "energy": 4,
+            "power": null,
+            "might": null
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b",
+            "name": "Singularity",
+            "sourcePrintingId": "ogn-105-298",
+            "energy": 6,
+            "power": 2,
+            "might": null
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
+            "name": "Wages of Pain",
+            "sourcePrintingId": "sfd-070-221",
+            "energy": 3,
+            "power": null,
+            "might": null
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-153eb4df721b70662a63652ba1602985ceed08d81a0b23fc0d6b10349ee15ca9",
+            "name": "Frigid Touch",
+            "sourcePrintingId": "sfd-066-221",
+            "energy": 2,
+            "power": null,
+            "might": null
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-1504d8f14af5ce1b9f7a3663c23e6ef7cb57d59a6274dc921cd9296ee8e2494b",
+            "name": "Production Surge",
+            "sourcePrintingId": "sfd-076-221",
+            "energy": 4,
+            "power": 1,
+            "might": null
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-5b08b5b8648e8c5c057d15279d1b4e677457eb0b43fcf2810e2ec4f4c4d1b7cf",
+            "name": "Stupefy",
+            "sourcePrintingId": "ogn-095-298",
+            "energy": 1,
+            "power": null,
+            "might": null
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-600e0796e82099284b213e87b112b1c5df42777ef72b70a3b4cd49a84d27dd10",
+            "name": "Void Seeker",
+            "sourcePrintingId": "ogn-024-298",
+            "energy": 3,
+            "power": 1,
+            "might": null
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-3c1c01b405853556e3e1c12bbd758e94d73f5ed474a5643bb068eaa7cb549c6e",
+            "name": "Danger Zone",
+            "sourcePrintingId": "sfd-182-221",
+            "energy": 1,
+            "power": 1,
+            "might": null
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-d490b51d08bdd7f97b1708aabfa6309995106f10de815b6fd927368e4a630569",
+            "name": "Assembly Rig",
+            "sourcePrintingId": "sfd-019-221",
+            "energy": 4,
+            "power": null,
+            "might": null
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-cab923a670e4baa826aa3de381c8b992bf33987fcb0d65feb75ca538a8681010",
+            "name": "Long Sword",
+            "sourcePrintingId": "sfd-022-221",
+            "energy": 2,
+            "power": 1,
+            "might": 2
+          },
+          {
+            "zone": "battlefields",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-0c36f22df8ffa7bed49f59fd138d24b9b0a52a7b8ad4c720afcaa12ec816eee4",
+            "name": "Minefield",
+            "sourcePrintingId": "sfd-212-221",
+            "energy": null,
+            "power": null,
+            "might": null
+          },
+          {
+            "zone": "battlefields",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-5a86b358540e9ab2512400c77f3291739c2aa6ccb7b537449298a640b02b0e82",
+            "name": "Ravenbloom Conservatory",
+            "sourcePrintingId": "sfd-215-221",
+            "energy": null,
+            "power": null,
+            "might": null
+          },
+          {
+            "zone": "battlefields",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-77763eae5320de558954776a37677e8638b6d4af73399e5a7c4f5d5321a2b564",
+            "name": "Treasure Hoard",
+            "sourcePrintingId": "sfd-220-221",
+            "energy": null,
+            "power": null,
+            "might": null
+          },
+          {
+            "zone": "runes",
+            "quantity": 6,
+            "canonicalCardId": "card.hash-a8a4cb783649a0339782e2d3808d6144661c621634da7c9f79b4f87981fac97b",
+            "name": "Mind Rune",
+            "sourcePrintingId": "ven-r03",
+            "energy": null,
+            "power": null,
+            "might": null
+          },
+          {
+            "zone": "runes",
+            "quantity": 6,
+            "canonicalCardId": "card.hash-30497c69657abd1d3abf17f9b3766e7d064817473a88828ca2ef4ab9b51f7902",
+            "name": "Fury Rune",
+            "sourcePrintingId": "ven-r01",
+            "energy": null,
+            "power": null,
+            "might": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "fiora-sfd",
+      "name": "Fiora (Grand Duelist)",
+      "product": "Spiritforged Champion Preconstructed Deck",
+      "set": "sfd",
+      "sourceUrl": "https://playriftbound.com/en-us/news/announcements/spiritforged-precons-fiora-rumble/",
+      "legend": {
+        "displayName": "Fiora, Grand Duelist",
+        "canonicalCardId": "card.hash-ccfc067dad8a1bf92c6ae1aa5f7110e9d211a1842a9254bb9320705c2f96c6c4",
+        "domains": [
+          "Body",
+          "Order"
+        ]
+      },
+      "championOptions": [
+        "Fiora, Peerless",
+        "Fiora, Worthy"
+      ],
+      "chosenChampion": "Fiora, Peerless",
+      "officialTotal": 40,
+      "finalAdjustment": "选定 Fiora, Peerless 为 Chosen Champion：1 张进 Champion 区，主牌组保留其另 1 张（共 2 张），其余不动，主牌组+Champion 区=40。",
+      "officialTable": {
+        "counts": {
+          "legend": 1,
+          "champion": 3,
+          "mainDeck": 40,
+          "battlefields": 3,
+          "runes": 12
+        },
+        "entries": [
+          {
+            "zone": "legend",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-ccfc067dad8a1bf92c6ae1aa5f7110e9d211a1842a9254bb9320705c2f96c6c4",
+            "name": "Grand Duelist"
+          },
+          {
+            "zone": "champion",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+            "name": "Fiora, Peerless",
+            "note": "champion option"
+          },
+          {
+            "zone": "champion",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+            "name": "Fiora, Worthy",
+            "note": "champion option"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+            "name": "Fiora, Peerless"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+            "name": "Jaull-Fish"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6",
+            "name": "Laurent Duelist"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef",
+            "name": "Lucian, Merciless"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7",
+            "name": "Veteran Poro"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-e2638655ff5ed3a1e60a501be3c23d74e46ef7f1900bed31b436f1a579b316ed",
+            "name": "Pit Rookie"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-cf0b322a78010676e3d8b287830194a3bdc8970e65a141578ae8a3074ebd956f",
+            "name": "Dauntless Vanguard"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-afc40c373a9fb4e48492323d7af26d3a58b824c385707dd3c269e97fee236103",
+            "name": "Unsung Hero"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-0ba141b975db96cac65aab56bfd7dbb63904c538cc3d9c32bdfb3b2d98e486de",
+            "name": "Royal Guard"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+            "name": "Fiora, Worthy"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
+            "name": "Yone, Blademaster"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-8d49727ab9ae782b8a21802c9ae0b51e5d712a37a072d991629bfbf3645535b3",
+            "name": "Punch First"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+            "name": "Strike Down"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-f67321dac096b3ad1e49b55231663e26f3f9d96efafe79d75719a6eb72fc5caa",
+            "name": "Vengeance"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
+            "name": "Riposte"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f",
+            "name": "Show of Strength"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-959c19d68f06f8f929625bfde93a1132701da5a5d0b49e91583db341384f0bfe",
+            "name": "B.F. Sword"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-902c6a1366a1a0e653ccb65102ff621b109af3b0b40f5bbeb7d8d3a5aeae2322",
+            "name": "Warmog's Armor"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-d3579e6825470471f5ce05c53533806a5244c5e84364fe57b2aab0b7cc0f14e0",
+            "name": "Sacred Shears"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-a1ee07f71d453092ab7d54f9491684e972b735b22bb1f3fda73f2641bcedbfe1",
+            "name": "Doran's Blade"
+          },
+          {
+            "zone": "battlefields",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-44e95dd0a87b7dfcd7565b73a33e204f85c97ac82e004a6127ff7ed649fb41ad",
+            "name": "Ornn's Forge"
+          },
+          {
+            "zone": "battlefields",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-9daf60cdf4c82e4fba1f685af1c9b0d748003f7e9ad9c68f02f429bdd0cf85e5",
+            "name": "Veiled Temple"
+          },
+          {
+            "zone": "battlefields",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-c225141f743b61c67ddf269932c6bbdef739f37888f62163906faa7fa1e6dc2b",
+            "name": "Sunken Temple"
+          },
+          {
+            "zone": "runes",
+            "quantity": 6,
+            "canonicalCardId": "card.hash-e0efe08be77e60ed68f2e43ba425b763efd364eb44b0c760d26ef1fcc1b6df67",
+            "name": "Order Rune"
+          },
+          {
+            "zone": "runes",
+            "quantity": 6,
+            "canonicalCardId": "card.hash-a2227b03e9e13c8e2ddae7a973c746cc4243ff631dfaf462dc9823e687bbbf17",
+            "name": "Body Rune"
+          }
+        ]
+      },
+      "selectedDeck": {
+        "counts": {
+          "legend": 1,
+          "champion": 1,
+          "mainDeck": 39,
+          "battlefields": 3,
+          "runes": 12
+        },
+        "canonicalIdentityCount": 26,
+        "entries": [
+          {
+            "zone": "legend",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-ccfc067dad8a1bf92c6ae1aa5f7110e9d211a1842a9254bb9320705c2f96c6c4",
+            "name": "Grand Duelist",
+            "sourcePrintingId": "sfd-251-221",
+            "energy": null,
+            "power": null,
+            "might": null
+          },
+          {
+            "zone": "champion",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+            "name": "Fiora, Peerless",
+            "sourcePrintingId": "sfd-110a-221",
+            "energy": 3,
+            "power": 1,
+            "might": 3,
+            "note": "chosen champion"
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+            "name": "Fiora, Peerless",
+            "sourcePrintingId": "sfd-110a-221",
+            "energy": 3,
+            "power": 1,
+            "might": 3
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+            "name": "Jaull-Fish",
+            "sourcePrintingId": "sfd-103-221",
+            "energy": 7,
+            "power": 2,
+            "might": 6
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6",
+            "name": "Laurent Duelist",
+            "sourcePrintingId": "sfd-156-221",
+            "energy": 4,
+            "power": null,
+            "might": 3
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef",
+            "name": "Lucian, Merciless",
+            "sourcePrintingId": "sfd-113a-221",
+            "energy": 3,
+            "power": null,
+            "might": 3
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7",
+            "name": "Veteran Poro",
+            "sourcePrintingId": "unl-223-219",
+            "energy": 2,
+            "power": null,
+            "might": 2
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-e2638655ff5ed3a1e60a501be3c23d74e46ef7f1900bed31b436f1a579b316ed",
+            "name": "Pit Rookie",
+            "sourcePrintingId": "ogn-136-298",
+            "energy": 2,
+            "power": null,
+            "might": 2
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-cf0b322a78010676e3d8b287830194a3bdc8970e65a141578ae8a3074ebd956f",
+            "name": "Dauntless Vanguard",
+            "sourcePrintingId": "sfd-093-221",
+            "energy": 4,
+            "power": 1,
+            "might": 4
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-afc40c373a9fb4e48492323d7af26d3a58b824c385707dd3c269e97fee236103",
+            "name": "Unsung Hero",
+            "sourcePrintingId": "sfd-167-221",
+            "energy": 2,
+            "power": null,
+            "might": 2
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-0ba141b975db96cac65aab56bfd7dbb63904c538cc3d9c32bdfb3b2d98e486de",
+            "name": "Royal Guard",
+            "sourcePrintingId": "sfd-157-221",
+            "energy": 4,
+            "power": null,
+            "might": 2
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+            "name": "Fiora, Worthy",
+            "sourcePrintingId": "sfd-180a-221",
+            "energy": 3,
+            "power": null,
+            "might": 3
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
+            "name": "Yone, Blademaster",
+            "sourcePrintingId": "sfd-233-star-221",
+            "energy": 5,
+            "power": 1,
+            "might": 5
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-8d49727ab9ae782b8a21802c9ae0b51e5d712a37a072d991629bfbf3645535b3",
+            "name": "Punch First",
+            "sourcePrintingId": "sfd-097-221",
+            "energy": 1,
+            "power": 2,
+            "might": null
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+            "name": "Strike Down",
+            "sourcePrintingId": "sfd-107-221",
+            "energy": 3,
+            "power": 1,
+            "might": null
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-f67321dac096b3ad1e49b55231663e26f3f9d96efafe79d75719a6eb72fc5caa",
+            "name": "Vengeance",
+            "sourcePrintingId": "ogn-229-298",
+            "energy": 4,
+            "power": 2,
+            "might": null
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
+            "name": "Riposte",
+            "sourcePrintingId": "sfd-206-221",
+            "energy": 2,
+            "power": 2,
+            "might": null
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 2,
+            "canonicalCardId": "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f",
+            "name": "Show of Strength",
+            "sourcePrintingId": "sfd-106-221",
+            "energy": 2,
+            "power": 1,
+            "might": null
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-959c19d68f06f8f929625bfde93a1132701da5a5d0b49e91583db341384f0bfe",
+            "name": "B.F. Sword",
+            "sourcePrintingId": "sfd-161-221",
+            "energy": 4,
+            "power": null,
+            "might": 3
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-902c6a1366a1a0e653ccb65102ff621b109af3b0b40f5bbeb7d8d3a5aeae2322",
+            "name": "Warmog's Armor",
+            "sourcePrintingId": "sfd-108-221",
+            "energy": 1,
+            "power": null,
+            "might": 1
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-d3579e6825470471f5ce05c53533806a5244c5e84364fe57b2aab0b7cc0f14e0",
+            "name": "Sacred Shears",
+            "sourcePrintingId": "sfd-172-221",
+            "energy": 2,
+            "power": 1,
+            "might": 1
+          },
+          {
+            "zone": "mainDeck",
+            "quantity": 3,
+            "canonicalCardId": "card.hash-a1ee07f71d453092ab7d54f9491684e972b735b22bb1f3fda73f2641bcedbfe1",
+            "name": "Doran's Blade",
+            "sourcePrintingId": "sfd-095-221",
+            "energy": 2,
+            "power": null,
+            "might": 2
+          },
+          {
+            "zone": "battlefields",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-44e95dd0a87b7dfcd7565b73a33e204f85c97ac82e004a6127ff7ed649fb41ad",
+            "name": "Ornn's Forge",
+            "sourcePrintingId": "sfd-213-221",
+            "energy": null,
+            "power": null,
+            "might": null
+          },
+          {
+            "zone": "battlefields",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-9daf60cdf4c82e4fba1f685af1c9b0d748003f7e9ad9c68f02f429bdd0cf85e5",
+            "name": "Veiled Temple",
+            "sourcePrintingId": "sfd-221-221",
+            "energy": null,
+            "power": null,
+            "might": null
+          },
+          {
+            "zone": "battlefields",
+            "quantity": 1,
+            "canonicalCardId": "card.hash-c225141f743b61c67ddf269932c6bbdef739f37888f62163906faa7fa1e6dc2b",
+            "name": "Sunken Temple",
+            "sourcePrintingId": "sfd-218-221",
+            "energy": null,
+            "power": null,
+            "might": null
+          },
+          {
+            "zone": "runes",
+            "quantity": 6,
+            "canonicalCardId": "card.hash-e0efe08be77e60ed68f2e43ba425b763efd364eb44b0c760d26ef1fcc1b6df67",
+            "name": "Order Rune",
+            "sourcePrintingId": "ven-r06",
+            "energy": null,
+            "power": null,
+            "might": null
+          },
+          {
+            "zone": "runes",
+            "quantity": 6,
+            "canonicalCardId": "card.hash-a2227b03e9e13c8e2ddae7a973c746cc4243ff631dfaf462dc9823e687bbbf17",
+            "name": "Body Rune",
+            "sourcePrintingId": "ven-r04",
+            "energy": null,
+            "power": null,
+            "might": null
+          }
+        ]
+      }
+    }
+  ],
+  "canonicalWhitelist": [
+    {
+      "canonicalCardId": "card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c",
+      "name": "Rumble, Scrapper",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-089a-221",
+        "printings": [
+          "sfd-089-221",
+          "sfd-089a-221"
+        ],
+        "recordSha256": "7ef0870a37351ce3f28e401648f8f8c7a9acfb999d8a689c078e2490607e0f60"
+      },
+      "printed": {
+        "cardType": "Unit",
+        "domains": [
+          "Mind"
+        ],
+        "tags": [
+          "Mech",
+          "Yordle",
+          "Rumble",
+          "Bandle City",
+          "Champion"
+        ],
+        "energy": 5,
+        "power": 1,
+        "might": 4,
+        "ability": "Your Mechs have +1 :rb_might: (including me).\nWhen I hold, play a 3 :rb_might: Mech unit token to your base."
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/rumble-scrapper.ts",
+        "sha256": "bc3834f01681adbd7e313105a801523fe41686a348c3ea2c2c77031ca71fba77"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/rumble-scrapper.test.mjs",
+          "sha256": "9500707faa7e56dcb9bbbdc6304ed8411202fc3d24f4a042f2322a3669e20151"
+        },
+        "templates": []
+      },
+      "dependencies": [
+        {
+          "key": "combat-event-payload-location-hold",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/combat/flow.ts",
+            "packages/engine-core/src/turn/flow.ts",
+            "packages/engine-core/src/events/pipeline-match.ts",
+            "packages/engine-core/src/events/trigger-spec.ts",
+            "packages/engine-core/src/programs/filters.ts"
+          ],
+          "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+          "gapLabels": [
+            "EG-COMBAT",
+            "EG-COMBATPRIORITY",
+            "EG-PAYLOAD",
+            "EG-FILTER",
+            "EG-EVENTS",
+            "EG-TURN",
+            "EG-LOCATIONS",
+            "EG-MOVE"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3",
+      "name": "Ferrous Forerunner",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-021-221",
+        "printings": [
+          "sfd-021-221"
+        ],
+        "recordSha256": "b31adde2d45571ed9de4768984591cee87a8d71f3bfa98b99c729b5341912fd0"
+      },
+      "printed": {
+        "cardType": "Unit",
+        "domains": [
+          "Fury"
+        ],
+        "tags": [
+          "Mech",
+          "Yordle",
+          "Bandle City"
+        ],
+        "energy": 6,
+        "power": 1,
+        "might": 6,
+        "ability": "[Deathknell] — Play two 3 :rb_might: Mech unit tokens to your base. (When I die, get the effect.)"
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/ferrous-forerunner.ts",
+        "sha256": "734a7ee8ce22f4352a478fbf7fb71b2063a59dacec524437e4692fb74807dc35"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/ferrous-forerunner.test.mjs",
+          "sha256": "7f2aa81baabdb18d8dcb9aeed7ab0c5130156fb8910a5b460f63be2f2e9ea7b7"
+        },
+        "templates": []
+      },
+      "dependencies": [
+        {
+          "key": "token-entry-deathknell",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/effects/instructions/effect.token.ts",
+            "packages/engine-core/src/effects/tokens/definitions.ts",
+            "packages/engine-core/src/effects/keywords/Deathknell.ts",
+            "packages/engine-core/src/programs/lifecycle.ts",
+            "packages/engine-core/src/chain/engine.ts"
+          ],
+          "reason": "Controller-base token location, Gold/Universal Power semantics, exhausted entry, and the real Deathknell body binding are incomplete. RIFT-831 lifecycle regressions are merged but do not prove these cards.",
+          "gapLabels": [
+            "EG-TOKEN",
+            "EG-LIFECYCLE",
+            "EG-POWER"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-0ba141b975db96cac65aab56bfd7dbb63904c538cc3d9c32bdfb3b2d98e486de",
+      "name": "Royal Guard",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-157-221",
+        "printings": [
+          "sfd-157-221"
+        ],
+        "recordSha256": "eadc12acaca71892dea62da05885fd026e18cb23ff7b28f7d11d4cb48b7b7cce"
+      },
+      "printed": {
+        "cardType": "Unit",
+        "domains": [
+          "Order"
+        ],
+        "tags": [
+          "Shurima"
+        ],
+        "energy": 4,
+        "power": null,
+        "might": 2,
+        "ability": "When you play me, play a 2 :rb_might: Sand Soldier unit token here."
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/royal-guard.ts",
+        "sha256": "27e8e4b0b334b0f637e74fc2ff106f94405c73e6583d7118955c9654b3e8c73c"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/royal-guard.test.mjs",
+          "sha256": "ea350a24724650d9d8f3d5e0e4994fd7020054e0a01f3b0e2720abb96b4a150c"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-0c36f22df8ffa7bed49f59fd138d24b9b0a52a7b8ad4c720afcaa12ec816eee4",
+      "name": "Minefield",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-212-221",
+        "printings": [
+          "sfd-212-221"
+        ],
+        "recordSha256": "bdaaa482fecec7f3b6ba222afe2b3aaad26a65645cb12a1ec80c455276928358"
+      },
+      "printed": {
+        "cardType": "Battlefield",
+        "domains": [
+          "Colorless"
+        ],
+        "tags": [],
+        "energy": null,
+        "power": null,
+        "might": null,
+        "ability": "When you conquer here, put the top 2 cards of your Main Deck into your trash."
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/minefield.ts",
+        "sha256": "7912a643548ea194d0177948014994901a7a92c622bce79a0cb89d9246cce8dd"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/minefield.test.mjs",
+          "sha256": "e2ddc65c331479c832c2834c49686745e5424e6911e61d9f9c0b334dbfccd220"
+        },
+        "templates": []
+      },
+      "dependencies": [
+        {
+          "key": "combat-event-payload-location-hold",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/combat/flow.ts",
+            "packages/engine-core/src/turn/flow.ts",
+            "packages/engine-core/src/events/pipeline-match.ts",
+            "packages/engine-core/src/events/trigger-spec.ts",
+            "packages/engine-core/src/programs/filters.ts"
+          ],
+          "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+          "gapLabels": [
+            "EG-COMBAT",
+            "EG-COMBATPRIORITY",
+            "EG-PAYLOAD",
+            "EG-FILTER",
+            "EG-EVENTS",
+            "EG-TURN",
+            "EG-LOCATIONS",
+            "EG-MOVE"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b",
+      "name": "Singularity",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "ogn-105-298",
+        "printings": [
+          "ogn-105-298"
+        ],
+        "recordSha256": "18d5da29bb25786125468f54c0bdadd82c84cb392c32d7e0ba7e5058cc960e61"
+      },
+      "printed": {
+        "cardType": "Spell",
+        "domains": [
+          "Mind"
+        ],
+        "tags": [],
+        "energy": 6,
+        "power": 2,
+        "might": null,
+        "ability": "Deal 6 to each of up to two units."
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/ogn/singularity.ts",
+        "sha256": "be0d33bed6e786c1dd399acf5cfa4e8ca215e8b25682355fe298bc73bf8f8776"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/ogn/singularity.test.mjs",
+          "sha256": "3f0194478539f085448069acf197e9aaad92698ece98ba0c728386b3498b03e8"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+      "name": "Rumble, Hotheaded",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-026a-221",
+        "printings": [
+          "sfd-026-221",
+          "sfd-026a-221"
+        ],
+        "recordSha256": "b0130d8ce2bc195d1505b9d04ea08747ba04390dfbdac483286753b86fbb00d1"
+      },
+      "printed": {
+        "cardType": "Unit",
+        "domains": [
+          "Fury"
+        ],
+        "tags": [
+          "Mech",
+          "Yordle",
+          "Rumble",
+          "Bandle City",
+          "Champion"
+        ],
+        "energy": 4,
+        "power": null,
+        "might": 4,
+        "ability": "Your Mechs each have [Assault]. (+1 :rb_might: while we're attackers.)\nWhen I conquer, you may recycle another friendly unit to play a Mech from your trash. Reduce its Energy cost by the Might of the unit you recycled."
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/rumble-hotheaded.ts",
+        "sha256": "576b20ed7e3fdcb9fb8bc8ef06b20dbe04fb67096887af96f4a3d10c7f4dd926"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs",
+          "sha256": "b15e24f1adb84fc57653dfbd5bd4d1818c14662f72eac0e3d83158943bc29851"
+        },
+        "templates": []
+      },
+      "dependencies": [
+        {
+          "key": "production-lifecycle-keyword-reexpansion",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/programs/lifecycle.ts",
+            "packages/engine-core/src/programs/keyword-grants.ts",
+            "packages/engine-core/src/programs/statics.ts",
+            "packages/engine-core/src/layers/rules/query.ts",
+            "packages/engine-core/src/replacement/bind.ts"
+          ],
+          "reason": "Production lifecycle does not consume every dynamic keyword and replacement condition. Target tax, Ganking, Vision, Assault designation, and entry-ready gating need real consumers.",
+          "gapLabels": [
+            "EG-GRANTS",
+            "EG-KEYWORDS",
+            "EG-LAYERS",
+            "EG-PERMISSIONS",
+            "EG-TAX",
+            "EG-REPLACEMENT"
+          ]
+        },
+        {
+          "key": "combat-event-payload-location-hold",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/combat/flow.ts",
+            "packages/engine-core/src/turn/flow.ts",
+            "packages/engine-core/src/events/pipeline-match.ts",
+            "packages/engine-core/src/events/trigger-spec.ts",
+            "packages/engine-core/src/programs/filters.ts"
+          ],
+          "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+          "gapLabels": [
+            "EG-COMBAT",
+            "EG-COMBATPRIORITY",
+            "EG-PAYLOAD",
+            "EG-FILTER",
+            "EG-EVENTS",
+            "EG-TURN",
+            "EG-LOCATIONS",
+            "EG-MOVE"
+          ]
+        },
+        {
+          "key": "cost-repeat-additional-cost",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/programs/play.ts",
+            "packages/engine-core/src/chain/engine.ts",
+            "packages/engine-core/src/chain/interpreter-adapter.ts",
+            "packages/engine-core/src/effects/keywords/Repeat.ts",
+            "packages/engine-core/src/effects/instructions/effect.repeat.ts",
+            "packages/engine-core/src/cost/discounts/collect.ts",
+            "packages/engine-core/src/programs/statics.ts"
+          ],
+          "reason": "Optional additional/Repeat payments and CardProgram static costs lack complete Finalize collection, paid-instance binding, and rollback.",
+          "gapLabels": [
+            "EG-COSTBIND",
+            "EG-COSTCHOICE",
+            "EG-DISCOUNTS",
+            "EG-FINALIZE",
+            "EG-PLAY",
+            "EG-STATIC"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-1504d8f14af5ce1b9f7a3663c23e6ef7cb57d59a6274dc921cd9296ee8e2494b",
+      "name": "Production Surge",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-076-221",
+        "printings": [
+          "sfd-076-221"
+        ],
+        "recordSha256": "b13ab1c58eeaa53820ea3c4ea3c91d5c044867e996bd49eea0b4f9039066af6c"
+      },
+      "printed": {
+        "cardType": "Spell",
+        "domains": [
+          "Mind"
+        ],
+        "tags": [],
+        "energy": 4,
+        "power": 1,
+        "might": null,
+        "ability": "This costs :rb_energy_2: less if you control a Mech.\nPlay a 3 :rb_might: Mech unit token to your base.\nDraw 1."
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/production-surge.ts",
+        "sha256": "8562a2eadf413164f46cb2ad8d532f9792582f3c4f02594c88d65880926b6ece"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/production-surge.test.mjs",
+          "sha256": "452cc2ea39ae02624429f2f6b2faacf4ddd3936bdb51eb9c40c104aed0e795ab"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-153eb4df721b70662a63652ba1602985ceed08d81a0b23fc0d6b10349ee15ca9",
+      "name": "Frigid Touch",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-066-221",
+        "printings": [
+          "sfd-066-221"
+        ],
+        "recordSha256": "be63ccfe9258a0140eaf51058913ed75866be17064de4fdc1d87102c3f2abae6"
+      },
+      "printed": {
+        "cardType": "Spell",
+        "domains": [
+          "Mind"
+        ],
+        "tags": [],
+        "energy": 2,
+        "power": null,
+        "might": null,
+        "ability": "[Reaction] (Play any time, even before spells and abilities resolve.)\n[Repeat] :rb_energy_2: (You may pay the additional cost to repeat this spell's effect.)\nGive a unit -2 :rb_might: this turn."
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/frigid-touch.ts",
+        "sha256": "2e12282feee826ff10ca687544fc81ed9405d03a148ace9d8a457fd9e115e5c6"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/frigid-touch.test.mjs",
+          "sha256": "9bce8b9366edfade174d081ed440f743c0453ab33d25ecfacbca725699b61a0b"
+        },
+        "templates": []
+      },
+      "dependencies": [
+        {
+          "key": "cost-repeat-additional-cost",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/programs/play.ts",
+            "packages/engine-core/src/chain/engine.ts",
+            "packages/engine-core/src/chain/interpreter-adapter.ts",
+            "packages/engine-core/src/effects/keywords/Repeat.ts",
+            "packages/engine-core/src/effects/instructions/effect.repeat.ts",
+            "packages/engine-core/src/cost/discounts/collect.ts",
+            "packages/engine-core/src/programs/statics.ts"
+          ],
+          "reason": "Optional additional/Repeat payments and CardProgram static costs lack complete Finalize collection, paid-instance binding, and rollback.",
+          "gapLabels": [
+            "EG-COSTBIND",
+            "EG-COSTCHOICE",
+            "EG-DISCOUNTS",
+            "EG-FINALIZE",
+            "EG-PLAY",
+            "EG-STATIC"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+      "name": "Fiora, Worthy",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-180a-221",
+        "printings": [
+          "sfd-180-221",
+          "sfd-180a-221"
+        ],
+        "recordSha256": "e8922c370ab74bc04379b6c84c4da6a778de6b3a50f6c8c75049101bb4235fd9"
+      },
+      "printed": {
+        "cardType": "Unit",
+        "domains": [
+          "Order"
+        ],
+        "tags": [
+          "Fiora",
+          "Demacia",
+          "Champion"
+        ],
+        "energy": 3,
+        "power": null,
+        "might": 3,
+        "ability": "When a unit you control becomes [Mighty], you may pay :rb_rune_order: to ready it. (A unit is Mighty while it has 5+ :rb_might:.)"
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+        "sha256": "1a1cc1e25845c56e853d1d22e0db1eae727060d97771ab0b14fb1f5fc37064f6"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+          "sha256": "f0daebf7e7408e961810e77036f6e847d77c333cc0a1fe61f72b07db166d4813"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
+      "name": "Yone, Blademaster",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-233-star-221",
+        "printings": [
+          "rad-181-167",
+          "sfd-116-221",
+          "sfd-233-221",
+          "sfd-233-star-221"
+        ],
+        "recordSha256": "fbd6dbe67cdc495b64a06572f57e8e4e42cf7da455be5526d247f67c2982ec9f"
+      },
+      "printed": {
+        "cardType": "Unit",
+        "domains": [
+          "Body"
+        ],
+        "tags": [
+          "Yone",
+          "Ionia",
+          "Demon",
+          "Champion"
+        ],
+        "energy": 5,
+        "power": 1,
+        "might": 5,
+        "ability": "[Weaponmaster] (When you play me, you may [Equip] one of your Equipment to me for :rb_rune_rainbow: less, even if it's already attached.)\nWhen I conquer an open battlefield, deal damage equal to my Might to an enemy unit in a base."
+      },
+      "programStatus": "executable",
+      "verificationStatus": "missing-source-evidence",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": "rule-review:non-reminder-printing-difference",
+      "program": {
+        "path": "packages/card-dsl/src/cards/rad/yone-blademaster.ts",
+        "sha256": "97063d125ee3e03f28fe325a15f548e3bcf882c0388ac5829a4dc491e0bee125"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/rad/yone-blademaster.test.mjs",
+          "sha256": "f8252e33a5823ac859faa6e48809aa4306489b79529673a160af5078406499c1"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-2ebf1fe6e5ed7bb875f1c112b3e0ed1635b557c0c0ad550d752b8dd376243007",
+      "name": "Consult the Past",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "ogn-083-298",
+        "printings": [
+          "ogn-083-298"
+        ],
+        "recordSha256": "e9d458841b2f0ebda8e40b24d0a98d4c897d1411975af6d52770229c42c11501"
+      },
+      "printed": {
+        "cardType": "Spell",
+        "domains": [
+          "Mind"
+        ],
+        "tags": [],
+        "energy": 4,
+        "power": null,
+        "might": null,
+        "ability": "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n[Reaction] (Play any time, even before spells and abilities resolve.)\nDraw 2."
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/ogn/consult-the-past.ts",
+        "sha256": "4501d956499cb001092e35ee87f103d6ffeca3abcf5690401520b4644427a0d0"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/ogn/consult-the-past.test.mjs",
+          "sha256": "44c2def5e162570631744bf633246505ff29f1dec3698dcaf2d99559debd3b0e"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-30497c69657abd1d3abf17f9b3766e7d064817473a88828ca2ef4ab9b51f7902",
+      "name": "Fury Rune",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "ven-r01",
+        "printings": [
+          "ogn-007-298",
+          "ogn-007a-298",
+          "rad-r01",
+          "rad-r01a",
+          "ven-r01"
+        ],
+        "recordSha256": "46d1826ace51a5e73b9e2dad8df829bb073f1c6969f8844689f7381140201bef"
+      },
+      "printed": {
+        "cardType": "Rune",
+        "domains": [
+          "Fury"
+        ],
+        "tags": [
+          "Basic"
+        ],
+        "energy": null,
+        "power": null,
+        "might": null,
+        "ability": ""
+      },
+      "programStatus": "no-ability",
+      "verificationStatus": "verified-no-ability",
+      "productionAcceptance": "verified-no-ability",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/ogn/fury-rune.ts",
+        "sha256": "d265e3a7dd706e55bd1243317881450fe1b7c51da393e4205d8c91675c30e30e"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/ogn/fury-rune.test.mjs",
+          "sha256": "641b88a3339223c731ff053045f228950c8d49287a662b696defba89e95f4218"
+        },
+        "templates": []
+      },
+      "dependencies": [],
+      "productionEvidence": {
+        "kind": "no-ability",
+        "independentGolden": "packages/card-dsl/test/cards/ogn/fury-rune.test.mjs"
+      }
+    },
+    {
+      "canonicalCardId": "card.hash-34880fcae16bd9461e4c318dfb455365ff9e353db357f948b4a15dea7e01b389",
+      "name": "Bubble Bot",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-062-221",
+        "printings": [
+          "sfd-062-221"
+        ],
+        "recordSha256": "4714ec8a216925f10881cb219e41bf5579c18e73ab88cd853927a26770c4019d"
+      },
+      "printed": {
+        "cardType": "Unit",
+        "domains": [
+          "Mind"
+        ],
+        "tags": [
+          "Mech",
+          "Yordle",
+          "Bandle City"
+        ],
+        "energy": 3,
+        "power": null,
+        "might": 3,
+        "ability": "When you play me, ready another friendly Mech."
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/bubble-bot.ts",
+        "sha256": "05525f675ead88909e25b4b60c486216ace750b545b0937bb47c6b708bde7aca"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/bubble-bot.test.mjs",
+          "sha256": "d53a1761cec81c8df1a40804e2b12605907e55fe3f966e94131831f4ef51da5d"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-3c1c01b405853556e3e1c12bbd758e94d73f5ed474a5643bb068eaa7cb549c6e",
+      "name": "Danger Zone",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-182-221",
+        "printings": [
+          "sfd-182-221"
+        ],
+        "recordSha256": "89ef1e734bb0b00f6b3c48ddcd82483725304d0783484e9a7d6cebee09a54217"
+      },
+      "printed": {
+        "cardType": "Spell",
+        "domains": [
+          "Fury",
+          "Mind"
+        ],
+        "tags": [
+          "Rumble",
+          "Signature"
+        ],
+        "energy": 1,
+        "power": 1,
+        "might": null,
+        "ability": "[Reaction] (Play any time, even before spells and abilities resolve.)\n[Repeat] :rb_energy_1::rb_rune_rainbow: (You may pay the additional cost to repeat this spell's effect.)\nGive your Mechs +1 :rb_might: this turn."
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/danger-zone.ts",
+        "sha256": "40d75aeda8ad854d0fd6ff4c7a25955228e00464fb6a09ce5e59b0946d3b0820"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/danger-zone.test.mjs",
+          "sha256": "c0e7f1ce2658262da22126d40d6d38154bf75837d906f82aa33a7d228273e75e"
+        },
+        "templates": [
+          {
+            "path": "packages/card-dsl/test/cards/templates/keyword-play-continuous-might-653.test.mjs",
+            "sha256": "8f1a445afe5b1150c6f2f675f88ee1145e96f9bb48cc5ab22056803bfe81442d"
+          }
+        ]
+      },
+      "dependencies": [
+        {
+          "key": "cost-repeat-additional-cost",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/programs/play.ts",
+            "packages/engine-core/src/chain/engine.ts",
+            "packages/engine-core/src/chain/interpreter-adapter.ts",
+            "packages/engine-core/src/effects/keywords/Repeat.ts",
+            "packages/engine-core/src/effects/instructions/effect.repeat.ts",
+            "packages/engine-core/src/cost/discounts/collect.ts",
+            "packages/engine-core/src/programs/statics.ts"
+          ],
+          "reason": "Optional additional/Repeat payments and CardProgram static costs lack complete Finalize collection, paid-instance binding, and rollback.",
+          "gapLabels": [
+            "EG-COSTBIND",
+            "EG-COSTCHOICE",
+            "EG-DISCOUNTS",
+            "EG-FINALIZE",
+            "EG-PLAY",
+            "EG-STATIC"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
+      "name": "Wages of Pain",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-070-221",
+        "printings": [
+          "sfd-070-221"
+        ],
+        "recordSha256": "ef19c97da00ec5acdfdeddaf9387d2e46b0763b49183a635ed0714f7c0d3c3cc"
+      },
+      "printed": {
+        "cardType": "Spell",
+        "domains": [
+          "Mind"
+        ],
+        "tags": [],
+        "energy": 3,
+        "power": null,
+        "might": null,
+        "ability": "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n[Action] (Play on your turn or in showdowns.)\nDeal 3 to a unit at a battlefield. Play a Gold gear token exhausted."
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/wages-of-pain.ts",
+        "sha256": "655a2039bbdd7ccecdcf402ed3ea91a461b431816307869b0d1ffacd54012716"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/wages-of-pain.test.mjs",
+          "sha256": "951001e9f23bc2700e37a336551f75d9fb2dd0ac9e6fec9b8feb9747edcaca0c"
+        },
+        "templates": []
+      },
+      "dependencies": [
+        {
+          "key": "token-entry-deathknell",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/effects/instructions/effect.token.ts",
+            "packages/engine-core/src/effects/tokens/definitions.ts",
+            "packages/engine-core/src/effects/keywords/Deathknell.ts",
+            "packages/engine-core/src/programs/lifecycle.ts",
+            "packages/engine-core/src/chain/engine.ts"
+          ],
+          "reason": "Controller-base token location, Gold/Universal Power semantics, exhausted entry, and the real Deathknell body binding are incomplete. RIFT-831 lifecycle regressions are merged but do not prove these cards.",
+          "gapLabels": [
+            "EG-TOKEN",
+            "EG-LIFECYCLE",
+            "EG-POWER"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-44e95dd0a87b7dfcd7565b73a33e204f85c97ac82e004a6127ff7ed649fb41ad",
+      "name": "Ornn's Forge",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-213-221",
+        "printings": [
+          "sfd-213-221"
+        ],
+        "recordSha256": "368c5f8ffc16205fee8234ec843cb42560122ae08d446997b7bb0cfca7440c33"
+      },
+      "printed": {
+        "cardType": "Battlefield",
+        "domains": [
+          "Colorless"
+        ],
+        "tags": [],
+        "energy": null,
+        "power": null,
+        "might": null,
+        "ability": "While you control this battlefield, the first friendly non-token gear played each turn costs :rb_energy_1: less."
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/ornns-forge.ts",
+        "sha256": "e41a10544c26909da0bb576a31f6175860af8b1cd8eca1b9f000efb165343409"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/ornns-forge.test.mjs",
+          "sha256": "966ed89fc248449672f574587f4070c496f9fe446c85d243bf833aabba8fca13"
+        },
+        "templates": [
+          {
+            "path": "packages/card-dsl/test/cards/templates/static-667.test.mjs",
+            "sha256": "4a5fcaa9edd2202d77038d0be4a2b27af9b6e6c68515849e2fc479154ffae1ef"
+          }
+        ]
+      },
+      "dependencies": [
+        {
+          "key": "cost-repeat-additional-cost",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/programs/play.ts",
+            "packages/engine-core/src/chain/engine.ts",
+            "packages/engine-core/src/chain/interpreter-adapter.ts",
+            "packages/engine-core/src/effects/keywords/Repeat.ts",
+            "packages/engine-core/src/effects/instructions/effect.repeat.ts",
+            "packages/engine-core/src/cost/discounts/collect.ts",
+            "packages/engine-core/src/programs/statics.ts"
+          ],
+          "reason": "Optional additional/Repeat payments and CardProgram static costs lack complete Finalize collection, paid-instance binding, and rollback.",
+          "gapLabels": [
+            "EG-COSTBIND",
+            "EG-COSTCHOICE",
+            "EG-DISCOUNTS",
+            "EG-FINALIZE",
+            "EG-PLAY",
+            "EG-STATIC"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-569dc9079a6d404c0d850d27b510585b856ab3def5e1e0bbafa30a3bf9d48e82",
+      "name": "Plundering Poro",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "unl-222-219",
+        "printings": [
+          "sfd-069-221",
+          "unl-222-219"
+        ],
+        "recordSha256": "f9952bbf39a7c43a728099b3ccf858a50f208781bd66d75d3beaa993d8a31110"
+      },
+      "printed": {
+        "cardType": "Unit",
+        "domains": [
+          "Mind"
+        ],
+        "tags": [
+          "Poro",
+          "Pirate",
+          "Bilgewater"
+        ],
+        "energy": 2,
+        "power": null,
+        "might": 2,
+        "ability": "When I conquer, play a Gold gear token exhausted."
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/plundering-poro.ts",
+        "sha256": "2921b8d691053e8fcae79bb0a09a813b68f8ef254e8062c1d67246b22cec12d8"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/plundering-poro.test.mjs",
+          "sha256": "cab14c26ad7731650ab6ac0f94a8e5a8f1b67a2e2be95cc92b180348a82b7a40"
+        },
+        "templates": []
+      },
+      "dependencies": [
+        {
+          "key": "token-entry-deathknell",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/effects/instructions/effect.token.ts",
+            "packages/engine-core/src/effects/tokens/definitions.ts",
+            "packages/engine-core/src/effects/keywords/Deathknell.ts",
+            "packages/engine-core/src/programs/lifecycle.ts",
+            "packages/engine-core/src/chain/engine.ts"
+          ],
+          "reason": "Controller-base token location, Gold/Universal Power semantics, exhausted entry, and the real Deathknell body binding are incomplete. RIFT-831 lifecycle regressions are merged but do not prove these cards.",
+          "gapLabels": [
+            "EG-TOKEN",
+            "EG-LIFECYCLE",
+            "EG-POWER"
+          ]
+        },
+        {
+          "key": "combat-event-payload-location-hold",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/combat/flow.ts",
+            "packages/engine-core/src/turn/flow.ts",
+            "packages/engine-core/src/events/pipeline-match.ts",
+            "packages/engine-core/src/events/trigger-spec.ts",
+            "packages/engine-core/src/programs/filters.ts"
+          ],
+          "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+          "gapLabels": [
+            "EG-COMBAT",
+            "EG-COMBATPRIORITY",
+            "EG-PAYLOAD",
+            "EG-FILTER",
+            "EG-EVENTS",
+            "EG-TURN",
+            "EG-LOCATIONS",
+            "EG-MOVE"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-5a86b358540e9ab2512400c77f3291739c2aa6ccb7b537449298a640b02b0e82",
+      "name": "Ravenbloom Conservatory",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-215-221",
+        "printings": [
+          "sfd-215-221"
+        ],
+        "recordSha256": "2369bb9b3dea7bc2643d7d5c45946036f2f79bc632851bca2f273b87485a5737"
+      },
+      "printed": {
+        "cardType": "Battlefield",
+        "domains": [
+          "Colorless"
+        ],
+        "tags": [],
+        "energy": null,
+        "power": null,
+        "might": null,
+        "ability": "When you defend here, reveal the top card of your Main Deck. If it's a spell, put it in your hand. Otherwise, recycle it."
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/ravenbloom-conservatory.ts",
+        "sha256": "c0da9b579ffe695452c4616c89863a9f2ae0410e2f0ea7f535afc1cf9a8f2e7c"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/ravenbloom-conservatory.test.mjs",
+          "sha256": "12dd4d2db4437d39b60b1114b6dc1d7a917d2fec67a27e162e402792af1628a2"
+        },
+        "templates": []
+      },
+      "dependencies": [
+        {
+          "key": "combat-event-payload-location-hold",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/combat/flow.ts",
+            "packages/engine-core/src/turn/flow.ts",
+            "packages/engine-core/src/events/pipeline-match.ts",
+            "packages/engine-core/src/events/trigger-spec.ts",
+            "packages/engine-core/src/programs/filters.ts"
+          ],
+          "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+          "gapLabels": [
+            "EG-COMBAT",
+            "EG-COMBATPRIORITY",
+            "EG-PAYLOAD",
+            "EG-FILTER",
+            "EG-EVENTS",
+            "EG-TURN",
+            "EG-LOCATIONS",
+            "EG-MOVE"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-5b08b5b8648e8c5c057d15279d1b4e677457eb0b43fcf2810e2ec4f4c4d1b7cf",
+      "name": "Stupefy",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "ogn-095-298",
+        "printings": [
+          "ogn-095-298"
+        ],
+        "recordSha256": "d822bd658bfc9f9df3eb7e58478d7fb565e3fa4dfabdd3488dcccc37b464d6cb"
+      },
+      "printed": {
+        "cardType": "Spell",
+        "domains": [
+          "Mind"
+        ],
+        "tags": [],
+        "energy": 1,
+        "power": null,
+        "might": null,
+        "ability": "[Reaction] (Play any time, even before spells and abilities resolve.)\nGive a unit -1 :rb_might: this turn, to a minimum of 1 :rb_might:. Draw 1."
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/ogn/stupefy.ts",
+        "sha256": "33c22785deab967ab740ca3ca6ca6bc69f17f8e64488f746b86040c808c63ca7"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/ogn/stupefy.test.mjs",
+          "sha256": "072b913c37092a47c0dd500f31472229fa33733d3b7d41ff2232fe306d32b694"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-600e0796e82099284b213e87b112b1c5df42777ef72b70a3b4cd49a84d27dd10",
+      "name": "Void Seeker",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "ogn-024-298",
+        "printings": [
+          "ogn-024-298"
+        ],
+        "recordSha256": "6b189347f5e7dbbd795c338d2a335d8be22722ffe62ba6a68e6bcf6fe32d7874"
+      },
+      "printed": {
+        "cardType": "Spell",
+        "domains": [
+          "Fury"
+        ],
+        "tags": [],
+        "energy": 3,
+        "power": 1,
+        "might": null,
+        "ability": "[Action] (Play on your turn or in showdowns.)\nDeal 4 to a unit at a battlefield. Draw 1."
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/ogn/void-seeker.ts",
+        "sha256": "a088528d610e8226b96d947159813f5cdf1e29d295905cef8b323c14ebb5752f"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/ogn/void-seeker.test.mjs",
+          "sha256": "cbaa68849228b40ed5d747a1c839c3595ea68a7e5e83f8cbb0fbddcec5fbaf53"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+      "name": "Fiora, Peerless",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-110a-221",
+        "printings": [
+          "sfd-110-221",
+          "sfd-110a-221"
+        ],
+        "recordSha256": "0a22db7dae4a2f7ad8a0fbdbb4b63522013622d47b1cd4498fb83dd3cc3f4610"
+      },
+      "printed": {
+        "cardType": "Unit",
+        "domains": [
+          "Body"
+        ],
+        "tags": [
+          "Fiora",
+          "Demacia",
+          "Champion"
+        ],
+        "energy": 3,
+        "power": 1,
+        "might": 3,
+        "ability": "When I attack or defend one on one, double my Might this combat."
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/fiora-peerless.ts",
+        "sha256": "ec4bed2d530da5ab5c14b0f343c78edad5174b8c6988a892ad1e5c2184b82808"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/fiora-peerless.test.mjs",
+          "sha256": "1bc7887dcdd9e7d5c4d85005bf67e26bc9aa9b7c9d1cd3964fff42aa3bbae410"
+        },
+        "templates": []
+      },
+      "dependencies": [
+        {
+          "key": "combat-event-payload-location-hold",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/combat/flow.ts",
+            "packages/engine-core/src/turn/flow.ts",
+            "packages/engine-core/src/events/pipeline-match.ts",
+            "packages/engine-core/src/events/trigger-spec.ts",
+            "packages/engine-core/src/programs/filters.ts"
+          ],
+          "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+          "gapLabels": [
+            "EG-COMBAT",
+            "EG-COMBATPRIORITY",
+            "EG-PAYLOAD",
+            "EG-FILTER",
+            "EG-EVENTS",
+            "EG-TURN",
+            "EG-LOCATIONS",
+            "EG-MOVE"
+          ]
+        },
+        {
+          "key": "mighty-query-consumer",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/effects/keywords/Mighty.ts",
+            "packages/engine-core/src/layers/filter.ts",
+            "packages/engine-core/src/programs/filters.ts",
+            "packages/engine-core/src/programs/statics.ts",
+            "packages/engine-core/src/effects/interpreter/expr.ts"
+          ],
+          "reason": "Effective Might >= 5 is not consistently exposed to production filters and static evaluation. Unknown mightGte inputs remain fail-closed.",
+          "gapLabels": [
+            "EG-MIGHT",
+            "EG-EXPR",
+            "EG-FILTER",
+            "EG-STATIC"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
+      "name": "Riposte",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-206-221",
+        "printings": [
+          "sfd-206-221"
+        ],
+        "recordSha256": "89327e4e2ec5dba5021153d4674d827fe1390e298bb94ecf7a57877f1a967cb4"
+      },
+      "printed": {
+        "cardType": "Spell",
+        "domains": [
+          "Body",
+          "Order"
+        ],
+        "tags": [
+          "Fiora",
+          "Signature"
+        ],
+        "energy": 2,
+        "power": 2,
+        "might": null,
+        "ability": "[Reaction] (Play any time, even before spells and abilities resolve.)\nChoose a friendly unit and a spell. Counter that spell and give that unit +:rb_might: equal to that spell's Energy cost this turn."
+      },
+      "programStatus": "executable",
+      "verificationStatus": "missing-source-evidence",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": "rule-review:unmatched-functional-clause",
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/riposte.ts",
+        "sha256": "e4929d70d85b171864ba554b9e16a51247101f746aad0c5ddf5f5a5b0f325f7b"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/riposte.test.mjs",
+          "sha256": "cd02b3c07b7e2de3019dbf57d75ef71eac28529423f6c792dcec1380223260fa"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-77763eae5320de558954776a37677e8638b6d4af73399e5a7c4f5d5321a2b564",
+      "name": "Treasure Hoard",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-220-221",
+        "printings": [
+          "sfd-220-221"
+        ],
+        "recordSha256": "31664e1af939d4bf8b92226a2720d28b2e6ab48e6a360c091769387a048b0bcf"
+      },
+      "printed": {
+        "cardType": "Battlefield",
+        "domains": [
+          "Colorless"
+        ],
+        "tags": [],
+        "energy": null,
+        "power": null,
+        "might": null,
+        "ability": "When you conquer here, you may pay :rb_energy_1: to play a Gold gear token exhausted."
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/treasure-hoard.ts",
+        "sha256": "6dd5c6a161e1e0959e92a32bc62eacee30dff3e24cdf449f5e1a3d228f000df4"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/treasure-hoard.test.mjs",
+          "sha256": "ff1ef34c28dc3bb5d195b9cf5f21154db0b5910436b3e1f857786ee1eb3f65d7"
+        },
+        "templates": []
+      },
+      "dependencies": [
+        {
+          "key": "token-entry-deathknell",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/effects/instructions/effect.token.ts",
+            "packages/engine-core/src/effects/tokens/definitions.ts",
+            "packages/engine-core/src/effects/keywords/Deathknell.ts",
+            "packages/engine-core/src/programs/lifecycle.ts",
+            "packages/engine-core/src/chain/engine.ts"
+          ],
+          "reason": "Controller-base token location, Gold/Universal Power semantics, exhausted entry, and the real Deathknell body binding are incomplete. RIFT-831 lifecycle regressions are merged but do not prove these cards.",
+          "gapLabels": [
+            "EG-TOKEN",
+            "EG-LIFECYCLE",
+            "EG-POWER"
+          ]
+        },
+        {
+          "key": "combat-event-payload-location-hold",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/combat/flow.ts",
+            "packages/engine-core/src/turn/flow.ts",
+            "packages/engine-core/src/events/pipeline-match.ts",
+            "packages/engine-core/src/events/trigger-spec.ts",
+            "packages/engine-core/src/programs/filters.ts"
+          ],
+          "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+          "gapLabels": [
+            "EG-COMBAT",
+            "EG-COMBATPRIORITY",
+            "EG-PAYLOAD",
+            "EG-FILTER",
+            "EG-EVENTS",
+            "EG-TURN",
+            "EG-LOCATIONS",
+            "EG-MOVE"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7",
+      "name": "Veteran Poro",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "unl-223-219",
+        "printings": [
+          "sfd-099-221",
+          "unl-223-219"
+        ],
+        "recordSha256": "01eade00f87ae49a00fc1c2aaa330467bb39cb2f9d7502be88be71c400e292bf"
+      },
+      "printed": {
+        "cardType": "Unit",
+        "domains": [
+          "Body"
+        ],
+        "tags": [
+          "Poro",
+          "Freljord"
+        ],
+        "energy": 2,
+        "power": null,
+        "might": 2,
+        "ability": "[Weaponmaster]"
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/veteran-poro.ts",
+        "sha256": "dbc2199a016d613851a17784e54faf5677d4d84a24558138bcd0928f71f0fa3e"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/veteran-poro.test.mjs",
+          "sha256": "ea7f5d4dbbd8bb64a6f45fa414ac40b158fb95bab7c86763b7b1240a3bae22bd"
+        },
+        "templates": []
+      },
+      "dependencies": [
+        {
+          "key": "nontarget-picks-equipment",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/programs/filters.ts",
+            "packages/engine-core/src/chain/picks/plan.ts",
+            "packages/engine-core/src/target/picks/plan.ts",
+            "packages/engine-core/src/effects/instructions/effect.detach.ts",
+            "packages/engine-core/src/effects/keywords/Weaponmaster.ts"
+          ],
+          "reason": "Non-target picks, equipped/attached predicates, and authoritative Equip cost provenance need production Finalize consumers.",
+          "gapLabels": [
+            "EG-TARGETS",
+            "EG-GEAR",
+            "EG-FILTER",
+            "EG-FINALIZE"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f",
+      "name": "Show of Strength",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-106-221",
+        "printings": [
+          "sfd-106-221"
+        ],
+        "recordSha256": "d15c9483c937117e3421c1fa8c686274fa2eada0f754a83c7c5ade7d76b08944"
+      },
+      "printed": {
+        "cardType": "Spell",
+        "domains": [
+          "Body"
+        ],
+        "tags": [],
+        "energy": 2,
+        "power": 1,
+        "might": null,
+        "ability": "[Reaction] (Play any time, even before spells and abilities resolve.)\nDraw 1 for each of your [Mighty] units. (A unit is Mighty while it has 5+ :rb_might:.)"
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/show-of-strength.ts",
+        "sha256": "44ceacc1bd4a103ab89795fad34cd18503b1833cf05e5e0c6bf798a5ea7f8524"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/show-of-strength.test.mjs",
+          "sha256": "a3092c9cad437498fae93e49a2f6f51c08ac2006fdaca88ab509e0582d841988"
+        },
+        "templates": [
+          {
+            "path": "packages/card-dsl/test/cards/templates/keyword-play-effect-draw-688.test.mjs",
+            "sha256": "387f1e388587f26e3ff5300f6119c9772822a86ee1b64db9dfb70cef23e2bd76"
+          }
+        ]
+      },
+      "dependencies": [
+        {
+          "key": "mighty-query-consumer",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/effects/keywords/Mighty.ts",
+            "packages/engine-core/src/layers/filter.ts",
+            "packages/engine-core/src/programs/filters.ts",
+            "packages/engine-core/src/programs/statics.ts",
+            "packages/engine-core/src/effects/interpreter/expr.ts"
+          ],
+          "reason": "Effective Might >= 5 is not consistently exposed to production filters and static evaluation. Unknown mightGte inputs remain fail-closed.",
+          "gapLabels": [
+            "EG-MIGHT",
+            "EG-EXPR",
+            "EG-FILTER",
+            "EG-STATIC"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6",
+      "name": "Laurent Duelist",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-156-221",
+        "printings": [
+          "sfd-156-221"
+        ],
+        "recordSha256": "89b2975e89e66c6700172bdcb9c81ddfcbf3663871349570f539921f50839058"
+      },
+      "printed": {
+        "cardType": "Unit",
+        "domains": [
+          "Order"
+        ],
+        "tags": [
+          "Demacia"
+        ],
+        "energy": 4,
+        "power": null,
+        "might": 3,
+        "ability": "[Assault 2] (+2 :rb_might: while I'm an attacker.)"
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/laurent-duelist.ts",
+        "sha256": "5f6882d0626746f7ce4cb41c7d823ff6ea9d0b34d37295db5f5ed6aba41df8b2"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/laurent-duelist.test.mjs",
+          "sha256": "8dfc7ad20d7116886a42ba592a34f545ebabbab6677a66f61afb44aead795890"
+        },
+        "templates": [
+          {
+            "path": "packages/card-dsl/test/cards/templates/keyword-only.test.mjs",
+            "sha256": "4ddc7df57454c598f6997fe10d33c8b62e9994ce99e8e1503cb508fe0beff7fa"
+          }
+        ]
+      },
+      "dependencies": [
+        {
+          "key": "combat-event-payload-location-hold",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/combat/flow.ts",
+            "packages/engine-core/src/turn/flow.ts",
+            "packages/engine-core/src/events/pipeline-match.ts",
+            "packages/engine-core/src/events/trigger-spec.ts",
+            "packages/engine-core/src/programs/filters.ts"
+          ],
+          "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+          "gapLabels": [
+            "EG-COMBAT",
+            "EG-COMBATPRIORITY",
+            "EG-PAYLOAD",
+            "EG-FILTER",
+            "EG-EVENTS",
+            "EG-TURN",
+            "EG-LOCATIONS",
+            "EG-MOVE"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-8d49727ab9ae782b8a21802c9ae0b51e5d712a37a072d991629bfbf3645535b3",
+      "name": "Punch First",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-097-221",
+        "printings": [
+          "sfd-097-221"
+        ],
+        "recordSha256": "75bb9e8c1a21f05592d62d5c883b2e0dd952647f39288a9c31fdcce36621da8f"
+      },
+      "printed": {
+        "cardType": "Spell",
+        "domains": [
+          "Body"
+        ],
+        "tags": [],
+        "energy": 1,
+        "power": 2,
+        "might": null,
+        "ability": "[Action] (Play on your turn or in showdowns.)\nGive a unit +5 :rb_might: this turn."
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/punch-first.ts",
+        "sha256": "bc6f246d8fb83d187b2d6c70143a78f6d90ef1ed9ce051dee4b6e37e170fb8b8"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/punch-first.test.mjs",
+          "sha256": "2f4b4bd657ea5c295d3bb8f21cf24d0bbd13af7372e1aa15a4473963e8a8dc85"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-902c6a1366a1a0e653ccb65102ff621b109af3b0b40f5bbeb7d8d3a5aeae2322",
+      "name": "Warmog's Armor",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-108-221",
+        "printings": [
+          "sfd-108-221"
+        ],
+        "recordSha256": "3e359de31787c70ee5e7098ffc2d169d3e52ccab028ec5c378da4312a4ce7470"
+      },
+      "printed": {
+        "cardType": "Gear",
+        "domains": [
+          "Body"
+        ],
+        "tags": [
+          "Equipment"
+        ],
+        "energy": 1,
+        "power": null,
+        "might": 1,
+        "ability": "[Equip] :rb_rune_body: (:rb_rune_body:: Attach this to a unit you control.)"
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/warmogs-armor.ts",
+        "sha256": "bb47093ced9dcf8eb82185fc9b0364b862e9605b02f00aaf7e05dd9b285d28fd"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/warmogs-armor.test.mjs",
+          "sha256": "1dc084c6e9bb7c66a6999148865562c506e5e862bf71caf199e5d1332eeb6d0e"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-959c19d68f06f8f929625bfde93a1132701da5a5d0b49e91583db341384f0bfe",
+      "name": "B.F. Sword",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-161-221",
+        "printings": [
+          "sfd-161-221"
+        ],
+        "recordSha256": "c3d026f6d178f34e7c9d0117c29596fbb8f047eebbe71e9c8b22c7226d03e37c"
+      },
+      "printed": {
+        "cardType": "Gear",
+        "domains": [
+          "Order"
+        ],
+        "tags": [
+          "Equipment"
+        ],
+        "energy": 4,
+        "power": null,
+        "might": 3,
+        "ability": "[Equip] :rb_rune_order: (:rb_rune_order:: Attach this to a unit you control.)"
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/bf-sword.ts",
+        "sha256": "f3713fb40e1921d2ccd4831e4865bb17b0a09029d671ced97569553bfa814a78"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/bf-sword.test.mjs",
+          "sha256": "683c41fe50124b704c35785fc143f36438f462266171ab7ff9a5ef490d5c53ea"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-9daf60cdf4c82e4fba1f685af1c9b0d748003f7e9ad9c68f02f429bdd0cf85e5",
+      "name": "Veiled Temple",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-221-221",
+        "printings": [
+          "sfd-221-221"
+        ],
+        "recordSha256": "1a71f40353135bef8262b57ee4a9ea7d9067d046040f91424ab81eaea408a2c9"
+      },
+      "printed": {
+        "cardType": "Battlefield",
+        "domains": [
+          "Colorless"
+        ],
+        "tags": [],
+        "energy": null,
+        "power": null,
+        "might": null,
+        "ability": "When you conquer here, you may ready a friendly gear. If it's an Equipment, you may detach it."
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/veiled-temple.ts",
+        "sha256": "6f95ffdaf2dc73f8c66f9153dcca4c8712625382093ecc99b57b63fcc7260013"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/veiled-temple.test.mjs",
+          "sha256": "6e2b2e5bc42567e526a2e12238eb1e1306adbb7f91f1b969992bb43f0b0a9f3c"
+        },
+        "templates": []
+      },
+      "dependencies": [
+        {
+          "key": "combat-event-payload-location-hold",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/combat/flow.ts",
+            "packages/engine-core/src/turn/flow.ts",
+            "packages/engine-core/src/events/pipeline-match.ts",
+            "packages/engine-core/src/events/trigger-spec.ts",
+            "packages/engine-core/src/programs/filters.ts"
+          ],
+          "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+          "gapLabels": [
+            "EG-COMBAT",
+            "EG-COMBATPRIORITY",
+            "EG-PAYLOAD",
+            "EG-FILTER",
+            "EG-EVENTS",
+            "EG-TURN",
+            "EG-LOCATIONS",
+            "EG-MOVE"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-a1ee07f71d453092ab7d54f9491684e972b735b22bb1f3fda73f2641bcedbfe1",
+      "name": "Doran's Blade",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-095-221",
+        "printings": [
+          "sfd-095-221"
+        ],
+        "recordSha256": "2ca845c4495c255a260eccd7e2fdadee08abd6964afed57ba158924a923169f7"
+      },
+      "printed": {
+        "cardType": "Gear",
+        "domains": [
+          "Body"
+        ],
+        "tags": [
+          "Equipment"
+        ],
+        "energy": 2,
+        "power": null,
+        "might": 2,
+        "ability": "[Equip] :rb_rune_body: (:rb_rune_body:: Attach this to a unit you control.)"
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/dorans-blade.ts",
+        "sha256": "4532a442def3eb3d0b1e181f646d5419e0c211c31896fb921d2be15bfbadcb21"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/dorans-blade.test.mjs",
+          "sha256": "88d5da0ab9ed59ea6e30c0049fd423eb03cb45f013aa556e07d238c2eb70fba1"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-a2227b03e9e13c8e2ddae7a973c746cc4243ff631dfaf462dc9823e687bbbf17",
+      "name": "Body Rune",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "ven-r04",
+        "printings": [
+          "ogn-126-298",
+          "ogn-126a-298",
+          "rad-r04",
+          "rad-r04a",
+          "ven-r04"
+        ],
+        "recordSha256": "ea86b5f853e9b3e230552706102df3e12c0ba57111f47953ea0ef7f23b5f2596"
+      },
+      "printed": {
+        "cardType": "Rune",
+        "domains": [
+          "Body"
+        ],
+        "tags": [
+          "Basic"
+        ],
+        "energy": null,
+        "power": null,
+        "might": null,
+        "ability": ""
+      },
+      "programStatus": "no-ability",
+      "verificationStatus": "verified-no-ability",
+      "productionAcceptance": "verified-no-ability",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/ogn/body-rune.ts",
+        "sha256": "4477b7187a9a00441d6653a20010dee9383a16086ad6907ef9c53e5776e57f5c"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/ogn/body-rune.test.mjs",
+          "sha256": "2bfb05b820f0164d5fbaa4d97900afc97954c006750d80d986cfde704ca70d24"
+        },
+        "templates": []
+      },
+      "dependencies": [],
+      "productionEvidence": {
+        "kind": "no-ability",
+        "independentGolden": "packages/card-dsl/test/cards/ogn/body-rune.test.mjs"
+      }
+    },
+    {
+      "canonicalCardId": "card.hash-a8a4cb783649a0339782e2d3808d6144661c621634da7c9f79b4f87981fac97b",
+      "name": "Mind Rune",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "ven-r03",
+        "printings": [
+          "ogn-089-298",
+          "ogn-089a-298",
+          "rad-r03",
+          "rad-r03a",
+          "ven-r03"
+        ],
+        "recordSha256": "7ae34689e777d676d9e1fe067b78fc47281879b58180bee4da46d53e9c76dd4f"
+      },
+      "printed": {
+        "cardType": "Rune",
+        "domains": [
+          "Mind"
+        ],
+        "tags": [
+          "Basic"
+        ],
+        "energy": null,
+        "power": null,
+        "might": null,
+        "ability": ""
+      },
+      "programStatus": "no-ability",
+      "verificationStatus": "verified-no-ability",
+      "productionAcceptance": "verified-no-ability",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/ogn/mind-rune.ts",
+        "sha256": "ad2bc327e5d8b1ee9f9f6b92976a21ac2c9f0dfa1fa0feca0259563047f20774"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/ogn/mind-rune.test.mjs",
+          "sha256": "6ee3d61426a9e1fb2e239d4a5614a4bf8b64ddc18d21eb40884d54dcf1d33e9b"
+        },
+        "templates": []
+      },
+      "dependencies": [],
+      "productionEvidence": {
+        "kind": "no-ability",
+        "independentGolden": "packages/card-dsl/test/cards/ogn/mind-rune.test.mjs"
+      }
+    },
+    {
+      "canonicalCardId": "card.hash-afc40c373a9fb4e48492323d7af26d3a58b824c385707dd3c269e97fee236103",
+      "name": "Unsung Hero",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-167-221",
+        "printings": [
+          "sfd-167-221"
+        ],
+        "recordSha256": "671a0b3ef5c39366988963d4436a68059eeda7f742ee44b7234873d8e61ee9d0"
+      },
+      "printed": {
+        "cardType": "Unit",
+        "domains": [
+          "Order"
+        ],
+        "tags": [
+          "Elite",
+          "Demacia"
+        ],
+        "energy": 2,
+        "power": null,
+        "might": 2,
+        "ability": "[Deathknell] — If I was [Mighty], draw 2. (When I die, get the effect. I'm Mighty while I have 5+ :rb_might:.)"
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/unsung-hero.ts",
+        "sha256": "77dd6bcec80b1bd78f1c8cd81584779923bd732814fd448709ac22559260a3ba"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/unsung-hero.test.mjs",
+          "sha256": "cba25f5780ca82e46eb86258ab5a4ecf639717b6c57e89d052d218b1c8ee93a1"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-c225141f743b61c67ddf269932c6bbdef739f37888f62163906faa7fa1e6dc2b",
+      "name": "Sunken Temple",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-218-221",
+        "printings": [
+          "sfd-218-221"
+        ],
+        "recordSha256": "0003c43266d4ec8183b670461d6c61e1c663ef1aff5c4d86175024ac853291ab"
+      },
+      "printed": {
+        "cardType": "Battlefield",
+        "domains": [
+          "Colorless"
+        ],
+        "tags": [],
+        "energy": null,
+        "power": null,
+        "might": null,
+        "ability": "When you conquer here with one or more [Mighty] units, you may pay :rb_energy_1: to draw 1. (A unit is Mighty while it has 5+ :rb_might:.)"
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/sunken-temple.ts",
+        "sha256": "23bad08e1d932874408a7b5763d3097f5e1c641bd44c9aede4bd2b2321a07c66"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/sunken-temple.test.mjs",
+          "sha256": "8872acb268d681010c74c42a13b16e2c4d212818b18a25e110d9f05a845a71ef"
+        },
+        "templates": []
+      },
+      "dependencies": [
+        {
+          "key": "combat-event-payload-location-hold",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/combat/flow.ts",
+            "packages/engine-core/src/turn/flow.ts",
+            "packages/engine-core/src/events/pipeline-match.ts",
+            "packages/engine-core/src/events/trigger-spec.ts",
+            "packages/engine-core/src/programs/filters.ts"
+          ],
+          "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+          "gapLabels": [
+            "EG-COMBAT",
+            "EG-COMBATPRIORITY",
+            "EG-PAYLOAD",
+            "EG-FILTER",
+            "EG-EVENTS",
+            "EG-TURN",
+            "EG-LOCATIONS",
+            "EG-MOVE"
+          ]
+        },
+        {
+          "key": "mighty-query-consumer",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/effects/keywords/Mighty.ts",
+            "packages/engine-core/src/layers/filter.ts",
+            "packages/engine-core/src/programs/filters.ts",
+            "packages/engine-core/src/programs/statics.ts",
+            "packages/engine-core/src/effects/interpreter/expr.ts"
+          ],
+          "reason": "Effective Might >= 5 is not consistently exposed to production filters and static evaluation. Unknown mightGte inputs remain fail-closed.",
+          "gapLabels": [
+            "EG-MIGHT",
+            "EG-EXPR",
+            "EG-FILTER",
+            "EG-STATIC"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef",
+      "name": "Lucian, Merciless",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-113a-221",
+        "printings": [
+          "sfd-113-221",
+          "sfd-113a-221"
+        ],
+        "recordSha256": "f2563775f70dc0a87ae9a4258f92072febd2a1a425e0a179c0eed3ad2ea6fcc4"
+      },
+      "printed": {
+        "cardType": "Unit",
+        "domains": [
+          "Body"
+        ],
+        "tags": [
+          "Lucian",
+          "Demacia",
+          "Sentinel",
+          "Champion"
+        ],
+        "energy": 3,
+        "power": null,
+        "might": 3,
+        "ability": "[Weaponmaster] (When you play me, you may [Equip] one of your Equipment to me for :rb_rune_rainbow: less, even if it's already attached.)\nThe first time I conquer each turn, ready me."
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/lucian-merciless.ts",
+        "sha256": "feb6b8a34f9f05a2df8e5c5c520ad5030bad26f285bae41777e3cf935bbac219"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/lucian-merciless.test.mjs",
+          "sha256": "6173d1faa61def47b9dcf993eb93304859f2efa9049122230b0e90e224c605a9"
+        },
+        "templates": []
+      },
+      "dependencies": [
+        {
+          "key": "combat-event-payload-location-hold",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/combat/flow.ts",
+            "packages/engine-core/src/turn/flow.ts",
+            "packages/engine-core/src/events/pipeline-match.ts",
+            "packages/engine-core/src/events/trigger-spec.ts",
+            "packages/engine-core/src/programs/filters.ts"
+          ],
+          "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+          "gapLabels": [
+            "EG-COMBAT",
+            "EG-COMBATPRIORITY",
+            "EG-PAYLOAD",
+            "EG-FILTER",
+            "EG-EVENTS",
+            "EG-TURN",
+            "EG-LOCATIONS",
+            "EG-MOVE"
+          ]
+        },
+        {
+          "key": "nontarget-picks-equipment",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/programs/filters.ts",
+            "packages/engine-core/src/chain/picks/plan.ts",
+            "packages/engine-core/src/target/picks/plan.ts",
+            "packages/engine-core/src/effects/instructions/effect.detach.ts",
+            "packages/engine-core/src/effects/keywords/Weaponmaster.ts"
+          ],
+          "reason": "Non-target picks, equipped/attached predicates, and authoritative Equip cost provenance need production Finalize consumers.",
+          "gapLabels": [
+            "EG-TARGETS",
+            "EG-GEAR",
+            "EG-FILTER",
+            "EG-FINALIZE"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-cab923a670e4baa826aa3de381c8b992bf33987fcb0d65feb75ca538a8681010",
+      "name": "Long Sword",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-022-221",
+        "printings": [
+          "sfd-022-221"
+        ],
+        "recordSha256": "bc8c91f42eb1b8ced36af0743ff77528b3fa182f854e488916cd3c0e1c15a57f"
+      },
+      "printed": {
+        "cardType": "Gear",
+        "domains": [
+          "Fury"
+        ],
+        "tags": [
+          "Equipment"
+        ],
+        "energy": 2,
+        "power": 1,
+        "might": 2,
+        "ability": "[Quick-Draw] (This has [Reaction]. When you play it, attach it to a unit you control.)\n[Equip] :rb_rune_fury: (:rb_rune_fury:: Attach this to a unit you control.)"
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/long-sword.ts",
+        "sha256": "b029fba3e0d20001cda3400032640990dc8a9f019ceebaf1e8df1a972979d76e"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/long-sword.test.mjs",
+          "sha256": "2d34070bb937064ac24746f85d8a1590ca16731be1c5dfe88975c8466fdaad64"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab",
+      "name": "Breakneck Mech",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-071-221",
+        "printings": [
+          "sfd-071-221"
+        ],
+        "recordSha256": "bc085ab3704e37323dbdb7bc8acedefc9817161d63da434440c0827f5dfc90e7"
+      },
+      "printed": {
+        "cardType": "Unit",
+        "domains": [
+          "Mind"
+        ],
+        "tags": [
+          "Mech",
+          "Yordle",
+          "Bandle City"
+        ],
+        "energy": 8,
+        "power": 2,
+        "might": 7,
+        "ability": "Your Mechs have [Deflect] and [Ganking]. (Opponents must pay :rb_rune_rainbow: to choose us with a spell or ability. We can move from battlefield to battlefield.)\nI enter ready if you control another Mech."
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/breakneck-mech.ts",
+        "sha256": "7e04bb30b06eaf0beaba68a04b1b9d4e7a13f6e4159f39e5f93c27402c399fd3"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/breakneck-mech.test.mjs",
+          "sha256": "6e513be219a6030687a4bc5ae430d722c3f8794511525bb67542e809d88ee5d5"
+        },
+        "templates": [
+          {
+            "path": "packages/card-dsl/test/cards/templates/static-replacement-effect-ready-677.test.mjs",
+            "sha256": "dc20726605e5b471ed4af02dd5a21bbd867784d1dd31554aae8af20f8c59e32f"
+          }
+        ]
+      },
+      "dependencies": [
+        {
+          "key": "production-lifecycle-keyword-reexpansion",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/programs/lifecycle.ts",
+            "packages/engine-core/src/programs/keyword-grants.ts",
+            "packages/engine-core/src/programs/statics.ts",
+            "packages/engine-core/src/layers/rules/query.ts",
+            "packages/engine-core/src/replacement/bind.ts"
+          ],
+          "reason": "Production lifecycle does not consume every dynamic keyword and replacement condition. Target tax, Ganking, Vision, Assault designation, and entry-ready gating need real consumers.",
+          "gapLabels": [
+            "EG-GRANTS",
+            "EG-KEYWORDS",
+            "EG-LAYERS",
+            "EG-PERMISSIONS",
+            "EG-TAX",
+            "EG-REPLACEMENT"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-ccfc067dad8a1bf92c6ae1aa5f7110e9d211a1842a9254bb9320705c2f96c6c4",
+      "name": "Grand Duelist",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-251-221",
+        "printings": [
+          "sfd-205-221",
+          "sfd-251-221"
+        ],
+        "recordSha256": "71da2c7cdd175076631a6065f605ff1f3b93b1c4166c9509f5dfd6787effafb9"
+      },
+      "printed": {
+        "cardType": "Legend",
+        "domains": [
+          "Body",
+          "Order"
+        ],
+        "tags": [
+          "Fiora"
+        ],
+        "energy": null,
+        "power": null,
+        "might": null,
+        "ability": "When one of your units becomes [Mighty], you may exhaust me to channel 1 rune exhausted. (A unit is Mighty while it has 5+ :rb_might:.)"
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/grand-duelist.ts",
+        "sha256": "e1355ef70c29930a5768fe2fc843c5def37ae40076de3261512502b64a65d217"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/grand-duelist.test.mjs",
+          "sha256": "c806a6df96c6a7369c2e13bc0c32147b73310aa8915134135f36481c913f8bfe"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40",
+      "name": "Forecaster",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-065-221",
+        "printings": [
+          "sfd-065-221"
+        ],
+        "recordSha256": "06170f812f90036435677404ac1b0a51f6428dcb9ac64f93e0e3ca440848bdb5"
+      },
+      "printed": {
+        "cardType": "Unit",
+        "domains": [
+          "Mind"
+        ],
+        "tags": [
+          "Mech",
+          "Yordle",
+          "Bandle City"
+        ],
+        "energy": 2,
+        "power": null,
+        "might": 2,
+        "ability": "Your Mechs have [Vision]. (When you play us, look at the top card of your Main Deck. You may recycle it.)"
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/forecaster.ts",
+        "sha256": "e814691f5ccca78961cb7552b0734bf117ce45c28f0599a810f8f004ea447830"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/forecaster.test.mjs",
+          "sha256": "2dcbab63fb01d24d190eb8f9f51999b991319810ac447909eaa0ade3f43e404b"
+        },
+        "templates": [
+          {
+            "path": "packages/card-dsl/test/cards/templates/static-642.test.mjs",
+            "sha256": "b864722f7ab15576aa948f0b9e1078db32ed408ef94659bb6d16e5ffa70cddc9"
+          }
+        ]
+      },
+      "dependencies": [
+        {
+          "key": "production-lifecycle-keyword-reexpansion",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/programs/lifecycle.ts",
+            "packages/engine-core/src/programs/keyword-grants.ts",
+            "packages/engine-core/src/programs/statics.ts",
+            "packages/engine-core/src/layers/rules/query.ts",
+            "packages/engine-core/src/replacement/bind.ts"
+          ],
+          "reason": "Production lifecycle does not consume every dynamic keyword and replacement condition. Target tax, Ganking, Vision, Assault designation, and entry-ready gating need real consumers.",
+          "gapLabels": [
+            "EG-GRANTS",
+            "EG-KEYWORDS",
+            "EG-LAYERS",
+            "EG-PERMISSIONS",
+            "EG-TAX",
+            "EG-REPLACEMENT"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-cf0b322a78010676e3d8b287830194a3bdc8970e65a141578ae8a3074ebd956f",
+      "name": "Dauntless Vanguard",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-093-221",
+        "printings": [
+          "sfd-093-221"
+        ],
+        "recordSha256": "dcb50ec6a01508414fe19bf2a6b48f52a918b93614d95d95daeb7f098a6087d0"
+      },
+      "printed": {
+        "cardType": "Unit",
+        "domains": [
+          "Body"
+        ],
+        "tags": [
+          "Elite",
+          "Demacia"
+        ],
+        "energy": 4,
+        "power": 1,
+        "might": 4,
+        "ability": "You may play me to an occupied enemy battlefield."
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/dauntless-vanguard.ts",
+        "sha256": "e938ff109961a2489e711006c97f1c8a9d01fcfc0e59a7dbf181352c3f77798d"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/dauntless-vanguard.test.mjs",
+          "sha256": "f166105d1444a041f9e170b177bc61498f8cf6ed194424ddd528e9bf8cb9bc7f"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-d3579e6825470471f5ce05c53533806a5244c5e84364fe57b2aab0b7cc0f14e0",
+      "name": "Sacred Shears",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-172-221",
+        "printings": [
+          "sfd-172-221"
+        ],
+        "recordSha256": "0f40c0d30550f93b4bbfeeb10d81946ebe637e7a3b9f8402f08dfd0284904851"
+      },
+      "printed": {
+        "cardType": "Gear",
+        "domains": [
+          "Order"
+        ],
+        "tags": [
+          "Equipment"
+        ],
+        "energy": 2,
+        "power": 1,
+        "might": 1,
+        "ability": "[Equip] :rb_rune_order: (:rb_rune_order:: Attach this to a unit you control.)"
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/sacred-shears.ts",
+        "sha256": "59932783301881e8c5b0e21bebb47ddc536ce1cd6ba291cbb4af243581ba8850"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/sacred-shears.test.mjs",
+          "sha256": "be0063f360923cb58d471a55a0827d73218fa4709bc8dd20551878a85c3a92af"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-d490b51d08bdd7f97b1708aabfa6309995106f10de815b6fd927368e4a630569",
+      "name": "Assembly Rig",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-019-221",
+        "printings": [
+          "sfd-019-221"
+        ],
+        "recordSha256": "671fee58543dffda194cf2ba99cb7714418f0d77ccb90fab4d9c86f266faa2a2"
+      },
+      "printed": {
+        "cardType": "Gear",
+        "domains": [
+          "Fury"
+        ],
+        "tags": [],
+        "energy": 4,
+        "power": null,
+        "might": null,
+        "ability": ":rb_energy_1::rb_rune_fury:, Recycle a unit from your trash, :rb_exhaust:: Play a 3 :rb_might: Mech unit token to your base."
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/assembly-rig.ts",
+        "sha256": "6ef5ca322ca3ed80c7fd518ad3eb8a01e9935490b637b953b32e8f0fecd212c6"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/assembly-rig.test.mjs",
+          "sha256": "1a5067ee716a79cc54a17207698c9ac04e51f88f5f86ef727bf705f18e1eb7ca"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-d4e849d845765608b07bf4af4aa19877f6303dfff539b541d0d070320dd05d91",
+      "name": "Dangerous Duo",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "ogn-016-298",
+        "printings": [
+          "ogn-016-298"
+        ],
+        "recordSha256": "78b0ee3af10bd0e9e3a100655304af8a0da2d34b3393575f36b92b1f26589aea"
+      },
+      "printed": {
+        "cardType": "Unit",
+        "domains": [
+          "Fury"
+        ],
+        "tags": [
+          "Mech",
+          "Bandle City"
+        ],
+        "energy": 3,
+        "power": null,
+        "might": 3,
+        "ability": "[Legion] — When you play me, give a unit +2 :rb_might: this turn. (Get the effect if you've played another card this turn.)"
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/ogn/dangerous-duo.ts",
+        "sha256": "7cd3db0f4ca584954411ab2d43c1bc3a4c3db03dee49c23be50de134eb5b3347"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/ogn/dangerous-duo.test.mjs",
+          "sha256": "7819aedea33a60d713d778d687a184e460951b7c67aaf086989e1625136acdef"
+        },
+        "templates": []
+      },
+      "dependencies": [
+        {
+          "key": "legion-history-condition",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/events/pipeline-match.ts",
+            "packages/engine-core/src/events/trigger-spec.ts",
+            "packages/engine-core/src/programs/filters.ts",
+            "packages/engine-core/src/effects/interpreter/condition.ts"
+          ],
+          "reason": "Evaluate Legion from the authoritative finalized-card history at the trigger collection time, exclude the source correctly, reset at the turn boundary, and execute the original +2 Might body through the production chain.",
+          "gapLabels": [
+            "EG-TRIGGERS",
+            "EG-EXPR",
+            "EG-FILTER",
+            "EG-EVENTS"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+      "name": "Jaull-Fish",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-103-221",
+        "printings": [
+          "sfd-103-221"
+        ],
+        "recordSha256": "8fb425082fe2facdb2f7e0b8a796362c359b8593c4ca2b637a496f63bfb35a56"
+      },
+      "printed": {
+        "cardType": "Unit",
+        "domains": [
+          "Body"
+        ],
+        "tags": [
+          "Bilgewater"
+        ],
+        "energy": 7,
+        "power": 2,
+        "might": 6,
+        "ability": "[Accelerate] (You may pay :rb_energy_1::rb_rune_body: as an additional cost to have me enter ready.)\nI cost :rb_energy_2: less for each of your [Mighty] units. (A unit is Mighty while it has 5+ :rb_might:.)"
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/jaull-fish.ts",
+        "sha256": "f692f701ec5813c1d616901faf17bcbba352223bfe16d39127a3f3c5bccacf6b"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/jaull-fish.test.mjs",
+          "sha256": "ad0dec7a4c838eda7bea61d3ebc48c6c37ce51b95bf5785a920ea1906190ae9f"
+        },
+        "templates": [
+          {
+            "path": "packages/card-dsl/test/cards/templates/keyword-only.test.mjs",
+            "sha256": "4ddc7df57454c598f6997fe10d33c8b62e9994ce99e8e1503cb508fe0beff7fa"
+          }
+        ]
+      },
+      "dependencies": [
+        {
+          "key": "mighty-query-consumer",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/effects/keywords/Mighty.ts",
+            "packages/engine-core/src/layers/filter.ts",
+            "packages/engine-core/src/programs/filters.ts",
+            "packages/engine-core/src/programs/statics.ts",
+            "packages/engine-core/src/effects/interpreter/expr.ts"
+          ],
+          "reason": "Effective Might >= 5 is not consistently exposed to production filters and static evaluation. Unknown mightGte inputs remain fail-closed.",
+          "gapLabels": [
+            "EG-MIGHT",
+            "EG-EXPR",
+            "EG-FILTER",
+            "EG-STATIC"
+          ]
+        },
+        {
+          "key": "cost-repeat-additional-cost",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/programs/play.ts",
+            "packages/engine-core/src/chain/engine.ts",
+            "packages/engine-core/src/chain/interpreter-adapter.ts",
+            "packages/engine-core/src/effects/keywords/Repeat.ts",
+            "packages/engine-core/src/effects/instructions/effect.repeat.ts",
+            "packages/engine-core/src/cost/discounts/collect.ts",
+            "packages/engine-core/src/programs/statics.ts"
+          ],
+          "reason": "Optional additional/Repeat payments and CardProgram static costs lack complete Finalize collection, paid-instance binding, and rollback.",
+          "gapLabels": [
+            "EG-COSTBIND",
+            "EG-COSTCHOICE",
+            "EG-DISCOUNTS",
+            "EG-FINALIZE",
+            "EG-PLAY",
+            "EG-STATIC"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-e0efe08be77e60ed68f2e43ba425b763efd364eb44b0c760d26ef1fcc1b6df67",
+      "name": "Order Rune",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "ven-r06",
+        "printings": [
+          "ogn-214-298",
+          "ogn-214a-298",
+          "rad-r06",
+          "rad-r06a",
+          "ven-r06"
+        ],
+        "recordSha256": "35382851b0713d21508fa136ada707d6b8b534cf5dbb55d2ba8f331cd9acdf1f"
+      },
+      "printed": {
+        "cardType": "Rune",
+        "domains": [
+          "Order"
+        ],
+        "tags": [
+          "Basic"
+        ],
+        "energy": null,
+        "power": null,
+        "might": null,
+        "ability": ""
+      },
+      "programStatus": "no-ability",
+      "verificationStatus": "verified-no-ability",
+      "productionAcceptance": "verified-no-ability",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/ogn/order-rune.ts",
+        "sha256": "1408a8e0677f998b659514125ae0f907aeff9f837bea122993d879381de91ea8"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/ogn/order-rune.test.mjs",
+          "sha256": "6938849bea41fd35eae8ebb0d0e91bc327acf450d1e954c0b6faccca07828405"
+        },
+        "templates": []
+      },
+      "dependencies": [],
+      "productionEvidence": {
+        "kind": "no-ability",
+        "independentGolden": "packages/card-dsl/test/cards/ogn/order-rune.test.mjs"
+      }
+    },
+    {
+      "canonicalCardId": "card.hash-e2638655ff5ed3a1e60a501be3c23d74e46ef7f1900bed31b436f1a579b316ed",
+      "name": "Pit Rookie",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "ogn-136-298",
+        "printings": [
+          "ogn-136-298"
+        ],
+        "recordSha256": "cfd7c62ead08719d4c89a97d7c907be76e43702216a4c1720c93c3ee515fea83"
+      },
+      "printed": {
+        "cardType": "Unit",
+        "domains": [
+          "Body"
+        ],
+        "tags": [
+          "Bilgewater"
+        ],
+        "energy": 2,
+        "power": null,
+        "might": 2,
+        "ability": "When you play me, buff another friendly unit. (If it doesn't have a buff, it gets a +1 :rb_might: buff.)"
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/ogn/pit-rookie.ts",
+        "sha256": "3d928f49593e6b29411148d1334829c7d3437a3dd214bfd1e9baf44be64bd91d"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/ogn/pit-rookie.test.mjs",
+          "sha256": "ea836ea2c83f9988e27cfa580bd513237fe471d1b65e726477b2e067a66f283d"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9",
+      "name": "Gem Jammer",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-007-221",
+        "printings": [
+          "sfd-007-221"
+        ],
+        "recordSha256": "ad05b06c23dcab2de0630578f099ae9bb5eef69b04993a96cc0e71b95801fc78"
+      },
+      "printed": {
+        "cardType": "Unit",
+        "domains": [
+          "Fury"
+        ],
+        "tags": [
+          "Mech",
+          "Bandle City"
+        ],
+        "energy": 2,
+        "power": null,
+        "might": 2,
+        "ability": "When you play me, give a unit [Ganking] this turn. (It can move from battlefield to battlefield.)"
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/gem-jammer.ts",
+        "sha256": "c414bdbbdc4c38d80de555b019115d6ef5a3b4243f03589371d036d460db16fe"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/gem-jammer.test.mjs",
+          "sha256": "bf152634e8f28395e2345f2fa8b539f4e0c0df8c0c1e88392a4209a1eaeb1f3c"
+        },
+        "templates": []
+      },
+      "dependencies": [
+        {
+          "key": "production-lifecycle-keyword-reexpansion",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/programs/lifecycle.ts",
+            "packages/engine-core/src/programs/keyword-grants.ts",
+            "packages/engine-core/src/programs/statics.ts",
+            "packages/engine-core/src/layers/rules/query.ts",
+            "packages/engine-core/src/replacement/bind.ts"
+          ],
+          "reason": "Production lifecycle does not consume every dynamic keyword and replacement condition. Target tax, Ganking, Vision, Assault designation, and entry-ready gating need real consumers.",
+          "gapLabels": [
+            "EG-GRANTS",
+            "EG-KEYWORDS",
+            "EG-LAYERS",
+            "EG-PERMISSIONS",
+            "EG-TAX",
+            "EG-REPLACEMENT"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-f67321dac096b3ad1e49b55231663e26f3f9d96efafe79d75719a6eb72fc5caa",
+      "name": "Vengeance",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "ogn-229-298",
+        "printings": [
+          "ogn-229-298"
+        ],
+        "recordSha256": "c6ca8e4dc762ddccc542152457a281800b0ef2027622d60969a3a6700efacd87"
+      },
+      "printed": {
+        "cardType": "Spell",
+        "domains": [
+          "Order"
+        ],
+        "tags": [],
+        "energy": 4,
+        "power": 2,
+        "might": null,
+        "ability": "Kill a unit."
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/ogn/vengeance.ts",
+        "sha256": "2184c07573219265b80d273a604dba1bc77a2c3455374973c28fa460081e7476"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/ogn/vengeance.test.mjs",
+          "sha256": "233e4f76b151fcc7bf6ec49590d1bf38e456eb080e9a38439f1f913234b43aad"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    },
+    {
+      "canonicalCardId": "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+      "name": "Strike Down",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-107-221",
+        "printings": [
+          "sfd-107-221"
+        ],
+        "recordSha256": "b0146be9eea0ca1c52b784e6cde0137ff0fb0934b870b32971258a8af98a8e1d"
+      },
+      "printed": {
+        "cardType": "Spell",
+        "domains": [
+          "Body"
+        ],
+        "tags": [],
+        "energy": 3,
+        "power": 1,
+        "might": null,
+        "ability": "Choose an equipped friendly unit. It deals damage equal to its Might to an enemy unit. Then detach an Equipment from it."
+      },
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/strike-down.ts",
+        "sha256": "ca5dcd2d06c20c539cd52b8a1961e45173309e706665c28a84f912844be47712"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/strike-down.test.mjs",
+          "sha256": "31e7beca7d59c831fa574ec426e28843dff360ca8383b0511d12886fb9f3f79a"
+        },
+        "templates": []
+      },
+      "dependencies": [
+        {
+          "key": "nontarget-picks-equipment",
+          "owner": "engine-core",
+          "state": "dependency-not-ready",
+          "paths": [
+            "packages/engine-core/src/programs/filters.ts",
+            "packages/engine-core/src/chain/picks/plan.ts",
+            "packages/engine-core/src/target/picks/plan.ts",
+            "packages/engine-core/src/effects/instructions/effect.detach.ts",
+            "packages/engine-core/src/effects/keywords/Weaponmaster.ts"
+          ],
+          "reason": "Non-target picks, equipped/attached predicates, and authoritative Equip cost provenance need production Finalize consumers.",
+          "gapLabels": [
+            "EG-TARGETS",
+            "EG-GEAR",
+            "EG-FILTER",
+            "EG-FINALIZE"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCardId": "card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7",
+      "name": "Mechanized Menace",
+      "source": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-240-221",
+        "printings": [
+          "sfd-181-221",
+          "sfd-240-221"
+        ],
+        "recordSha256": "f15710ff64d51df97bff0b2b2e6a906673f6654220c3434eb243a2e90c912b39"
+      },
+      "printed": {
+        "cardType": "Legend",
+        "domains": [
+          "Fury",
+          "Mind"
+        ],
+        "tags": [
+          "Rumble"
+        ],
+        "energy": null,
+        "power": null,
+        "might": null,
+        "ability": "Your Mechs have [Shield]. (+1 :rb_might: while they're defenders.)"
+      },
+      "programStatus": "executable",
+      "verificationStatus": "merged-awaiting-acceptance",
+      "productionAcceptance": "pending",
+      "planEvidenceGap": null,
+      "program": {
+        "path": "packages/card-dsl/src/cards/sfd/mechanized-menace.ts",
+        "sha256": "a96c14fbd0a16b2e6e10d02589273f2fbab7c7e884e3c8d423608d1e91659a3f"
+      },
+      "goldens": {
+        "independent": {
+          "path": "packages/card-dsl/test/cards/sfd/mechanized-menace.test.mjs",
+          "sha256": "6b19cc68a107737f09b39d67c4e65ec6421adff1933776cf78202f49f8ac2fa9"
+        },
+        "templates": []
+      },
+      "dependencies": []
+    }
+  ],
+  "summaries": {
+    "uniqueCanonicalCardCount": 51,
+    "rumbleCanonicalCount": 25,
+    "fioraCanonicalCount": 26,
+    "programStatus": {
+      "judge-required": 24,
+      "executable": 23,
+      "no-ability": 4
+    },
+    "verificationStatus": {
+      "dependency-not-ready": 24,
+      "missing-source-evidence": 2,
+      "merged-awaiting-acceptance": 21,
+      "verified-no-ability": 4
+    },
+    "nullEnergyCardCount": 12,
+    "nullPowerCardCount": 33,
+    "dependencyCardCounts": {
+      "combat-event-payload-location-hold": 11,
+      "token-entry-deathknell": 4,
+      "production-lifecycle-keyword-reexpansion": 4,
+      "cost-repeat-additional-cost": 5,
+      "mighty-query-consumer": 4,
+      "nontarget-picks-equipment": 3,
+      "legion-history-condition": 1
+    },
+    "dependencyMappingCount": 32
+  },
+  "proofPolicy": {
+    "programStatusIsNotExecutionProof": true,
+    "mergedCodeIsNotAcceptanceProof": true,
+    "missingSourceEvidenceCards": [
+      "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
+      "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d"
+    ],
+    "acceptedNaturalTerminationRequires": [
+      "termination=winner",
+      "winner score >= victoryScore",
+      "no exceptions",
+      "no blockers",
+      "no concede commands",
+      "embedded replay matches",
+      "independent fresh-world journal replay matches",
+      "all player and spectator privacy checks pass"
+    ],
+    "mergedAwaitingAcceptanceGoldens": {
+      "cardsWithTodo": 20,
+      "todoCount": 24,
+      "note": "A test.todo is retained evidence of an unfinished boundary. It is not an execution pass and does not prevent the card from being represented as merged-awaiting-acceptance.",
+      "cards": [
+        {
+          "canonicalCardId": "card.hash-0ba141b975db96cac65aab56bfd7dbb63904c538cc3d9c32bdfb3b2d98e486de",
+          "name": "Royal Guard",
+          "path": "packages/card-dsl/test/cards/sfd/royal-guard.test.mjs",
+          "todoCount": 1,
+          "todos": [
+            "\"sfd-157-221 Royal Guard: mode \\\"play\\\"（440.2.c 链上生成 + effect.play 打出流程）\" + \"依赖链上 token 创建与打出管线（RIFT-26 scenarios-chain / RIFT-66+ effect.play 完整化）； \" + \"当前 effect.token 对 mode \\\"play\\\" 显式 blocked（token-play-requires-chain-creation）\""
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b",
+          "name": "Singularity",
+          "path": "packages/card-dsl/test/cards/ogn/singularity.test.mjs",
+          "todoCount": 1,
+          "todos": [
+            "\"Singularity: Finalize-time target selection, the 0..2 cap enforcement, became-target \" + \"triggers, and target legality re-verification belong to the target system (RIFT-90).\""
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-1504d8f14af5ce1b9f7a3663c23e6ef7cb57d59a6274dc921cd9296ee8e2494b",
+          "name": "Production Surge",
+          "path": "packages/card-dsl/test/cards/sfd/production-surge.test.mjs",
+          "todoCount": 2,
+          "todos": [
+            "\"Production Surge: applying the conditional -2 energy reduction at Finalize needs the \" + \"cost modification consumer in the cost plan (RIFT-89) and the layers condition \" + \"evaluation of 'you control a Mech' (RIFT-91).\"",
+            "\"Production Surge: actually playing the Mech token needs create-token's chain \" + \"destination plus the effect.play handoff (440.2.c / 185.2.a / 350.2 / 354, contract \" + \"changelog RIFT-62; effect.token RIFT-63 follow-up).\""
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+          "name": "Fiora, Worthy",
+          "path": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+          "todoCount": 1,
+          "todos": [
+            "\"sfd-180-221 Fiora, Worthy: \\\"becomes Mighty\\\" 的事件化（might-changed 时点的 \" + \"previousMight/currentMight → becomesMighty 过滤，CR 709）依赖触发管线与图层结算 \" + \"（RIFT-33 scenarios-triggers / RIFT-32 scenarios-layers）；:rb_rune_order: 符文费用 \" + \"的 Finalize 询问与支付依赖费用管线（RIFT-27 scenarios-costs）\""
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-2ebf1fe6e5ed7bb875f1c112b3e0ed1635b557c0c0ad550d752b8dd376243007",
+          "name": "Consult the Past",
+          "path": "packages/card-dsl/test/cards/ogn/consult-the-past.test.mjs",
+          "todoCount": 1,
+          "todos": [
+            "\"Consult the Past: Hide for [A] and the facedown Reaction play window need the Hidden \" + \"keyword expansion and facedown-zone support (RIFT-84), plus chain Closed/Open timing \" + \"permissions (RIFT-85 expansion lands with the layers/chain consumers in RIFT-91).\""
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-34880fcae16bd9461e4c318dfb455365ff9e353db357f948b4a15dea7e01b389",
+          "name": "Bubble Bot",
+          "path": "packages/card-dsl/test/cards/sfd/bubble-bot.test.mjs",
+          "todoCount": 1,
+          "todos": [
+            "\"execute ready-mech through the merged effect.ready primitive with a friendly Mech target (blocked on target resolution, RIFT-81)\""
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-600e0796e82099284b213e87b112b1c5df42777ef72b70a3b4cd49a84d27dd10",
+          "name": "Void Seeker",
+          "path": "packages/card-dsl/test/cards/ogn/void-seeker.test.mjs",
+          "todoCount": 1,
+          "todos": [
+            "\"Void Seeker full chain play: spell cast pays 3 energy + 1 Fury power and [Action] showdown \" + \"permission is enforced (依赖 RIFT-82 费用系统 / RIFT-81 目标解析 / RIFT-89 continuous.timing)\""
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-8d49727ab9ae782b8a21802c9ae0b51e5d712a37a072d991629bfbf3645535b3",
+          "name": "Punch First",
+          "path": "packages/card-dsl/test/cards/sfd/punch-first.test.mjs",
+          "todoCount": 2,
+          "todos": [
+            "\"sfd-097-221 Punch First: the printed [Action] Showdown admission (806.1.b/806.1.c) needs the chain's \" + \"canAct check to read the merged continuous.timing grant (CR 806 / 159.2.a) — RIFT-259 query + RIFT-257 binding\"",
+            "\"sfd-097-221 Punch First: the end-of-turn expiry in the real turn flow (317.1.a / 468.7.c) is applied by \" + \"layers/duration at the turn-end timing point; the golden asserts the registered end-of-turn duration\""
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-902c6a1366a1a0e653ccb65102ff621b109af3b0b40f5bbeb7d8d3a5aeae2322",
+          "name": "Warmog's Armor",
+          "path": "packages/card-dsl/test/cards/sfd/warmogs-armor.test.mjs",
+          "todoCount": 1,
+          "todos": [
+            "\"Warmog's Armor: Equip keyword expansion (Body power cost, controlled-unit target, effect.attach body) is owned by the engine keyword registry (RIFT-81~91)\""
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-959c19d68f06f8f929625bfde93a1132701da5a5d0b49e91583db341384f0bfe",
+          "name": "B.F. Sword",
+          "path": "packages/card-dsl/test/cards/sfd/bf-sword.test.mjs",
+          "todoCount": 1,
+          "todos": [
+            "\"B.F. Sword: Equip keyword expansion (Order power cost, controlled-unit target, effect.attach body) is owned by the engine keyword registry (RIFT-81~91)\""
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-a1ee07f71d453092ab7d54f9491684e972b735b22bb1f3fda73f2641bcedbfe1",
+          "name": "Doran's Blade",
+          "path": "packages/card-dsl/test/cards/sfd/dorans-blade.test.mjs",
+          "todoCount": 1,
+          "todos": [
+            "\"Doran's Blade: Equip keyword expansion (Body power cost, controlled-unit target, effect.attach body) is owned by the engine keyword registry (RIFT-81~91)\""
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-afc40c373a9fb4e48492323d7af26d3a58b824c385707dd3c269e97fee236103",
+          "name": "Unsung Hero",
+          "path": "packages/card-dsl/test/cards/sfd/unsung-hero.test.mjs",
+          "todoCount": 1,
+          "todos": [
+            "\"sfd-167-221 Unsung Hero: Deathknell keyword expansion (订阅 object-killed、808.1.d.1 \" + \"死亡被替代时移出链、808.1.d.3 进链前记录 last-known) 依赖关键词注册表与触发管线\" + \"（RIFT-81~91 关键词任务）；触发条件的 might-changed/Mighty 判定依赖图层结算\" + \"（RIFT-32 scenarios-layers）\""
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-cab923a670e4baa826aa3de381c8b992bf33987fcb0d65feb75ca538a8681010",
+          "name": "Long Sword",
+          "path": "packages/card-dsl/test/cards/sfd/long-sword.test.mjs",
+          "todoCount": 2,
+          "todos": [
+            "\"Long Sword: Equip keyword expansion (action-speed activated ability, Fury power cost, controlled-unit target, effect.attach body) is owned by the engine keyword registry (RIFT-81~91)\"",
+            "\"Long Sword: Quick-Draw keyword expansion (inherent Reaction plus a card-played trigger that attaches to a unit you control) is owned by the engine keyword registry (RIFT-81~91)\""
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-ccfc067dad8a1bf92c6ae1aa5f7110e9d211a1842a9254bb9320705c2f96c6c4",
+          "name": "Grand Duelist",
+          "path": "packages/card-dsl/test/cards/sfd/grand-duelist.test.mjs",
+          "todoCount": 2,
+          "todos": [
+            "\"trigger registration at might-changed with becameMighty predicate and optional (may) choice — pending trigger/choice engine (RIFT-81~91)\"",
+            "\"full trigger body: exhaust-self as cost-like sequencing gating the linked channel — pending effect.exhaust primitive (RIFT-81~91)\""
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-cf0b322a78010676e3d8b287830194a3bdc8970e65a141578ae8a3074ebd956f",
+          "name": "Dauntless Vanguard",
+          "path": "packages/card-dsl/test/cards/sfd/dauntless-vanguard.test.mjs",
+          "todoCount": 1,
+          "todos": [
+            "\"sfd-093-221 Dauntless Vanguard: occupied-enemy-battlefield play destination is accepted \" + \"by Finalize once the layers/continuous-effect consumer for play-location-permission \" + \"lands (RIFT-32 scenarios-layers / RIFT-27 scenarios-costs 打出位置校验)\""
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-d3579e6825470471f5ce05c53533806a5244c5e84364fe57b2aab0b7cc0f14e0",
+          "name": "Sacred Shears",
+          "path": "packages/card-dsl/test/cards/sfd/sacred-shears.test.mjs",
+          "todoCount": 1,
+          "todos": [
+            "\"Sacred Shears: Equip keyword expansion (Order power cost, controlled-unit target, effect.attach body) is owned by the engine keyword registry (RIFT-81~91)\""
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-d490b51d08bdd7f97b1708aabfa6309995106f10de815b6fd927368e4a630569",
+          "name": "Assembly Rig",
+          "path": "packages/card-dsl/test/cards/sfd/assembly-rig.test.mjs",
+          "todoCount": 1,
+          "todos": [
+            "\"Assembly Rig: energy/Fury-power payment, the recycle-a-unit-from-trash cost, and source exhaustion are charged at Finalize by the chain (RIFT-81~91)\""
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-e2638655ff5ed3a1e60a501be3c23d74e46ef7f1900bed31b436f1a579b316ed",
+          "name": "Pit Rookie",
+          "path": "packages/card-dsl/test/cards/ogn/pit-rookie.test.mjs",
+          "todoCount": 1,
+          "todos": [
+            "\"Target legality at Finalize: exclude Pending chain items and re-check 'another friendly unit' \" + \"when the trigger goes on the chain (RIFT-8x target/chain workstream)\""
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-f67321dac096b3ad1e49b55231663e26f3f9d96efafe79d75719a6eb72fc5caa",
+          "name": "Vengeance",
+          "path": "packages/card-dsl/test/cards/ogn/vengeance.test.mjs",
+          "todoCount": 1,
+          "todos": [
+            "\"ogn-229-298 Vengeance: full chain play (cost payment, Action timing admission, became-target trigger emission) — depends on the chain/cost integration tasks RIFT-84/RIFT-85 (cost.printed + chain admission).\""
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7",
+          "name": "Mechanized Menace",
+          "path": "packages/card-dsl/test/cards/sfd/mechanized-menace.test.mjs",
+          "todoCount": 1,
+          "todos": [
+            "\"layer evaluation of grant-keyword (Mech units gain Shield 1; +1 might while defenders) — pending Shield KeywordDef / layers expansion (RIFT-81~91)\""
+          ]
+        }
+      ]
+    }
+  },
+  "acceptance": {
+    "entry": "packages/integration-tests/src/headless/m1-pair.ts",
+    "test": "packages/integration-tests/test/headless/m1-pair.test.ts",
+    "defaultAutomaticRun": false,
+    "explicitProbe": "probeM1Acceptance()",
+    "explicitFullGate": "runM1Acceptance()",
+    "expectedGames": 100,
+    "gamesPerOrientation": 50,
+    "orientationOrder": "seeds 001-050: rumble A/fiora B; seeds 051-100: fiora A/rumble B",
+    "seeds": [
+      "RIFT-857-m1-seed-001",
+      "RIFT-857-m1-seed-002",
+      "RIFT-857-m1-seed-003",
+      "RIFT-857-m1-seed-004",
+      "RIFT-857-m1-seed-005",
+      "RIFT-857-m1-seed-006",
+      "RIFT-857-m1-seed-007",
+      "RIFT-857-m1-seed-008",
+      "RIFT-857-m1-seed-009",
+      "RIFT-857-m1-seed-010",
+      "RIFT-857-m1-seed-011",
+      "RIFT-857-m1-seed-012",
+      "RIFT-857-m1-seed-013",
+      "RIFT-857-m1-seed-014",
+      "RIFT-857-m1-seed-015",
+      "RIFT-857-m1-seed-016",
+      "RIFT-857-m1-seed-017",
+      "RIFT-857-m1-seed-018",
+      "RIFT-857-m1-seed-019",
+      "RIFT-857-m1-seed-020",
+      "RIFT-857-m1-seed-021",
+      "RIFT-857-m1-seed-022",
+      "RIFT-857-m1-seed-023",
+      "RIFT-857-m1-seed-024",
+      "RIFT-857-m1-seed-025",
+      "RIFT-857-m1-seed-026",
+      "RIFT-857-m1-seed-027",
+      "RIFT-857-m1-seed-028",
+      "RIFT-857-m1-seed-029",
+      "RIFT-857-m1-seed-030",
+      "RIFT-857-m1-seed-031",
+      "RIFT-857-m1-seed-032",
+      "RIFT-857-m1-seed-033",
+      "RIFT-857-m1-seed-034",
+      "RIFT-857-m1-seed-035",
+      "RIFT-857-m1-seed-036",
+      "RIFT-857-m1-seed-037",
+      "RIFT-857-m1-seed-038",
+      "RIFT-857-m1-seed-039",
+      "RIFT-857-m1-seed-040",
+      "RIFT-857-m1-seed-041",
+      "RIFT-857-m1-seed-042",
+      "RIFT-857-m1-seed-043",
+      "RIFT-857-m1-seed-044",
+      "RIFT-857-m1-seed-045",
+      "RIFT-857-m1-seed-046",
+      "RIFT-857-m1-seed-047",
+      "RIFT-857-m1-seed-048",
+      "RIFT-857-m1-seed-049",
+      "RIFT-857-m1-seed-050",
+      "RIFT-857-m1-seed-051",
+      "RIFT-857-m1-seed-052",
+      "RIFT-857-m1-seed-053",
+      "RIFT-857-m1-seed-054",
+      "RIFT-857-m1-seed-055",
+      "RIFT-857-m1-seed-056",
+      "RIFT-857-m1-seed-057",
+      "RIFT-857-m1-seed-058",
+      "RIFT-857-m1-seed-059",
+      "RIFT-857-m1-seed-060",
+      "RIFT-857-m1-seed-061",
+      "RIFT-857-m1-seed-062",
+      "RIFT-857-m1-seed-063",
+      "RIFT-857-m1-seed-064",
+      "RIFT-857-m1-seed-065",
+      "RIFT-857-m1-seed-066",
+      "RIFT-857-m1-seed-067",
+      "RIFT-857-m1-seed-068",
+      "RIFT-857-m1-seed-069",
+      "RIFT-857-m1-seed-070",
+      "RIFT-857-m1-seed-071",
+      "RIFT-857-m1-seed-072",
+      "RIFT-857-m1-seed-073",
+      "RIFT-857-m1-seed-074",
+      "RIFT-857-m1-seed-075",
+      "RIFT-857-m1-seed-076",
+      "RIFT-857-m1-seed-077",
+      "RIFT-857-m1-seed-078",
+      "RIFT-857-m1-seed-079",
+      "RIFT-857-m1-seed-080",
+      "RIFT-857-m1-seed-081",
+      "RIFT-857-m1-seed-082",
+      "RIFT-857-m1-seed-083",
+      "RIFT-857-m1-seed-084",
+      "RIFT-857-m1-seed-085",
+      "RIFT-857-m1-seed-086",
+      "RIFT-857-m1-seed-087",
+      "RIFT-857-m1-seed-088",
+      "RIFT-857-m1-seed-089",
+      "RIFT-857-m1-seed-090",
+      "RIFT-857-m1-seed-091",
+      "RIFT-857-m1-seed-092",
+      "RIFT-857-m1-seed-093",
+      "RIFT-857-m1-seed-094",
+      "RIFT-857-m1-seed-095",
+      "RIFT-857-m1-seed-096",
+      "RIFT-857-m1-seed-097",
+      "RIFT-857-m1-seed-098",
+      "RIFT-857-m1-seed-099",
+      "RIFT-857-m1-seed-100"
+    ],
+    "seedListSha256": "9beecef00e92055d845c7dbdfa202b8b3923714daae302ebf63dc2c907c561c4",
+    "planSha256": "652180bd8547a64d1a88c3a25dce4ff375222661427173cebdd7b7bd1df43335",
+    "firstFailureStops": true,
+    "resultEvidence": [
+      "termination",
+      "winner",
+      "scores",
+      "battleStats",
+      "committedBattleEvents",
+      "journalDigest",
+      "projectionDigests",
+      "spectatorProjectionDigest",
+      "replayMatches",
+      "freshWorldReplayMatches",
+      "privacySafe",
+      "privacyChecks",
+      "exceptions",
+      "blockers",
+      "concedeCommands"
+    ],
+    "currentProbe": {
+      "status": "blocked",
+      "attemptedGames": 0,
+      "caseIndex": 0,
+      "seed": "RIFT-857-m1-seed-001",
+      "phase": "initialization",
+      "errorName": "ProgramBindingError",
+      "errorCode": "judge-required",
+      "canonicalCardId": "card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3",
+      "cardName": "Ferrous Forerunner",
+      "cardProgramStatus": "judge-required",
+      "reason": "runHeadlessGame threw during initialization before the first command; no game result was attempted, so attemptedGames remains 0. Seeds 002-100 are not attempted.",
+      "observedAt": "2026-10-19T07:14Z",
+      "evidencePath": "/tmp/RIFT-857-m1-two-precons-acceptance/probe-final.json",
+      "evidenceSha256": "d748ff5192d2cd0f1f8ca525cb62fe8e233d22d815a2b596e770b78c7e86999c"
+    },
+    "existingRegression": {
+      "preserved": true,
+      "path": "packages/integration-tests/test/headless/dual-bot.test.ts",
+      "currentFocusedResult": "10 failed, 10 passed, 1 todo when privacy+dual-bot are run together; failures originate in runHeadlessGame initialization on the current judge-required programs",
+      "policy": "No deletion, skip, weakened assertion, or four-deck matrix change was made by this task."
+    }
+  },
+  "lifecycleSetupEvidence": {
+    "mergedCommits": [
+      "75b000695c208267c5460a5a909dafa1be4f7e4c",
+      "21c9cb1524f38bb47779e3baf29d49488292e9e6"
+    ],
+    "currentAncestry": true,
+    "nonAncestorObserved": "cd266f2bffe2dff9cd2851e647f00aa4c3e7b361",
+    "focusedTest": "packages/engine-core/test/engine-gaps/lifecycle.test.mjs",
+    "lifecyclePath": "packages/engine-core/src/programs/lifecycle.ts",
+    "lifecycleSha256": "59aa7584e929afef458df2a862e643e0462bebbbc4497eec872ff67fa2f1166e",
+    "note": "RIFT-831 setup/leave lifecycle regressions are present in current HEAD. They cover lifecycle boundaries; they do not prove the two full precon programs execute."
+  },
+  "followUpPlan": {
+    "order": [
+      "generic-engine-prerequisites",
+      "whitelist-card-program-reverification",
+      "full-m1-acceptance",
+      "native-two-client-manual-run"
+    ],
+    "enginePrerequisites": [
+      {
+        "key": "token-entry-deathknell",
+        "owner": "engine-core",
+        "state": "dependency-not-ready",
+        "paths": [
+          "packages/engine-core/src/effects/instructions/effect.token.ts",
+          "packages/engine-core/src/effects/tokens/definitions.ts",
+          "packages/engine-core/src/effects/keywords/Deathknell.ts",
+          "packages/engine-core/src/programs/lifecycle.ts",
+          "packages/engine-core/src/chain/engine.ts"
+        ],
+        "sourceEvidence": "Judge reasons in the mapped CardPrograms plus current engine source behavior.",
+        "cardFiles": [
+          {
+            "canonicalCardId": "card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3",
+            "name": "Ferrous Forerunner",
+            "program": "packages/card-dsl/src/cards/sfd/ferrous-forerunner.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/ferrous-forerunner.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-569dc9079a6d404c0d850d27b510585b856ab3def5e1e0bbafa30a3bf9d48e82",
+            "name": "Plundering Poro",
+            "program": "packages/card-dsl/src/cards/sfd/plundering-poro.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/plundering-poro.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-77763eae5320de558954776a37677e8638b6d4af73399e5a7c4f5d5321a2b564",
+            "name": "Treasure Hoard",
+            "program": "packages/card-dsl/src/cards/sfd/treasure-hoard.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/treasure-hoard.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
+            "name": "Wages of Pain",
+            "program": "packages/card-dsl/src/cards/sfd/wages-of-pain.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/wages-of-pain.test.mjs",
+            "templateGoldens": []
+          }
+        ],
+        "acceptance": "Controller-base token location, Gold/Universal Power semantics, exhausted entry, and the real Deathknell body binding are incomplete. RIFT-831 lifecycle regressions are merged but do not prove these cards.",
+        "gapLabels": [
+          "EG-TOKEN",
+          "EG-LIFECYCLE",
+          "EG-POWER"
+        ]
+      },
+      {
+        "key": "production-lifecycle-keyword-reexpansion",
+        "owner": "engine-core",
+        "state": "dependency-not-ready",
+        "paths": [
+          "packages/engine-core/src/programs/lifecycle.ts",
+          "packages/engine-core/src/programs/keyword-grants.ts",
+          "packages/engine-core/src/programs/statics.ts",
+          "packages/engine-core/src/layers/rules/query.ts",
+          "packages/engine-core/src/replacement/bind.ts"
+        ],
+        "sourceEvidence": "Judge reasons in the mapped CardPrograms plus current engine source behavior.",
+        "cardFiles": [
+          {
+            "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+            "name": "Rumble, Hotheaded",
+            "program": "packages/card-dsl/src/cards/sfd/rumble-hotheaded.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab",
+            "name": "Breakneck Mech",
+            "program": "packages/card-dsl/src/cards/sfd/breakneck-mech.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/breakneck-mech.test.mjs",
+            "templateGoldens": [
+              "packages/card-dsl/test/cards/templates/static-replacement-effect-ready-677.test.mjs"
+            ]
+          },
+          {
+            "canonicalCardId": "card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9",
+            "name": "Gem Jammer",
+            "program": "packages/card-dsl/src/cards/sfd/gem-jammer.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/gem-jammer.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40",
+            "name": "Forecaster",
+            "program": "packages/card-dsl/src/cards/sfd/forecaster.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/forecaster.test.mjs",
+            "templateGoldens": [
+              "packages/card-dsl/test/cards/templates/static-642.test.mjs"
+            ]
+          }
+        ],
+        "acceptance": "Production lifecycle does not consume every dynamic keyword and replacement condition. Target tax, Ganking, Vision, Assault designation, and entry-ready gating need real consumers.",
+        "gapLabels": [
+          "EG-GRANTS",
+          "EG-KEYWORDS",
+          "EG-LAYERS",
+          "EG-PERMISSIONS",
+          "EG-TAX",
+          "EG-REPLACEMENT"
+        ]
+      },
+      {
+        "key": "combat-event-payload-location-hold",
+        "owner": "engine-core",
+        "state": "dependency-not-ready",
+        "paths": [
+          "packages/engine-core/src/combat/flow.ts",
+          "packages/engine-core/src/turn/flow.ts",
+          "packages/engine-core/src/events/pipeline-match.ts",
+          "packages/engine-core/src/events/trigger-spec.ts",
+          "packages/engine-core/src/programs/filters.ts"
+        ],
+        "sourceEvidence": "Judge reasons in the mapped CardPrograms plus current engine source behavior.",
+        "cardFiles": [
+          {
+            "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+            "name": "Fiora, Peerless",
+            "program": "packages/card-dsl/src/cards/sfd/fiora-peerless.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/fiora-peerless.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6",
+            "name": "Laurent Duelist",
+            "program": "packages/card-dsl/src/cards/sfd/laurent-duelist.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/laurent-duelist.test.mjs",
+            "templateGoldens": [
+              "packages/card-dsl/test/cards/templates/keyword-only.test.mjs"
+            ]
+          },
+          {
+            "canonicalCardId": "card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef",
+            "name": "Lucian, Merciless",
+            "program": "packages/card-dsl/src/cards/sfd/lucian-merciless.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/lucian-merciless.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+            "name": "Rumble, Hotheaded",
+            "program": "packages/card-dsl/src/cards/sfd/rumble-hotheaded.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c",
+            "name": "Rumble, Scrapper",
+            "program": "packages/card-dsl/src/cards/sfd/rumble-scrapper.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/rumble-scrapper.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-0c36f22df8ffa7bed49f59fd138d24b9b0a52a7b8ad4c720afcaa12ec816eee4",
+            "name": "Minefield",
+            "program": "packages/card-dsl/src/cards/sfd/minefield.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/minefield.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-5a86b358540e9ab2512400c77f3291739c2aa6ccb7b537449298a640b02b0e82",
+            "name": "Ravenbloom Conservatory",
+            "program": "packages/card-dsl/src/cards/sfd/ravenbloom-conservatory.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/ravenbloom-conservatory.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-c225141f743b61c67ddf269932c6bbdef739f37888f62163906faa7fa1e6dc2b",
+            "name": "Sunken Temple",
+            "program": "packages/card-dsl/src/cards/sfd/sunken-temple.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/sunken-temple.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-9daf60cdf4c82e4fba1f685af1c9b0d748003f7e9ad9c68f02f429bdd0cf85e5",
+            "name": "Veiled Temple",
+            "program": "packages/card-dsl/src/cards/sfd/veiled-temple.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/veiled-temple.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-569dc9079a6d404c0d850d27b510585b856ab3def5e1e0bbafa30a3bf9d48e82",
+            "name": "Plundering Poro",
+            "program": "packages/card-dsl/src/cards/sfd/plundering-poro.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/plundering-poro.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-77763eae5320de558954776a37677e8638b6d4af73399e5a7c4f5d5321a2b564",
+            "name": "Treasure Hoard",
+            "program": "packages/card-dsl/src/cards/sfd/treasure-hoard.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/treasure-hoard.test.mjs",
+            "templateGoldens": []
+          }
+        ],
+        "acceptance": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+        "gapLabels": [
+          "EG-COMBAT",
+          "EG-COMBATPRIORITY",
+          "EG-PAYLOAD",
+          "EG-FILTER",
+          "EG-EVENTS",
+          "EG-TURN",
+          "EG-LOCATIONS",
+          "EG-MOVE"
+        ]
+      },
+      {
+        "key": "mighty-query-consumer",
+        "owner": "engine-core",
+        "state": "dependency-not-ready",
+        "paths": [
+          "packages/engine-core/src/effects/keywords/Mighty.ts",
+          "packages/engine-core/src/layers/filter.ts",
+          "packages/engine-core/src/programs/filters.ts",
+          "packages/engine-core/src/programs/statics.ts",
+          "packages/engine-core/src/effects/interpreter/expr.ts"
+        ],
+        "sourceEvidence": "Judge reasons in the mapped CardPrograms plus current engine source behavior.",
+        "cardFiles": [
+          {
+            "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+            "name": "Fiora, Peerless",
+            "program": "packages/card-dsl/src/cards/sfd/fiora-peerless.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/fiora-peerless.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+            "name": "Jaull-Fish",
+            "program": "packages/card-dsl/src/cards/sfd/jaull-fish.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/jaull-fish.test.mjs",
+            "templateGoldens": [
+              "packages/card-dsl/test/cards/templates/keyword-only.test.mjs"
+            ]
+          },
+          {
+            "canonicalCardId": "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f",
+            "name": "Show of Strength",
+            "program": "packages/card-dsl/src/cards/sfd/show-of-strength.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/show-of-strength.test.mjs",
+            "templateGoldens": [
+              "packages/card-dsl/test/cards/templates/keyword-play-effect-draw-688.test.mjs"
+            ]
+          },
+          {
+            "canonicalCardId": "card.hash-c225141f743b61c67ddf269932c6bbdef739f37888f62163906faa7fa1e6dc2b",
+            "name": "Sunken Temple",
+            "program": "packages/card-dsl/src/cards/sfd/sunken-temple.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/sunken-temple.test.mjs",
+            "templateGoldens": []
+          }
+        ],
+        "acceptance": "Effective Might >= 5 is not consistently exposed to production filters and static evaluation. Unknown mightGte inputs remain fail-closed.",
+        "gapLabels": [
+          "EG-MIGHT",
+          "EG-EXPR",
+          "EG-FILTER",
+          "EG-STATIC"
+        ]
+      },
+      {
+        "key": "cost-repeat-additional-cost",
+        "owner": "engine-core",
+        "state": "dependency-not-ready",
+        "paths": [
+          "packages/engine-core/src/programs/play.ts",
+          "packages/engine-core/src/chain/engine.ts",
+          "packages/engine-core/src/chain/interpreter-adapter.ts",
+          "packages/engine-core/src/effects/keywords/Repeat.ts",
+          "packages/engine-core/src/effects/instructions/effect.repeat.ts",
+          "packages/engine-core/src/cost/discounts/collect.ts",
+          "packages/engine-core/src/programs/statics.ts"
+        ],
+        "sourceEvidence": "Judge reasons in the mapped CardPrograms plus current engine source behavior.",
+        "cardFiles": [
+          {
+            "canonicalCardId": "card.hash-3c1c01b405853556e3e1c12bbd758e94d73f5ed474a5643bb068eaa7cb549c6e",
+            "name": "Danger Zone",
+            "program": "packages/card-dsl/src/cards/sfd/danger-zone.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/danger-zone.test.mjs",
+            "templateGoldens": [
+              "packages/card-dsl/test/cards/templates/keyword-play-continuous-might-653.test.mjs"
+            ]
+          },
+          {
+            "canonicalCardId": "card.hash-153eb4df721b70662a63652ba1602985ceed08d81a0b23fc0d6b10349ee15ca9",
+            "name": "Frigid Touch",
+            "program": "packages/card-dsl/src/cards/sfd/frigid-touch.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/frigid-touch.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+            "name": "Rumble, Hotheaded",
+            "program": "packages/card-dsl/src/cards/sfd/rumble-hotheaded.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+            "name": "Jaull-Fish",
+            "program": "packages/card-dsl/src/cards/sfd/jaull-fish.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/jaull-fish.test.mjs",
+            "templateGoldens": [
+              "packages/card-dsl/test/cards/templates/keyword-only.test.mjs"
+            ]
+          },
+          {
+            "canonicalCardId": "card.hash-44e95dd0a87b7dfcd7565b73a33e204f85c97ac82e004a6127ff7ed649fb41ad",
+            "name": "Ornn's Forge",
+            "program": "packages/card-dsl/src/cards/sfd/ornns-forge.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/ornns-forge.test.mjs",
+            "templateGoldens": [
+              "packages/card-dsl/test/cards/templates/static-667.test.mjs"
+            ]
+          }
+        ],
+        "acceptance": "Optional additional/Repeat payments and CardProgram static costs lack complete Finalize collection, paid-instance binding, and rollback.",
+        "gapLabels": [
+          "EG-COSTBIND",
+          "EG-COSTCHOICE",
+          "EG-DISCOUNTS",
+          "EG-FINALIZE",
+          "EG-PLAY",
+          "EG-STATIC"
+        ]
+      },
+      {
+        "key": "nontarget-picks-equipment",
+        "owner": "engine-core",
+        "state": "dependency-not-ready",
+        "paths": [
+          "packages/engine-core/src/programs/filters.ts",
+          "packages/engine-core/src/chain/picks/plan.ts",
+          "packages/engine-core/src/target/picks/plan.ts",
+          "packages/engine-core/src/effects/instructions/effect.detach.ts",
+          "packages/engine-core/src/effects/keywords/Weaponmaster.ts"
+        ],
+        "sourceEvidence": "Judge reasons in the mapped CardPrograms plus current engine source behavior.",
+        "cardFiles": [
+          {
+            "canonicalCardId": "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+            "name": "Strike Down",
+            "program": "packages/card-dsl/src/cards/sfd/strike-down.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/strike-down.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7",
+            "name": "Veteran Poro",
+            "program": "packages/card-dsl/src/cards/sfd/veteran-poro.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/veteran-poro.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef",
+            "name": "Lucian, Merciless",
+            "program": "packages/card-dsl/src/cards/sfd/lucian-merciless.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/lucian-merciless.test.mjs",
+            "templateGoldens": []
+          }
+        ],
+        "acceptance": "Non-target picks, equipped/attached predicates, and authoritative Equip cost provenance need production Finalize consumers.",
+        "gapLabels": [
+          "EG-TARGETS",
+          "EG-GEAR",
+          "EG-FILTER",
+          "EG-FINALIZE"
+        ]
+      },
+      {
+        "key": "legion-history-condition",
+        "owner": "engine-core",
+        "state": "dependency-not-ready",
+        "paths": [
+          "packages/engine-core/src/events/pipeline-match.ts",
+          "packages/engine-core/src/events/trigger-spec.ts",
+          "packages/engine-core/src/programs/filters.ts",
+          "packages/engine-core/src/effects/interpreter/condition.ts"
+        ],
+        "sourceEvidence": "Dangerous Duo's shipped judgeReason identifies the missing TriggerSpec condition adapter for cards-finalized-this-turn history.",
+        "cardFiles": [
+          {
+            "canonicalCardId": "card.hash-d4e849d845765608b07bf4af4aa19877f6303dfff539b541d0d070320dd05d91",
+            "name": "Dangerous Duo",
+            "program": "packages/card-dsl/src/cards/ogn/dangerous-duo.ts",
+            "golden": "packages/card-dsl/test/cards/ogn/dangerous-duo.test.mjs",
+            "templateGoldens": []
+          }
+        ],
+        "acceptance": "Evaluate Legion from the authoritative finalized-card history at the trigger collection time, exclude the source correctly, reset at the turn boundary, and execute the original +2 Might body through the production chain.",
+        "gapLabels": [
+          "EG-TRIGGERS",
+          "EG-EXPR",
+          "EG-FILTER",
+          "EG-EVENTS"
+        ]
+      }
+    ],
+    "cardWorkstreams": [
+      {
+        "key": "missing-source-evidence-review",
+        "state": "missing-source-evidence",
+        "cards": [
+          {
+            "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
+            "name": "Yone, Blademaster",
+            "program": "packages/card-dsl/src/cards/rad/yone-blademaster.ts",
+            "golden": "packages/card-dsl/test/cards/rad/yone-blademaster.test.mjs",
+            "sourcePrintings": [
+              "rad-181-167",
+              "sfd-116-221",
+              "sfd-233-221",
+              "sfd-233-star-221"
+            ],
+            "planGap": "rule-review:non-reminder-printing-difference"
+          },
+          {
+            "canonicalCardId": "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
+            "name": "Riposte",
+            "program": "packages/card-dsl/src/cards/sfd/riposte.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/riposte.test.mjs",
+            "sourcePrintings": [
+              "sfd-206-221"
+            ],
+            "planGap": "rule-review:unmatched-functional-clause"
+          }
+        ],
+        "acceptance": "Resolve the non-reminder printing difference and unmatched functional clause from authoritative card and rule evidence before accepting executable labels. Keep judge-required until evidence and real execution both exist."
+      },
+      {
+        "key": "executable-whitelist-reverification",
+        "state": "merged-awaiting-acceptance",
+        "cards": [
+          {
+            "canonicalCardId": "card.hash-0ba141b975db96cac65aab56bfd7dbb63904c538cc3d9c32bdfb3b2d98e486de",
+            "name": "Royal Guard",
+            "program": "packages/card-dsl/src/cards/sfd/royal-guard.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/royal-guard.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b",
+            "name": "Singularity",
+            "program": "packages/card-dsl/src/cards/ogn/singularity.ts",
+            "golden": "packages/card-dsl/test/cards/ogn/singularity.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-1504d8f14af5ce1b9f7a3663c23e6ef7cb57d59a6274dc921cd9296ee8e2494b",
+            "name": "Production Surge",
+            "program": "packages/card-dsl/src/cards/sfd/production-surge.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/production-surge.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+            "name": "Fiora, Worthy",
+            "program": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-2ebf1fe6e5ed7bb875f1c112b3e0ed1635b557c0c0ad550d752b8dd376243007",
+            "name": "Consult the Past",
+            "program": "packages/card-dsl/src/cards/ogn/consult-the-past.ts",
+            "golden": "packages/card-dsl/test/cards/ogn/consult-the-past.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-34880fcae16bd9461e4c318dfb455365ff9e353db357f948b4a15dea7e01b389",
+            "name": "Bubble Bot",
+            "program": "packages/card-dsl/src/cards/sfd/bubble-bot.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/bubble-bot.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-5b08b5b8648e8c5c057d15279d1b4e677457eb0b43fcf2810e2ec4f4c4d1b7cf",
+            "name": "Stupefy",
+            "program": "packages/card-dsl/src/cards/ogn/stupefy.ts",
+            "golden": "packages/card-dsl/test/cards/ogn/stupefy.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-600e0796e82099284b213e87b112b1c5df42777ef72b70a3b4cd49a84d27dd10",
+            "name": "Void Seeker",
+            "program": "packages/card-dsl/src/cards/ogn/void-seeker.ts",
+            "golden": "packages/card-dsl/test/cards/ogn/void-seeker.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-8d49727ab9ae782b8a21802c9ae0b51e5d712a37a072d991629bfbf3645535b3",
+            "name": "Punch First",
+            "program": "packages/card-dsl/src/cards/sfd/punch-first.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/punch-first.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-902c6a1366a1a0e653ccb65102ff621b109af3b0b40f5bbeb7d8d3a5aeae2322",
+            "name": "Warmog's Armor",
+            "program": "packages/card-dsl/src/cards/sfd/warmogs-armor.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/warmogs-armor.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-959c19d68f06f8f929625bfde93a1132701da5a5d0b49e91583db341384f0bfe",
+            "name": "B.F. Sword",
+            "program": "packages/card-dsl/src/cards/sfd/bf-sword.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/bf-sword.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-a1ee07f71d453092ab7d54f9491684e972b735b22bb1f3fda73f2641bcedbfe1",
+            "name": "Doran's Blade",
+            "program": "packages/card-dsl/src/cards/sfd/dorans-blade.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/dorans-blade.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-afc40c373a9fb4e48492323d7af26d3a58b824c385707dd3c269e97fee236103",
+            "name": "Unsung Hero",
+            "program": "packages/card-dsl/src/cards/sfd/unsung-hero.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/unsung-hero.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-cab923a670e4baa826aa3de381c8b992bf33987fcb0d65feb75ca538a8681010",
+            "name": "Long Sword",
+            "program": "packages/card-dsl/src/cards/sfd/long-sword.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/long-sword.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-ccfc067dad8a1bf92c6ae1aa5f7110e9d211a1842a9254bb9320705c2f96c6c4",
+            "name": "Grand Duelist",
+            "program": "packages/card-dsl/src/cards/sfd/grand-duelist.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/grand-duelist.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-cf0b322a78010676e3d8b287830194a3bdc8970e65a141578ae8a3074ebd956f",
+            "name": "Dauntless Vanguard",
+            "program": "packages/card-dsl/src/cards/sfd/dauntless-vanguard.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/dauntless-vanguard.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-d3579e6825470471f5ce05c53533806a5244c5e84364fe57b2aab0b7cc0f14e0",
+            "name": "Sacred Shears",
+            "program": "packages/card-dsl/src/cards/sfd/sacred-shears.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/sacred-shears.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-d490b51d08bdd7f97b1708aabfa6309995106f10de815b6fd927368e4a630569",
+            "name": "Assembly Rig",
+            "program": "packages/card-dsl/src/cards/sfd/assembly-rig.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/assembly-rig.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-e2638655ff5ed3a1e60a501be3c23d74e46ef7f1900bed31b436f1a579b316ed",
+            "name": "Pit Rookie",
+            "program": "packages/card-dsl/src/cards/ogn/pit-rookie.ts",
+            "golden": "packages/card-dsl/test/cards/ogn/pit-rookie.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-f67321dac096b3ad1e49b55231663e26f3f9d96efafe79d75719a6eb72fc5caa",
+            "name": "Vengeance",
+            "program": "packages/card-dsl/src/cards/ogn/vengeance.ts",
+            "golden": "packages/card-dsl/test/cards/ogn/vengeance.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7",
+            "name": "Mechanized Menace",
+            "program": "packages/card-dsl/src/cards/sfd/mechanized-menace.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/mechanized-menace.test.mjs",
+            "templateGoldens": []
+          }
+        ],
+        "acceptance": "Keep existing goldens intact; add whole-card production scenarios for legal, illegal, stale-target, declined, and rollback paths before changing the status to accepted."
+      }
+    ]
+  }
+}
