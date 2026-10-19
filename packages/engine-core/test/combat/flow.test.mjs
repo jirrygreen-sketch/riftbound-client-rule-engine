@@ -92,20 +92,77 @@ test('combat-focus-passes-after-player-chain: Focus comes only from batch 4', ()
   assert.equal(f.flow.chain.focus, 'B'); assert.equal(f.flow.chain.priority, 'B');
 });
 
-test('combat-move-to-enemy-stages-combat-opens-combat-showdown: block before a partial Combat start', () => {
+// CR v1.5 (updated 2026-10-09, effective 2026-10-16) 316.7, 345, 462,
+// 466.1, 466.2.b/c/c.1/c.1.a/c.2/c.3/e.1, and 312/313/347 define this generic Combat
+// Showdown transition. Synthetic Units exercise the rules path only:
+// canonicalCardId is null. Sources:
+// https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+test('combat-move-to-enemy-opens-combat-showdown / illegal commands roll back: default TurnFlow production path', () => {
   const f = fixture({ fields: [{ id: 'bf1', controller: 'B' }, { id: 'bf2', controller: null }],
     setup: w => w.unit('defender', { owner: 'B', location: { type: 'battlefield', id: 'bf1' } }) });
   f.flow.start();
   f.flow.execute(f.draft('move-to-enemy', [move('move', { type: 'battlefield', id: 'bf1' })]));
-  assert.throws(() => settle(f.flow), error => error.status === 'blocked' && error.code === 'combat-start-transaction');
-  assert.equal(f.flow.battlefields[0].staged, 'combat');
-  assert.equal(timings(f.flow).includes('combat-start'), false);
-  assert.equal(timings(f.flow).includes('showdown-open'), false);
-  assert.equal(f.kernel.getObject('defender').damage, 0); assert.equal(f.kernel.player('A').score, 0);
-  const before = f.flow.chain.pipeline.events;
-  assert.throws(() => f.flow.endTurn('A'), error => error.code === 'combat-start-transaction');
-  assert.throws(() => f.flow.execute(f.draft('bypass', [draw('draw')])), error => error.code === 'combat-start-transaction');
-  assert.deepEqual(f.flow.chain.pipeline.events, before);
+  settle(f.flow);
+
+  assert.deepEqual(f.kernel.getObject('source').location, { type: 'battlefield', id: 'bf1' });
+  assert.equal(f.kernel.getObject('source').exhausted, false);
+  assert.deepEqual(f.flow.battlefields[0], {
+    id: 'bf1', controller: 'B', contestedBy: 'A', staged: 'none',
+  });
+  assert.equal(f.flow.combat.active, true);
+  assert.deepEqual(f.flow.combat.lifecycle, {
+    phase: 'showdown', field: 'bf1', combatId: 'combat:bf1:1', attacker: 'A', defender: 'B',
+  });
+  assert.equal(f.flow.combat.snapshot(f.kernel.getObject('source')).combatRole, 'attacker');
+  assert.equal(f.flow.combat.snapshot(f.kernel.getObject('defender')).combatRole, 'defender');
+  assert.equal(f.flow.chain.turnState, 'showdown-open');
+  assert.equal(f.flow.chain.focus, 'A');
+  assert.equal(f.flow.chain.priority, 'A');
+  assert.equal(f.flow.chain.canAct('A', 'action'), true);
+  assert.equal(f.flow.chain.canAct('B', 'action'), false);
+  assert.equal(f.kernel.getObject('source').damage, 0);
+  assert.equal(f.kernel.getObject('defender').damage, 0);
+  assert.equal(f.kernel.player('A').score, 0);
+  assert.equal(f.kernel.player('B').score, 0);
+
+  const combatTimeline = f.flow.chain.pipeline.events
+    .filter(event => ['object-moved', 'contested-applied', 'chain-item-resolve', 'showdown-open',
+      'combat-start', 'attack-declared', 'defense-declared'].includes(event.timingPoint));
+  assert.deepEqual(combatTimeline.map(event => event.timingPoint), [
+    'object-moved', 'contested-applied', 'chain-item-resolve', 'showdown-open',
+    'combat-start', 'attack-declared', 'defense-declared',
+  ]);
+  assert.deepEqual(combatTimeline.find(event => event.timingPoint === 'combat-start').details, {
+    combatId: 'combat:bf1:1', battlefieldId: 'bf1', attackerId: 'A', defenderId: 'B',
+  });
+  assert.equal(combatTimeline.filter(event => event.timingPoint === 'showdown-open')[0].player, 'A');
+  const attack = combatTimeline.find(event => event.timingPoint === 'attack-declared');
+  const defense = combatTimeline.find(event => event.timingPoint === 'defense-declared');
+  assert.deepEqual([attack.object.ref.id, attack.player], ['source', 'A']);
+  assert.deepEqual([defense.object.ref.id, defense.player], ['defender', 'B']);
+  assert.equal(attack.batchId, defense.batchId);
+  assert.equal(timings(f.flow).some(id => ['damage-dealt', 'combat-result', 'combat-end', 'conquer', 'score'].includes(id)), false);
+
+  const rejectedWithoutMutation = (operation, pattern) => {
+    const state = f.kernel.snapshot();
+    const events = structuredClone(f.flow.chain.pipeline.events);
+    const trace = f.flow.chain.trace;
+    const items = f.flow.chain.items;
+    const combat = f.flow.combat.checkpoint();
+    assert.throws(operation, pattern);
+    assert.deepEqual(f.kernel.snapshot(), state);
+    assert.deepEqual(f.flow.chain.pipeline.events, events);
+    assert.deepEqual(f.flow.chain.trace, trace);
+    assert.deepEqual(f.flow.chain.items, items);
+    assert.deepEqual(f.flow.combat.checkpoint(), combat);
+  };
+  rejectedWithoutMutation(
+    () => f.flow.execute(f.draft('wrong-focus', [draw('draw')], { controller: 'B', speed: 'action' })),
+    /legally timed/,
+  );
+  rejectedWithoutMutation(() => f.flow.pass('B'), /cannot pass/);
+  rejectedWithoutMutation(() => f.flow.endTurn('A'), /Cannot end turn/);
 });
 
 test('combat-damage-dealt-simultaneously-shared-deathknell: block unsupported transaction without marking damage', () => {
