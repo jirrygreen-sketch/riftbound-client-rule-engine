@@ -23,6 +23,8 @@ function runtime(cards, programs) {
   }
   const kernel = builder.build();
   const choose = request => {
+    if (request.type === 'mode') return request.options[0];
+    if (request.type === 'order') return [request.options[0]];
     if (request.type === 'select-objects' && request.min === request.max && request.options.length === request.min) return [...request.options];
     throw new AwaitChoice(request);
   };
@@ -45,18 +47,18 @@ test('emitBatch installs one program registration before a real same-wave trigge
     body: [{ id: 'draw', op: 'effect.draw', args: { amount: constant(1) } }] }]);
   const f = runtime([{ id: 'drake', cardId: 'drake', zone: 'hand', types: ['unit'] }], [trigger]);
   const lifecycle = f.binding.attachLifecycle(f.engine);
-  const object = f.kernel.getObject('drake');
-  f.engine.commit({ type: 'move-zone', object: object.ref, to: 'chain' });
-  const onChain = f.kernel.getObject('drake');
+  assert.equal(f.engine.commit({ type: 'move-zone', object: f.kernel.ref('drake'), to: 'battlefield', location: battlefield }).status, 'done');
+  const onBoard = f.kernel.getObject('drake');
+  assert.deepEqual(onBoard.ref, { id: 'drake', zoneEntryId: 2 });
   const batch = [
-    { timingPoint: 'object-enters-board', object: { ...onChain, zone: 'board', location: battlefield }, batchId: 'entry-wave' },
-    { timingPoint: 'card-played', object: { ...onChain, zone: 'board', location: battlefield }, batchId: 'entry-wave' },
+    { timingPoint: 'card-played', object: onBoard, batchId: 'play-wave' },
+    { timingPoint: 'card-played', object: onBoard, batchId: 'play-wave' },
   ];
   const events = f.engine.pipeline.emitBatch(batch);
   assert.equal(events.length, 2);
-  assert.ok(events.every(event => event.batchId === 'entry-wave'));
-  assert.equal(f.engine.items.length, 1, 'one trigger scan sees the newly installed program');
-  assert.equal(f.engine.items[0].trigger.batchId, 'entry-wave');
+  assert.ok(events.every(event => event.batchId === 'play-wave'));
+  assert.equal(f.engine.items.length, 2, 'one batch scan preserves both same-wave instances');
+  assert.ok(f.engine.items.every(item => item.trigger.batchId === 'play-wave'));
   lifecycle.detach();
 });
 
@@ -89,6 +91,54 @@ test('a real atomic Kill batch runs one leave detach and leaves no stale program
   lifecycle.detach();
 });
 
+test('deferTriggerScan retains a leaving source until the whole deferred wave is scanned', () => {
+  const f = runtime([{ id: 'source', cardId: 'observer' }, { id: 'victim', cardId: 'plain' }], [
+    card('observer', [{ kind: 'triggered', trigger: { at: 'object-killed', filter: { self: true } }, optional: false,
+      body: [{ id: 'draw', op: 'effect.draw', args: { amount: constant(1) } }] }]),
+    card('plain', []),
+  ]);
+  const lifecycle = f.binding.attachLifecycle(f.engine);
+  f.engine.pipeline.deferTriggerScan(() => {
+    assert.equal(f.engine.commit({ type: 'kill', object: f.kernel.ref('source') }).status, 'done');
+    assert.equal(f.engine.commit({ type: 'kill', object: f.kernel.ref('victim') }).status, 'done');
+    assert.ok(f.engine.pipeline.checkpoint().triggers.has('program:source:1:0'), 'leave registration remains during the deferred transaction');
+  });
+  assert.equal(f.engine.items.length, 1, 'the leaving source still scans its own death');
+  assert.equal(f.engine.items[0].trigger.event.object.ref.id, 'source');
+  assert.equal(f.engine.pipeline.checkpoint().triggers.size, 0);
+  lifecycle.detach();
+});
+
+test('one batch installs every entrant and keeps death LKI for multiple sources before detach', () => {
+  const observer = card('observer', [{ kind: 'triggered', trigger: { at: 'object-killed', filter: {} }, optional: false,
+    body: [{ id: 'draw', op: 'effect.draw', args: { amount: constant(1) } }] }]);
+  const f = runtime([
+    { id: 'first', cardId: 'observer' },
+    { id: 'second', cardId: 'observer' },
+    { id: 'doomed-a', cardId: 'plain' },
+    { id: 'doomed-b', cardId: 'plain' },
+  ], [observer, card('plain', [])]);
+  const lifecycle = f.binding.attachLifecycle(f.engine);
+  const first = f.kernel.getObject('first');
+  const second = f.kernel.getObject('second');
+  const a = f.kernel.getObject('doomed-a');
+  const b = f.kernel.getObject('doomed-b');
+  const events = f.engine.pipeline.emitBatch([
+    { timingPoint: 'object-enters-board', object: first, batchId: 'mixed-wave' },
+    { timingPoint: 'object-enters-board', object: second, batchId: 'mixed-wave' },
+    { timingPoint: 'object-killed', object: a, batchId: 'mixed-wave' },
+    { timingPoint: 'object-killed', object: b, batchId: 'mixed-wave' },
+  ]);
+  assert.equal(events.length, 4);
+  assert.equal(f.engine.pipeline.events.filter(event => event.batchId === 'mixed-wave').length, 4);
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === 'object-killed').length, 2);
+  assert.deepEqual(f.engine.pipeline.events.filter(event => event.timingPoint === 'object-killed').map(event => event.object.ref.id).sort(), ['doomed-a', 'doomed-b']);
+  assert.ok(f.engine.pipeline.checkpoint().triggers.has('program:first:1:0'));
+  assert.ok(f.engine.pipeline.checkpoint().triggers.has('program:second:1:0'));
+  lifecycle.detach();
+  assert.equal(f.engine.pipeline.checkpoint().triggers.size, 0);
+});
+
 test('invalid static binding is reported and rolls back without retaining registrations or layers', () => {
   const errors = [];
   const f = runtime([{ id: 'bad', cardId: 'bad' }], [card('bad', [{ kind: 'static', effect: { kind: 'continuous.unsupported' } }])]);
@@ -100,24 +150,27 @@ test('invalid static binding is reported and rolls back without retaining regist
   lifecycle.detach();
 });
 
-test('failed batch scanning restores callback registrations and a retry binds once', () => {
+test('a failed first installation restores callback state and the same incarnation retries once', () => {
   let calls = 0;
+  let failureArmed = true;
   const program = card('callback', [{ kind: 'static', effect: { kind: 'continuous.might', layer: 'arithmetic', appliesTo: 'self', amount: constant(1) } }]);
-  const f = runtime([{ id: 'callback', cardId: 'callback' }], [program]);
-  const lifecycle = f.binding.attachLifecycle(f.engine);
-  const before = f.engine.layers.registry.list().map(entry => entry.effect.id);
-  const object = f.kernel.getObject('callback');
-  const originalEmitBatch = f.engine.pipeline.emitBatch;
-  f.engine.pipeline.emitBatch = function failingBatch(emissions, action, batchId) {
-    originalEmitBatch.call(this, emissions, action, batchId);
-    calls += 1;
-    throw new Error('synthetic scanner failure after entry binding');
+  const f = runtime([{ id: 'callback', cardId: 'callback', zone: 'hand' }], [program]);
+  const lifecycle = f.binding.attachLifecycle(f.engine, error => { calls += 1; if (failureArmed) throw error; });
+  const failingOnEvent = f.engine.pipeline.onEvent;
+  f.engine.pipeline.onEvent = event => {
+    failingOnEvent(event);
+    if (event.timingPoint === 'object-enters-board') throw new Error('synthetic trigger failure after first installation');
   };
-  assert.throws(() => f.engine.pipeline.emitBatch([{ timingPoint: 'object-enters-board', object }], undefined, 'bad-batch'), /synthetic scanner failure/);
-  f.engine.pipeline.emitBatch = originalEmitBatch;
-  assert.deepEqual(f.engine.layers.registry.list().map(entry => entry.effect.id), before);
-  f.engine.pipeline.emitBatch([{ timingPoint: 'object-enters-board', object }], undefined, 'good-batch');
-  assert.equal(f.engine.layers.registry.list().length, 1);
-  assert.equal(calls, 1);
+  assert.throws(() => f.engine.commit({ type: 'move-zone', object: f.kernel.ref('callback'), to: 'battlefield', location: battlefield }), /synthetic trigger failure/);
+  assert.equal(f.kernel.getObject('callback').zone, 'hand');
+  assert.deepEqual(f.engine.layers.registry.list(), []);
+  assert.equal(f.engine.pipeline.checkpoint().triggers.size, 0);
+  failureArmed = false;
+  f.engine.pipeline.onEvent = failingOnEvent;
+  assert.equal(f.engine.commit({ type: 'move-zone', object: f.kernel.ref('callback'), to: 'battlefield', location: battlefield }).status, 'done');
+  assert.equal(f.kernel.getObject('callback').zone, 'board');
+  const retriedEffects = f.engine.layers.registry.list().map(entry => entry.effect.id);
+  assert.equal(retriedEffects.length, 1);
+  assert.match(retriedEffects[0], /^program-static:callback:2:/);
   lifecycle.detach();
 });
