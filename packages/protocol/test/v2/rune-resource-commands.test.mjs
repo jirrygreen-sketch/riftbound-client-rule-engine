@@ -18,11 +18,11 @@ test('staged rune resource guard accepts exactly the approved intent fields', ()
   assert.equal(isV2RuneResourceCommand({ ...energy, runeObjectId: 'a-rune-2', zoneEntryId: Number.MAX_SAFE_INTEGER }), true);
 });
 
-test('rune resource intents remain absent from the general V2 wire until the real handler lands', () => {
+test('rune resource intents are enabled only through the exact general V2 wire shape', () => {
   for (const command of [energy, power]) {
-    assert.equal(isV2Command(command), false);
-    assert.equal(isV2CommandEnvelope({ contract: 'riftbound.protocol.v2.command', command }), false);
-    assert.equal(isV2ClientMessage({ type: 'command', protocolVersion: PROTOCOL_V2_VERSION, command }), false);
+    assert.equal(isV2Command(command), true);
+    assert.equal(isV2CommandEnvelope({ contract: 'riftbound.protocol.v2.command', command }), true);
+    assert.equal(isV2ClientMessage({ type: 'command', protocolVersion: PROTOCOL_V2_VERSION, command }), true);
   }
   assert.equal(PROTOCOL_V2_VERSION, '2.0.0');
 });

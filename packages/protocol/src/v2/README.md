@@ -27,7 +27,7 @@ The version and contract tags are `PROTOCOL_V2_VERSION` (`2.0.0`),
 | `V2DeclareAttackCommand` | `declare-attack` with battlefield and attackers | public combat declaration |
 | `V2DeclareDefenseCommand` | `declare-defense` with battlefield and defenders | public combat declaration |
 | `V2ConcedeCommand` | `concede` | public game result |
-| `V2RuneResourceCommand` | staged `rune-energy` / `rune-power` intent naming an exact Rune incarnation | owner-only; not yet part of the general V2 wire union |
+| `V2RuneResourceCommand` | `rune-energy` / `rune-power` intent naming an exact Rune incarnation | owner-only; the server resolves the trusted Basic Rune identity and Domain |
 | `V2EventMessage` | `event` carrying `V2EngineEvent` | timing point is public; each payload field is `public`, `owner-only`, or `hidden` |
 | `V2ProjectionMessage` | `projection` carrying `V2Projection` | viewer-specific; hidden zones are counts/omissions only |
 | `V2CommandReceipt` | `command-receipt` | public idempotency result; rejection text contains no hidden state |
@@ -59,10 +59,9 @@ Projection rules are deliberately strict:
 `eventSeq`, and `stateVersion`) and carries the same `core-1.5` ruleset
 version. It is an event projection record, not a replacement for the existing
 journal header or command entry types.
-The two Rune resource intents are staged protocol types with their own
-`isV2RuneResourceCommand` guard. They are intentionally absent from
-`V2Command`, `isV2Command`, command envelopes, and transport guards until the
-authoritative server handler lands in the same change. The payload is exactly
+The two Rune resource intents use their own `isV2RuneResourceCommand` guard and
+are part of `V2Command`, command envelopes, and transport guards once the
+authoritative server handler is present. The payload is exactly
 `{ type, commandId, stateVersion, runeObjectId, zoneEntryId }`; the actor comes
 from the authenticated session. Clients cannot supply amounts, quantities,
 Domains, player ids, balances, Gold aliases, or payment-window overrides.

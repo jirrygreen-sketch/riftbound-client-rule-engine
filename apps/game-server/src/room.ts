@@ -262,14 +262,23 @@ export class GameRoom {
     const toCard = (cardId: string, id: string) => {
       const card = cards.get(cardId);
       if (!card) throw new RoomError(`Unknown card ${cardId}`, "invalid-deck");
+      // "Colorless" is a catalog deck-building marker, not a Game Domain. Basic
+      // Rune identity remains strict: unlike other card types, it must resolve
+      // to exactly one of the six rule Domains.
+      const catalogDomains = card.domains.filter((domain): domain is Domain => domains.has(domain));
+      if (card.cardType.toLowerCase() === "rune" && catalogDomains.length !== 1) {
+        throw new RoomError(`Rune ${cardId} requires exactly one trusted Domain`, "invalid-deck");
+      }
       return {
         id,
         cardId: card.canonicalCardId,
         name: card.name,
         types: [card.cardType.toLowerCase()],
+        tags: [...card.tags],
         energy: card.energy,
         might: card.might,
-        power: card.domains.filter(domain => domains.has(domain)) as Domain[],
+        power: card.power === null ? null : catalogDomains,
+        domains: catalogDomains,
       };
     };
     const expand = (zone: keyof RoomDeckSubmission, required = false) => {
