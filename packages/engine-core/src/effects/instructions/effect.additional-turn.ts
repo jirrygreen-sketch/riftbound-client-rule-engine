@@ -5,12 +5,25 @@ export interface AdditionalTurnArgs {
   readonly after: Expr;
 }
 
-interface TurnTaskCapability {
+export interface TurnTaskCapability {
   readonly version: 'riftbound.turn-task.v1';
   readonly scheduleAdditionalTurn: (owner: PlayerId, sourceInstructionId: string) => void;
 }
 
 const CAPABILITY = 'turnTasks' as const;
+const CONTEXT_CAPABILITIES = new WeakMap<object, TurnTaskCapability>();
+
+/** Bind this additive capability to the live source snapshot for scoped contexts. */
+export function registerTurnTaskCapability(source: object, capability: TurnTaskCapability): void {
+  if (capability.version !== 'riftbound.turn-task.v1') throw new TypeError('Unsupported turn-task capability version');
+  CONTEXT_CAPABILITIES.set(source, capability);
+}
+
+/** Bind the same capability to an interpreter context derived from the source. */
+export function inheritTurnTaskCapability(source: object, target: object): void {
+  const capability = CONTEXT_CAPABILITIES.get(source);
+  if (capability !== undefined) CONTEXT_CAPABILITIES.set(target, capability);
+}
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -48,11 +61,14 @@ export default {
     if (after !== 'this-turn') return { status: 'negated', reason: 'impossible', events: [] };
     const owner = ownerOf(ctx, args);
     if (owner === null) return { status: 'negated', reason: 'impossible', events: [] };
-    const capability = (ctx as ResolveContext & { readonly turnTasks?: TurnTaskCapability })[CAPABILITY];
+    const capability = (ctx as ResolveContext & { readonly turnTasks?: TurnTaskCapability })[CAPABILITY] ??
+      CONTEXT_CAPABILITIES.get(ctx.source) ?? CONTEXT_CAPABILITIES.get(ctx);
     if (capability === undefined || capability.version !== 'riftbound.turn-task.v1') {
       throw new Error('effect.additional-turn requires the turn-task capability');
     }
-    capability.scheduleAdditionalTurn(owner, 'effect.additional-turn');
+    const instructionId = ctx.linked('currentInstructionId');
+    capability.scheduleAdditionalTurn(owner,
+      typeof instructionId === 'string' && instructionId.length > 0 ? instructionId : 'effect.additional-turn');
     ctx.link('additionalTurn', { player: owner, after: 'this-turn' });
     return { status: 'executed', events: [], linkedValues: { additionalTurn: { player: owner, after: 'this-turn' } } };
   },

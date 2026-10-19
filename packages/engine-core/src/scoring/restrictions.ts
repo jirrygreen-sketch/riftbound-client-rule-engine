@@ -15,11 +15,6 @@ export interface ScorePermission {
 
 /** CR 470-471 / 054.1: every active prohibition is a real Scoring consumer. */
 export function scorePermission(input: ScoreRestrictionInput): ScorePermission {
-  const found = restrictions(input.registry, 'score', {
-    player: input.player,
-    sourcePlayer: input.player,
-    affected: input.battlefield.ref,
-    object: input.battlefield,
-  });
+  const found = restrictions(input.registry, 'score', input.battlefield.ref, input.battlefield, input.player);
   return Object.freeze({ allowed: found.length === 0, restrictions: found });
 }

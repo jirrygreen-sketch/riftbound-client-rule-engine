@@ -31,6 +31,10 @@ export class ScoreLedger {
   fields(player: PlayerId): readonly string[] {
     return this.entries.filter(entry => entry.player === player).map(entry => entry.battlefieldId);
   }
+  entry(player: PlayerId, battlefieldId: string): ScoreEntry | null {
+    const found = this.entries.find(entry => entry.player === player && entry.battlefieldId === battlefieldId);
+    return found === undefined ? null : { ...found };
+  }
   add(entry: ScoreEntry): void {
     if (this.has(entry.player, entry.battlefieldId)) throw new Error('Battlefield already Scored this turn by this player');
     if (!entry.player || !entry.battlefieldId || (entry.method !== 'hold' && entry.method !== 'conquer')) {

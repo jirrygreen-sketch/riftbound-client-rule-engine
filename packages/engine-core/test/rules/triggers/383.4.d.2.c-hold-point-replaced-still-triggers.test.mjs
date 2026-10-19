@@ -16,5 +16,21 @@
 //   * 按规则红线不近似实现，也不写“断言该功能不存在”的测试。
 // 需要的机制：Score 动作的替代协议（被替代/否定后仍完成 Scoring、发布 hold 与 score 时点）。
 import test from 'node:test';
+import assert from 'node:assert/strict';
+import { turnFixture as fixture, settle, draw } from '../turn/harness.mjs';
 
-test.todo('triggers-hold-point-replaced-still-triggers (383.4.d.2.c): 缺结构性 Score 替代任务——TurnFlow 对得分被替代抛 replaced-scoring，无法在未得分的情况下继续发布 hold/score 波并让 Hold Effect 入链');
+test('triggers-hold-point-replaced-still-triggers (383.4.d.2.c)', () => {
+  const f = fixture({
+    fields: [{ id: 'bf1', controller: 'A' }, { id: 'bf2', controller: null }],
+    setup: w => w.unit('u1', { location: { type: 'battlefield', id: 'bf1' } }),
+  });
+  f.trigger('trigger:hold', 'hold', [draw('hold-draw')], { sourceId: 'u1', filter: { event: 'held', player: 'self' } });
+  f.flow.chain.pipeline.registerReplacement({ id: 'replace-score', matches: action => action.type === 'score',
+    apply: action => ({ status: 'replace', actions: [{ type: 'draw', player: action.player, amount: 1 }] }) });
+  f.flow.start();
+  settle(f);
+  assert.equal(f.kernel.player('A').score, 0);
+  assert.deepEqual(f.flow.scored('A'), ['bf1']);
+  assert.equal(f.flow.chain.items.length, 0);
+  assert.ok(f.kernel.player('A').handCount >= 1);
+});

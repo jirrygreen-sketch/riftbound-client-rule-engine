@@ -17,5 +17,22 @@
 //     也不写“断言该功能不存在”的测试。
 // 需要的机制：Score 动作的替代协议（被替代/否定后仍完成 Scoring、发布 conquer 与 score 时点）。
 import test from 'node:test';
+import assert from 'node:assert/strict';
+import { turnFixture as fixture, settle } from './harness.mjs';
+import { move } from '../scoring/harness.mjs';
 
-test.todo('triggers-conquer-point-replaced-still-triggers (383.4.c.2.c): 缺结构性 Score 替代任务——TurnFlow 对得分被替代抛 replaced-scoring（Replaced point gains require a structural Score task contract），无法在未得分的情况下继续发布 conquer/score 波并让 Conquer Effect 入链');
+test('triggers-conquer-point-replaced-still-triggers (383.4.c.2.c)', () => {
+  const f = fixture({ fields: [{ id: 'bf1', controller: 'B' }, { id: 'bf2', controller: null }],
+    setup: w => w.base('u1', { might: 3 }) });
+  f.trigger('trigger:conquer', 'conquer', [{ id: 'draw', op: 'effect.draw', args: { amount: { kind: 'constant', value: 1 } } }], {
+    sourceId: 'u1', filter: { event: 'conquered', player: 'self' },
+  });
+  f.flow.chain.pipeline.registerReplacement({ id: 'replace-score', matches: action => action.type === 'score',
+    apply: action => ({ status: 'replace', actions: [{ type: 'draw', player: action.player, amount: 1 }] }) });
+  f.flow.start();
+  f.flow.execute(f.activated('enter', [move('enter', { type: 'battlefield', id: 'bf1' })], 'A', 'u1'));
+  settle(f);
+  assert.equal(f.kernel.player('A').score, 0);
+  assert.deepEqual(f.flow.scored('A'), ['bf1']);
+  assert.ok(f.flow.chain.pipeline.events.some(event => event.timingPoint === 'conquer' && event.object?.ref.id === 'u1'));
+});

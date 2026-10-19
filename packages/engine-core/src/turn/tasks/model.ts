@@ -33,13 +33,3 @@ export type TurnTaskRecord =
       readonly player: import('../../effects/contract.js').PlayerId;
       readonly sourceInstructionId: string;
     };
-
-export interface TurnTaskState {
-  readonly records: readonly TurnTaskRecord[];
-}
-
-export interface TurnTaskExecution {
-  readonly record: TurnTaskRecord;
-  readonly status: 'done' | 'rejected';
-  readonly reason?: string;
-}

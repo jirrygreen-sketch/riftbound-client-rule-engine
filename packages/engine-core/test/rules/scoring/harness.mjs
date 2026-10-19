@@ -53,11 +53,11 @@ const STARTING_DECK = 8;
  * Build a TurnFlow over the reference kernel with deterministic decks/rune decks.
  * `fields` are the two duel battlefields with their initial canonical controllers.
  */
-export function turnFixture({ fields, score = {}, victoryScore, turnOrder = ['A', 'B'], setup } = {}) {
+export function turnFixture({ fields, score = {}, victoryScore, turnOrder = ['A', 'B'], setup, deck = STARTING_DECK } = {}) {
   const builder = world().player('A', { score: score.A ?? 0 }).player('B', { score: score.B ?? 0 })
     .base('source', { might: 4, energy: 0, power: [] });
   for (const player of turnOrder) {
-    builder.deck(Array.from({ length: STARTING_DECK }, (_, i) => `${player}:deck:${i}`), { owner: player });
+    if (deck) builder.deck(Array.from({ length: deck }, (_, i) => `${player}:deck:${i}`), { owner: player });
     builder.rune(Array.from({ length: STARTING_DECK }, (_, i) => `${player}:rune:${i}`), { owner: player });
   }
   setup?.(builder);

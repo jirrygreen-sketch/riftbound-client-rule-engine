@@ -110,7 +110,14 @@ test('scoring-victory-score-altered-by-effect (194.3.a / 474): the real driver u
   assert.equal(f.kernel.player('A').score, 9);
 });
 
-test.todo('scoring-burnout-draw-empty-grants-point (194.1.d / 432.2): Burn Out on an empty Main Deck — blocked: src/turn/flow.ts draw() throws status=blocked code=burn-out because the atomic Burn Out rules task (432.2: recycle Trash, opponent picks a player to gain 1 point, then still Draw 1) is not merged, so neither the normal Draw Phase nor the 473.1.b.1 replacement draw can run on an empty deck');
+test('scoring-burnout-draw-empty-grants-point (194.1.d / 432.2): Burn Out replaces an empty final-point draw', () => {
+  const f = turnFixture({ score: { A: 7 }, deck: 0,
+    setup: w => w.card('trash-card', { zone: 'trash', owner: 'A' }) });
+  f.flow.start();
+  assert.equal(f.kernel.player('B').score, 1);
+  assert.equal(f.kernel.player('A').score, 7);
+  assert.equal(f.kernel.player('A').handCount, 1);
+});
 
 test('scoring-final-point-second-conquer-after-hold-scores (473.1.b.1): the leaf kernel grants the Final Point when the ledger covers every Battlefield', () => {
   const { board, f1, f2 } = newDuelBoard();

@@ -91,11 +91,16 @@ test('turn-expiration-heals-all-units / turn-special-cleanup-repeat-is-normal: a
   assert.equal(f.kernel.events.filter(event => event.action === 'heal').length, 2);
 });
 
-test('turn-main-phase-priority-and-rune-pool-empty / turn-expiration-empties-rune-pool: unsupported nonempty pool is blocked', () => {
+test('turn-main-phase-priority-and-rune-pool-empty / turn-expiration-empties-rune-pool: both pools empty before Main', () => {
   const f = fixture({ energy: 1 });
-  assert.throws(() => f.flow.start(), error => error.status === 'blocked' && error.code === 'empty-rune-pool');
-  assert.equal(f.flow.phase, 'draw'); assert.equal(f.kernel.player('A').energy, 1);
-  assert.equal(timings(f.flow).includes('main-start'), false);
+  f.kernel.addPlayer('B', { energy: 3, power: ['Calm'] });
+  f.flow.start();
+  assert.equal(f.flow.phase, 'main');
+  assert.equal(f.kernel.player('A').energy, 0);
+  assert.equal(f.kernel.player('B').energy, 0);
+  assert.deepEqual(f.kernel.player('B').power, []);
+  assert.equal(f.flow.chain.priority, 'A');
+  assert.equal(timings(f.flow).includes('main-start'), true);
 });
 
 test('turn-negative-end-turn-while-chain-exists / turn-phases-cannot-skip / turn-negative-opponent-action-in-main', () => {
@@ -107,11 +112,17 @@ test('turn-negative-end-turn-while-chain-exists / turn-phases-cannot-skip / turn
   assert.throws(() => f.flow.endTurn('A'), /Cannot end/);
 });
 
-test('turn-draw-burnout-recycles-trash-and-gives-point: blocked before inventing unsupported Burn Out semantics', () => {
-  const f = fixture({ deck: false });
-  assert.throws(() => f.flow.start(), error => error.status === 'blocked' && error.code === 'burn-out');
-  assert.equal(f.flow.phase, 'draw'); assert.equal(f.kernel.player('B').score, 0);
-  assert.equal(nonCleanup(f.flow).at(-1), 'draw-start');
+test('turn-draw-burnout-recycles-trash-and-gives-point: real Burn Out recycles, scores opponent, and draws', () => {
+  const f = fixture({ deck: false, score: { B: 3 },
+    setup: w => w.card('deck-1', { zone: 'trash' }) });
+  f.flow.start();
+  assert.equal(f.flow.phase, 'main');
+  assert.equal(f.kernel.player('B').score, 4);
+  assert.equal(f.kernel.player('A').deckCount, 0);
+  assert.equal(f.kernel.player('A').handCount, 1);
+  // Channel Phase still channels before the empty deck causes Burn Out.
+  assert.equal(f.kernel.player('A').runePool.length, 2);
+  assert.ok(nonCleanup(f.flow).includes('card-drawn'));
 });
 
 test('turn-cleanup-deferred-during-resolution: damage then Heal uses the actual interpreter before Cleanup', () => {
