@@ -18,26 +18,39 @@ describe("M1 headless dual-bot regression", () => {
   const run = createHeadlessRegressionHarness();
 
   it("classifies committed natural wins separately from unfinished guards", () => {
+    const noCommands = { play: 0, idle: 0, pass: 0, advance: 0, move: 0, "combat-damage": 0, concede: 0 };
     const natural: HeadlessStats = {
       seed: "classification-natural", decks: { A: "rumble-sfd", B: "fiora-sfd" }, winner: "A", turnNumber: 12,
       termination: "winner", guardReason: null, blockers: [], scores: { A: 8, B: 3 }, victoryScore: 8,
       battleStats: { showdowns: 1, combats: 1, attacks: 1, defenses: 1, conquers: 1, scores: 1, points: 8 },
       privacyChecks: 6, exceptions: [], judgeRequiredRejections: 0, judgeRequiredCards: [],
       judgeRequiredCardCounts: [], judgeRequiredTop: [],
-      actionCoverage: { commands: { play: 0, idle: 0, pass: 0, advance: 0, move: 0, "combat-damage": 0, concede: 0 },
+      actionCoverage: { commands: noCommands,
         choices: { optional: 0, mode: 0, number: 0, "select-objects": 0, order: 0 } },
       eventCount: 10, journalDigest: "a".repeat(64), projectionDigests: { A: "b".repeat(64), B: "c".repeat(64) },
       replayMatches: true, privacySafe: true,
     };
     const guard = runHeadlessGame(HEADLESS_SEEDS[0]!, { decks: ["vi-unl", "rumble-sfd"], maxActions: 1 });
+    const blocked: HeadlessStats = { ...natural, termination: "blocked", winner: null,
+      blockers: [{ name: "ProgramBindingError", code: "judge-required", message: "unsupported" }] };
+    const exception: HeadlessStats = { ...natural, termination: "exception", winner: null, exceptions: ["Error: failed"] };
+    const concession: HeadlessStats = { ...natural, termination: "concede", scores: { A: 7, B: 3 },
+      actionCoverage: { ...natural.actionCoverage, commands: { ...noCommands, concede: 1 } } };
     expect(headlessTerminationClass(natural)).toBe("natural");
     expect(headlessTerminationClass(guard)).toBe("nonNatural");
+    expect(headlessTerminationClass(blocked)).toBe("nonNatural");
+    expect(headlessTerminationClass(exception)).toBe("nonNatural");
+    expect(headlessTerminationClass(concession)).toBe("nonNatural");
     expect(headlessTerminationClass({ ...guard, termination: "winner" })).toBe("invalid");
     expect(guard.termination).toBe("guard");
     expect(guard.winner).toBeNull();
     expect(guard.guardReason).not.toBeNull();
     expect(headlessTerminationClass({ ...guard, winner: "A" })).toBe("invalid");
     expect(headlessTerminationClass({ ...natural, replayMatches: false })).toBe("invalid");
+    expect(headlessTerminationClass({ ...natural, privacySafe: false })).toBe("invalid");
+    expect(headlessTerminationClass({ ...blocked, blockers: [] })).toBe("invalid");
+    expect(headlessTerminationClass({ ...exception, exceptions: [] })).toBe("invalid");
+    expect(headlessTerminationClass(concession)).toBe("nonNatural");
   });
 
   it("runs five fixed seeds for every pair of the four M1 decks", () => {
