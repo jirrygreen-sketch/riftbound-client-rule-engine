@@ -227,10 +227,13 @@ describe("engine runtime", () => {
         timing: "action",
         cost: { kind: "explicit", energy: { kind: "constant", value: 0 } },
         body: [{
-          id: "damage", op: "effect.damage",
-          targets: [{ id: "all", filter: { type: "unit" }, selection: "all" }],
-          args: { amount: { kind: "constant", value: 2 }, divide: { kind: "constant", value: true },
-            target: { kind: "constant", value: "all" } },
+          id: "repeat", op: "effect.repeat",
+          args: {
+            choices: { kind: "constant", value: [{ id: "repeat-amount", field: "amount", type: "number",
+              min: { kind: "literal", value: 1 }, max: { kind: "literal", value: 2 } }] },
+            actions: { kind: "constant", value: [{ type: "gain-energy",
+              values: { player: { kind: "literal", value: "A" }, amount: { kind: "literal", value: 1 } } }] },
+          },
         }],
       }],
     } as const;
@@ -245,11 +248,11 @@ describe("engine runtime", () => {
     const next = runtime.submit("B", { type: "pass", commandId: "pass-number-b", stateVersion: firstPass.receipt.stateVersion });
     expect(next.receipt.status).toBe("pending");
     const owner = runtime.projectFor("A").pendingChoice;
-    expect(owner).toMatchObject({ status: "pending", kind: "number", min: 1, max: 1 });
+    expect(owner).toMatchObject({ status: "pending", kind: "number", min: 1, max: 2 });
     expect(runtime.projectFor("B").pendingChoice).toEqual({ status: "pending", choiceId: owner.choiceId,
-      ownerPlayerId: "A", stateVersion: owner.stateVersion, kind: "number", min: 1, max: 1 });
+      ownerPlayerId: "A", stateVersion: owner.stateVersion, kind: "number", min: 1, max: 2 });
     const choiceId = owner.choiceId;
-    for (const answer of [0, 2, 1.5, Number.NaN]) {
+    for (const answer of [0, 3, 1.5, Number.NaN]) {
       const rejected = runtime.submit("A", { type: "choose", commandId: `bad-number-${String(answer)}`,
         stateVersion: next.receipt.stateVersion, choiceId, answer });
       expect(rejected.receipt.status).toBe("rejected");

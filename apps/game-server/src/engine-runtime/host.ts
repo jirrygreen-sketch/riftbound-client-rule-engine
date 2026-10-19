@@ -379,7 +379,8 @@ function matchesFilter(object: ObjectSnapshot, filter: ObjectFilter): boolean {
   for (const key of ["zone", "type", "owner", "controller"] as const) {
     const value = candidate[key]; if (value === undefined || value === "any") continue;
     const actual = key === "type" ? object.types : object[key];
-    if (Array.isArray(actual) ? !actual.includes(value as never) : actual !== value) return false;
+    const wanted = Array.isArray(value) ? value : [value];
+    if (Array.isArray(actual) ? !wanted.some(entry => actual.includes(entry as never)) : !wanted.includes(actual as never)) return false;
   }
   return true;
 }

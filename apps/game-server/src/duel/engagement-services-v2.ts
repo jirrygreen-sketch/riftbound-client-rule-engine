@@ -50,7 +50,8 @@ export function createDuelEngagementServicesV2(options: {
     // threshold is the amount needed for the marked Damage to be lethal.
     const thresholds = new Set(unit.damageMarks.map(mark => mark.responsiblePlayerId));
     const grants = [...thresholds].flatMap(controller => lethalThresholdFor(effects,
-      { controller, anchors: [unit] }, ref => ref.id === unit.objectId ? unit : null));
+      { controller, appliesTo: { damageController: "controller", target: "enemy-units" },
+        anchors: [unit] }, ref => ref.id === unit.objectId ? unit : null));
     return grants.length ? Math.min(currentMight, ...grants.map(grant => grant.amount)) : currentMight;
   };
   const drawProof = (request: Parameters<NonNullable<DuelEngagementServicesV2['sourceDraw']>>[0]) => ({

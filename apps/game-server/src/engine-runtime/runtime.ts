@@ -69,6 +69,13 @@ function canonicalCommand(command: V2Command): string {
   return canonicalJson(command);
 }
 
+function choiceBounds(request: ChoiceRequest<unknown>): { readonly min?: number; readonly max?: number } {
+  if (request.type !== "select-objects" && request.type !== "number") return {};
+  if (!Number.isSafeInteger(request.min) || !Number.isSafeInteger(request.max) ||
+      request.min < 0 || request.max < request.min) throw new TypeError("Pending choice range is invalid");
+  return { min: request.min, max: request.max };
+}
+
 class MatchRuntime implements EngineRuntime {
   private match: Match | null = null;
   private host: EngineRuntimeHost | null = null;
@@ -199,8 +206,7 @@ class MatchRuntime implements EngineRuntime {
           return { id: String(option), label: String(option), ...(value === undefined ? {} : { value }) };
         }),
       } : {}),
-      ...(this.pending.request.type === "select-objects" || this.pending.request.type === "number"
-        ? { min: this.pending.request.min, max: this.pending.request.max } : {}),
+      ...choiceBounds(this.pending.request),
     } : null;
     return projectRuntime(this.match!, this.host!, this.runtimeOptions.matchId, playerId, this.stateVersion, this.pending ? {
       ...pendingProjection!,
@@ -383,8 +389,7 @@ class MatchRuntime implements EngineRuntime {
       stateVersion: this.stateVersion,
       kind: request.type,
       ...(viewer === request.chooser && options ? { options } : {}),
-      ...(request.type === "select-objects" || request.type === "number"
-        ? { min: request.min, max: request.max } : {}),
+      ...choiceBounds(request),
     };
   }
 
