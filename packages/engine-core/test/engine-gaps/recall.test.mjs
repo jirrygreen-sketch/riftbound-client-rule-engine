@@ -4,12 +4,14 @@ import test from "node:test";
 import move from "../../dist/effects/instructions/effect.move.js";
 import swap from "../../dist/effects/instructions/effect.swap-location.js";
 import { resolveChainBody } from "../../dist/chain/interpreter-adapter.js";
+import { ChainEngine } from "../../dist/chain/engine.js";
 import { queryMoveDestinations } from "../../dist/target/location/candidates.js";
 import { createLayerEngine } from "../../dist/layers/engine.js";
-import { cardProgram, fixture as programFixture, settle } from "../rules/keywords/support.mjs";
+import { AwaitChoice, cardProgram, createProgramBinding, fixture as programFixture, settle } from "../rules/keywords/support.mjs";
 import { runInstruction, world } from "../../dist/effects/testing/index.js";
-import { bindResolveContext } from "../../dist/events/action-adapter.js";
+import { bindResolveContext, createActionPipelineHost } from "../../dist/events/action-adapter.js";
 import { createContractActionCapability } from "../../dist/events/contract-actions/bridge.js";
+import { EventPipeline } from "../../dist/events/pipeline.js";
 import { performRecall } from "../../dist/zones/recall.js";
 import conscription from "../../../card-dsl/dist/cards/unl/conscription.js";
 import glowstone from "../../../card-dsl/dist/cards/ven/glowstone.js";
@@ -672,9 +674,7 @@ for (const behavior of ["first-rewrite", "first-prevent", "first-replace", "seco
   });
 }
 
-test("EG-RECALL swap rolls back the whole transaction in the production ChainEngine when the second relocation fails", () => {
-  // The default production context has no BatchAction consumer. The primitive
-  // must return a blocked receipt without any relocation or Move observation.
+test("EG-RECALL swap rolls back a real rejected second leg and retries through the production ChainEngine", () => {
   const program = cardProgram("test:swap-rollback", [{
     id: "swap", op: "effect.swap-location",
     args: { objects: c([{ target: "a" }, { target: "b" }]) },
@@ -686,17 +686,114 @@ test("EG-RECALL swap rolls back the whole transaction in the production ChainEng
   const f = programFixture({
     programs: [program], energy: { A: 0 }, power: { A: [] },
     setup(builder) {
-      builder.hand("spell", { cardId: program.canonicalCardId, types: ["spell"], energy: 0, power: [] });
+      builder.hand("spell-a", { cardId: program.canonicalCardId, types: ["spell"], energy: 0, power: [] });
+      builder.hand("spell-b", { cardId: program.canonicalCardId, types: ["spell"], energy: 0, power: [] });
       builder.unit("a", { location: battlefield });
       builder.unit("b", { location: second });
     },
   });
-  f.play("spell");
+  const a = f.ref("a");
+  const b = f.ref("b");
+  let rejectSecondLeg = true;
+  f.kernel.addReplacement(action => {
+    if (action.type !== "move-location" || action.object.id !== "b" || !rejectSecondLeg) return null;
+    rejectSecondLeg = false;
+    return "prevented";
+  });
+
+  f.play("spell-a");
   f.engine.pass("A");
   f.engine.pass("B");
+  const rejected = f.kernel.linked("swap.swapped");
+  assert.equal(rejected.status, "blocked");
+  assert.equal(rejected.count, 0);
+  assert.deepEqual(rejected.objects, [a, b]);
+  assert.deepEqual(rejected.movements, []);
+  assert.equal(rejected.actionReceipt.status, "rolled-back");
+  assert.deepEqual(rejected.actionReceipt.actions, [
+    { type: "move-location", status: "done" },
+    { type: "move-location", status: "prevented" },
+  ]);
   assert.deepEqual(f.get("a").location, battlefield);
   assert.deepEqual(f.get("b").location, second);
+  assert.deepEqual(f.get("a").ref, a);
+  assert.deepEqual(f.get("b").ref, b);
+  assert.equal(f.kernel.history({ action: "move-location", object: a }), 0);
+  assert.equal(f.kernel.history({ action: "move-location", object: b }), 0);
   assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-moved").length, 0);
+  assert.deepEqual(f.engine.items, []);
+
+  f.play("spell-b");
+  f.engine.pass("A");
+  f.engine.pass("B");
+  const retried = f.kernel.linked("swap.swapped");
+  assert.equal(retried.status, "committed");
+  assert.equal(retried.count, 2);
+  assert.deepEqual(retried.objects, [a, b]);
+  assert.equal(retried.actionReceipt.status, "committed");
+  assert.deepEqual(retried.actionReceipt.actions, [
+    { type: "move-location", status: "done" },
+    { type: "move-location", status: "done" },
+  ]);
+  assert.deepEqual(f.get("a").location, second);
+  assert.deepEqual(f.get("b").location, battlefield);
+  assert.deepEqual(f.get("a").ref, a);
+  assert.deepEqual(f.get("b").ref, b);
+  assert.equal(f.kernel.history({ action: "move-location", object: a }), 1);
+  assert.equal(f.kernel.history({ action: "move-location", object: b }), 1);
+  assert.deepEqual(f.engine.items, []);
+
+  // The Chain fixture above validates the state transaction and retry. Exercise
+  // the same action through the production EventPipeline bridge as well so a
+  // failed second leg publishes no timing and a successful retry publishes both
+  // moves in one simultaneous batch.
+  const piped = world().unit("a", { location: battlefield }).unit("b", { location: second }).build();
+  piped.setTargets("a", [piped.ref("a")]);
+  piped.setTargets("b", [piped.ref("b")]);
+  let rejectPipedSecondLeg = true;
+  piped.addReplacement(action => {
+    if (action.type !== "move-location" || action.object.id !== "b" || !rejectPipedSecondLeg) return null;
+    rejectPipedSecondLeg = false;
+    return "prevented";
+  });
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: piped.snapshot(), links: piped.clone() }),
+    restore: saved => { piped.restore(saved.state); piped.copyLinkedFrom(saved.links); },
+    objects: () => piped.objects,
+    perform: action => piped.perform(action),
+    performContract: action => piped.performContract(action),
+    choose: request => { throw new AwaitChoice(request); },
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(piped, { source, controller, timingPoint }),
+    testTrigger: registration => piped.test(registration.spec.condition),
+  });
+  const pipeline = new EventPipeline(host, ["A", "B"], "A");
+  const context = bindResolveContext(host.context(piped.getObject("a"), "A", "chain-item-resolve"), {
+    perform: action => pipeline.commit(action),
+    contractActions: createContractActionCapability(action => pipeline.commitContract(action)),
+  });
+  const body = [{
+    id: "swap", op: "effect.swap-location",
+    args: { objects: c([{ target: "a" }, { target: "b" }]) },
+  }];
+  const pipedBefore = piped.stateForTest();
+  const failed = resolveChainBody(body, context);
+  assert.equal(failed.results[0].result.status, "negated");
+  assert.equal(failed.results[0].result.reason, "skipped");
+  assert.deepEqual(piped.stateForTest(), pipedBefore);
+  assert.equal(pipeline.events.filter(event => event.timingPoint === "object-moved").length, 0);
+  assert.equal(piped.history({ action: "move-location" }), 0);
+  assert.equal(failed.linkedValues["swap.swapped"].actionReceipt.status, "rolled-back");
+
+  const succeeded = resolveChainBody(body, context);
+  assert.equal(succeeded.results[0].result.status, "executed");
+  const published = pipeline.events.filter(event => event.timingPoint === "object-moved");
+  assert.equal(published.length, 2);
+  assert.deepEqual(published.map(event => event.details.objectId), ["a", "b"]);
+  assert.equal(new Set(published.map(event => event.batchId)).size, 1);
+  assert.equal(piped.history({ action: "move-location" }), 2);
+  assert.deepEqual(piped.getObject("a").location, second);
+  assert.deepEqual(piped.getObject("b").location, battlefield);
 });
 
 test("EG-RECALL swap invalid destination in production rejects the whole instruction before any relocation", () => {
@@ -722,38 +819,121 @@ test("EG-RECALL swap invalid destination in production rejects the whole instruc
 });
 
 
-test("EG-RECALL keeps the complete original Conscription body fail-closed at the default Recall bridge", () => {
+test("EG-RECALL executes the complete original Conscription program through the production adapter composition", () => {
   const ability = conscription.abilities.find(item => item.kind === "play");
   const recall = ability.body[2];
+  assert.deepEqual(ability.body.map(instruction => instruction.id), [
+    "conscription.take-control", "conscription.exhaust", "conscription.recall",
+  ]);
+  assert.deepEqual(ability.body[0].targets[0].filter, {
+    type: "unit", zone: "board", controller: "opponent", location: "battlefield", mightLte: 3,
+  });
+  assert.equal(ability.body[1].linkedTo, "conscription.take-control");
+  assert.equal(recall.linkedTo, "conscription.exhaust");
   assert.equal(recall.op, "effect.move");
   assert.equal(recall.args.mode.value, "recall");
   assert.deepEqual(recall.args.to, c("controller-base"));
-  // Keep the complete printed body and target/link relationships. The legal
-  // enemy target reaches Finalize, control and exhaust execute, and the default
-  // Chain boundary then refuses the Recall rather than substituting a Move.
-  const program = cardProgram("test:recall-conscription", ability.body);
-  const f = programFixture({
-    programs: [program], energy: { A: 5 }, power: { A: [] },
-    setup(builder) {
-      builder.hand("spell", { cardId: program.canonicalCardId, types: ["spell"], energy: 0, power: [] });
-      builder.unit("enemy", { owner: "B", controller: "B", might: 2 });
-    },
+  // Keep the original program, static optional XP cost, complete printed body,
+  // target/link relationships, and the two-Chaos printed base cost. Only the
+  // registry admission flag is overlaid for this execution test; the card
+  // program itself remains judge-required in card-dsl.
+  const program = { ...conscription, status: "executable", judgeReason: undefined };
+  assert.equal(conscription.status, "judge-required");
+  assert.equal(conscription.abilities[0].effect.kind, "cost.additional");
+  assert.equal(conscription.abilities[0].effect.optional, true);
+  assert.equal(conscription.abilities[0].effect.stage, "optional-additional");
+  assert.deepEqual(conscription.abilities[0].effect.payments, [{
+    kind: "xp", amount: c(5),
+  }]);
+  assert.deepEqual(ability.cost, {
+    kind: "cost.printed", energy: c(5), power: c(2),
   });
-  f.play("spell");
-  assert.deepEqual(f.asked.map(request => request.id), ["target:conscription.enemy-unit"]);
-  assert.deepEqual(f.asked[0].options, [f.ref("enemy")]);
-  settle(f.engine);
-  assert.deepEqual(f.get("enemy").ref, { id: "enemy", zoneEntryId: 1 });
-  assert.equal(f.get("enemy").controller, "A");
-  assert.equal(f.get("enemy").exhausted, true);
-  assert.deepEqual(f.get("enemy").location, battlefield);
-  assert.match(
-    String(f.kernel.linked("conscription.recall.recalled")?.blockedReason ?? ""),
-    /RecallAction consumer unavailable/,
-  );
-  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-moved").length, 0);
-  assert.equal(f.kernel.history({ action: "move-location" }), 0);
-  assert.equal(f.kernel.history({ action: "recall" }), 0);
+  const kernel = world()
+    .player("A", { energy: 5, power: ["Chaos", "Chaos"], xp: 5 })
+    .player("B")
+    .hand("spell", {
+      cardId: program.canonicalCardId, types: ["spell"], energy: 5, power: ["Chaos"],
+    })
+    .unit("enemy", { owner: "B", controller: "B", might: 2 })
+    .build();
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const asked = [];
+  const actions = [];
+  const choose = request => {
+    asked.push(request);
+    if (request.type === "optional") return false;
+    if (request.type === "select-objects" && request.min === request.max && request.options.length === request.min) {
+      return [...request.options];
+    }
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => {
+      actions.push(structuredClone(action));
+      return kernel.perform(action);
+    },
+    performContract: action => {
+      actions.push(structuredClone(action));
+      return kernel.performContract(action);
+    },
+    choose,
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => kernel.test(registration.spec.condition),
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host,
+    describePlay: binding.describePlay, cleanup: () => false,
+  });
+  const errors = [];
+  binding.attachLifecycle(engine, error => errors.push(error));
+  const source = kernel.getObject("spell");
+  const draft = binding.describePlay({ type: "play", player: "A", object: source.ref }, source);
+  // The trusted server catalog's numeric printed Power is attached here, as
+  // the existing Accelerate production tests do, without changing the card
+  // program.
+  draft.cost = {
+    ...draft.cost,
+    printed: {
+      id: "unl-140-219", cardType: "Spell", domains: ["Chaos"], energy: 5, power: 2,
+    },
+  };
+  engine.execute(draft);
+  assert.equal(asked[0].id, "target:conscription.enemy-unit");
+  assert.deepEqual(asked[0].options, [kernel.ref("enemy")]);
+  assert.ok(asked.some(request => request.type === "optional" && request.chooser === "A" &&
+    /optional:conscription\.additional-cost$/.test(request.id)));
+  settle(engine);
+  assert.deepEqual(kernel.getObject("enemy").ref, { id: "enemy", zoneEntryId: 1 });
+  assert.equal(kernel.getObject("enemy").controller, "A");
+  assert.equal(kernel.getObject("enemy").exhausted, true);
+  assert.deepEqual(kernel.getObject("enemy").location, base("A"));
+  assert.equal(kernel.player("A").energy, 0);
+  assert.deepEqual(kernel.player("A").power, []);
+  assert.equal(kernel.player("A").xp, 5);
+  assert.ok(actions.some(action => action.type === "take-control" && action.object.id === "enemy"));
+  assert.ok(actions.some(action => action.type === "exhaust" && action.object.id === "enemy"));
+  assert.deepEqual(actions.filter(action => action.type === "recall"), [{
+    type: "recall", object: { id: "enemy", zoneEntryId: 1 }, player: "A",
+  }]);
+  const recalled = kernel.linked("conscription.recall.recalled");
+  assert.equal(recalled.count, 1);
+  assert.deepEqual(recalled.objects, [kernel.ref("enemy")]);
+  assert.deepEqual(recalled.movements, [{
+    object: kernel.ref("enemy"), from: battlefield, to: base("A"),
+  }]);
+  assert.equal(recalled.mode, "recall");
+  assert.equal(recalled.receipt.status, "committed");
+  assert.deepEqual(recalled.receipt.actions, [{ type: "recall", status: "done" }]);
+  assert.equal(recalled.blockedReason, undefined);
+  assert.equal(engine.pipeline.events.filter(event => event.timingPoint === "object-moved").length, 0);
+  assert.equal(kernel.history({ action: "move-location", object: kernel.ref("enemy") }), 0);
+  assert.equal(kernel.history({ action: "recall", object: kernel.ref("enemy") }), 1);
+  assert.deepEqual(engine.items, []);
+  assert.deepEqual(errors, []);
 });
 
 test("EG-RECALL runs the original Glowstone recall instruction through the default production assembly", () => {
