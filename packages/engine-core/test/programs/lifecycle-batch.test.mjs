@@ -38,9 +38,20 @@ function runtime(cards, programs) {
     choose,
     context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
   });
-  const engine = new ChainEngine({ turnOrder: ['A', 'B'], turnPlayer: 'A', phase: 'main', host, cleanup: () => false });
+  let cleanup = () => false;
+  const engine = new ChainEngine({ turnOrder: ['A', 'B'], turnPlayer: 'A', phase: 'main', host, cleanup: current => cleanup(current) });
   const binding = createProgramBinding({ cardPrograms: programs });
-  return { kernel, engine, binding };
+  return { kernel, engine, binding, setCleanup: next => { cleanup = next; } };
+}
+
+function hookSnapshot(pipeline) {
+  return {
+    emitBatch: pipeline.emitBatch,
+    commit: pipeline.commit,
+    commitContract: pipeline.commitContract,
+    onEvent: pipeline.onEvent,
+    deferTriggerScan: pipeline.deferTriggerScan,
+  };
 }
 
 test('emitBatch installs one program registration before a real same-wave trigger scan', () => {
@@ -214,4 +225,63 @@ test('a failed first installation restores callback state and the same incarnati
   assert.equal(retriedEffects.length, 1);
   assert.match(retriedEffects[0], /^program-static:callback:2:/);
   lifecycle.detach();
+});
+
+test('detach restores every lifecycle hook and removes all installed registrations', () => {
+  const program = card('detach', [
+    { kind: 'static', effect: { kind: 'continuous.might', layer: 'arithmetic', appliesTo: 'self', amount: constant(1) } },
+    { kind: 'triggered', trigger: { at: 'object-killed', filter: { self: true } }, optional: false,
+      body: [{ id: 'draw', op: 'effect.draw', args: { amount: constant(1) } }] },
+    { kind: 'replacement', replaces: { event: 'object-killed', filter: { self: true } }, with: [] },
+  ]);
+  const f = runtime([{ id: 'source', cardId: 'detach', zone: 'hand' }], [program]);
+  const before = hookSnapshot(f.engine.pipeline);
+  const lifecycle = f.binding.attachLifecycle(f.engine);
+  assert.equal(f.engine.commit({ type: 'move-zone', object: f.kernel.ref('source'), to: 'chain' }).status, 'done');
+  assert.equal(f.engine.commit({ type: 'move-zone', object: f.kernel.ref('source'), to: 'battlefield', location: battlefield }).status, 'done');
+  assert.ok(f.engine.pipeline.hasTriggerRegistration('program:source:2:1'));
+  assert.equal(f.engine.pipeline.hasReplacementRegistration('replacement:source:2'), true);
+  assert.equal(f.engine.layers.registry.list().length, 1);
+
+  lifecycle.detach();
+  const after = hookSnapshot(f.engine.pipeline);
+  for (const hook of ['emitBatch', 'commit', 'commitContract', 'deferTriggerScan', 'onEvent']) {
+    assert.equal(after[hook].name.replace(/^bound /, ''), before[hook].name.replace(/^bound /, ''));
+  }
+  assert.equal(f.engine.pipeline.checkpoint().triggers.size, 0);
+  assert.equal(f.engine.pipeline.hasReplacementRegistration('replacement:source:2'), false);
+  assert.equal(f.engine.layers.registry.list().length, 0);
+});
+
+test('a real Chain failure rolls back a newly installed static registration on the same incarnation', () => {
+  const program = card('rollback', [
+    { kind: 'static', effect: { kind: 'continuous.might', layer: 'arithmetic', appliesTo: 'self', amount: constant(2) } },
+  ]);
+  const f = runtime([{ id: 'rollback', cardId: 'rollback', zone: 'hand' }], [program]);
+  const lifecycle = f.binding.attachLifecycle(f.engine);
+  let cleanupCalls = 0;
+  f.setCleanup(current => {
+    cleanupCalls += 1;
+    if (cleanupCalls === 1) {
+      assert.equal(current.layers.registry.list().length, 1, 'the first entry installed its static before failure');
+      throw new Error('real cleanup failure after first installation');
+    }
+    return false;
+  });
+  assert.equal(f.engine.commit({ type: 'move-zone', object: f.kernel.ref('rollback'), to: 'battlefield', location: battlefield }).status, 'done');
+  assert.equal(f.kernel.getObject('rollback').zone, 'board');
+  assert.equal(f.engine.layers.registry.list().length, 1);
+  f.engine.requestCleanup('first-installation');
+  assert.throws(() => f.engine.advance(), /real cleanup failure after first installation/);
+  assert.equal(f.kernel.getObject('rollback').zone, 'board');
+  assert.equal(f.engine.layers.registry.list().length, 1, 'the committed entry registration survives a later cleanup rollback');
+  assert.equal(f.engine.pipeline.checkpoint().triggers.size, 0);
+
+  f.engine.requestCleanup('same-incarnation-retry');
+  f.engine.advance();
+  const records = f.engine.layers.registry.list();
+  assert.equal(records.length, 1);
+  assert.match(records[0].effect.id, /^program-static:rollback:2:/);
+  lifecycle.detach();
+  assert.deepEqual(f.engine.layers.registry.list(), []);
 });

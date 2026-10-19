@@ -60,11 +60,10 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       if (depth === 0 && succeeded) flushExits();
     }
   };
-  const triggerMap = () => pipeline.checkpoint().triggers;
-  const replacementMap = () => pipeline.checkpoint().replacements;
   const effectList = () => engine.layers.registry.list();
   const programExists = (source: ObjectSnapshot) => registry.inspect(source.cardId) !== undefined;
   const currentFor = (source: ObjectSnapshot) => pipeline.host.objects().find(object => object.ref.id === source.ref.id && object.ref.zoneEntryId === source.ref.zoneEntryId) ?? null;
+  const sourceFor = (source: ObjectSnapshot) => effectiveBinder.sourceFor?.(source) ?? currentFor(source);
   const active = (source: ObjectSnapshot) => source.zone === 'board' || source.zone === 'chain';
 
   const detach = (source: ObjectSnapshot) => {
@@ -78,9 +77,9 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   };
 
   const bindingIntact = (binding: Binding): boolean => {
-    if (binding.triggerIds.some(id => !triggerMap().has(id))) return false;
+    if (binding.triggerIds.some(id => !pipeline.hasTriggerRegistration(id))) return false;
     if (binding.staticEffectIds.some(id => engine.layers.registry.get(id) === undefined)) return false;
-    if (binding.replacementIds.some(id => !replacementMap().has(id))) return false;
+    if (binding.replacementIds.some(id => !pipeline.hasReplacementRegistration(id))) return false;
     return true;
   };
 
@@ -114,13 +113,16 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
         for (const entry of effectList()) if (!before.has(entry.effect.id)) staticEffectIds.push(entry.effect.id);
       }
       if (bindReplacement) {
-        const before = new Set(replacementMap().keys());
         for (const ability of expandProgram(registry.get(source.cardId), source).abilities) {
           if (ability.kind !== 'replacement') continue;
-          try { replacementHandles.push(bindReplacementAbility(effectiveBinder, ability, source)); }
+          try {
+            const handle = bindReplacementAbility(effectiveBinder, ability, source);
+            replacementHandles.push(handle);
+            const id = `replacement:${source.ref.id}:${source.ref.zoneEntryId}`;
+            if (pipeline.hasReplacementRegistration(id)) replacementIds.push(id);
+          }
           catch (error) { report(error, source); }
         }
-        for (const id of replacementMap().keys()) if (!before.has(id)) replacementIds.push(id);
       }
     } catch (error) {
       unregisterProgramTriggers(engine, triggerIds);
@@ -144,7 +146,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   const ensure = (source: ObjectSnapshot) => {
     const k = refKey(source);
     const existing = bindings.get(k);
-    const current = currentFor(source);
+    const current = sourceFor(source);
     if (!current || !programExists(current) || !active(current)) { if (existing) detach(existing.source); return; }
     if (existing && existing.signature === signature(current) && bindingIntact(existing)) return;
     if (existing) detach(existing.source);
@@ -181,7 +183,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   }
 
   const syncCurrent = (source: ObjectSnapshot) => {
-    const current = currentFor(source);
+    const current = sourceFor(source);
     if (!current || !active(current)) return;
     const binding = bindings.get(refKey(source));
     if (!binding || binding.signature === signature(current)) return;
@@ -225,6 +227,13 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   })) as typeof pipeline.commitContract;
   pipeline.onEvent = event => {
     transaction(() => {
+      // Chain publication keeps the scanner suspended through emitBatch.
+      // Entry callbacks may observe the pre-transition incarnation, so never
+      // reuse that ref for a registration whose source has already changed.
+      if (event.object && isEntry(event)) {
+        const current = sourceFor(event.object);
+        if (current && (current.ref.zoneEntryId !== event.object.ref.zoneEntryId || current.zone !== event.object.zone)) ensure(current);
+      }
       if (event.object) syncBindings();
       originalOnEvent?.(event);
       if (event.object && isEntry(event)) ensure(event.object);
