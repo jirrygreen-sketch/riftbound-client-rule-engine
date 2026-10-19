@@ -258,6 +258,8 @@ describe("engine runtime", () => {
     expect(pending.receipt.status).toBe("pending");
     expect(pending.receipt.choice?.ownerPlayerId).toBe("A");
     expect(runtime.journal().entries.at(-1)?.pendingReason).toMatchObject({ kind: "optional" });
+    expect(pending.projection.chain.phase).toBe("await-commit");
+    expect(pending.projection.priority.window).toBe("choice");
     expect(runtime.projectFor("B").pendingChoice).toEqual({
       status: "pending",
       choiceId: pending.receipt.choice!.choiceId,

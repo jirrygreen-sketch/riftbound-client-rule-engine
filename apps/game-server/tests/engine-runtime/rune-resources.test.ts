@@ -102,7 +102,9 @@ function readyRunes(runtime: ReturnType<typeof createEngineRuntime>, playerId: s
 // Mind Rune canonical: card.hash-a8a4cb783649a0339782e2d3808d6144661c621634da7c9f79b4f87981fac97b.
 // Fury Rune canonical: card.hash-30497c69657abd1d3abf17f9b3766e7d064817473a88828ca2ef4ab9b51f7902.
 // Consult the Past canonical: card.hash-2ebf1fe6e5ed7bb875f1c112b3e0ed1635b557c0c0ad550d752b8dd376243007.
-// Radiance CR303.2.a, effective 2026-10-16, was checked and adds no Rune-specific ordering rule.
+// Radiance CR303.2.a, effective 2026-10-16:
+// https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// It was checked and adds no Rune-specific ordering rule.
 describe("RIFT-861 real MatchRuntime Basic Rune resources", () => {
   it("turns four real Rune Energy adds into the real Consult the Past Energy cost", () => {
     const deckA = m1Deck("rumble-sfd");
