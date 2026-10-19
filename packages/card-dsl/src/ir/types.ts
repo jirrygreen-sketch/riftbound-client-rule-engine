@@ -406,6 +406,17 @@ export interface PickSpec {
   readonly min?: number;
   readonly max?: number | null;
   readonly selection?: "one" | "any" | "all" | "up-to";
+  /**
+   * Legacy descriptive chooser metadata accepted by the pre-revision default
+   * schema. It is not consumed by the linked Resolve picker and does not grant
+   * executable player-choice semantics.
+   */
+  readonly chooser?: string;
+  /**
+   * Legacy cost-choice descriptive predicate. It remains judge-required until
+   * a cost-choice consumer implements current-Might filtering.
+   */
+  readonly mighty?: boolean;
   readonly [key: string]: unknown;
 }
 
