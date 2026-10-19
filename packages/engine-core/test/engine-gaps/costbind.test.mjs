@@ -108,11 +108,15 @@ test('original Clockwork Keeper IR binds the optional Calm cost and keeps paid w
       amount: constant(1),
     }],
   });
-  assert.equal(plan.components.find(component => component.id === 'clockwork-keeper.calm').cost.power.length, 0);
+  const component = plan.components.find(item => item.id === 'clockwork-keeper.calm');
+  assert.equal(component.stage, 'optional-additional');
+  assert.equal(component.cost.power.length, 0);
   assert.equal(plan.selectedAdditional.length, 1);
   assert.deepEqual(plan.selectedAdditional.map(({ id, kind }) => ({ id, kind })), [{ id: 'clockwork-keeper.calm', kind: 'additional' }]);
   const receipt = payCostPlan(contextFor(source), plan);
+  assert.equal(receipt.additional[0].id, component.id);
   assert.equal(receipt.additional[0].paid, true);
+  assert.deepEqual(receipt.total, plan.total);
   assert.equal(receipt.total.energy, 2);
 
   const body = clockworkKeeper.abilities.find(ability => ability.kind === 'play').body[0];
@@ -170,6 +174,46 @@ test('original Blazing Scorcher Accelerate IR binds its selected additional cost
   assert.equal(draft.cost.optionalAdditional.length, 1);
   assert.equal(draft.cost.optionalAdditional[0].kind, 'accelerate');
   assert.equal(draft.cost.optionalAdditional[0].selected, undefined);
+});
+
+test('printed keyword params reach CostPlan through the default keyword expansion', () => {
+  const repeatCost = { kind: 'explicit', energy: constant(2) };
+  const program = {
+    canonicalCardId: 'test:printed-repeat-params',
+    rulesetVersion: 'core-1.5',
+    status: 'executable',
+    sourceText: '[Repeat] 2 Energy. Draw 1.',
+    abilities: [{ kind: 'keyword', keyword: 'repeat', params: { cost: repeatCost } }],
+  };
+  const kernel = world()
+    .player('A', { energy: 5 })
+    .player('B')
+    .hand('spell', { cardId: program.canonicalCardId, types: ['spell'], energy: 1, power: null })
+    .build();
+  const source = kernel.clone({ sourceSnapshot: kernel.getObject('spell'), controller: 'A' });
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const draft = binding.describePlay(
+    { type: 'play', player: 'A', object: source.ref('spell') }, source.getObject('spell'));
+
+  assert.equal(draft.cost.optionalAdditional.length, 1);
+  assert.equal(draft.cost.optionalAdditional[0].kind, 'repeat');
+  assert.deepEqual(draft.cost.optionalAdditional[0].cost, repeatCost);
+
+  const context = bindResolveContext(source, {
+    source: source.getObject('spell'),
+    controller: 'A',
+    timingPoint: 'chain-item-finalize',
+    choose: request => request.type === 'optional' ? true : (() => { throw new Error(`Unexpected choice ${request.id}`); })(),
+  });
+  const plan = buildCostPlan(context, { ...draft.cost });
+  assert.equal(plan.selectedAdditional.length, 1);
+  assert.equal(plan.selectedAdditional[0].kind, 'repeat');
+  assert.equal(plan.components.find(component => component.id === plan.selectedAdditional[0].id).stage, 'optional-additional');
+  assert.equal(plan.total.energy, 3);
+  const receipt = payCostPlan(context, plan);
+  assert.equal(receipt.additional[0].id, plan.selectedAdditional[0].id);
+  assert.deepEqual(receipt.total, plan.total);
+  assert.equal(context.player('A').energy, 2);
 });
 
 test('default Chain charges Blazing Scorcher Accelerate only when selected', () => {
