@@ -42,11 +42,12 @@
  * approximated with an ordinary Move or a zone exit/re-entry.
  */
 import type {
-  Expr, GameEvent, InstructionDef, InstructionResult, LocationRef, ObjectFilter,
+  ActionOutcome, Expr, GameEvent, InstructionDef, InstructionResult, LocationRef, ObjectFilter,
   ObjectRef, ResolveContext, Value
 } from "../contract.js";
 import { performRecall } from "../../zones/recall.js";
 import { queryMoveDestinations } from "../../target/location/candidates.js";
+import { movement } from "../../layers/rules/query.js";
 
 export interface MoveArgs {
   readonly objects?: Expr;
@@ -212,8 +213,22 @@ function chooseDestination(ctx: ResolveContext, to: Destination): LocationRef | 
  * destination is legal for every selected zone entry (CR 451.2).
  */
 function resolveDestinationForObjects(
-  ctx: ResolveContext, objects: readonly ObjectRef[], to: Destination
+  ctx: ResolveContext, objects: readonly ObjectRef[], to: Destination,
+  registry?: import("../../layers/duration.js").ContinuousEffectRegistry,
 ): LocationRef | "controller-base" | null {
+  const movementAllowed = (ref: ObjectRef): boolean => {
+    const object = ctx.object(ref) as (typeof ctx.source & {
+      readonly movement?: { readonly allowed: boolean; readonly canMove: boolean; readonly restrictions: readonly string[] };
+    }) | null;
+    const movement = object?.movement;
+    return movement === undefined || movement.allowed && movement.canMove &&
+      !movement.restrictions.some(restriction => ["cannot-move", "move", "all-movement"].includes(restriction));
+  };
+  if (!objects.every(movementAllowed)) return null;
+  if (registry !== undefined && !objects.every(ref => {
+    const object = ctx.object(ref)!;
+    return movement(registry, ref, object, object.controller).allowed;
+  })) return null;
   const knownLocations: LocationRef[] = [...new Map([
     ...ctx.query({ zone: "board" }).flatMap(object => object.location === null ? [] : [object.location]),
     ...objects.map(ref => ctx.object(ref)!.location!).filter(location => location.type === "base"),
@@ -261,6 +276,7 @@ export default {
     const movements: Value[] = [];
     let reason: "replaced" | "skipped" | "impossible" | undefined;
     let blockedReason: string | undefined;
+    let actionReceipt: ActionOutcome["receipt"] | undefined;
     if (amount > 0) {
       if (mode === "recall") {
         if (typeof to === "object" && "kind" in to) {
@@ -283,6 +299,7 @@ export default {
               continue;
             }
             const outcome = performRecall(ctx, ref);
+            actionReceipt ??= outcome.receipt;
             events.push(...outcome.events);
             if (outcome.status !== "done") {
               reason ??= outcome.status === "prevented" ? "skipped" : outcome.status;
@@ -299,7 +316,10 @@ export default {
         reason = "impossible";
       } else {
         const objects = chooseRefs(ctx, selected, refs, amount);
-        const common = objects.length === 0 ? null : resolveDestinationForObjects(ctx, objects, to);
+        const registry = (ctx as ResolveContext & {
+          readonly layers?: { readonly registry?: import("../../layers/duration.js").ContinuousEffectRegistry };
+        }).layers?.registry;
+        const common = objects.length === 0 ? null : resolveDestinationForObjects(ctx, objects, to, registry);
         if (objects.length > 0 && common === null) {
           const receipt: Value = { count: 0, objects: [], movements: [] };
           ctx.link(linkKey, receipt);
@@ -331,7 +351,8 @@ export default {
     const receipt: Value = {
       count: moved.length, objects: moved.map(refValue), movements,
       ...(mode === "recall" ? { mode } : {}),
-      ...(blockedReason === undefined ? {} : { blockedReason })
+      ...(blockedReason === undefined ? {} : { blockedReason }),
+      ...(actionReceipt === undefined ? {} : { receipt: actionReceipt as unknown as Value })
     };
     ctx.link(linkKey, receipt);
     return reason ? { status: "negated", reason, events } :

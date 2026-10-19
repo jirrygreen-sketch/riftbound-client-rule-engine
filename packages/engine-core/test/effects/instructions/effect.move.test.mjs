@@ -322,7 +322,7 @@ test("effect.move recall submits an independent Recall action and never a Move (
         const from = current.location;
         current.location = base(current.controller);
         target.addObject(current, "board");
-        return { status: "done", events: [{ type: "task-resolved", seq: 1, turnNumber: 1, activePlayerId: "A", taskId: "recall:1", sourceCardId: "test", reason: "recall", autoResolved: true, timingPoint: "object-recalled", action: structuredClone(action), from, to: current.location }], receipt: { status: "committed", actions: [{ type: "recall", status: "done" }] } };
+        return { status: "done", events: [{ type: "task-resolved", seq: 1, turnNumber: 1, activePlayerId: "A", taskId: "recall:1", sourceCardId: "test", reason: "recall", autoResolved: true, action: "recall", details: { recall: true, from, to: current.location } }], receipt: { status: "committed", actions: [{ type: "recall", status: "done" }] } };
       },
     },
   });
@@ -332,11 +332,36 @@ test("effect.move recall submits an independent Recall action and never a Move (
   kernel.copyLinkedFrom(target);
   assert.equal(result.status, "executed");
   assert.deepEqual(calls, [{ type: "recall", object: unit.ref, player: "A" }]);
-  assert.deepEqual(result.events.map(event => event.action.type), ["recall"]);
+  assert.deepEqual(result.events.map(event => event.action), ["recall"]);
   assert.deepEqual(kernel.getObject("unit"), { ...unit, location: base("A") });
   assert.equal(kernel.getObject("unit").damage, 2);
   assert.equal(kernel.getObject("unit").exhausted, true);
   assert.equal(kernel.history({ action: "move-location" }), 0);
+});
+
+test("effect.move recall rejects a fake done result without a committed Recall receipt or observation", () => {
+  for (const receipt of [undefined, { status: "rolled-back", actions: [{ type: "recall", status: "impossible" }] }]) {
+    const kernel = setup();
+    const before = kernel.stateForTest();
+    const target = kernel.clone();
+    target.setTargets("units", [target.ref("unit")]);
+    const context = bindResolveContext(target, {
+      contractActions: {
+        version: "riftbound.contract-actions.v1",
+        perform: () => ({ status: "done", events: [], ...(receipt === undefined ? {} : { receipt }) }),
+      },
+    });
+    const parsed = move.argsSchema.parse({ ...args, to: literal("controller-base"), mode: literal("recall") });
+    const result = move.execute(context, parsed);
+    kernel.restore(target.snapshot());
+    assert.equal(result.status, "negated");
+    assert.equal(result.reason, "impossible");
+    assert.deepEqual(target.linked("moved").blockedReason, "RecallAction consumer did not commit a preserved Recall with an independent observation");
+    assert.deepEqual(target.getObject("unit").location, battlefield);
+    assert.equal(target.history({ action: "recall" }), 0);
+    assert.equal(target.history({ action: "move-location" }), 0);
+    assert.deepEqual(kernel.stateForTest(), before);
+  }
 });
 
 test("effect.move does not move cards from non-Board zones or non-permanents", () => {
