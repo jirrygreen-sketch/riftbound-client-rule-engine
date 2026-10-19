@@ -41,6 +41,16 @@ export interface TurnFlowOptions {
 
 type Task = () => void;
 
+interface ActiveScore {
+  readonly player: PlayerId;
+  readonly field: string;
+  readonly method: 'hold' | 'conquer';
+  readonly finalDraw: boolean;
+  readonly units: readonly ObjectRef[];
+  /** Present exactly when method is conquer; captured before Establish Control. */
+  readonly battlefieldControllerBefore?: PlayerId | null;
+}
+
 /**
  * New CR 1.5 turn driver over batch 4 HOT FEPR. Legacy duel profiles are untouched.
  * Queue entries are single committed operations. AwaitChoice leaves the current
@@ -59,7 +69,7 @@ export class TurnFlow {
   private readonly scoreLedger = new ScoreLedger();
   private running = false;
   private executingTask = false;
-  private scoring: { player: PlayerId; field: string; method: 'hold' | 'conquer'; finalDraw: boolean; units: readonly ObjectRef[] } | null = null;
+  private scoring: ActiveScore | null = null;
   private readonly turnQueue: TurnQueue;
   private burnOutSequence = 0;
   private emptyingRunePool = false;
@@ -135,7 +145,10 @@ export class TurnFlow {
             player: score.player, battlefieldId: score.field, method: score.method,
             ...(score.units.length === 1 ? { objectId: score.units[0]!.id } : {}),
           });
-          const details = { battlefieldId: score.field };
+          const details = {
+            battlefieldId: score.field,
+            ...(score.method === 'conquer' ? { battlefieldControllerBefore: score.battlefieldControllerBefore } : {}),
+          };
           if (score.method === 'conquer') emissions.unshift(this.combat.establish(score.player, score.field));
           if (score.finalDraw) emissions.push({ timingPoint: 'final-point', player: score.player, details });
           for (const unit of score.units) {
@@ -394,6 +407,9 @@ export class TurnFlow {
     if (method === 'hold' && (this.combat.battlefields.find(value => value.id === field)?.controller !== player ||
       this.phase !== 'beginning' || this.turnPlayer !== player) || method === 'conquer' &&
       (this.combat.current?.step !== 'control' || this.combat.current.field !== field || this.combat.current.scorer !== player)) throw new Error('Invalid scoring timing');
+    const battlefieldControllerBefore = method === 'conquer'
+      ? this.captureBattlefieldControllerBefore(field, player)
+      : undefined;
     const scoredFields = new Set([...this.scoreLedger.fields(player), field]);
     const finalDraw = method === 'conquer' && finalPointDecision(this.options.player(player).score,
       this.victoryScore, this.battlefields.every(value => scoredFields.has(value.id))).drawInstead;
@@ -409,13 +425,43 @@ export class TurnFlow {
         return;
       }
       const units = this.battlefieldUnits(field, player).map(unit => unit.ref);
-      this.scoring = { player, field, method, finalDraw, units };
+      this.scoring = {
+        player, field, method, finalDraw, units,
+        ...(battlefieldControllerBefore === undefined ? {} : { battlefieldControllerBefore }),
+      };
       try {
         if (finalDraw) this.draw(player);
         else this.commit({ type: 'score', player, amount: 1 });
         if (!this.scoreLedger.has(player, field)) throw new TurnCombatBlockedError('replaced-scoring', 'Replaced point gains require a structural Score task contract');
       } finally { this.scoring = null; }
     }]);
+  }
+  /**
+   * CR 170.11.b / 468.5: the Conquer event reports the authoritative controller
+   * immediately before the real Establish Control step. Capture it while the
+   * Score task is scheduled, before combat.establish can mutate the battlefield.
+   */
+  private captureBattlefieldControllerBefore(field: string, scorer: PlayerId): PlayerId | null {
+    const battlefield = this.battlefields.find(candidate => candidate.id === field);
+    if (battlefield === undefined) {
+      throw new TurnCombatBlockedError('conquer-before-state-unavailable',
+        `Conquer requires an existing battlefield ${field}`);
+    }
+    if (this.combat.current?.step !== 'control' || this.combat.current.field !== field ||
+        this.combat.current.scorer !== scorer) {
+      throw new TurnCombatBlockedError('conquer-before-state-unavailable',
+        'Conquer before-state requires the pending control task for this battlefield and scorer');
+    }
+    const controller = battlefield.controller;
+    if (controller !== null && !this.options.turnOrder.includes(controller)) {
+      throw new TurnCombatBlockedError('conquer-before-state-unavailable',
+        `Conquer battlefield has an unknown controller ${controller}`);
+    }
+    if (controller === scorer) {
+      throw new TurnCombatBlockedError('conquer-before-state-unavailable',
+        'Conquer requires a control change; current controller already equals the scorer');
+    }
+    return controller;
   }
   private cleanup(_engine: ChainEngine): boolean {
     this.rewardWinnerAtCleanup();
