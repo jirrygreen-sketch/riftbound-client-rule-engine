@@ -23,9 +23,13 @@ Battle counts are derived from committed timing events (`combat-start`,
 Journals contain the setup seed/mulligans, exact commands and rejection reasons,
 complete committed events, kernel-state/linked-state/chain digests, and final
 A/B/spectator projection digests. Replay compares all of these state/event
-facts. Projection privacy is audited at setup and after every attempted command,
-including top-level objects and nested events, for both players and spectators.
-Journals are authoritative private evidence and are not client projections.
+facts. New journals also carry a content-integrity digest so altered commands,
+events, failures or final state are rejected before replay; journals without
+that optional field remain replayable through the complete strict path.
+Projection privacy is audited at setup and after every attempted command,
+including current objects and newly committed nested events, for both players
+and spectators, with a full final A/B/spectator projection check. Journals are
+authoritative private evidence and are not client projections.
 
 For exactly 100 games, run one pair (the CLI's `--games` is **per pairing**):
 
