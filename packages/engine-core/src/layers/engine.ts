@@ -346,9 +346,9 @@ export class LayerEngine {
   private restartRequested = false;
   /**
    * Non-passive reductions remember their total only for the arithmetic entry
-   * being applied. A modifier is consumed on first application and thereafter
-   * contributes to that reduction alone; later registry changes cannot rewrite
-   * the remembered value (CR 479.4.b).
+   * being applied. The same modifier remains available to other eligible
+   * reductions, while later registry changes cannot rewrite this entry's
+   * remembered value (CR 479.4.b).
    */
   private readonly arithmeticSnapshots = new WeakMap<RegisteredContinuousEffect, Map<string, number>>();
 
@@ -403,6 +403,19 @@ export class LayerEngine {
 
   private raw(ref: ObjectRef): ObjectSnapshot | null {
     return this.objects.get(refKey(ref)) ?? null;
+  }
+
+  /**
+   * A spell's arithmetic effect can outlive the chain incarnation that created
+   * it. The controller remains a stable source fact even when the card moved to
+   * Trash and received a new zone-entry identity, so fall back to the same
+   * object id before deciding that the source is unavailable.
+   */
+  private sourceObject(ref: ObjectRef): ObjectSnapshot | null {
+    const exact = this.raw(ref);
+    if (exact !== null) return exact;
+    for (const object of this.objects.values()) if (object.ref.id === ref.id) return object;
+    return null;
   }
 
   private resolve(ref: ObjectRef): LayeredObjectSnapshot | null {
@@ -476,31 +489,37 @@ export class LayerEngine {
     const amount = numberValue(effect, target, ref => this.resolve(ref));
     const scope = effect.reductionScope;
     const isReduction = effectKind(effect).includes("decrease") || effectKind(effect).includes("subtract") ||
-      effectKind(effect).includes("debuff") || amount < 0;
+      effectKind(effect).includes("debuff") || amount < 0 ||
+      typeof effect.authoredAmount === "number" && effect.authoredAmount < 0;
     if (!isReduction || typeof scope !== "string" || entry.effect.source === undefined) return { effect };
 
     const targetKey = refKey(target.ref);
     const remembered = this.arithmeticSnapshots.get(entry)?.get(targetKey);
-    if (remembered !== undefined) {
-      console.log('DEBUG remembered', remembered);
-      return { effect: { ...effect, snapshottedReduction: remembered } };
-    }
+    if (remembered !== undefined) return { effect: { ...effect, snapshottedReduction: remembered } };
 
     // The limited total is remembered once for this entry and target. Later
     // expiry, source departure, or re-evaluation must not recalculate it, and
     // a reduction already limited to zero must remain zero.
     let snapshottedReduction = 0;
     if (amount !== 0) {
-      const source = this.raw(entry.effect.source);
+      const source = this.sourceObject(entry.effect.source);
       if (source === null) return { effect };
-      console.log('DEBUG first apply', amount, effect);
-      const additional = additionalMightReductions(
-        this.registry,
-        { controller: source.controller, appliesTo: scope },
-        ref => ref === undefined ? null : this.raw(ref),
-      ).reduce((sum, modifier) => sum + modifier.amount, 0);
-      const total = amount + additional;
-      console.log('DEBUG additional', additional);
+      const modifiers = new Map<string, number>();
+      for (const appliesTo of [scope, { kind: "constant", value: scope }]) {
+        for (const modifier of additionalMightReductions(
+          this.registry,
+          { controller: source.controller, appliesTo },
+          ref => ref === undefined ? null : this.raw(ref),
+        )) modifiers.set(modifier.id, modifier.amount);
+      }
+      const additional = [...modifiers.values()].reduce((sum, amount) => sum + amount, 0);
+      // The registration already limited the base reduction at its snapshot
+      // point. Additional modifiers join that remembered delta, then the same
+      // limitation is applied once more for the augmented reduction.
+      const baseReduction = typeof effect.authoredAmount === "number"
+        ? effect.authoredAmount
+        : amount;
+      const total = baseReduction + additional;
       const basis = typeof effect.snapshotMight === "number" ? effect.snapshotMight : undefined;
       const minimum = typeof effect.minimum === "number" ? effect.minimum : undefined;
       snapshottedReduction = basis === undefined || minimum === undefined
@@ -724,7 +743,9 @@ export class LayerEngine {
               rebuild = true;
               continue;
             }
-            const effect = this.withSnapshot(before, () => this.materialize(item.entry, before));
+            const effect = this.withSnapshot(before, () => item.entry.effect.layer === "arithmetic"
+              ? this.appliedArithmetic(item.entry, before).effect
+              : this.materialize(item.entry, before));
             if (JSON.stringify(effect) !== JSON.stringify(item.effect)) {
               // Replacing an evaluated scalar is not a second application.
               // Replay the accumulated modifications from base characteristics.

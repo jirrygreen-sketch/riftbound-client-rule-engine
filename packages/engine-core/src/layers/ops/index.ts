@@ -171,6 +171,8 @@ function targetCondition(target: OpsTarget): (object: ObjectSnapshot) => boolean
 export interface MightEffect {
   readonly kind: "continuous.might" | "set-might";
   readonly amount?: number;
+  /** Authored signed delta before the printed floor is applied. */
+  readonly authoredAmount?: number;
   readonly value?: number;
   readonly minimum?: number;
   /** Non-passive changes remember their actual delta (CR 479.4.b). */
@@ -213,7 +215,7 @@ export function buildMightSpec(
     ? { kind: "set-might", value: snapshottedAmount,
       ...(snapshotMight === null ? {} : { snapshotDelta: snapshottedAmount - snapshotMight }),
       ...(target.minimum === undefined ? {} : { minimum: target.minimum }) }
-    : { kind: "continuous.might", amount,
+    : { kind: "continuous.might", amount: snapshottedAmount, authoredAmount: amount,
       ...(target.minimum === undefined ? {} : { minimum: target.minimum }),
       ...(snapshotMight === null ? {} : { snapshotMight }),
       // Only a signed decrease is eligible for the additional-reduction
