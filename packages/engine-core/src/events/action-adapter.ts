@@ -7,7 +7,13 @@ import {
   type PlayerId,
   type ResolveContext,
 } from '../effects/contract.js';
-import type { ActionExecution, PipelineHost, TimingEmission } from './pipeline-types.js';
+import {
+  PIPELINE_DEATH_BOUNDARY_VERSION,
+  type ActionExecution,
+  type PipelineDeathBoundaryCapability,
+  type PipelineHost,
+  type TimingEmission,
+} from './pipeline-types.js';
 import { type TimingPointId } from './timing-points.js';
 import { deriveMightChangedEmissions } from './producers/might-change.js';
 import { deriveZoneChangeEmissions } from './producers/zone-change.js';
@@ -27,6 +33,7 @@ import {
   executeContractAction,
   type ContractActionBridgePort,
   type ContractActionCapability,
+  type ContractActionExecution,
 } from './contract-actions/bridge.js';
 export {
   CONTRACT_ACTION_CAPABILITY_VERSION,
@@ -49,6 +56,14 @@ export type {
 /** State storage remains the caller's responsibility; this adapter owns event derivation. */
 export interface ActionStatePort extends Omit<PipelineHost, 'execute'> {
   perform(action: GameAction): ActionOutcome;
+  /** Confirmed Kill seam: callback runs after replacements, before Trash. */
+  performWithDeathBoundary?(action: GameAction, boundary: (before: readonly ObjectSnapshot[]) => void): ActionOutcome;
+  /** One confirmed all-Kill wave: one callback before any leaf reaches Trash. */
+  performKillBatchWithDeathBoundary?(
+    actions: readonly Extract<GameAction, { type: 'kill' }>[],
+    batchId: string,
+    boundary: (before: readonly ObjectSnapshot[]) => void,
+  ): ContractActionExecution;
   /** Optional direct seam for actions outside the closed GameAction union. */
   performContract?(action: import('../effects/contract.js').ContractGameAction): ActionOutcome;
   performBatchLeaf?(action: GameAction, batchId: string): ActionOutcome;
@@ -269,6 +284,68 @@ function contractActionId(action: import('../effects/contract.js').ContractGameA
     : `contract:${action.type}:${sequence}`;
 }
 
+function deathEmissions(
+  action: GameAction | import('../effects/contract.js').ContractGameAction,
+  before: readonly ObjectSnapshot[],
+  batchId: string,
+  active: ActiveEffectContext | undefined,
+): readonly TimingEmission[] {
+  const emissions: TimingEmission[] = [];
+  for (const object of before) {
+    const context = payloadContext(
+      batchId,
+      batchId,
+      active,
+      active?.source ?? object,
+      active?.controller ?? object.controller,
+      'kill',
+      active?.controller,
+    );
+    emissions.push(withActionPayload({
+      timingPoint: 'object-killed',
+      kind: 'object-killed',
+      object: structuredClone(object),
+      source: active?.source,
+      player: active?.controller ?? object.controller,
+      batchId,
+      simultaneousGroup: batchId,
+    }, actionPayload(action.type === 'kill' ? action : { type: 'kill', object: object.ref }, object, undefined, context), {
+      before: object,
+    }));
+  }
+  return emissions;
+}
+
+function postKillEmissions(
+  beforeList: readonly ObjectSnapshot[],
+  afterList: readonly ObjectSnapshot[],
+  batchId: string,
+  active: ActiveEffectContext | undefined,
+): readonly TimingEmission[] {
+  const first = beforeList[0];
+  const source = active?.source ?? first;
+  const player = active?.controller ?? first?.controller;
+  const emissions = [...deriveZoneChangeEmissions(beforeList, afterList, {
+    actionId: batchId,
+    batchId,
+    player,
+    effectController: active?.controller,
+    source,
+    cause: 'kill',
+    simultaneousGroup: batchId,
+  })];
+  emissions.push(...deriveMightChangedEmissions(beforeList, afterList, {
+    actionId: batchId,
+    batchId,
+    player,
+    effectController: active?.controller,
+    source,
+    cause: 'kill',
+    simultaneousGroup: batchId,
+  }));
+  return emissions;
+}
+
 export function createActionPipelineHost(port: ActionStatePort): ContractActionPipelineHost {
   let sequence = 0;
   let active: ActiveEffectContext | undefined;
@@ -421,6 +498,50 @@ export function createActionPipelineHost(port: ActionStatePort): ContractActionP
   // the versioned capability this adapter exposes.
   requireContractActionCapability({ contractActions });
 
+  const deathBoundary: PipelineDeathBoundaryCapability | undefined =
+    port.performWithDeathBoundary === undefined && port.performKillBatchWithDeathBoundary === undefined
+      ? undefined
+      : {
+          version: PIPELINE_DEATH_BOUNDARY_VERSION,
+          execute(action, boundary) {
+            if (action.type !== 'kill') return { outcome: { status: 'impossible', events: [] }, emissions: [] };
+            if (port.performWithDeathBoundary === undefined) {
+              throw new Error('Confirmed Kill boundary execution is unavailable');
+            }
+            const beforeList = port.objects();
+            const actionId = port.actionId?.(action) ?? actionHint(action, 'actionId') ?? `action:${++sequence}`;
+            const batchId = port.batchId?.(action, actionId) ?? actionHint(action, 'batchId') ?? actionId;
+            const outcome = port.performWithDeathBoundary(action, confirmed => {
+              const emissions = deathEmissions(action, confirmed, batchId, active);
+              boundary({ batchId, action, before: confirmed, emissions });
+            });
+            if (outcome.status !== 'done') return { outcome, emissions: [] };
+            const afterList = port.objects();
+            return { outcome, emissions: postKillEmissions(beforeList, afterList, batchId, active) };
+          },
+          executeContract(action, boundary) {
+            if (action.type === 'kill') return deathBoundary!.execute(action, boundary);
+            if (action.type === 'batch' && action.actions.length > 0 && action.actions.every(leaf => leaf.type === 'kill')) {
+              if (port.performKillBatchWithDeathBoundary === undefined) {
+                throw new Error('Confirmed Kill batch boundary execution is unavailable');
+              }
+              const actionId = contractActionId(action, ++sequence);
+              const batchId = action.transactionId ?? actionId;
+              const beforeList = port.objects();
+              const leaves = action.actions as readonly Extract<GameAction, { type: 'kill' }>[];
+              const execution = port.performKillBatchWithDeathBoundary(leaves, batchId, confirmed => {
+                const emissions = deathEmissions(action, confirmed, batchId, active);
+                boundary({ batchId, action, before: confirmed, emissions });
+              });
+              if (execution.outcome.status !== 'done') return { outcome: execution.outcome, emissions: [] };
+              const afterList = port.objects();
+              return { outcome: execution.outcome, emissions: postKillEmissions(beforeList, afterList, batchId, active) };
+            }
+            const actionId = contractActionId(action, ++sequence);
+            return executeContract(action, actionId, action.type === 'batch' ? action.transactionId ?? actionId : actionId);
+          },
+        };
+
   return {
     checkpoint,
     restore,
@@ -438,6 +559,7 @@ export function createActionPipelineHost(port: ActionStatePort): ContractActionP
     },
     choose: <T>(request: ChoiceRequest<T>): T => port.choose(request),
     testTrigger: port.testTrigger ? (registration, event, source) => port.testTrigger!(registration, event, source) : undefined,
+    ...(deathBoundary === undefined ? {} : { deathBoundary }),
     executeContract(action) {
       const actionId = contractActionId(action, ++sequence);
       const batchId = action.type === 'batch' ? action.transactionId ?? actionId : actionId;
