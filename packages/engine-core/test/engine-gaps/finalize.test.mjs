@@ -163,7 +163,18 @@ test('original Iron Revenant cost choice locks once, pays through the default Ch
       .card('victim', { zone: 'trash', types: ['gear'] }),
     [program],
   );
-  f.engine.execute(f.binding.describeActivate(f.kernel.getObject('source'), 'A', 0));
+  // RIFT-855 correctly keeps this incomplete Universal-Add program
+  // judge-required at the default activation adapter. Preserve that admission
+  // gate while exercising the authored non-target cost fragment through the
+  // Chain by drafting from the same source and frozen cost declaration.
+  const source = f.kernel.getObject('source');
+  const ability = ironRevenant.abilities[0];
+  const draft = {
+    id: 'iron-revenant-cost-probe', controller: 'A', source, kind: 'activated', speed: 'normal',
+    body: ability.body,
+    cost: { id: 'cost:iron-revenant-cost-probe', cost: ability.cost },
+  };
+  f.engine.execute(draft);
   const [item] = f.engine.items;
   assert.equal(item.status, 'finalized');
   assert.deepEqual(f.asked.map(request => request.id), [`${item.costInput.id}:pick:iron-revenant.banished-card`]);
