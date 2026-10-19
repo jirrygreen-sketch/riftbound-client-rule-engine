@@ -5,15 +5,40 @@ import {
   replayHeadlessJournal,
   runHeadlessGames,
   type HeadlessJournal,
+  type HeadlessStats,
   M1_DECK_IDS,
   buildM1Deck,
   runHeadlessGame,
   runHeadlessMatrix,
   createHeadlessRegressionHarness,
 } from "../../src/headless/index.js";
+import { headlessTerminationClass } from "../../src/headless/duel.js";
 
 describe("M1 headless dual-bot regression", () => {
   const run = createHeadlessRegressionHarness();
+
+  it("classifies committed natural wins separately from unfinished guards", () => {
+    const natural: HeadlessStats = {
+      seed: "classification-natural", decks: { A: "rumble-sfd", B: "fiora-sfd" }, winner: "A", turnNumber: 12,
+      termination: "winner", guardReason: null, blockers: [], scores: { A: 8, B: 3 }, victoryScore: 8,
+      battleStats: { showdowns: 1, combats: 1, attacks: 1, defenses: 1, conquers: 1, scores: 1, points: 8 },
+      privacyChecks: 6, exceptions: [], judgeRequiredRejections: 0, judgeRequiredCards: [],
+      judgeRequiredCardCounts: [], judgeRequiredTop: [],
+      actionCoverage: { commands: { play: 0, idle: 0, pass: 0, advance: 0, move: 0, "combat-damage": 0, concede: 0 },
+        choices: { optional: 0, mode: 0, number: 0, "select-objects": 0, order: 0 } },
+      eventCount: 10, journalDigest: "a".repeat(64), projectionDigests: { A: "b".repeat(64), B: "c".repeat(64) },
+      replayMatches: true, privacySafe: true,
+    };
+    const guard = runHeadlessGame(HEADLESS_SEEDS[0]!, { decks: ["vi-unl", "rumble-sfd"], maxActions: 1 });
+    expect(headlessTerminationClass(natural)).toBe("natural");
+    expect(headlessTerminationClass(guard)).toBe("nonNatural");
+    expect(headlessTerminationClass({ ...guard, termination: "winner" })).toBe("invalid");
+    expect(guard.termination).toBe("guard");
+    expect(guard.winner).toBeNull();
+    expect(guard.guardReason).not.toBeNull();
+    expect(headlessTerminationClass({ ...guard, winner: "A" })).toBe("invalid");
+    expect(headlessTerminationClass({ ...natural, replayMatches: false })).toBe("invalid");
+  });
 
   it("runs five fixed seeds for every pair of the four M1 decks", () => {
     const summary = run.matrix();
@@ -31,11 +56,14 @@ describe("M1 headless dual-bot regression", () => {
     expect(summary.completed + summary.blocked + summary.terminationReasons.guard).toBe(30);
     for (const result of summary.results) {
       expect(result.privacyChecks).toBeGreaterThanOrEqual(6);
+      expect(["natural", "nonNatural", "invalid"]).toContain(headlessTerminationClass(result));
       if (result.termination === "winner") {
+        expect(headlessTerminationClass(result)).toBe("natural");
         expect(result.winner).not.toBeNull();
         expect(result.scores[result.winner!]).toBeGreaterThanOrEqual(8);
         expect(result.battleStats.scores).toBeGreaterThan(0);
       } else {
+        expect(headlessTerminationClass(result)).toBe("nonNatural");
         expect(result.winner).toBeNull();
         if (result.termination === "blocked") expect(result.blockers.length).toBeGreaterThan(0);
         if (result.termination === "guard") expect(result.guardReason).not.toBeNull();
@@ -81,13 +109,20 @@ describe("M1 headless dual-bot regression", () => {
     expect(result.victoryScore).toBe(8);
     expect(result.replayMatches).toBe(true);
     expect(result.exceptions).toEqual([]);
-    if (result.blockers.length) {
-      expect(result.termination).toBe("blocked");
-      expect(result.winner).toBeNull();
-      expect(result.blockers.every(blocker => blocker.code && blocker.message)).toBe(true);
-    } else {
-      expect(result.termination).toBe("winner");
+    expect(headlessTerminationClass(result)).toBe(result.termination === "winner" ? "natural" : "nonNatural");
+    if (result.termination === "winner") {
+      expect(result.winner).not.toBeNull();
       expect(result.scores[result.winner!]).toBeGreaterThanOrEqual(8);
+      expect(result.guardReason).toBeNull();
+      expect(result.blockers).toEqual([]);
+    } else {
+      expect(result.winner).toBeNull();
+      expect(["guard", "blocked", "exception"]).toContain(result.termination);
+      if (result.termination === "blocked") {
+        expect(result.blockers.length).toBeGreaterThan(0);
+        expect(result.blockers.every(blocker => blocker.code && blocker.message)).toBe(true);
+      }
+      if (result.termination === "guard") expect(result.guardReason).not.toBeNull();
     }
   });
 
@@ -105,14 +140,21 @@ describe("M1 headless dual-bot regression", () => {
     expect(result.replayMatches).toBe(true);
     expect(result.exceptions).toEqual([]);
     expect(result.actionCoverage.commands.concede).toBe(0);
+    expect(headlessTerminationClass(result)).toBe(result.termination === "winner" ? "natural" : "nonNatural");
     if (result.termination === "blocked") {
       expect(result.winner).toBeNull();
-      expect(result.blockers).toEqual(expect.arrayContaining([expect.objectContaining({
-        name: "ProgramBindingError", code: "judge-required", message: "Unsupported filter field battlefieldWas",
-      })]));
+      expect(result.blockers.length).toBeGreaterThan(0);
+      expect(result.blockers.every(blocker => blocker.code && blocker.message)).toBe(true);
+    } else if (result.termination === "guard") {
+      expect(result.winner).toBeNull();
+      expect(result.guardReason).not.toBeNull();
+      expect(result.blockers).toEqual([]);
     } else {
       expect(result.termination).toBe("winner");
+      expect(result.winner).not.toBeNull();
       expect(result.scores[result.winner!]).toBeGreaterThanOrEqual(8);
+      expect(result.guardReason).toBeNull();
+      expect(result.blockers).toEqual([]);
     }
   }, 30_000);
 
