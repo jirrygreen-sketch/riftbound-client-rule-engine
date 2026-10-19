@@ -197,7 +197,9 @@ export class DefaultPathDriver {
   }
 
   checkpoint(label: string, submitted?: unknown): void {
-    const roomEvents = this.room.exportArchive().roomEventLog.slice(this.roomEventCursor);
+    // checkpoint only needs the append-only room event delta. exportArchive()
+    // also deep-clones every journal and projection retained by the room.
+    const roomEvents = this.room.roomEvents().slice(this.roomEventCursor);
     this.roomEventCursor += roomEvents.length;
     for (const player of PLAYERS) {
       const view = this.view(player);
