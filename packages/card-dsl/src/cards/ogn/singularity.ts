@@ -21,6 +21,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   (418.1.c) without divide.
  * - There is no speed keyword: spells default to Action timing (159.2.a),
  *   so no keyword ability is declared.
+ * - The independent golden binds this unchanged program through the public
+ *   createProgramBinding -> createMatch -> executeGameCommand path. It covers
+ *   0/1/2 Units, both passes, fixed 6 to each, a real Retreat reaction that
+ *   mistargets one Unit (359.3.e.8), and atomic Finalize rollback.
  */
 const singularity = {
   canonicalCardId: "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b",

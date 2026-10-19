@@ -1,19 +1,34 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/singularity.js";
+import retreat from "../../../dist/cards/ogn/retreat.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { runCardScenario } from "../../../../engine-core/dist/effects/testing/scenario/index.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { executeGameCommand } from "../../../../engine-core/dist/game/commands/index.js";
+import { createMatch } from "../../../../engine-core/dist/game/lifecycle.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 
 const CANONICAL_CARD_ID = "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b";
-const executableView = { ...program, status: "executable" };
-delete executableView.judgeReason;
+const PRINTING_ID = "ogn-105-298";
+const RETREAT_CARD_ID = "card.hash-e6e5c4f19dfe34b964bd6348cc46c60d1d565fb1949561f4c5c749101ed39bcf";
+
+const DECK_MANIFEST = JSON.parse(readFileSync(
+  new URL("../../../../../docs/plans/m1-decks.json", import.meta.url),
+  "utf8"
+));
+const OFFICIAL_CATALOG = JSON.parse(readFileSync(
+  new URL("../../../../card-data/data/deck-catalog.json", import.meta.url),
+  "utf8"
+));
+const PRINTING = OFFICIAL_CATALOG.cards.find(card => card.id === PRINTING_ID);
+assert.equal(PRINTING?.canonicalCardId, CANONICAL_CARD_ID);
 
 const play = program.abilities[0];
 const damageInstruction = play.body[0];
@@ -41,26 +56,59 @@ test("Singularity identity and status match the printing", () => {
     "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b"
   );
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /p4-spell-services\.ts/);
-  assert.match(program.judgeReason, /deal-damage/);
-  assert.match(program.judgeReason, /source owner\/actor/);
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.equal(program.sourceText, "Deal 6 to each of up to two units.");
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
 
-test("Singularity shipped judge-required status fails closed before production binding", () => {
+test("Singularity executable status enters the production binding with the original IR", () => {
   const binding = createProgramBinding({ cardPrograms: [program] });
   const kernel = world()
     .hand("singularity", { cardId: CANONICAL_CARD_ID, types: ["spell"] })
     .build();
-  assert.throws(
-    () => binding.describePlay(
-      { type: "play", object: kernel.ref("singularity"), player: "A" },
-      kernel.getObject("singularity")
-    ),
-    error => error.code === "judge-required" && /p4-spell-services\.ts/.test(error.message)
-  );
+  assert.doesNotThrow(() => binding.describePlay(
+    { type: "play", object: kernel.ref("singularity"), player: "A" },
+    kernel.getObject("singularity")
+  ));
+});
+
+test("Singularity production golden uses the original IR and its official printed cost without an executable view", () => {
+  assert.equal(PRINTING.energy, 6);
+  assert.equal(PRINTING.power, 2);
+  assert.deepEqual(PRINTING.domains, ["Mind"]);
+  assert.equal(PRINTING.might, null);
+  assert.equal(PRINTING.ability, program.sourceText);
+  assert.equal(program.status, "executable");
+
+  const kernel = world()
+    .hand("official-singularity", {
+      cardId: CANONICAL_CARD_ID,
+      types: ["spell"],
+      energy: PRINTING.energy,
+      power: PRINTING.domains,
+      might: PRINTING.might
+    })
+    .build();
+  // The shipped executable program and original IR bind directly.
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  assert.doesNotThrow(() => binding.describePlay(
+    { type: "play", object: kernel.ref("official-singularity"), player: "A" },
+    kernel.getObject("official-singularity")
+  ));
+});
+
+test("Singularity public Match: the shipped executable Program starts from its original IR without a target, cost, Chain or event mutation", () => {
+  const harness = publicMatch({ programs: [program] });
+  const beforeKernel = harness.kernel.snapshot();
+  const beforeEvents = structuredClone(harness.match.events());
+  const beforeItems = structuredClone(harness.match.flow.chain.items);
+  playThroughPublicCommand(harness);
+  assert.notDeepEqual(harness.kernel.snapshot(), beforeKernel);
+  assert.notDeepEqual(harness.match.events(), beforeEvents);
+  assert.notDeepEqual(harness.match.flow.chain.items, beforeItems);
+  assert.deepEqual(harness.asked.map(request => request.id), ["target:damaged-units"]);
+  assert.equal(harness.stateVersion(), 1);
 });
 
 test("Singularity has no keywords and one targeted damage instruction", () => {
@@ -100,7 +148,7 @@ function productionScenario(overrides = {}) {
       {
         id: "singularity",
         cardId: CANONICAL_CARD_ID,
-        program: executableView,
+        program,
         types: ["spell"],
         zone: "hand",
         energy: 6,
@@ -206,7 +254,7 @@ function productionHarness({ energy = 8, power = ["Mind", "Mind"] } = {}) {
     }),
     testTrigger: registration => kernel.test(registration.spec.condition)
   });
-  const binding = createProgramBinding({ cardPrograms: [executableView] });
+  const binding = createProgramBinding({ cardPrograms: [program] });
   const engine = new ChainEngine({
     turnOrder: ["A", "B"],
     turnPlayer: "A",
@@ -254,7 +302,7 @@ function assertRolledBack(harness, run) {
 }
 
 test("Singularity executable-view production slice: 6 Energy + 2 Mind is paid before both priority passes, then exactly two units take 6", () => {
-  const result = runCardScenario(executableView, productionScenario({
+  const result = runCardScenario(program, productionScenario({
     answers: { "target:damaged-units": ["ally-unit", "enemy-unit"] },
     operations: [
       { type: "play", object: "singularity", player: "A" },
@@ -298,7 +346,7 @@ test("Singularity executable-view production slice: 6 Energy + 2 Mind is paid be
 });
 
 test("Singularity executable-view production slice: up-to includes zero and one real target, and each pays once", () => {
-  const zero = runCardScenario(executableView, productionScenario({
+  const zero = runCardScenario(program, productionScenario({
     answers: { "target:damaged-units": [] },
     operations: [
       { type: "play", object: "singularity", player: "A" },
@@ -317,7 +365,7 @@ test("Singularity executable-view production slice: up-to includes zero and one 
   assert.deepEqual(zero.links, {});
   zero.asserts();
 
-  const one = runCardScenario(executableView, productionScenario({
+  const one = runCardScenario(program, productionScenario({
     answers: { "target:damaged-units": ["ally-unit"] },
     operations: [
       { type: "play", object: "singularity", player: "A" },
@@ -371,7 +419,7 @@ test("Singularity executable-view production slice: capacity, duplicate and non-
   ];
 
   for (const { label, scenario, expected } of cases) {
-    assert.throws(() => runCardScenario(executableView, scenario), expected, label);
+    assert.throws(() => runCardScenario(program, scenario), expected, label);
   }
 });
 
@@ -396,7 +444,7 @@ test("Singularity executable-view production slice: insufficient Energy or match
 
   for (const { label, players, reason } of cases) {
     assert.throws(
-      () => runCardScenario(executableView, productionScenario({
+      () => runCardScenario(program, productionScenario({
         players,
         answers: { "target:damaged-units": ["enemy-unit"] },
         operations: [
@@ -412,7 +460,7 @@ test("Singularity executable-view production slice: insufficient Energy or match
 
 test("Singularity executable-view production slice: invalid pass actor cannot steal priority or resolve a finalized spell", () => {
   assert.throws(
-    () => runCardScenario(executableView, productionScenario({
+    () => runCardScenario(program, productionScenario({
       answers: { "target:damaged-units": ["enemy-unit"] },
       operations: [
         { type: "play", object: "singularity", player: "A" },
@@ -546,7 +594,7 @@ test.todo(
 );
 
 test("Singularity executable-view production slice: Finalize-locked target incarnations are retained through response and Resolve", () => {
-  const run = runCardScenario(executableView, productionScenario({
+  const run = runCardScenario(program, productionScenario({
     answers: { "target:damaged-units": ["ally-unit", "enemy-unit"] },
     operations: [
       { type: "play", object: "singularity", player: "A" },
@@ -567,6 +615,456 @@ test("Singularity executable-view production slice: Finalize-locked target incar
 test.todo(
   "Singularity: no-target default-path linkedValues receipt (dealt/dealtTo/dealtCount = 0) — ChainEngine/host currently exposes {} while the primitive completed a no-damage resolution; owner: engine-core ChainEngine scenario adapter/integration contract."
 );
+
+test("Singularity executable-view primitive slice: a replacement can prevent the first damage action while the other locked target still receives 6", () => {
+  // This reproduces the production primitive's ordered per-target transaction.
+  // The scenario harness does not expose replacement installation, so use its
+  // same TestWorld reference kernel here only to prove the replacement outcome.
+  const kernel = world()
+    .player("A", { energy: 8, power: ["Mind", "Mind"] })
+    .unit("source", { owner: "A", zone: "chain", might: null })
+    .unit("first", { owner: "B", might: 10 })
+    .unit("second", { owner: "B", might: 10 })
+    .build();
+  kernel.addReplacement(action => action.type === "damage" && action.target.id === "first"
+    ? { status: "prevent" }
+    : null);
+  const run = runInstruction(
+    damage,
+    { amount: damageInstruction.args.amount, target: targetSpec.id },
+    { world: kernel, targets: { [targetSpec.id]: [kernel.ref("first"), kernel.ref("second")] } }
+  );
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.result.reason, "impossible");
+  assert.equal(kernel.getObject("first").damage, 0);
+  assert.equal(kernel.getObject("second").damage, 6);
+  assert.deepEqual(run.events.map(event => event.action), ["damage", "damage"]);
+});
+
+function realM1Deck() {
+  const candidate = DECK_MANIFEST.candidates.find(entry => entry.id === "rumble-sfd");
+  assert.ok(candidate, "RIFT-857 M1 manifest contains the Rumble precon");
+  assert.ok(candidate.officialCardList.some(entry =>
+    entry.canonicalCardId === CANONICAL_CARD_ID && entry.quantity === 1),
+  "the source manifest contains the requested Singularity identity exactly once");
+  const printingByCanonical = new Map(OFFICIAL_CATALOG.cards.map(card => [card.canonicalCardId, card]));
+  const expand = (entries, zone) => entries.flatMap(entry => {
+    const printing = printingByCanonical.get(entry.canonicalCardId);
+    assert.ok(printing, `catalog printing for ${entry.canonicalCardId}`);
+    return Array.from({ length: entry.quantity }, (_, index) => ({
+      id: `${candidate.id}:${zone}:${index}:${entry.canonicalCardId}`,
+      cardId: entry.canonicalCardId,
+      name: entry.name,
+      types: [entry.cardType.toLowerCase()],
+      tags: [...printing.tags],
+      domains: [...printing.domains],
+      energy: zone === "rune" ? null : printing.energy,
+      power: zone === "rune" ? null : printing.power,
+      might: printing.might
+    }));
+  });
+  const legend = candidate.officialCardList.find(entry => entry.zone === "legend");
+  const champion = candidate.officialCardList.find(entry => entry.zone === "champion" &&
+    entry.name === candidate.chosenChampion);
+  assert.ok(legend && champion);
+  const mainDeck = expand(candidate.officialCardList.filter(entry => entry.zone === "mainDeck"), "main");
+  const championIndex = mainDeck.findIndex(card => card.cardId === champion.canonicalCardId);
+  if (championIndex >= 0) mainDeck.splice(championIndex, 1);
+  return {
+    mainDeck,
+    runeDeck: expand(candidate.officialCardList.filter(entry => entry.zone === "runes"), "rune"),
+    championLegend: expand([legend], "legend")[0],
+    chosenChampion: expand([champion], "champion")[0],
+    battlefields: expand(candidate.officialCardList.filter(entry => entry.zone === "battlefields"), "battlefield")
+  };
+}
+
+function publicMatch({
+  /** TEST SETUP ONLY: seed the trusted Main pool; Finalize still pays it. */
+  energy = 8,
+  power = ["Mind", "Mind"],
+  targets = ["ally-unit", "enemy-unit"],
+  programs = [program]
+} = {}) {
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .unit("ally-unit", { owner: "A", controller: "A", might: 10 })
+    .unit("enemy-unit", { owner: "B", controller: "B", might: 10 })
+    .unit("unselected-unit", { owner: "B", controller: "B", might: 10 })
+    .hand("non-unit", { owner: "B", controller: "B", types: ["gear"], might: 0 })
+    .build();
+  const asked = [];
+  const choose = request => {
+    asked.push(request);
+    if (request.id === "target:damaged-units") return targets.map(id => kernel.ref(id));
+    throw new Error(`Unexpected choice ${request.id}`);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => {
+      kernel.restore(checkpoint.state);
+      kernel.copyLinkedFrom(checkpoint.links);
+    },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, {
+      source,
+      controller,
+      timingPoint,
+      choose
+    }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  // Seed 3 is a fixed, reproducible opening hand in the official Rumble list.
+  // setup.ts openingHands proves it contains exactly one Singularity.
+  const match = createMatch({
+    host: { ...host, player: player => kernel.player(player) },
+    decks: [realM1Deck(), realM1Deck()],
+    seed: 3,
+    battlefieldChoice: [0, 1],
+    mulligans: [[], []],
+    firstPlayer: 0
+  });
+  // Every positive public-chain case uses the shipped program itself.
+  const binding = createProgramBinding({ cardPrograms: programs });
+  binding.attachLifecycle(match.flow.chain);
+  const sources = kernel.objectsInZone("A", "hand")
+    .map(ref => kernel.getObject(ref.id))
+    .filter(object => object.cardId === CANONICAL_CARD_ID);
+  assert.equal(sources.length, 1, "selection target is A-owned and hidden from B");
+  const [source] = sources;
+  kernel.perform({ type: "gain-energy", player: "A", amount: energy });
+  kernel.perform({ type: "gain-power", player: "A", power });
+  let stateVersion = 0;
+  const send = (actor, command, contextVersion = stateVersion) => {
+    const result = executeGameCommand(
+      { match, binding, stateVersion: contextVersion },
+      actor,
+      { ...command, stateVersion: contextVersion }
+    );
+    if (contextVersion === stateVersion) stateVersion += 1;
+    return result;
+  };
+  return { kernel, match, binding, source, asked, send, stateVersion: () => stateVersion };
+}
+
+function playThroughPublicCommand(harness) {
+  return harness.send("A", {
+    type: "play",
+    commandId: "singularity-play",
+    cardObjectId: harness.source.ref.id
+  });
+}
+
+test("Singularity public Match: Finalize pays 6 Energy + 2 Mind, closes to Priority, and resolves exactly two selected units for 6 each", () => {
+  const harness = publicMatch();
+  assert.deepEqual(harness.match.setup.openingHands.A.filter(id => id === CANONICAL_CARD_ID), [CANONICAL_CARD_ID]);
+  const before = harness.match.events().length;
+  playThroughPublicCommand(harness);
+  const [item] = harness.match.flow.chain.items;
+
+  assert.equal(item.status, "finalized");
+  assert.deepEqual(item.targetPlans[0].selected, [harness.kernel.ref("ally-unit"), harness.kernel.ref("enemy-unit")]);
+  assert.deepEqual(item.costPlan.total, {
+    energy: 6,
+    power: [{ amount: 2, allowedDomains: ["Mind"] }],
+    xp: 0,
+    actions: []
+  });
+  assert.equal(item.payment.paid, true);
+  assert.equal(harness.kernel.player("A").energy, 2);
+  assert.deepEqual(harness.kernel.player("A").power, []);
+  assert.equal(harness.kernel.getObject("ally-unit").damage, 0);
+  assert.equal(harness.kernel.getObject("enemy-unit").damage, 0);
+  assert.equal(harness.match.flow.chain.turnState, "neutral-closed");
+  assert.equal(harness.match.flow.chain.priority, "A");
+  assert.equal(harness.match.flow.chain.focus, null);
+  assert.equal(harness.match.flow.chain.canAct("A", "action"), false);
+  assert.equal(harness.match.flow.chain.canAct("A", "reaction"), true);
+  assert.equal(harness.match.flow.chain.canAct("B", "reaction"), false);
+
+  harness.send("A", { type: "pass", commandId: "singularity-pass-a" });
+  assert.equal(harness.match.flow.chain.priority, "B");
+  assert.equal(harness.kernel.getObject("ally-unit").damage, 0);
+  assert.equal(harness.kernel.getObject("enemy-unit").damage, 0);
+  harness.send("B", { type: "pass", commandId: "singularity-pass-b" });
+
+  const events = harness.match.events().slice(before);
+  assert.deepEqual(
+    events.filter(event => event.timingPoint === "became-target").map(event => event.target.ref.id),
+    ["ally-unit", "enemy-unit"]
+  );
+  const damageFacts = events.filter(event => event.timingPoint === "damage-dealt");
+  assert.deepEqual(damageFacts.map(event => [event.target.ref.id, event.amount]),
+    [["ally-unit", 6], ["enemy-unit", 6]]);
+  assert.equal(new Set(damageFacts.map(event => event.actionId)).size, 2);
+  const finalize = events.findIndex(event => event.timingPoint === "chain-item-finalize");
+  const damage = events.findIndex(event => event.timingPoint === "damage-dealt");
+  const cardPlayed = events.findIndex(event => event.timingPoint === "card-played");
+  const resolved = events.findIndex(event => event.timingPoint === "chain-item-resolve");
+  assert.ok(finalize >= 0 && damage > finalize && cardPlayed > damage && resolved > cardPlayed);
+  assert.equal(harness.kernel.getObject("ally-unit").damage, 6);
+  assert.equal(harness.kernel.getObject("enemy-unit").damage, 6);
+  assert.equal(harness.kernel.getObject("unselected-unit").damage, 0);
+  assert.equal(harness.kernel.getObject("non-unit").damage, 0);
+  assert.equal(harness.kernel.getObject(harness.source.ref.id).zone, "trash");
+  assert.equal(harness.match.flow.chain.items.length, 0);
+  assert.equal(harness.match.flow.chain.turnState, "neutral-open");
+  assert.equal(harness.match.flow.chain.priority, "A");
+});
+
+test("Singularity public Match: up-to accepts zero and one target; each pays once, resolves normally and ignores non-unit candidates", () => {
+  const zero = publicMatch({ targets: [] });
+  playThroughPublicCommand(zero);
+  zero.send("A", { type: "pass", commandId: "zero-pass-a" });
+  zero.send("B", { type: "pass", commandId: "zero-pass-b" });
+  assert.deepEqual(zero.match.flow.chain.items, []);
+  assert.equal(zero.kernel.player("A").energy, 2);
+  assert.deepEqual(zero.kernel.player("A").power, []);
+  assert.equal(zero.kernel.getObject(zero.source.ref.id).zone, "trash");
+  assert.equal(zero.match.events().some(event => event.timingPoint === "became-target"), false);
+  assert.equal(zero.match.events().some(event => event.timingPoint === "damage-dealt"), false);
+  for (const id of ["ally-unit", "enemy-unit", "unselected-unit", "non-unit"]) {
+    assert.equal(zero.kernel.getObject(id).damage, 0);
+  }
+
+  const one = publicMatch({ targets: ["ally-unit"] });
+  playThroughPublicCommand(one);
+  one.send("A", { type: "pass", commandId: "one-pass-a" });
+  one.send("B", { type: "pass", commandId: "one-pass-b" });
+  assert.equal(one.kernel.getObject("ally-unit").damage, 6);
+  assert.equal(one.kernel.getObject("enemy-unit").damage, 0);
+  assert.equal(one.kernel.getObject("unselected-unit").damage, 0);
+  assert.deepEqual(
+    one.match.events().filter(event => event.timingPoint === "damage-dealt")
+      .map(event => [event.target.ref.id, event.amount]),
+    [["ally-unit", 6]]
+  );
+  assert.equal(one.kernel.player("A").energy, 2);
+  assert.deepEqual(one.kernel.player("A").power, []);
+});
+
+test("Singularity public Match boundaries: target cap, duplicate/non-unit target, insufficient or wrong-domain Power and foreign actor roll back", () => {
+  const cases = [
+    { options: { targets: ["ally-unit", "enemy-unit", "unselected-unit"] }, error: /outside its required count/ },
+    { options: { targets: ["enemy-unit", "enemy-unit"] }, error: /duplicate or illegal target/ },
+    { options: { targets: ["non-unit"] }, error: /duplicate or illegal target/ },
+    { options: { energy: 5 }, error: /insufficient Energy/ },
+    { options: { power: ["Mind"] }, error: /insufficient matching Power/ },
+    { options: { power: ["Fury", "Fury"] }, error: /insufficient matching Power/ }
+  ];
+  for (const { options, error } of cases) {
+    const harness = publicMatch(options);
+    const before = harness.kernel.snapshot();
+    assert.throws(() => playThroughPublicCommand(harness), error);
+    assert.deepEqual(harness.kernel.snapshot(), before);
+    assert.deepEqual(harness.match.flow.chain.items, []);
+    assert.equal(harness.match.flow.chain.priority, "A");
+    assert.equal(harness.kernel.getObject(harness.source.ref.id).zone, "hand");
+  }
+
+  const foreign = publicMatch();
+  const before = foreign.kernel.snapshot();
+  assert.throws(
+    () => foreign.send("B", {
+      type: "play",
+      commandId: "singularity-foreign",
+      cardObjectId: foreign.source.ref.id
+    }),
+    error => error.name === "GameCommandError" && error.code === "unavailable-object"
+  );
+  assert.deepEqual(foreign.kernel.snapshot(), before);
+  assert.deepEqual(foreign.match.flow.chain.items, []);
+});
+
+test("Singularity public Match: invalid or duplicate Pass and stale stateVersion do not advance Priority or resolve the spell", () => {
+  const invalid = publicMatch();
+  playThroughPublicCommand(invalid);
+  assert.throws(
+    () => invalid.send("B", { type: "pass", commandId: "bad-priority-pass" }),
+    /Player cannot pass now/
+  );
+  assert.equal(invalid.match.flow.chain.priority, "A");
+  assert.equal(invalid.match.flow.chain.items[0].status, "finalized");
+  assert.equal(invalid.match.events().some(event => event.timingPoint === "damage-dealt"), false);
+
+  const duplicate = publicMatch();
+  playThroughPublicCommand(duplicate);
+  duplicate.send("A", { type: "pass", commandId: "duplicate-pass" });
+  const beforePriority = duplicate.match.flow.chain.priority;
+  const beforeItems = structuredClone(duplicate.match.flow.chain.items);
+  assert.throws(
+    () => duplicate.send("A", { type: "pass", commandId: "duplicate-pass" }),
+    /Player cannot pass now/
+  );
+  assert.equal(duplicate.match.flow.chain.priority, beforePriority);
+  assert.deepEqual(duplicate.match.flow.chain.items, beforeItems);
+
+  const stale = publicMatch();
+  playThroughPublicCommand(stale);
+  const before = stale.kernel.snapshot();
+  assert.throws(
+    () => executeGameCommand(
+      { match: stale.match, binding: stale.binding, stateVersion: 1 },
+      "A",
+      { type: "pass", commandId: "stale-pass", stateVersion: 0 }
+    ),
+    error => error.code === "stale-version"
+  );
+  assert.deepEqual(stale.kernel.snapshot(), before);
+  assert.equal(stale.match.flow.chain.priority, "A");
+  assert.equal(stale.match.flow.chain.items[0].status, "finalized");
+});
+
+test("Singularity public Match: a unit changed after Priority passes is mistargeted while the remaining locked target still takes 6 (359.3.e.8)", () => {
+  const harness = publicMatch();
+  playThroughPublicCommand(harness);
+  const [item] = harness.match.flow.chain.items;
+  const locked = structuredClone(item.targetPlans[0].selected);
+  assert.deepEqual(locked, [harness.kernel.ref("ally-unit"), harness.kernel.ref("enemy-unit")]);
+
+  harness.send("A", { type: "pass", commandId: "loss-pass-a" });
+  assert.equal(harness.match.flow.chain.priority, "B");
+  const movedFrom = harness.kernel.ref("enemy-unit");
+  harness.kernel.perform({ type: "move-zone", object: movedFrom, to: "hand" });
+  assert.notEqual(harness.kernel.ref("enemy-unit").zoneEntryId, movedFrom.zoneEntryId);
+  harness.send("B", { type: "pass", commandId: "loss-pass-b" });
+
+  assert.deepEqual(item.targetPlans[0].selected, locked);
+  assert.equal(harness.kernel.getObject("ally-unit").damage, 6);
+  assert.equal(harness.kernel.getObject("enemy-unit").damage, 0);
+  assert.deepEqual(
+    harness.match.events().filter(event => event.timingPoint === "damage-dealt")
+      .map(event => [event.target.ref.id, event.amount]),
+    [["ally-unit", 6]]
+  );
+  assert.equal(harness.kernel.getObject(harness.source.ref.id).zone, "trash");
+  assert.deepEqual(harness.match.flow.chain.items, []);
+});
+
+test("Singularity public Match: a real B-owned Retreat removes one locked target in reaction and only the remaining target takes 6", () => {
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .unit("ally-unit", { owner: "A", controller: "A", might: 10 })
+    .unit("enemy-unit", { owner: "B", controller: "B", might: 10 })
+    .unit("unselected-unit", { owner: "B", controller: "B", might: 10 })
+    .build();
+  kernel.addObject({
+    ref: { id: "retreat", zoneEntryId: 1 },
+    owner: "B",
+    controller: "B",
+    cardId: RETREAT_CARD_ID,
+    name: "Retreat",
+    types: ["spell"],
+    tags: [],
+    keywords: [],
+    domains: ["Mind"],
+    energy: 1,
+    power: null,
+    might: null,
+    zone: "hand",
+    location: null,
+    combatRole: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: true,
+    counters: {},
+    empowered: 0
+  }, "hand");
+  const retreatSource = kernel.getObject("retreat");
+  const chooseRetreatTarget = request => {
+    if (request.id === "target:damaged-units") return [kernel.ref("ally-unit"), kernel.ref("enemy-unit")];
+    if (request.id === "target:friendly-unit") return [kernel.ref("enemy-unit")];
+    throw new Error(`Unexpected Retreat choice ${request.id}`);
+  };
+  const retreatHost = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => {
+      kernel.restore(checkpoint.state);
+      kernel.copyLinkedFrom(checkpoint.links);
+    },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: chooseRetreatTarget,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, {
+      source,
+      controller,
+      timingPoint,
+      choose: chooseRetreatTarget
+    }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  const match = createMatch({
+    host: { ...retreatHost, player: player => kernel.player(player) },
+    decks: [realM1Deck(), realM1Deck()],
+    seed: 3,
+    battlefieldChoice: [0, 1],
+    mulligans: [[], []],
+    firstPlayer: 0
+  });
+  const retreatBinding = createProgramBinding({ cardPrograms: [program, retreat] });
+  retreatBinding.attachLifecycle(match.flow.chain);
+  const singularity = kernel.objectsInZone("A", "hand")
+    .map(ref => kernel.getObject(ref.id))
+    .find(object => object.cardId === CANONICAL_CARD_ID);
+  assert.ok(singularity);
+  let version = 0;
+  const send = (actor, command) => {
+    const result = executeGameCommand(
+      { match, binding: retreatBinding, stateVersion: version },
+      actor,
+      { ...command, stateVersion: version }
+    );
+    version += 1;
+    return result;
+  };
+  kernel.perform({ type: "gain-energy", player: "A", amount: 8 });
+  kernel.perform({ type: "gain-power", player: "A", power: ["Mind", "Mind"] });
+  kernel.perform({ type: "gain-energy", player: "B", amount: 1 });
+  send("A", { type: "play", commandId: "response-singularity", cardObjectId: singularity.ref.id });
+  send("A", { type: "pass", commandId: "response-play-pass-a" });
+  send("B", {
+    type: "play",
+    commandId: "retreat-response",
+    cardObjectId: retreatSource.ref.id
+  });
+  assert.deepEqual(match.flow.chain.items.map(item => [item.controller, item.status]),
+    [["A", "finalized"], ["B", "finalized"]]);
+  assert.equal(kernel.getObject(retreatSource.ref.id).zone, "chain");
+  send("B", { type: "pass", commandId: "response-pass-b" });
+  assert.deepEqual(match.flow.chain.items.map(item => [item.controller, item.status]),
+    [["A", "finalized"], ["B", "finalized"]]);
+  assert.equal(kernel.getObject("enemy-unit").zone, "board");
+  assert.equal(kernel.getObject("enemy-unit").damage, 0);
+
+  // A's next Pass is the current runtime's damaged Reaction continuation. It
+  // resolves Retreat from the newest item and leaves Singularity finalized.
+  send("A", { type: "pass", commandId: "response-pass-a2" });
+  assert.equal(kernel.getObject(retreatSource.ref.id).zone, "trash");
+  assert.equal(kernel.getObject("enemy-unit").zone, "hand");
+  assert.equal(kernel.getObject("enemy-unit").damage, 0);
+  assert.deepEqual(match.events().filter(event => event.timingPoint === "damage-dealt"), []);
+  assert.deepEqual(match.flow.chain.items.map(item => [item.controller, item.status]),
+    [["A", "finalized"]]);
+  send("A", { type: "pass", commandId: "response-pass-a3" });
+  assert.deepEqual(match.flow.chain.items.map(item => [item.controller, item.status]),
+    [["A", "finalized"]]);
+  assert.equal(match.flow.chain.priority, "B");
+  send("B", { type: "pass", commandId: "response-pass-b2" });
+  assert.deepEqual(match.events().filter(event => event.timingPoint === "damage-dealt")
+    .map(event => [event.target.ref.id, event.amount]), [["ally-unit", 6]]);
+  assert.equal(kernel.getObject("ally-unit").damage, 6);
+  assert.equal(kernel.getObject("enemy-unit").damage, 0);
+  assert.equal(kernel.getObject(singularity.ref.id).zone, "trash");
+  assert.deepEqual(match.flow.chain.items, []);
+});
 
 test("Singularity golden execution: two locked units each take 6 (CR 418.1.c)", () => {
   const kernel = world().unit("first-unit").unit("second-unit").build();
