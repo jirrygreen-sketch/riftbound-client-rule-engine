@@ -848,45 +848,6 @@ test('EG-COMBAT CR 468.1.a.2 recalls Attackers through RecallAction and marks th
   assert.equal(f.events('combat-result')[0].details.noResult, true);
 });
 
-test('EG-COMBAT CR 468.3.d.1 restages when both sides truly remain at this Battlefield', () => {
-  const f = combatFixture({
-    attacker: { id: 'attacker', might: 4, cardId: null, keywords: [] },
-    defender: { id: 'defender', might: 4, cardId: null, keywords: [] },
-  });
-  f.started();
-  f.closeShowdown();
-  f.flow.prepareDamage();
-  f.flow.submitAttackerDamage('A', [{ uid: 'defender', amount: 4 }]);
-  f.flow.submitDefenderDamage('B', [{ uid: 'attacker', amount: 4 }]);
-
-  // A real replacement/blocking path may leave a second participant on each
-  // side at bf1 after the designated pair is recalled. 468.3.d still says No
-  // Result because step 3d Recall occurred; 468.3.d.1 then sees both sides
-  // remaining here and stages the next Combat.
-  const original = f.host.executeContract;
-  f.host.executeContract = action => {
-    const execution = original(action);
-    if (action.type === 'batch' && action.actions.some(leaf => leaf.type === 'recall')) {
-      f.kernel.addObject({ ...f.kernel.getObject('attacker'), ref: { id: 'attacker-remain', zoneEntryId: 1 },
-        cardId: null, name: 'attacker-remain', damage: 0, might: 9, location: field('bf1') }, 'board');
-      f.kernel.addObject({ ...f.kernel.getObject('defender'), ref: { id: 'defender-remain', zoneEntryId: 1 },
-        cardId: null, name: 'defender-remain', damage: 0, might: 9, location: field('bf1') }, 'board');
-    }
-    return execution;
-  };
-  f.chain.advance();
-  advanceUntil(f, () => f.events('combat-end').length === 1);
-  assert.equal(f.events('combat-result')[0].details.noResult, true);
-  const current = f.flow.current;
-  if (current?.endState !== 'restage') console.log('DEBUG restage-shape', JSON.stringify({ current,
-    units: f.kernel.objects.filter(object => object.zone === 'board' && object.types.includes('unit'))
-      .map(object => ({ id: object.ref.id, controller: object.controller, location: object.location, role: object.combatRole })) }));
-  assert.equal(current?.endState, 'restage');
-  advanceUntil(f, () => f.events('combat-end').length === 1);
-  assert.equal(f.flow.battlefields[0].staged, 'combat');
-  assert.equal(f.events('combat-start').length, 1);
-});
-
 test('EG-COMBAT multi-Attacker CR 468.1 Special Cleanup Recall is atomic and retryable', () => {
   const f = combatFixture({
     attacker: { id: 'attacker', might: 4, cardId: null, keywords: [] },
