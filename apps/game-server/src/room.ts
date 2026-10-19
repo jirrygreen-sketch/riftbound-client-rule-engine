@@ -61,6 +61,8 @@ import { DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT, DUEL_RUNTIME_PROFILE_P4_OPTIONAL
 import { createEngineRuntime, type EngineRuntime, type EngineRuntimeDeck } from "./engine-runtime/index.js";
 import type { RuntimeJournal } from "./engine-runtime/journal.js";
 import type { Domain } from "../../../packages/engine-core/dist/effects/contract.js";
+import type { CardProgram } from "../../../packages/card-dsl/dist/ir/index.js";
+import { cardProgramsById } from "../../../packages/card-dsl/dist/cards/registry.generated.js";
 
 export type DuelRoomProfile = "v1" | "p4";
 export type DuelRuntimeMode = "legacy-p4" | "engine-v2";
@@ -215,6 +217,17 @@ export class GameRoom {
     const catalog = this.constructedRegion ? catalogForConstructedRegion(this.catalog, this.constructedRegion) : this.catalog;
     const runtimeSeats = seats.map((seat, index) => ({ playerId: index === 0 ? "A" : "B", name: seat.name }));
     const decks = seats.map(seat => this.engineDeck(seat, catalog)) as [EngineRuntimeDeck, EngineRuntimeDeck];
+    const deckPrograms = [...new Set(decks.flatMap(deck => [
+      ...deck.mainDeck, deck.championLegend, deck.chosenChampion,
+    ].map(card => card.cardId).filter((id): id is string => typeof id === "string")))]
+      .flatMap(cardId => {
+        const program = cardProgramsById.get(cardId);
+        // The generated registry's inferred literal union is wider than the
+        // public IR declaration. EngineRuntime's ProgramRegistry validates each
+        // entry with validateCardProgram before execution and still rejects
+        // judge-required/no-ability programs; this cast grants no capability.
+        return program === undefined ? [] : [program as unknown as CardProgram];
+      });
     return {
       matchId: `duel:${this.roomId}`,
       roomId: this.roomId,
@@ -222,6 +235,7 @@ export class GameRoom {
       decks,
       seed: this.roomId,
       catalogDigest: catalog.publicCatalog.digest,
+      ...(deckPrograms.length > 0 ? { programs: deckPrograms } : {}),
     } as const;
   }
 

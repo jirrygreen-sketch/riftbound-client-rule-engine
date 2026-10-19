@@ -1,9 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import { isJournal, isServerMessage } from '@riftbound/protocol';
 import { GameRoom } from '../../src/room.js';
 import { CurrentDuelRuntime } from '../../src/duel/runtime/current.js';
 import { bindConstructedRegion } from '../../src/constructed-regional-context.js';
 import { packet, project, readyRoom } from './current-runtime.fixture.js';
+import { FileRoomStore } from '../../src/file-room-store.js';
+
+const storageDirectories: string[] = [];
+afterEach(async () => {
+  for (const directory of storageDirectories.splice(0)) await rm(directory, { recursive: true, force: true });
+});
 
 describe('one authoritative room runtime', () => {
   it.each([undefined, 'v1', 'p4'] as const)('ignores the deprecated %s selector and keeps the CLI mechanism baseline', async profile => {
@@ -54,6 +62,43 @@ describe('one authoritative room runtime', () => {
     restored.reconnect(h.sessions[actor]!.resumeToken, m => recovered.push(m), 'resumed');
     await restored.submitDuel(h.sessions[actor]!, 'resumed', { ...command, requestId: 'after-restore' }, m => recovered.push(m));
     expect(recovered.find(m => m.type === 'request-result')).toMatchObject({ duplicate: true, appliedVersion: 1 });
+  });
+
+  it('keeps a used command id actor-scoped across FileRoomStore restart', async () => {
+    const h = await readyRoom(), initial = project(h.room);
+    if (initial.match.stage !== 'setup') throw Error('Setup required');
+    const actor = h.sessions.findIndex(s => s.playerId === initial.match.setup.currentMulliganOwner);
+    const other = 1 - actor;
+    const directory = await mkdtemp(path.join('/tmp', process.env.SWARM_TASK ?? 'RIFT-350-server-cutover-engine-runtime', 'conflict-'));
+    storageDirectories.push(directory);
+    const store = new FileRoomStore(directory, async () => h.catalog);
+    await store.create(h.room);
+    await store.save(h.room);
+    const original = packet('shared-id', 0, { type: 'mulligan', selectedUIDs: [] });
+    await h.room.submitDuel(h.sessions[actor]!, h.connections[actor]!.connectionId, original, h.send[actor]!);
+    expect(h.messages[actor]!.some(m => m.type === 'request-result' && m.requestId === original.requestId)).toBe(true);
+    expect(h.room.exportArchive().journal?.entries).toHaveLength(1);
+    await store.save(h.room);
+    await store.close();
+
+    const reload = new FileRoomStore(directory, async () => h.catalog);
+    const [restored] = await reload.list();
+    expect(restored!.exportArchive()).toEqual(h.room.exportArchive());
+    const packets: typeof h.messages[number] = [];
+    restored!.reconnect(h.sessions[actor]!.resumeToken, m => packets.push(m), 'restored-first');
+    await restored!.submitDuel(h.sessions[actor]!, 'restored-first',
+      { ...original, requestId: 'changed-payload', expectedVersion: 1 }, m => packets.push(m));
+    expect(packets.find(m => m.type === 'error' && m.requestId === 'changed-payload'))
+      .toMatchObject({ type: 'error', code: 'command-rejected' });
+    expect(restored!.exportArchive().journal?.entries).toHaveLength(1);
+
+    packets.length = 0;
+    restored!.reconnect(h.sessions[other]!.resumeToken, m => packets.push(m), 'restored-second');
+    await restored!.submitDuel(h.sessions[other]!, 'restored-second',
+      packet('shared-id', 0, { type: 'mulligan', selectedUIDs: [] }), m => packets.push(m));
+    expect(packets.some(m => m.type === 'error' && m.requestId === 'shared-id')).toBe(true);
+    expect(packets.some(m => m.type === 'error' && m.message === '命令标识与此前请求冲突')).toBe(false);
+    await reload.close();
   });
 
   it('validates journal integrity and trusted seats, rejects historical archives without upgrading them', async () => {

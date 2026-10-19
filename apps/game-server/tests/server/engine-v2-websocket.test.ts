@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { WebSocket } from "ws";
 import { DUEL_RULESET_ID, type ClientSession, type RoomDeckSubmission } from "@riftbound/protocol";
@@ -12,6 +13,7 @@ import {
 import { createGameServer, type GameServer } from "../../src/server.js";
 import { buildM1Deck, type M1PreconId } from "../../../../packages/integration-tests/src/headless/decks.js";
 import { loadCardCatalogRuntime } from "../../src/card-catalog.js";
+import { cardProgramsById } from "../../../../packages/card-dsl/dist/cards/registry.generated.js";
 
 const servers: GameServer[] = [];
 const sockets: WebSocket[] = [];
@@ -119,6 +121,74 @@ function assertPrivateProjection(value: V2Projection, viewerPlayerId: string, op
 }
 
 describe("protocol v2 engine runtime over WebSocket", () => {
+  it("proves the CLI and server omit an explicit runtime and expose the v2 default command boundary", async () => {
+    const cli = await readFile(fileURLToPath(new URL("../../src/index.ts", import.meta.url)), "utf8");
+    expect(cli).toContain("requestedRuntimeMode === undefined ? {} : { duelRuntimeMode: requestedRuntimeMode as DuelRuntimeMode }");
+    expect(cli).toContain("const requestedRuntimeMode = process.env.RIFTBOUND_DUEL_RUNTIME_MODE;");
+    const port = Number(process.env.SWARM_PORT_BASE ?? 34680);
+    const running = await start(port);
+    const client = await connect(running.url);
+    client.send({ type: "create-room", requestId: "default-create", playerName: "Alice", rulesetId: DUEL_RULESET_ID });
+    const welcome = await client.wait(value => value !== null && typeof value === "object" &&
+      (value as { type?: unknown }).type === "welcome" && "session" in value);
+    const session = (welcome as { session: ClientSession }).session;
+    const room = running.server.rooms.get(session.roomId)!;
+    expect(room.runtimeMode).toBe("engine-v2");
+    await client.wait(value => value !== null && typeof value === "object" &&
+      (value as { type?: unknown; requestId?: unknown }).type === "request-result" &&
+      (value as { requestId?: unknown }).requestId === "default-create");
+    const [deckA] = await m1Submissions();
+    let roomVersion = room.currentRoomVersion;
+    client.send({ type: "submit-deck", requestId: "default-deck", expectedRoomVersion: roomVersion, deck: deckA });
+    roomVersion = (await client.wait(value => value !== null && typeof value === "object" &&
+      (value as { type?: unknown; requestId?: unknown }).type === "request-result" &&
+      (value as { requestId?: unknown }).requestId === "default-deck")).roomVersion;
+    client.send({ type: "set-ready", requestId: "default-ready", expectedRoomVersion: roomVersion, ready: true });
+    await client.wait(value => value !== null && typeof value === "object" &&
+      (value as { type?: unknown; requestId?: unknown }).type === "request-result" &&
+      (value as { requestId?: unknown }).requestId === "default-ready");
+    expect(room.status).toBe("waiting");
+
+    const second = await connect(running.url);
+    second.send({ type: "join-room", requestId: "default-join", roomId: session.roomId, playerName: "Bob" });
+    const secondWelcome = await second.wait(value => value !== null && typeof value === "object" &&
+      (value as { type?: unknown }).type === "welcome" && "session" in value);
+    await second.wait(value => value !== null && typeof value === "object" &&
+      (value as { type?: unknown; requestId?: unknown }).type === "request-result" &&
+      (value as { requestId?: unknown }).requestId === "default-join");
+    const secondSession = (secondWelcome as { session: ClientSession }).session;
+    const [, deckB] = await m1Submissions();
+    roomVersion = room.currentRoomVersion;
+    second.send({ type: "submit-deck", requestId: "default-deck-b", expectedRoomVersion: roomVersion, deck: deckB });
+    roomVersion = (await second.wait(value => value !== null && typeof value === "object" &&
+      (value as { type?: unknown; requestId?: unknown }).type === "request-result" &&
+      (value as { requestId?: unknown }).requestId === "default-deck-b")).roomVersion;
+    second.send({ type: "set-ready", requestId: "default-ready-b", expectedRoomVersion: roomVersion, ready: true });
+    await second.wait(value => value !== null && typeof value === "object" &&
+      (value as { type?: unknown; requestId?: unknown }).type === "request-result" &&
+      (value as { requestId?: unknown }).requestId === "default-ready-b");
+    const [defaultViewA, defaultViewB] = await Promise.all([projection(client), projection(second)]);
+    expect(defaultViewA.viewerPlayerId).toBe(session.playerId);
+    expect(defaultViewB.viewerPlayerId).toBe(secondSession.playerId);
+    expect(defaultViewA.phase).toBe("main");
+    expect(defaultViewB.phase).toBe("main");
+    const handObject = defaultViewA.zones.find(zone => zone.zone === "hand" &&
+      zone.ownerPlayerId === session.playerId)?.objects?.find(object =>
+      object.cardId !== undefined && cardProgramsById.get(object.cardId)?.status === "executable");
+    expect(handObject?.cardId).toBeTruthy();
+    const beforePlay = defaultViewA.stateVersion;
+    client.send({ type: "command", protocolVersion: PROTOCOL_V2_VERSION,
+      command: { type: "play", commandId: "default-play-without-resource-command",
+        stateVersion: beforePlay, cardObjectId: handObject!.objectId } });
+    const rejectedPlay = await client.wait(value => value !== null && typeof value === "object" &&
+      (value as { type?: unknown }).type === "command-receipt" &&
+      (value as { commandId?: unknown }).commandId === "default-play-without-resource-command");
+    expect(rejectedPlay).toMatchObject({ accepted: false, duplicate: false,
+      rejection: "Duel resources: insufficient Energy" });
+    const afterPlay = await projection(client);
+    expect(afterPlay.stateVersion).toBe(beforePlay);
+  }, 120_000);
+
   it("creates, resumes and restores a private two-client match", async () => {
     const port = Number(process.env.SWARM_PORT_BASE ?? 34680);
     const taskDirectory = path.join("/tmp", process.env.SWARM_TASK ?? "RIFT-350-server-cutover-engine-runtime");

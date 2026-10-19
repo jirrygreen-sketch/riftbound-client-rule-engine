@@ -19,6 +19,7 @@ async function currentDriver(seed = 77) {
     randomState = (Math.imul(1664525, randomState) + 1013904223) >>> 0;
     return Math.floor(randomState / 0x1_0000_0000 * bound);
   }, undefined, undefined, undefined, 'legacy-p4');
+  expect(room.runtimeMode).toBe('legacy-p4');
   const driver = Reflect.construct(DefaultPathDriver, [room, seed, catalog]) as DefaultPathDriver;
   const sessions = Reflect.get(driver, 'sessions') as Map<string, ClientSession>;
   const transport = (player: typeof PLAYERS[number]): ServerTransport =>
@@ -41,7 +42,7 @@ async function currentDriver(seed = 77) {
   return driver;
 }
 
-describe('default path observable snapshots through the single current owner', () => {
+describe('explicit legacy-p4 compatibility snapshots', () => {
   for (const scenario of scenarios) it(scenario.id, async () => {
     const driver = await currentDriver(scenario.seed);
     scenario.run(driver);

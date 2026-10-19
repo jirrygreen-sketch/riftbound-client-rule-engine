@@ -99,7 +99,7 @@ describe("actual public duel room", () => {
     expect(h.room.roomView().version).toBe(2);
   });
 
-  it("persists sticky semantic failures separately by actor and replays a successful duplicate without another RNG", async () => {
+  it("keeps a successful command id immutable per actor and replays a duplicate without another RNG", async () => {
     const h = boot(await prepared());
     const first = projection(h, 0).match.turnOrder[0] === h.sessions[0].playerId ? 0 : 1;
     const second = first === 0 ? 1 : 0;
@@ -109,6 +109,8 @@ describe("actual public duel room", () => {
     expect(submit(h, first, invalid)?.type).toBe("error");
     expect(h.room.exportArchive().journal?.entries).toHaveLength(0);
     expect(submit(h, first, command("valid", 0))?.type).toBe("request-result");
+    expect(submit(h, first, command("valid", 0, ["other-hand-card"]))?.type).toBe("error");
+    expect(h.room.exportArchive().journal?.entries).toHaveLength(1);
     expect(submit(h, second, command("shared-id", 0))?.type).toBe("error");
     expect(h.room.exportArchive().journal?.entries).toHaveLength(1);
     expect(submit(h, first, command("valid", 0))?.type).toBe("request-result");
