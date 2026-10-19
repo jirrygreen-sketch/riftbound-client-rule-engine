@@ -245,3 +245,16 @@ test('grant selectors support self, source, pick, and query exactly where the sc
   assert.equal(keywords.filter(keyword => keyword.id.toLowerCase() === 'shield').length, 1);
   assert.equal(registrations(f).filter(effect => effect.effect.kind === 'continuous.grant-keyword').length, 4);
 });
+
+test('a grant consumes a prior reveal result through the linked object selector', () => {
+  const body = [
+    { id: 'reveal', op: 'effect.reveal', args: { target: c('reveal-target') }, targets: [{ id: 'reveal-target', filter: { objectId: 'hidden-unit' }, min: 1, max: 1 }] },
+    { id: 'linked-grant', op: 'continuous.grant-keyword', linkedTo: 'reveal', args: { keyword: c('Shield'), objects: { kind: 'linked-value', instructionId: 'reveal', key: 'revealed' } } },
+  ];
+  const f = assembly(activated(body), {
+    setup: f => f.kernel.addObject({ ref: { id: 'hidden-unit', zoneEntryId: 1 }, cardId: 'card:hidden-unit', name: 'hidden-unit', types: ['unit'], owner: 'A', controller: 'A', zone: 'board', location: { type: 'base', player: 'A' }, might: 2, faceDown: true }),
+  });
+  resolveActivation(f);
+  assert.equal(f.kernel.linked('reveal.revealedCount'), 1);
+  assert.equal(f.kernel.linked('linked-grant.granted.count'), 1);
+});
