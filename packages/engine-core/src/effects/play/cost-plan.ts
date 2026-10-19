@@ -277,12 +277,16 @@ function descriptorBaseCost(descriptor: AnyRecord, programCost: CostSpec | undef
   return exactProgramCost(programCost) ?? normalizedProgramCost(programCost);
 }
 
-function descriptorPlan(ctx: ResolveContext, snapshot: ObjectSnapshot, player: PlayerId, descriptor: AnyRecord): CostPlan {
+function assertDescriptorFields(descriptor: AnyRecord): void {
   for (const key of Object.keys(descriptor)) {
     if (!DESCRIPTOR_FIELDS.has(key)) {
       throw new CostPlanError("judge-required", `Unsupported play cost descriptor field ${key}`);
     }
   }
+}
+
+function descriptorPlan(ctx: ResolveContext, snapshot: ObjectSnapshot, player: PlayerId, descriptor: AnyRecord): CostPlan {
+  assertDescriptorFields(descriptor);
   if (descriptor.kind !== undefined && descriptor.kind !== "cost.modify" && descriptor.kind !== "cost.printed" && descriptor.kind !== "printed") {
     throw new CostPlanError("judge-required", `Unsupported play cost descriptor ${String(descriptor.kind)}`);
   }
@@ -435,6 +439,7 @@ export function buildEffectPlayCostPlan(ctx: ResolveContext, request: BuildEffec
   const program: CardProgram | undefined = cardProgramFor(snapshot.cardId);
   const ability: PlayAbility | undefined = playAbilityFor(program);
   const programCost = playCostFor(program);
+  if (rawCost !== null && rawCost.finalized !== true) assertDescriptorFields(rawCost);
 
   if (snapshot.isToken && (programCost === undefined || rawCost === null)) {
     return flattenEffectPlayCostPlan(bound, zeroTokenPlan(bound, snapshot, request.player));
@@ -453,10 +458,13 @@ export function buildEffectPlayCostPlan(ctx: ResolveContext, request: BuildEffec
       throw new CostPlanError("missing-printed-cost", `Selected card ${snapshot.ref.id} has no printed Energy cost`);
     }
     if (snapshot.power !== null && normalized === undefined && !powerIgnored) {
-      throw new CostPlanError(
-        "judge-required",
-        `Selected card ${snapshot.ref.id} has no exact numeric Power cost; its Domain list is not a count`
-      );
+      if (program !== undefined) {
+        throw new CostPlanError(
+          "judge-required",
+          `Selected card ${snapshot.ref.id} has no exact numeric Power cost; its Domain list is not a count`
+        );
+      }
+      return undefined;
     }
     const plan = printedPlan(bound, snapshot, request.player, programCost);
     return flattenEffectPlayCostPlan(bound, ignore.length === 0
@@ -487,10 +495,13 @@ export function buildEffectPlayCostPlan(ctx: ResolveContext, request: BuildEffec
     modification.kind === "ignore-base" && modification.ignore !== "energy");
   if (programCost === undefined && snapshot.power !== null && !ignoresPower &&
       record(directive.cost) === null && descriptorKind !== "explicit") {
-    throw new CostPlanError(
-      "judge-required",
-      `Selected card ${snapshot.ref.id} has no exact numeric Power cost; its Domain list is not a count`
-    );
+    if (program !== undefined) {
+      throw new CostPlanError(
+        "judge-required",
+        `Selected card ${snapshot.ref.id} has no exact numeric Power cost; its Domain list is not a count`
+      );
+    }
+    return undefined;
   }
   if (snapshot.energy === null && descriptorBaseCost(directive, programCost) === undefined) {
     throw new CostPlanError("missing-printed-cost", `Selected card ${snapshot.ref.id} has no printed Energy cost`);

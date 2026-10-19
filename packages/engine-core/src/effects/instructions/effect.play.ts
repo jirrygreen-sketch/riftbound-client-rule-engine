@@ -261,6 +261,10 @@ function runPlay(ctx: ResolveContext, args: EffectPlayArgs): ReturnType<Instruct
       if (error instanceof CostPlanError) return negated("impossible", events);
       throw error;
     }
+    if (finalized === undefined &&
+        (args.cost !== undefined || args.ignoreCost !== undefined || args.ignoreCosts !== undefined)) {
+      return negated("impossible", events);
+    }
     const outcome = ctx.perform({
       type: "play",
       object,

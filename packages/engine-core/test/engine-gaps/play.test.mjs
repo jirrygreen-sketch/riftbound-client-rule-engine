@@ -15,6 +15,7 @@ import { ChainEngine } from "../../dist/chain/engine.js";
 import { createProgramBinding } from "../../dist/programs/index.js";
 import { instructionDefinitionsById } from "../../dist/effects/instructions/registry.generated.js";
 import { CostPlanError } from "../../dist/cost/plan-types.js";
+import { ProgramBindingError } from "../../dist/programs/errors.js";
 import { playPermissions } from "../../dist/programs/play-permissions.js";
 import { ContinuousEffectRegistry } from "../../dist/layers/duration.js";
 import { resolveChainBody } from "../../dist/chain/interpreter-adapter.js";
@@ -109,6 +110,7 @@ test("the shipped Harrowing IR turns a selected trash Unit into a finalized igno
 
   const f = runtime([theHarrowing, supernova], builder => {
     builder.card("unit", { cardId: supernova.canonicalCardId, types: ["unit"], zone: "trash", energy: 9, power: ["Order"], owner: "A" });
+    builder.unit("victim", { owner: "B", controller: "B", types: ["unit"], might: 20 });
     builder.hand("spell", { cardId: HARROWING_ID, types: ["spell"], energy: 6, power: ["Chaos"] });
   });
   f.kernel.addReplacement(() => null);
@@ -116,10 +118,12 @@ test("the shipped Harrowing IR turns a selected trash Unit into a finalized igno
   settle(f.engine);
 
   assert.equal(f.kernel.getObject("unit").zone, "board");
-  assert.equal(f.kernel.player("A").energy, 30, "Energy is ignored for the selected card");
+  assert.equal(f.kernel.player("A").energy, 24, "only the outer spell's Energy was paid; the selected card ignored its 9 Energy");
   assert.deepEqual(f.kernel.player("A").power, ["Order"], "printed Order Power was actually paid");
-  assert.equal(f.kernel.history({ action: "play" }), 2, "outer spell plus nested Play chain item");
-  const costPlan = f.kernel.linked("the-harrowing.play-unit/playedCostPlans");
+  const pending = f.engine.trace.filter(entry => entry.step === "pending").map(entry => entry.item);
+  assert.equal(pending.length, 2, "outer spell plus a separate nested Play chain item");
+  assert.notEqual(pending[0], pending[1]);
+  const costPlan = f.kernel.linked("the-harrowing.play-unit.playedCostPlans");
   assert.equal(Array.isArray(costPlan), true);
   assert.equal(costPlan[0].energy, 0);
   assert.deepEqual(costPlan[0].power, ["Order"]);
@@ -129,6 +133,7 @@ test("the shipped Harrowing IR turns a selected trash Unit into a finalized igno
 test("the Harrowing's selected-object Power requirement rejects a player who only has another Domain", () => {
   const f = runtime([theHarrowing, supernova], builder => {
     builder.card("unit", { cardId: supernova.canonicalCardId, types: ["unit"], zone: "trash", energy: 9, power: ["Order"], owner: "A" });
+    builder.unit("victim", { owner: "B", controller: "B", types: ["unit"], might: 20 });
     builder.hand("spell", { cardId: HARROWING_ID, types: ["spell"], energy: 6, power: ["Chaos"] });
   }, { power: ["Chaos", "Chaos"] });
   // The outer spell pays two Chaos Power; the nested Unit then has none and
@@ -138,6 +143,73 @@ test("the Harrowing's selected-object Power requirement rejects a player who onl
   assert.equal(f.kernel.getObject("unit").zone, "trash");
   assert.equal(f.kernel.player("A").energy, 24);
   assert.deepEqual(f.kernel.player("A").power, []);
+});
+
+test("Power-only ignore keeps the selected card's printed Energy and pays its actual Power", () => {
+  const instruction = {
+    ...effectPlay(theHarrowing),
+    id: "test.play-power-ignored",
+    args: {
+      target: { kind: "constant", value: "unit-in-trash" },
+      cost: { kind: "constant", value: { kind: "cost.modify", ignore: "power" } },
+    },
+    targets: [{ id: "unit-in-trash", filter: { zone: "trash", type: "unit", owner: "controller" }, min: 1, max: 1, selection: "one" }],
+  };
+  const f = runtime([supernova], builder => {
+    builder.card("unit", { cardId: supernova.canonicalCardId, types: ["unit"], zone: "trash", energy: 9, power: ["Order"], owner: "A" });
+    builder.unit("victim", { owner: "B", controller: "B", types: ["unit"], might: 20 });
+  });
+  const context = bindResolveContext(f.kernel, {
+    source: f.kernel.getObject("unit"), controller: "A", timingPoint: "chain-item-resolve",
+    targets: id => id === "unit-in-trash" ? [f.kernel.ref("unit")] : [],
+    perform: action => f.kernel.perform(action),
+  });
+  const result = resolveChainBody([instruction], context).results[0].result;
+  assert.equal(result.status, "executed");
+  assert.equal(f.kernel.player("A").energy, 21, "the selected card's 9 Energy remains payable");
+  assert.deepEqual(f.kernel.player("A").power, ["Chaos", "Chaos", "Order", "Order"], "Power is ignored");
+  const plan = f.kernel.linked("test.play-power-ignored.playedCostPlans")[0];
+  assert.equal(plan.energy, 9);
+  assert.deepEqual(plan.power, []);
+  assert.deepEqual(plan.parameters.costPlan.modifications, [{ kind: "ignore-base", ignore: "power" }]);
+});
+
+test("Here to Help's shipped -3 Energy descriptor derives the selected unit's plan through the production Chain", () => {
+  const optional = hereToHelp.abilities.find(ability => ability.kind === "play").body[0];
+  const battlefieldChoice = optional.args.body.value[0];
+  const play = optional.args.body.value[1];
+  assert.equal(play.args.cost.value.amount, -3);
+  const program = {
+    ...hereToHelp,
+    canonicalCardId: "test:eg-play-here-to-help",
+    abilities: [{
+      kind: "play",
+      cost: hereToHelp.abilities.find(ability => ability.kind === "play").cost,
+      body: [battlefieldChoice, {
+        ...play,
+        args: { ...play.args, pick: { kind: "constant", value: "unit" } },
+        picks: [{ id: "unit", options: ["dynamic:unit-card-in-controller-hand"], filter: { zone: "hand", type: "unit", owner: "self" }, min: 1, max: 1, selection: "one" }],
+      }],
+    }],
+  };
+  const f = runtime([program, supernova], builder => {
+    builder.unit("field-1", { owner: "A", controller: "A", types: ["battlefield"], location: { type: "battlefield", id: "field-1" } });
+    builder.hand("unit", { cardId: supernova.canonicalCardId, types: ["unit"], energy: 9, power: ["Order"], owner: "A" });
+    builder.unit("victim", { owner: "B", controller: "B", types: ["unit"], might: 20 });
+    builder.hand("spell", { cardId: program.canonicalCardId, types: ["spell"], energy: 2, power: ["Chaos"] });
+  });
+  f.answers.set("here-to-help.choose-battlefield/here-to-help.battlefield", { type: "battlefield", id: "field-1" });
+  f.kernel.setPicks("here-to-help.unit", [f.kernel.ref("unit")]);
+  playFromHand(f, "spell");
+  settle(f.engine);
+  assert.equal(f.kernel.getObject("unit").zone, "board");
+  assert.equal(f.kernel.player("A").energy, 22, "outer 2 plus selected card's 9-3 discounted Energy");
+  assert.deepEqual(f.kernel.player("A").power, ["Chaos", "Order"]);
+  const plan = f.kernel.linked("here-to-help.play-unit.playedCostPlans");
+  assert.equal(plan[0].energy, 6);
+  assert.deepEqual(plan[0].power, ["Order"]);
+  assert.equal(plan[0].parameters.discounts[0].before, 9);
+  assert.equal(plan[0].parameters.discounts[0].after, 6);
 });
 
 test("an exact catalog cost preserves later mandatory additions and increases in the nested Play", () => {
@@ -160,14 +232,15 @@ test("an exact catalog cost preserves later mandatory additions and increases in
   };
   const f = runtime([program, supernova], builder => {
     builder.card("unit", { cardId: supernova.canonicalCardId, types: ["unit"], zone: "trash", energy: 9, power: ["Order"], owner: "A" });
+    builder.unit("victim", { owner: "B", controller: "B", types: ["unit"], might: 20 });
     builder.hand("spell", { cardId: program.canonicalCardId, types: ["spell"], energy: 2, power: ["Chaos"] });
   });
   playFromHand(f, "spell");
   settle(f.engine);
   assert.equal(f.kernel.getObject("unit").zone, "board");
   assert.equal(f.kernel.player("A").energy, 25, "outer 2 + retained 1 + retained 2");
-  assert.deepEqual(f.kernel.player("A").power, ["Chaos", "Order", "Order"]);
-  const plan = f.kernel.linked("eg-play-additions.play-unit/playedCostPlans")[0];
+  assert.deepEqual(f.kernel.player("A").power, ["Chaos", "Order"]);
+  const plan = f.kernel.linked("eg-play-additions.play-unit.playedCostPlans")[0];
   assert.equal(plan.energy, 3);
   assert.deepEqual(plan.power, ["Order"]);
   assert.deepEqual(plan.parameters.selectedAdditional, []);
@@ -188,12 +261,28 @@ test("an unknown or malformed cost descriptor remains judge-required through the
       }],
     }],
   };
-  const f = runtime([program], builder => {
-    builder.hand("card", { cardId: "card:target", types: ["unit"], energy: 1, power: ["Chaos"] });
+  const selectedProgram = {
+    ...playfulPhantom,
+    canonicalCardId: "test:eg-play-unknown-selected",
+    status: "executable",
+    judgeReason: undefined,
+  };
+  const f = runtime([program, selectedProgram], builder => {
+    builder.hand("card", { cardId: selectedProgram.canonicalCardId, types: ["unit"], energy: 1, power: ["Chaos"] });
     builder.hand("spell", { cardId: program.canonicalCardId, types: ["spell"], energy: 1, power: ["Chaos"] });
   });
+  const direct = bindResolveContext(f.kernel, {
+    source: f.kernel.getObject("spell"), controller: "A", timingPoint: "chain-item-resolve",
+    targets: id => id === "card" ? [f.kernel.ref("card")] : [],
+    perform: action => f.kernel.perform(action),
+  });
+  assert.throws(() => instructionDefinitionsById.get("effect.play").execute(direct, {
+    target: "card", cost: { kind: "constant", value: { kind: "cost.modify", mystery: true } },
+  }), error => error instanceof CostPlanError && error.reason === "judge-required");
   playFromHand(f, "spell");
-  assert.throws(() => settle(f.engine), error => error instanceof CostPlanError && error.reason === "judge-required");
+  assert.throws(() => settle(f.engine), error =>
+    (error instanceof ProgramBindingError && error.code === "judge-required") ||
+    (error instanceof CostPlanError && error.reason === "judge-required"));
   assert.equal(f.kernel.getObject("card").zone, "hand");
 });
 
