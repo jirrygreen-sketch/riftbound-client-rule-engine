@@ -9,6 +9,7 @@ import { createProgramBinding } from '../../dist/programs/index.js';
 import ekkoRecurrent from '../../../card-dsl/dist/cards/ogn/ekko-recurrent.js';
 import ironBallista from '../../../card-dsl/dist/cards/ogn/iron-ballista.js';
 import treasureTrove from '../../../card-dsl/dist/cards/ogn/treasure-trove.js';
+import undertitan from '../../../card-dsl/dist/cards/sfd/undertitan.js';
 import undercoverAgent from '../../../card-dsl/dist/cards/ogn/undercover-agent.js';
 import vanguardAttendant from '../../../card-dsl/dist/cards/ogs/vanguard-attendant.js';
 
@@ -207,6 +208,19 @@ test('Main Deck and Rune Deck Secret Zones bind active replacements and release 
   assert.equal(f.engine.pipeline.checkpoint().replacements.size, 1, 'the unaffected Main Deck registration remains');
   f.lifecycle.detach();
   assert.equal(f.engine.pipeline.checkpoint().replacements.size, 0);
+});
+
+test('a Main Deck replacement built from original IR replaces a real reveal action', () => {
+  const sourceProgram = admitted(undertitan);
+  const f = runtime(world().player('A').player('B')
+    .deck('hidden', { cardId: sourceProgram.canonicalCardId, types: ['unit'] }), [sourceProgram]);
+  const reveal = f.kernel.getObject('hidden');
+  const registration = `replacement:hidden:${reveal.ref.zoneEntryId}`;
+  assert.equal(f.engine.pipeline.hasReplacementRegistration(registration), true);
+  assert.equal(f.engine.commit({ type: 'reveal', object: reveal.ref, players: ['A'] }).status, 'replaced');
+  assert.equal(f.kernel.player('A').energy, 2, 'the original replacement body adds Energy');
+  assert.equal(f.kernel.getObject('hidden').zone, 'deck');
+  f.lifecycle.detach();
 });
 
 test('detach restores every hook and original IR remains judge-required', () => {
