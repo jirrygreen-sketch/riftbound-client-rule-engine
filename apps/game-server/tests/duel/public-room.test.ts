@@ -10,9 +10,9 @@ import { GameRoom, RoomError } from "../../src/room.js";
 import { setupAdapterFixtureCatalog, setupAdapterFixtureDecks } from "./fixtures/setup-adapter-catalog.js";
 
 const imagesDirectory = fileURLToPath(new URL("./fixtures/", import.meta.url));
-async function prepared(roomId = "duel-room-test") {
+async function prepared(roomId = "duel-room-test", randomIndex: (bound: number) => number = () => 0) {
   const catalog = await loadCardCatalogRuntime({ catalog: setupAdapterFixtureCatalog, imagesDirectory });
-  const room = new GameRoom(roomId, DUEL_RULESET_ID, catalog, () => 0, undefined, undefined, undefined, 'legacy-p4');
+  const room = new GameRoom(roomId, DUEL_RULESET_ID, catalog, randomIndex, undefined, undefined, undefined, 'legacy-p4');
   const received: [ServerToClientMessage[], ServerToClientMessage[]] = [[], []];
   const connections = [room.join("Alice", m => received[0].push(m), "socket-a"),
     room.join("Bob", m => received[1].push(m), "socket-b")];
@@ -99,21 +99,28 @@ describe("actual public duel room", () => {
     expect(h.room.roomView().version).toBe(2);
   });
 
-  it("keeps a successful command id immutable per actor and replays a duplicate without another RNG", async () => {
-    const h = boot(await prepared());
+  it("keeps failed and successful command ids immutable per actor without advancing state or RNG", async () => {
+    let rngCalls = 0;
+    const h = boot(await prepared("duel-room-test", () => { rngCalls += 1; return 0; }));
     const first = projection(h, 0).match.turnOrder[0] === h.sessions[0].playerId ? 0 : 1;
     const second = first === 0 ? 1 : 0;
     const invalid = command("shared-id", 0, ["not-your-hand"]);
+    const genesis = h.room.exportArchive();
+    const rngBefore = h.room.runtimeClock;
+    const randomCallsBefore = rngCalls;
     expect(submit(h, first, invalid)?.type).toBe("error");
     expect(h.room.exportArchive().journal?.entries).toHaveLength(0);
     expect(submit(h, first, invalid)?.type).toBe("error");
     expect(h.room.exportArchive().journal?.entries).toHaveLength(0);
+    expect(submit(h, first, command("shared-id", 0))?.type).toBe("error");
+    expect(h.room.runtimeClock).toEqual(rngBefore);
+    expect(rngCalls).toBe(randomCallsBefore);
+    expect(h.room.exportArchive().journal).toEqual(genesis.journal);
     expect(submit(h, first, command("valid", 0))?.type).toBe("request-result");
     expect(submit(h, first, command("valid", 0, ["other-hand-card"]))?.type).toBe("error");
     expect(h.room.exportArchive().journal?.entries).toHaveLength(1);
     expect(submit(h, second, command("shared-id", 0))?.type).toBe("error");
     expect(h.room.exportArchive().journal?.entries).toHaveLength(1);
-    expect(submit(h, first, command("valid", 0))?.type).toBe("request-result");
     const earlier = submit(h, first, { ...command("valid", 0), requestId: "retry-later" });
     expect(earlier).toMatchObject({ type: "request-result", duplicate: true, appliedVersion: 1 });
     expect(h.room.roomView().version).toBe(1);

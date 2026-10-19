@@ -57,7 +57,8 @@ import type { exportDuelSessionArchive } from "./duel/session-archive.js";
 import type { DuelCommandArchiveP4 } from "./duel/command-journal-p4.js";
 import { DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT, DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK,
   DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN,
-  DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY } from "./duel/authoritative-runtime-p4.js";
+  DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY,
+  type DuelAuthoritativeRuntimeP4Ack } from "./duel/authoritative-runtime-p4.js";
 import { createEngineRuntime, type EngineRuntime, type EngineRuntimeDeck } from "./engine-runtime/index.js";
 import type { RuntimeJournal } from "./engine-runtime/journal.js";
 import type { Domain } from "../../../packages/engine-core/dist/effects/contract.js";
@@ -100,6 +101,18 @@ export interface ProcessedRoomRequest {
   readonly roomEventSeq: number;
 }
 
+/**
+ * Private retry evidence for a semantic P4 rejection. It is deliberately
+ * separate from journal-v1: rejected commands never advance game state and
+ * remain absent from accepted/pending replay records.
+ */
+export interface PersistedDuelCommandAttempt {
+  readonly playerId: PlayerId;
+  readonly commandId: string;
+  readonly payloadHash: string;
+  readonly ack: DuelAuthoritativeRuntimeP4Ack;
+}
+
 /** Server-private state. Never send this archive through client transports. */
 export interface RoomArchive {
   readonly schemaVersion: 1;
@@ -112,6 +125,8 @@ export interface RoomArchive {
   readonly roomEventLog: readonly RoomEvent[];
   readonly processedCommands: readonly ProcessedCommand[];
   readonly processedRoomRequests?: readonly ProcessedRoomRequest[];
+  /** Optional sticky rejection ledger; absent in archives written before it existed. */
+  readonly duelCommandAttempts?: readonly PersistedDuelCommandAttempt[];
   /** Optional private chat history. Omitted for rooms with no chat messages. */
   readonly roomChat?: { readonly messages: readonly RoomChatMessage[] };
   /** Current private journal. No legacy profile or serialized capability is persisted. */
@@ -143,6 +158,7 @@ export class GameRoom {
   readonly players = new Map<PlayerId, RoomConnection>();
   readonly processedCommands = new Map<string, ProcessedCommand>();
   private readonly processedRoomRequests = new Map<string, ProcessedRoomRequest>();
+  private readonly duelCommandAttempts = new Map<string, PersistedDuelCommandAttempt>();
 
   private readonly seats = new Map<PlayerId, Seat>();
   private state: GameState | null = null;
@@ -328,6 +344,9 @@ export class GameRoom {
       roomEventLog: this.roomEventLog,
       processedCommands: [...this.processedCommands.values()],
       processedRoomRequests: [...this.processedRoomRequests.values()],
+      ...(this.runtimeMode === "legacy-p4" && this.duelCommandAttempts.size > 0
+        ? { duelCommandAttempts: [...this.duelCommandAttempts.values()] }
+        : {}),
       ...(this.roomChat.currentSeq > 0
         ? { roomChat: { messages: this.roomChat.messages } }
         : {})
@@ -411,6 +430,22 @@ export class GameRoom {
     )).size !== processedRoomRequests.length) {
       throw new Error("Room archive contains an invalid processed room request");
     }
+    const duelCommandAttempts = roomArchive.duelCommandAttempts ?? [];
+    if (!duelCommandAttempts.every(attempt =>
+      isRecord(attempt) &&
+      typeof attempt.playerId === "string" && expectedSeatIds.includes(attempt.playerId) &&
+      typeof attempt.commandId === "string" && attempt.commandId.length > 0 &&
+      typeof attempt.payloadHash === "string" && /^[a-f0-9]{64}$/.test(attempt.payloadHash) &&
+      isRecord(attempt.ack) && attempt.ack.type === "error" &&
+      typeof attempt.ack.message === "string" && attempt.ack.message.length > 0
+    ) || new Set(duelCommandAttempts.map(attempt =>
+      requestKey(
+        (attempt as PersistedDuelCommandAttempt).playerId,
+        (attempt as PersistedDuelCommandAttempt).commandId
+      )
+    )).size !== duelCommandAttempts.length) {
+      throw new Error("Room archive contains an invalid duel command attempt");
+    }
     if (roomArchive.rulesetId === DUEL_RULESET_ID) {
       const runtimeMode = roomArchive.runtimeMode ?? "legacy-p4";
       if (runtimeMode !== "legacy-p4" && runtimeMode !== "engine-v2") throw new TypeError("Invalid duel runtime mode");
@@ -418,6 +453,7 @@ export class GameRoom {
       const engineJournal = roomArchive.engineRuntimeJournal;
       if (runtimeMode === "legacy-p4" && engineJournal !== undefined ||
           runtimeMode === "engine-v2" && roomArchive.journal !== undefined ||
+          runtimeMode === "engine-v2" && roomArchive.duelCommandAttempts !== undefined ||
           roomArchive.seats.length < 1 ||
           roomArchive.state !== null || !catalog ||
           roomArchive.roomEventLog[0]?.type !== "room-created" ||
@@ -440,7 +476,8 @@ export class GameRoom {
             !(roomArchive.constructedRegion ? validateRegionalCatalogDeck(catalog,seat.deck,roomArchive.constructedRegion) : validateCatalogDeck(catalog,seat.deck)).valid))) {
         throw new Error("Invalid duel room archive and trusted seats");
       }
-    } else if (roomArchive.journal !== undefined || roomArchive.engineRuntimeJournal !== undefined || roomArchive.runtimeMode !== undefined) {
+    } else if (roomArchive.journal !== undefined || roomArchive.engineRuntimeJournal !== undefined ||
+        roomArchive.runtimeMode !== undefined || roomArchive.duelCommandAttempts !== undefined) {
       throw new Error("Non-duel archive contains duel session");
     }
     if (roomArchive.state !== null) {
@@ -528,6 +565,10 @@ export class GameRoom {
     this.processedRoomRequests.clear();
     for (const request of processedRoomRequests) {
       this.processedRoomRequests.set(requestKey(request.playerId, request.requestId), request);
+    }
+    this.duelCommandAttempts.clear();
+    for (const attempt of copy.duelCommandAttempts ?? []) {
+      this.duelCommandAttempts.set(requestKey(attempt.playerId, attempt.commandId), attempt);
     }
     this.roomChat.restore(copy.roomChat?.messages ?? []);
   }
@@ -1308,9 +1349,32 @@ export class GameRoom {
       this.broadcastProjections();
       if (this.status === "ended") this.broadcastRoom();
     };
+    const attemptKey = requestKey(playerId, message.commandId);
+    const payloadHash = hashDuelCommandAttempt(message);
+    const expectedStateVersion = this.duelRuntime.stateVersion;
+    const prior = this.duelCommandAttempts.get(attemptKey);
+    if (prior) {
+      const ack: DuelAuthoritativeRuntimeP4Ack = prior.payloadHash === payloadHash
+        ? { ...prior.ack, requestId: message.requestId }
+        : { type: "error", requestId: message.requestId, commandId: message.commandId,
+            code: "command-rejected", message: "命令标识与此前请求冲突" };
+      publish({ ack, projection: this.duelRuntime.project(playerId) });
+      return;
+    }
+    const remember = (result: DurableRuntimeResult): void => {
+      if (result.ack.type === "error" && message.expectedVersion === expectedStateVersion) {
+        this.duelCommandAttempts.set(attemptKey, {
+          playerId,
+          commandId: message.commandId,
+          payloadHash,
+          ack: structuredClone(result.ack),
+        });
+      }
+      publish(result);
+    };
     const result = this.duelRuntime.dispatch(playerId, message);
-    if (result instanceof Promise) return result.then(publish);
-    publish(result);
+    if (result instanceof Promise) return result.then(remember);
+    remember(result);
   }
 
   /** Submit a protocol-v2 command to the new engine runtime owner. */
@@ -1498,6 +1562,13 @@ function hashCommand(
 ): string {
   return createHash("sha256")
     .update(stableStringify({ roomId, playerId, command }))
+    .digest("hex");
+}
+
+function hashDuelCommandAttempt(command: DuelCommandMessageV3Actions1): string {
+  return createHash("sha256")
+    .update(stableStringify({ expectedVersion: command.expectedVersion,
+      command: command.command }))
     .digest("hex");
 }
 

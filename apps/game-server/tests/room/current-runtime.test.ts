@@ -54,7 +54,14 @@ describe('one authoritative room runtime', () => {
     expect(h.messages[1 - actor]!.find(m => m.type === 'error' && m.requestId === 'other-actor'))
       .toMatchObject({ code: 'command-rejected' });
     await submit(packet('stale', 0, { type: 'mulligan', selectedUIDs: [] }));
-    expect(h.room.exportArchive()).toEqual(saved);
+    const afterRejected = h.room.exportArchive();
+    expect(afterRejected.journal).toEqual(saved.journal);
+    expect(afterRejected.seats).toEqual(saved.seats);
+    expect(afterRejected.roomEventLog).toEqual(saved.roomEventLog);
+    expect(afterRejected.duelCommandAttempts).toEqual([
+      expect.objectContaining({ playerId: 'player-1', commandId: 'invalid',
+        ack: expect.objectContaining({ type: 'error' }) }),
+    ]);
     const restored = GameRoom.restore(saved, h.catalog);
     expect(restored.exportArchive()).toEqual(saved);
     expect(h.sessions.map(s => project(restored, s.playerId))).toEqual(views);
@@ -64,7 +71,7 @@ describe('one authoritative room runtime', () => {
     expect(recovered.find(m => m.type === 'request-result')).toMatchObject({ duplicate: true, appliedVersion: 1 });
   });
 
-  it('keeps a used command id actor-scoped across FileRoomStore restart', async () => {
+  it('keeps a failed command id sticky per actor across FileRoomStore restart', async () => {
     const h = await readyRoom(), initial = project(h.room);
     if (initial.match.stage !== 'setup') throw Error('Setup required');
     const actor = h.sessions.findIndex(s => s.playerId === initial.match.setup.currentMulliganOwner);
@@ -74,23 +81,33 @@ describe('one authoritative room runtime', () => {
     const store = new FileRoomStore(directory, async () => h.catalog);
     await store.create(h.room);
     await store.save(h.room);
-    const original = packet('shared-id', 0, { type: 'mulligan', selectedUIDs: [] });
+    const original = packet('shared-id', 0,
+      { type: 'mulligan', selectedUIDs: ['not-your-hand'] });
+    const initialClock = h.room.runtimeClock;
     await h.room.submitDuel(h.sessions[actor]!, h.connections[actor]!.connectionId, original, h.send[actor]!);
-    expect(h.messages[actor]!.some(m => m.type === 'request-result' && m.requestId === original.requestId)).toBe(true);
-    expect(h.room.exportArchive().journal?.entries).toHaveLength(1);
+    expect(h.messages[actor]!.some(m => m.type === 'error' && m.requestId === original.requestId)).toBe(true);
+    expect(h.room.runtimeClock).toEqual(initialClock);
+    expect(h.room.exportArchive().journal?.entries).toHaveLength(0);
+    const saved = h.room.exportArchive();
+    const protectedJournal = h.room.exportArchive().journal;
+    const beforeRestartViews = h.sessions.map(s => project(h.room, s.playerId));
     await store.save(h.room);
     await store.close();
 
     const reload = new FileRoomStore(directory, async () => h.catalog);
     const [restored] = await reload.list();
     expect(restored!.exportArchive()).toEqual(h.room.exportArchive());
+    expect(restored!.exportArchive().duelCommandAttempts).toEqual(saved.duelCommandAttempts);
+    expect(restored!.exportArchive().journal).toEqual(protectedJournal);
     const packets: typeof h.messages[number] = [];
     restored!.reconnect(h.sessions[actor]!.resumeToken, m => packets.push(m), 'restored-first');
     await restored!.submitDuel(h.sessions[actor]!, 'restored-first',
-      { ...original, requestId: 'changed-payload', expectedVersion: 1 }, m => packets.push(m));
+      { ...original, requestId: 'changed-payload' }, m => packets.push(m));
     expect(packets.find(m => m.type === 'error' && m.requestId === 'changed-payload'))
       .toMatchObject({ type: 'error', code: 'command-rejected' });
-    expect(restored!.exportArchive().journal?.entries).toHaveLength(1);
+    expect(restored!.exportArchive().journal?.entries).toHaveLength(0);
+    expect(restored!.runtimeClock).toEqual(initialClock);
+    expect(h.sessions.map(s => project(restored!, s.playerId))).toEqual(beforeRestartViews);
 
     packets.length = 0;
     restored!.reconnect(h.sessions[other]!.resumeToken, m => packets.push(m), 'restored-second');

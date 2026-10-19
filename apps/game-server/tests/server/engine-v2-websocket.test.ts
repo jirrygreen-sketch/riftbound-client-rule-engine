@@ -121,7 +121,7 @@ function assertPrivateProjection(value: V2Projection, viewerPlayerId: string, op
 }
 
 describe("protocol v2 engine runtime over WebSocket", () => {
-  it("proves the CLI and server omit an explicit runtime and expose the v2 default command boundary", async () => {
+  it("runs the real default entry without a runtime override and reaches the authoritative resource check", async () => {
     const cli = await readFile(fileURLToPath(new URL("../../src/index.ts", import.meta.url)), "utf8");
     expect(cli).toContain("requestedRuntimeMode === undefined ? {} : { duelRuntimeMode: requestedRuntimeMode as DuelRuntimeMode }");
     expect(cli).toContain("const requestedRuntimeMode = process.env.RIFTBOUND_DUEL_RUNTIME_MODE;");
@@ -177,6 +177,9 @@ describe("protocol v2 engine runtime over WebSocket", () => {
       object.cardId !== undefined && cardProgramsById.get(object.cardId)?.status === "executable");
     expect(handObject?.cardId).toBeTruthy();
     const beforePlay = defaultViewA.stateVersion;
+    // Protocol v2 currently has no Rune/Energy selector, so this executable
+    // card reaches the authoritative cost check but cannot be paid through a
+    // client command. Keep the progress blocked; never mutate host resources.
     client.send({ type: "command", protocolVersion: PROTOCOL_V2_VERSION,
       command: { type: "play", commandId: "default-play-without-resource-command",
         stateVersion: beforePlay, cardObjectId: handObject!.objectId } });
