@@ -357,6 +357,97 @@ test('activation location restriction is checked before payment and accepts the 
   assert.equal(fieldKernel.getObject('source').exhausted, true);
 });
 
+test('activation location restriction re-reads the current Board location at Finalize', () => {
+  const program = {
+    canonicalCardId: 'test:activation-current-location', rulesetVersion: 'core-1.5', status: 'executable', sourceText: 'Use only while I am at a battlefield.',
+    abilities: [{
+      kind: 'activated', timing: 'action', restriction: { kind: 'use-only-while-source-at-battlefield' },
+      cost: { kind: 'activated', payments: [{ kind: 'exhaust', object: 'self' }] }, body: [],
+    }],
+  };
+  const scene = () => {
+    const kernel = world().player('A', { energy: 3, power: ['Fury'] }).player('B')
+      .unit('source', {
+        cardId: program.canonicalCardId,
+        location: { type: 'battlefield', id: 'battlefield-1' },
+        exhausted: false,
+      })
+      .deck(['A:deck:1'], { owner: 'A' })
+      .build();
+    return { kernel, ...chainScene(program, { build: () => kernel }) };
+  };
+
+  const control = scene();
+  const controlDraft = control.binding.describeActivate(control.kernel.getObject('source'), 'A');
+  assert.equal(controlDraft.restrictions[0].kind, 'all');
+  assert.deepEqual(controlDraft.restrictions[0].conditions[0].left.filter, {
+    objectId: control.kernel.ref('source').id,
+    zoneEntryId: control.kernel.ref('source').zoneEntryId,
+    zone: 'board',
+    controller: 'A',
+  });
+  assert.deepEqual(controlDraft.restrictions[0].conditions[1].condition.left.filter, {
+    objectId: control.kernel.ref('source').id,
+    zoneEntryId: control.kernel.ref('source').zoneEntryId,
+    zone: 'board',
+    location: { type: 'base', player: 'A' },
+  });
+  control.engine.execute(controlDraft);
+  assert.equal(control.kernel.getObject('source').exhausted, true);
+
+  const otherField = scene();
+  const otherFieldDraft = otherField.binding.describeActivate(otherField.kernel.getObject('source'), 'A');
+  const otherFieldIncarnation = otherField.kernel.ref('source');
+  otherField.engine.commit({ type: 'move-location', object: otherFieldIncarnation, to: { type: 'battlefield', id: 'battlefield-2' } });
+  otherField.engine.advance();
+  otherField.engine.execute(otherFieldDraft);
+  assert.deepEqual(otherField.kernel.ref('source'), otherFieldIncarnation);
+  assert.equal(otherField.kernel.getObject('source').exhausted, true);
+
+  const moved = scene();
+  const draft = moved.binding.describeActivate(moved.kernel.getObject('source'), 'A');
+  const incarnation = moved.kernel.ref('source');
+  moved.engine.commit({ type: 'move-location', object: incarnation, to: { type: 'base', player: 'A' } });
+  moved.engine.advance();
+  assert.deepEqual(moved.kernel.ref('source'), incarnation, 'board movement preserves the source incarnation');
+  assert.deepEqual(moved.kernel.getObject('source').location, { type: 'base', player: 'A' });
+
+  const before = moved.kernel.snapshot();
+  const events = moved.engine.pipeline.events.length;
+  assert.throws(() => moved.engine.execute(draft), /Finalize legality failed/);
+  assert.deepEqual(moved.kernel.snapshot(), before);
+  assert.equal(moved.kernel.getObject('source').exhausted, false);
+  assert.equal(moved.kernel.player('A').energy, 3);
+  assert.deepEqual(moved.kernel.player('A').power, ['Fury']);
+  assert.equal(moved.engine.pipeline.events.length, events, 'rejected activation emits no events');
+
+  const replaced = scene();
+  const replacedDraft = replaced.binding.describeActivate(replaced.kernel.getObject('source'), 'A');
+  const oldIncarnation = replaced.kernel.ref('source');
+  replaced.engine.commit({ type: 'return-to-hand', object: oldIncarnation });
+  replaced.engine.commit({ type: 'move-zone', object: replaced.kernel.ref('source'), to: 'board', location: { type: 'battlefield', id: 'battlefield-2' } });
+  replaced.engine.advance();
+  assert.notDeepEqual(replaced.kernel.ref('source'), oldIncarnation);
+  assert.deepEqual(replaced.kernel.getObject('source').location, { type: 'battlefield', id: 'battlefield-2' });
+  assert.throws(() => replaced.engine.execute(replacedDraft), error =>
+    error instanceof Error && /(?:Finalize legality failed|no longer its Finalize incarnation)/.test(error.message));
+  assert.equal(replaced.kernel.getObject('source').exhausted, false);
+
+  const controlled = scene();
+  const controlledDraft = controlled.binding.describeActivate(controlled.kernel.getObject('source'), 'A');
+  controlled.engine.commit({ type: 'take-control', object: controlled.kernel.ref('source'), player: 'B' });
+  controlled.engine.advance();
+  assert.throws(() => controlled.engine.execute(controlledDraft), /Finalize legality failed/);
+  assert.equal(controlled.kernel.getObject('source').exhausted, false);
+
+  const leftBoard = scene();
+  const leftBoardDraft = leftBoard.binding.describeActivate(leftBoard.kernel.getObject('source'), 'A');
+  leftBoard.engine.commit({ type: 'return-to-hand', object: leftBoard.kernel.ref('source') });
+  leftBoard.engine.advance();
+  assert.throws(() => leftBoard.engine.execute(leftBoardDraft), /Finalize legality failed/);
+  assert.equal(leftBoard.kernel.getObject('source').exhausted, false);
+});
+
 test('unsupported activation use limits remain judge-required before cost payment', () => {
   const program = {
     canonicalCardId: 'test:usage-limit', rulesetVersion: 'core-1.5', status: 'executable', sourceText: 'Use only once each turn.',
