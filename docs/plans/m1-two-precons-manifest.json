@@ -1761,7 +1761,7 @@
       },
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
-      "productionAcceptance": "pending: default producer/event-it ready remains incomplete",
+      "productionAcceptance": "pending: default 4-to-5 producer and event-it ready bridge incomplete",
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
         "sha256": "b7144c0eabd837204910095171cd0679c5bb8c29c52629a6ee412e63cd4d14db",
@@ -5996,7 +5996,7 @@
             "programStatus": "executable",
             "program": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
             "golden": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
-            "productionAcceptance": "pending"
+            "productionAcceptance": "pending: default 4-to-5 producer and event-it ready bridge incomplete"
           },
           {
             "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",

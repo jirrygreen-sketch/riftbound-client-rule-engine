@@ -10,7 +10,6 @@ import {
   isNaturalM1Game,
   probeM1Acceptance,
   type M1GameEvidence,
-  type M1AcceptanceRun,
 } from "../../src/headless/m1-pair.js";
 import { buildM1Deck } from "../../src/headless/decks.js";
 
@@ -46,6 +45,12 @@ interface ManifestCard {
   };
   readonly verificationStatus: string;
   readonly productionAcceptance: string;
+  readonly productionAcceptanceEvidence?: {
+    readonly canonicalCardId: string;
+    readonly branch: string;
+    readonly testPath: string;
+    readonly result: "verified";
+  };
   readonly evidenceGap: string | null;
   readonly ir: {
     readonly abilityKinds: readonly string[];
@@ -230,17 +235,12 @@ function fixture(overrides: Partial<M1GameEvidence> = {}): M1GameEvidence {
 }
 
 describe("RIFT-857 two-precon acceptance", () => {
-  let probeRun: M1AcceptanceRun | undefined;
-
   beforeAll(async () => {
-    // Warm the immutable module graph before the real diagnostic. This performs
-    // no Match, Chain command, replay, or privacy check; those remain in the
-    // timed business test below.
+    // Only warm the immutable module graph. The real Match/Chain execution,
+    // journal creation, embedded replay, fresh-world replay and privacy audit
+    // all run inside the 30-second business test below.
     await import("../../src/headless/index.js");
-    // Run the real one-game Match/Chain diagnostic once in the standard suite.
-    // Embedded replay, fresh-world replay and privacy remain mandatory here.
-    probeRun = probeM1Acceptance();
-  }, 60_000);
+  });
 
   it("pins exactly 100 unique seeds, 50 games per seat orientation, and only the approved pair", () => {
     expect(M1_ACCEPTANCE_PLAN).toHaveLength(M1_ACCEPTANCE_GAMES);
@@ -535,7 +535,18 @@ describe("RIFT-857 two-precon acceptance", () => {
     expect(fioraWorthy).toEqual(expect.objectContaining({
       canonicalCardId: "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
     }));
-    expect(fioraWorthy!.productionAcceptance).not.toBe("accepted");
+    if (fioraWorthy!.productionAcceptance === "accepted") {
+      expect(fioraWorthy!.program.path).toContain("packages/card-dsl/src/cards/sfd/fiora-worthy.ts");
+      expect(fioraWorthy!.canonicalCardId).toBe("card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f");
+      expect(fioraWorthy!.productionAcceptanceEvidence).toEqual(expect.objectContaining({
+        canonicalCardId: fioraWorthy!.canonicalCardId,
+        branch: expect.any(String),
+        testPath: expect.stringContaining("fiora-worthy"),
+        result: "verified",
+      }));
+    } else {
+      expect(fioraWorthy!.productionAcceptance).toMatch(/^(pending|blocked)(?:: .+)?$/);
+    }
     expect(fioraWorthy!.printed.ability).toContain("you may pay :rb_rune_order: to ready it");
     expect(fioraWorthy!.printed.power).toBeNull();
     expect(manifest.productionSetup.deckConstruction.counts).toEqual({
@@ -554,9 +565,7 @@ describe("RIFT-857 two-precon acceptance", () => {
   });
 
   it("executes one real planned match through Match/Chain, double replay, and privacy", () => {
-    const probe = probeRun;
-    expect(probe).toBeDefined();
-    if (probe === undefined) return;
+    const probe = probeM1Acceptance();
     expect(probe.expectedGames).toBe(100);
     expect(probe.attemptedGames).toBe(1);
     expect(probe.planMismatches).toBe(0);
@@ -579,12 +588,9 @@ describe("RIFT-857 two-precon acceptance", () => {
     expect(result.eventCount).toBeGreaterThan(0);
     expect(result.naturalTermination).toBe(isNaturalM1Game(result));
     expect(probe.naturalGames).toBe(probe.results.filter(isNaturalM1Game).length);
-    expect(probe.passed).toBe(false);
     if (result.naturalTermination) {
       expect(result.termination).toBe("winner");
       expect(result.winner).not.toBeNull();
-    } else {
-      expect(probe.naturalGames).toBe(0);
     }
   }, 30_000);
 

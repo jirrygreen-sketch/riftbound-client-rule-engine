@@ -16,6 +16,9 @@
  *   - `{ kind: "choose", id, filter, min?, max?, prompt? }`：结算时才做的选择，经
  *     `ctx.choose` 发起 `select-objects` 公开请求（355.10.e/f、359.3.e.9）。`id` 是稳定
  *     重放请求 id；选项为当前匹配对象的引用，缺省 `max` 为 1、`min` 为 `max`；
+ *   - `{ event: "it" }`：触发条件满足时冻结的事件对象引用。它只经
+ *     `ResolveContext.eventObject("it")` 读取并由共享 `resolveObjectSelector` 校验，不接受
+ *     source/target 回退，也不发起玩家选择（359.3.f.3、383.2.c.3.b）；
  *   - 单个对象引用 `{ id, zoneEntryId }`、其数组、或含 `objects` 引用数组的记录（消费
  *     前序指令写入的 `{ count, objects }` 链接值，供 “if you do / it” 引用）。
  *
@@ -60,6 +63,7 @@ import type {
   Schema,
   Value
 } from "../contract.js";
+import { resolveObjectSelector } from "../interpreter/selectors.js";
 
 /** 结算时确定重置对象的方式（目标选择 / 非目标 pick / 集合查询 / 结算期选择）。 */
 export type EffectReadySelection =
@@ -86,6 +90,7 @@ export interface EffectReadyArgs {
 /** 解析后的选择：选择描述符，或直接给出的对象引用集合。 */
 type ResolvedSelection =
   | EffectReadySelection
+  | { readonly kind: "event"; readonly role: "it" }
   | { readonly kind: "refs"; readonly refs: readonly ObjectRef[] };
 
 interface PendingChoice {
@@ -120,6 +125,7 @@ function isId(value: unknown): value is string {
 function isRef(value: unknown): value is ObjectRef {
   return (
     isRecord(value) &&
+    !Object.hasOwn(value, "event") &&
     isId(value.id) &&
     Number.isSafeInteger(value.zoneEntryId) &&
     (value.zoneEntryId as number) >= 0
@@ -204,6 +210,12 @@ function parseSelection(value: Value): ResolvedSelection {
   }
   if (!isRecord(value)) {
     throw new TypeError("effect.ready objects must be a selection descriptor or object reference(s)");
+  }
+  // A pronoun is an immutable event referent, not a TargetSpec/PickSpec or a
+  // free-form record. Keep the selector to its sole legal spelling here; the
+  // shared selector resolver owns the binding and incarnation checks.
+  if (Object.keys(value).length === 1 && Object.hasOwn(value, "event") && value.event === "it") {
+    return { kind: "event", role: "it" };
   }
   switch (value.kind) {
     case "source":
@@ -297,6 +309,21 @@ function assertLinkKey(value: Value | undefined): string {
   return value;
 }
 
+/** Resolve only the legal event pronoun through the shared fail-closed seam. */
+function resolveEventRef(ctx: ResolveContext, selection: { readonly role: "it" }): ObjectRef {
+  const refs = resolveObjectSelector(
+    { event: selection.role },
+    { context: ctx, linked: (key) => ctx.linked(key) }
+  );
+  if (refs.length !== 1) throw new Error("effect.ready event:it must resolve exactly one object");
+  const [ref] = refs;
+  // The shared resolver returns exactly one frozen event referent or throws
+  // MissingInformation. This guard protects the primitive's non-null contract
+  // without adding any fallback identity.
+  if (ref === undefined) throw new Error("effect.ready event:it resolved no object");
+  return { id: ref.id, zoneEntryId: ref.zoneEntryId };
+}
+
 /** 非法的 `select-objects` 答案在这里拒绝；无答案时 `ctx.choose` 抛 AwaitChoice 由事务回滚重问。 */
 function askSelection(ctx: ResolveContext, choice: PendingChoice): ObjectRef[] {
   const answer = ctx.choose<readonly ObjectRef[]>({
@@ -330,6 +357,9 @@ const effectReady = {
     const rawSelection = args.objects === undefined ? undefined : evaluateArgument(ctx, args.objects);
     const selection =
       rawSelection === undefined ? ({ kind: "source" } as const) : parseSelection(rawSelection);
+    // Validate the frozen event binding even for amount 0: a missing or forged
+    // pronoun is unavailable input, not an empty optional selection.
+    const eventRef = selection.kind === "event" ? resolveEventRef(ctx, selection) : undefined;
     const amount = assertAmount(args.amount === undefined ? undefined : evaluateArgument(ctx, args.amount));
     const linkKey = assertLinkKey(args.linkKey === undefined ? undefined : evaluateArgument(ctx, args.linkKey));
     const linkedValue = (refs: readonly ObjectRef[]): Value => ({
@@ -373,6 +403,15 @@ const effectReady = {
       }
       case "refs": {
         const usable = currentRefs(selection.refs);
+        if (usable === null) return { status: "ignored", reason: "mistargeted" };
+        candidates = usable;
+        break;
+      }
+      case "event": {
+        // The frozen event identity is authoritative only while that exact
+        // incarnation still exists. Never use lastKnown or the event snapshot
+        // to resurrect a departed object.
+        const usable = currentRefs([eventRef!]);
         if (usable === null) return { status: "ignored", reason: "mistargeted" };
         candidates = usable;
         break;
