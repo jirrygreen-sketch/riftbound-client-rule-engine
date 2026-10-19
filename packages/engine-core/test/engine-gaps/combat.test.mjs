@@ -17,6 +17,7 @@ const admitted = program => ({ ...program, status: 'executable', judgeReason: un
 function combatFixture({
   attacker = { id: 'attacker', might: 4, cardId: null, keywords: [] },
   defender = { id: 'defender', might: 3, cardId: null, keywords: [] },
+  defenderLocation = 'bf1',
   programs = [],
   choose: suppliedChoose,
   cleanup = 'none',
@@ -27,6 +28,7 @@ function combatFixture({
       power: null,
       ...(attacker.cardId ? { cardId: attacker.cardId } : {}),
       keywords: attacker.keywords,
+      stunned: attacker.stunned ?? false,
       location: field('bf1'),
     })
     .unit(defender.id, {
@@ -34,7 +36,8 @@ function combatFixture({
       power: null,
       ...(defender.cardId ? { cardId: defender.cardId } : {}),
       keywords: defender.keywords,
-      location: field('bf1'),
+      stunned: defender.stunned ?? false,
+      location: field(defenderLocation),
     });
   for (const player of ['A', 'B']) {
     builder.deck([`${player}:deck:0`, `${player}:deck:1`], { owner: player });
@@ -153,6 +156,125 @@ test('EG-COMBAT opens a real Combat Showdown, preserves Focus, designates both s
   }
 });
 
+test('EG-COMBAT converts an open Non-Combat Showdown into Combat without changing its Focus holder', () => {
+  const f = combatFixture({ defenderLocation: 'bf2', choose: request =>
+    request.type === 'mode' && request.id.startsWith('engagement:') ? request.options[0] : undefined });
+  const startingFocus = 'A';
+  f.flow.entered(f.kernel.getObject('attacker'));
+  f.flow.cleanup();
+  assert.equal(f.flow.battlefields[0].staged, 'showdown');
+  assert.equal(f.flow.battlefields[0].contestedBy, 'A');
+  f.chain.advance();
+  f.flow.advance();
+  assert.equal(f.flow.current?.step, 'showdown');
+  assert.equal(f.chain.focus, startingFocus);
+
+  assert.equal(f.chain.commit({ type: 'move-location', object: f.kernel.ref('defender'),
+    to: field('bf1') }).status, 'done');
+  f.flow.cleanup();
+  assert.equal(f.flow.battlefields[0].staged, 'showdown');
+  f.flow.advance();
+  assert.equal(f.flow.battlefields[0].staged, 'none');
+  assert.equal(f.flow.lifecycle?.phase, 'showdown');
+  assert.equal(f.flow.lifecycle?.attacker, 'A');
+  assert.equal(f.flow.lifecycle?.defender, 'B');
+  assert.equal(f.events('attack-declared').length, 1);
+  assert.equal(f.events('defense-declared').length, 1);
+  assert.equal(f.chain.focus, startingFocus);
+});
+
+test('EG-COMBAT failed Combat start restores Focus, priority, chain, trigger sequence and event log', () => {
+  const f = combatFixture();
+  f.flow.entered(f.kernel.getObject('attacker'));
+  f.flow.cleanup();
+  const before = {
+    state: f.kernel.snapshot(), events: f.chain.pipeline.events,
+    focus: f.chain.focus, priority: f.chain.priority, turnState: f.chain.turnState,
+    items: f.chain.items, trace: f.chain.trace, fields: f.flow.battlefields,
+  };
+  f.chain.pipeline.onTrigger = () => { throw new Error('combat start trigger scan failed'); };
+  f.chain.pipeline.registerTrigger({
+    id: 'combat-start-failure', source: f.kernel.getObject('attacker'), controller: 'A',
+    spec: { at: 'combat-start', filter: { event: 'combat-start' } }, body: [],
+  });
+  assert.throws(() => f.flow.startCombat('bf1'), /combat start trigger scan failed/);
+  assert.deepEqual(f.kernel.snapshot(), before.state);
+  assert.deepEqual(f.chain.pipeline.events, before.events);
+  assert.equal(f.chain.focus, before.focus);
+  assert.equal(f.chain.priority, before.priority);
+  assert.equal(f.chain.turnState, before.turnState);
+  assert.deepEqual(f.chain.items, before.items);
+  assert.deepEqual(f.chain.trace, before.trace);
+  assert.deepEqual(f.flow.battlefields, before.fields);
+  assert.equal(f.flow.active, false);
+});
+
+test('EG-COMBAT rejects a third combatant before any role or timing is committed', () => {
+  const f = combatFixture({ defenderLocation: 'bf2' });
+  f.kernel.addPlayer('C');
+  f.kernel.addObject({ ...f.kernel.getObject('defender'), ref: { id: 'third', zoneEntryId: 1 },
+    owner: 'C', controller: 'C', cardId: 'third', name: 'third', location: field('bf1') }, 'board');
+  assert.equal(f.chain.commit({ type: 'move-location', object: f.kernel.ref('defender'),
+    to: field('bf1') }).status, 'done');
+  f.flow.entered(f.kernel.getObject('attacker'));
+  const before = { events: f.chain.pipeline.events, fields: f.flow.battlefields };
+  assert.throws(() => f.flow.cleanup(), /multi-player Combat/);
+  assert.deepEqual(f.chain.pipeline.events, before.events);
+  assert.deepEqual(f.flow.battlefields, before.fields);
+  assert.equal(f.flow.active, false);
+  assert.equal(f.chain.focus, null);
+});
+
+test('EG-COMBAT an unsupported assignment modifier fails closed before either side deals damage', () => {
+  const f = combatFixture();
+  f.started();
+  f.closeShowdown();
+  f.chain.layers.addContinuous({
+    id: 'unsupported-combat-modifier', layer: 'ability',
+    filter: { objectId: 'defender' },
+    effect: { kind: 'continuous.bonus-damage', amount: 1 },
+  }, { type: 'end-of-combat' });
+  const before = { state: f.kernel.snapshot(), events: f.chain.pipeline.events };
+  assert.throws(() => f.flow.prepareDamage(), /unsupported modifier/);
+  assert.deepEqual(f.kernel.snapshot(), before.state);
+  assert.deepEqual(f.chain.pipeline.events, before.events);
+  assert.equal(f.flow.current?.step, 'showdown');
+});
+
+test('EG-COMBAT zero-Might damage is not applied while the allocation still completes atomically', () => {
+  const f = combatFixture({
+    attacker: { id: 'attacker', might: 0, cardId: null, keywords: [] },
+    defender: { id: 'defender', might: 0, cardId: null, keywords: [] },
+  });
+  f.started();
+  f.closeShowdown();
+  f.flow.prepareDamage();
+  f.flow.submitAttackerDamage('A', []);
+  const result = f.flow.submitDefenderDamage('B', []);
+  assert.equal(f.kernel.getObject('attacker').damage, 0);
+  assert.equal(f.kernel.getObject('defender').damage, 0);
+  assert.equal(f.chain.pipeline.events.filter(event => event.timingPoint === 'damage-dealt').length, 0);
+  assert.equal(f.events('combat-damage-before').length, 1);
+  assert.equal(f.events('combat-damage-after').length, 1);
+  assert.equal(result.batchId, 'combat:bf1:1:damage');
+});
+
+test('EG-COMBAT a Stunned attacker contributes no damage while the opposing side still deals normally', () => {
+  const f = combatFixture({
+    attacker: { id: 'attacker', might: 4, cardId: null, keywords: [], stunned: true },
+    defender: { id: 'defender', might: 3, cardId: null, keywords: [] },
+  });
+  f.started();
+  f.closeShowdown();
+  const plan = f.flow.prepareDamage();
+  assert.equal(plan.attacker.budget, 0);
+  assert.equal(plan.defender.budget, 3);
+  f.flow.submitAttackerDamage('A', []);
+  f.flow.submitDefenderDamage('B', [{ uid: 'attacker', amount: 3 }]);
+  assert.equal(f.kernel.getObject('defender').damage, 0);
+  assert.equal(f.kernel.getObject('attacker').damage, 3);
+});
+
 test('EG-COMBAT default CardProgram assembly runs Dune Drake attack IR and changes the live layer Might', () => {
   const f = combatFixture({
     attacker: { id: 'dune', might: 5, cardId: duneDrake.canonicalCardId, keywords: [] },
@@ -169,7 +291,7 @@ test('EG-COMBAT default CardProgram assembly runs Dune Drake attack IR and chang
   assert.equal(f.chain.items[0].trigger.event.object.ref.id, 'dune');
   settle(f);
   f.chain.advance();
-  f.chain.layers.setObjects(f.flow['layerObjects']());
+  f.chain.layers.setObjects(f.kernel.objects.map(object => f.flow.snapshot(object)));
   assert.equal(f.chain.layers.evaluate(f.kernel.ref('dune')).might, 7);
   assert.equal(f.kernel.getObject('dune').might, 5, 'printed Might remains unchanged');
   assert.equal(f.kernel.getObject('dune').power, null, 'null printed power is preserved');
@@ -241,29 +363,27 @@ test('EG-COMBAT legal choices commit both sides in one damage batch; an illegal 
 });
 
 test('EG-COMBAT deferred trigger failure restores both Units and the event/layer ledgers before damage is published', () => {
-  const f = combatFixture();
+  const f = combatFixture({ choose: request => {
+    if (request.id === 'trigger:9:A:order:0') throw new Error('deferred damage scan failed');
+    return undefined;
+  } });
   f.started();
   f.closeShowdown();
   f.flow.prepareDamage();
   f.flow.submitAttackerDamage('A', [{ uid: 'defender', amount: 4 }]);
   const beforeSnapshot = f.kernel.snapshot();
   const beforeDamageEvents = f.chain.pipeline.events.length;
-  const checkpoint = f.chain.pipeline.checkpoint();
-  const hostCheckpoint = f.chain.pipeline.host.checkpoint();
   f.chain.pipeline.registerTrigger({
     id: 'damage-observer', source: f.kernel.getObject('attacker'), controller: 'A',
     spec: { at: 'damage-dealt', filter: { event: 'damage-dealt' } }, body: [],
   });
-  f.chain.pipeline.onTrigger = () => { throw new Error('deferred damage scan failed'); };
   assert.throws(() => f.flow.submitDefenderDamage('B', [{ uid: 'attacker', amount: 3 }]),
-    error => error instanceof Error);
+    /deferred damage scan failed/);
   assert.equal(f.kernel.getObject('attacker').damage, 0);
   assert.equal(f.kernel.getObject('defender').damage, 0);
   assert.deepEqual(f.kernel.snapshot(), beforeSnapshot);
   assert.equal(f.chain.pipeline.events.length, beforeDamageEvents);
   assert.equal(f.flow.damageView().attackerSubmitted, true);
-  f.chain.pipeline.restore(checkpoint);
-  f.chain.pipeline.host.restore(hostCheckpoint);
 });
 
 test('EG-COMBAT lethal damage is cleaned, result is scored once, roles clear, and conquer reaches Score', () => {
@@ -275,10 +395,10 @@ test('EG-COMBAT lethal damage is cleaned, result is scored once, roles clear, an
   f.flow.submitDefenderDamage('B', [{ uid: 'attacker', amount: 3 }]);
 
   f.chain.advance();
-  f.flow.advance();
   f.chain.advance();
   f.flow.advance();
   f.chain.advance();
+  f.flow.advance();
   f.flow.advance();
   assert.equal(f.kernel.getObject('defender').zone, 'trash');
   assert.equal(f.kernel.getObject('attacker').damage, 0);
@@ -305,6 +425,7 @@ test('EG-COMBAT no-result when both sides are removed produces neither Conquer n
   f.flow.submitAttackerDamage('A', [{ uid: 'defender', amount: 3 }]);
   f.flow.submitDefenderDamage('B', [{ uid: 'attacker', amount: 3 }]);
   f.chain.advance();
+  f.flow.advance();
   f.flow.advance();
   f.flow.advance();
   assert.equal(f.kernel.getObject('attacker').zone, 'trash');

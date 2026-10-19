@@ -1,5 +1,5 @@
 import type { ObjectRef, ObjectSnapshot, PlayerId } from '../../effects/contract.js';
-import type { PipelineEvent, PipelineHost } from '../../events/pipeline-types.js';
+import type { PipelineHost } from '../../events/pipeline-types.js';
 import type { ChainEngine } from '../../chain/engine.js';
 import { matchesObjectFilter } from '../../layers/filter.js';
 import {
@@ -19,12 +19,10 @@ export interface CombatDamageFieldFact {
   readonly staged: 'none' | 'showdown' | 'combat';
   readonly active: boolean;
 }
-
 export interface CombatDamageUnitFact {
   readonly object: ObjectSnapshot;
   readonly combatRole: 'attacker' | 'defender' | null;
 }
-
 export interface CombatDamageRuntime {
   readonly stateVersion: number;
   readonly fieldId: string;
@@ -38,6 +36,8 @@ export interface CombatDamageRuntime {
   readonly host: PipelineHost;
   /** Every live assignment-prevention replacement must be proven absent. */
   readonly replacementCount: number;
+  /** Damage the controller cannot apply because the Unit is Stunned (424.1.b). */
+  readonly zeroDamageSourceIds: readonly string[];
 }
 
 const ASSIGNMENT_MODIFIER_KINDS = new Set([
@@ -50,10 +50,6 @@ function objectKey(ref: ObjectRef): string {
   return `${ref.id}:${ref.zoneEntryId}`;
 }
 
-function roleFor(runtime: CombatDamageRuntime, ref: ObjectRef): 'attacker' | 'defender' | undefined {
-  return runtime.units.find(unit => objectKey(unit.object.ref) === objectKey(ref))?.combatRole ?? undefined;
-}
-
 /**
  * Compile the live layer registry into the narrow assignment facts accepted by
  * the combat kernel. Unknown combat modifiers fail closed instead of becoming a
@@ -62,7 +58,7 @@ function roleFor(runtime: CombatDamageRuntime, ref: ObjectRef): 'attacker' | 'de
 function assignmentRules(runtime: CombatDamageRuntime): DuelBaseCombatAssignmentRules | null {
   const units = runtime.units.filter(unit => unit.object.zone === 'board' &&
     unit.object.types.includes('unit') && unit.object.location?.type === 'battlefield' &&
-    unit.object.location.id === runtime.fieldId && !unit.object.stunned);
+    unit.object.location.id === runtime.fieldId);
   const byUID = new Map<string, { uid: string; tank: boolean; backline: boolean }>();
   for (const unit of units) byUID.set(unit.object.ref.id, {
     uid: unit.object.ref.id,
@@ -148,6 +144,7 @@ export function createCombatDamagePlan(runtime: CombatDamageRuntime): DuelBaseCo
     currentMight: (input: Parameters<ReturnType<typeof createTrustedDuelBaseCombatFacts>['evaluateCurrentMight']>[0]) => {
       const unit = runtime.units.find(candidate => candidate.object.ref.id === input.uid);
       if (unit === undefined) throw new TypeError(`Unknown combat Unit ${input.uid}`);
+      if (runtime.zeroDamageSourceIds.includes(input.uid)) return 0;
       runtime.layers.setObjects(runtime.units.map(candidate => candidate.object));
       const snapshot = runtime.layers.evaluate(unit.object.ref);
       if (snapshot === null || snapshot.might === null || !Number.isSafeInteger(snapshot.might) || snapshot.might < 0) {
@@ -180,12 +177,4 @@ export function combatDamageEventDetails(plan: DuelBaseCombatPlan): Readonly<Rec
     attackerMight: plan.attacker.budget,
     defenderMight: plan.defender.budget,
   });
-}
-
-export function roleOfUnit(runtime: CombatDamageRuntime, ref: ObjectRef): 'attacker' | 'defender' | undefined {
-  return roleFor(runtime, ref);
-}
-
-export function eventBatchId(events: readonly PipelineEvent[]): string | undefined {
-  return events[0]?.batchId;
 }

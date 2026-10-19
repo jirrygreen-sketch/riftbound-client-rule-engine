@@ -37,6 +37,7 @@ type Engagement = {
     readonly attacker?: DuelBaseCombatCompleteAllocation['attacker'];
   };
   result?: CombatResult;
+  endEmitted?: boolean;
 };
 
 export interface CombatStartResult {
@@ -138,13 +139,6 @@ export class CombatFlow {
       finally { this.transactionDepth = savedDepth; }
     });
   }
-  /** Restore a checkpoint captured before the chain performs a nested state change. */
-  restoreHostAndEvents(checkpoint: { readonly host: unknown; readonly events: unknown }): void {
-    this.host.restore(checkpoint.host);
-    this.chain.pipeline.restore(checkpoint.events as ReturnType<ChainEngine['pipeline']['checkpoint']>);
-  }
-  /** Let a caller atomically combine a state mutation and its trigger wave. */
-  transaction<T>(run: () => T): T { return this.withTransaction(run); }
   private refKey(ref: ObjectRef): string { return `${ref.id}:${ref.zoneEntryId}`; }
   private role(object: ObjectSnapshot): 'attacker' | 'defender' | null {
     return object.combatRole ?? this.combatRoles.get(this.refKey(object.ref)) ?? null;
@@ -240,8 +234,9 @@ export class CombatFlow {
     const result = this.withTransaction(() => {
       const attacker = field.contestedBy;
       if (attacker === null) throw new TurnCombatBlockedError('combat-role-state', 'Staged Combat has no Contested player');
-      const defender = [...new Set(this.units(field.id).map(unit => unit.controller))].find(id => id !== attacker);
-      if (defender === undefined) throw new TurnCombatBlockedError('combat-role-state', 'Staged Combat has no Defender');
+      const defenders = [...new Set(this.units(field.id).map(unit => unit.controller))].filter(id => id !== attacker);
+      if (defenders.length !== 1) throw new TurnCombatBlockedError('combat-role-state', 'Staged Combat must have exactly one Defender');
+      const defender = defenders[0]!;
       const combatId = `combat:${field.id}:${++this.combatSequence}`;
       this.engagement = { field: field.id, step: 'showdown', attacker, defender, combatId };
       field.staged = 'none';
@@ -257,16 +252,8 @@ export class CombatFlow {
         })),
       ];
       this.chain.openShowdown(attacker);
-      const host = this.host.checkpoint();
-      const events = this.chain.pipeline.checkpoint();
-      try {
-        emitCombatWave(this.chain, this, openings, combatId);
-        this.chain.requestCleanup('combat-opened');
-      } catch (error) {
-        this.host.restore(host);
-        this.chain.pipeline.restore(events);
-        throw error;
-      }
+      emitCombatWave(this.chain, this, openings, combatId);
+      this.chain.requestCleanup('combat-opened');
       return Object.freeze({ field: field.id, combatId, attacker, defender, focus: attacker });
     });
     this.chain.advance();
@@ -300,18 +287,23 @@ export class CombatFlow {
   }
   /** Called by the real ChainEngine cleanup callback, never by a test fixture. */
   cleanup(): boolean {
+    if (this.transactionDepth > 0) {
+      throw new TurnCombatBlockedError('combat-cleanup-reentrant', 'Combat cleanup cannot mutate the chain during a Combat transaction');
+    }
     let changed = false;
     const active = this.engagement;
     if (active?.field !== undefined && this.refreshRoles(active.field)) changed = true;
     for (const field of this.fields) {
       if (field.id === active?.field) continue;
       const units = this.units(field.id);
-      if (this.chain.turnState.endsWith('-open') && field.controller && !units.some(unit => unit.controller === field.controller)) {
+      if (this.chain.turnState.endsWith('-open') && field.controller &&
+          !units.some(unit => unit.controller === field.controller)) {
         const old = field.controller;
         field.controller = null;
         this.emit('control-lost', field.id, old); changed = true;
       }
-      if (field.contestedBy && !units.some(unit => unit.controller === field.contestedBy)) { field.contestedBy = null; changed = true; }
+      if (field.contestedBy &&
+          !units.some(unit => unit.controller === field.contestedBy)) { field.contestedBy = null; changed = true; }
       if (!field.contestedBy) {
         const candidates = [...new Set(units.filter(unit => unit.controller !== field.controller).map(unit => unit.controller))];
         if (candidates.length > 1) throw new TurnCombatBlockedError('contested-origin', 'Multiple occupants need the committed Move/entry origin to determine Contested');
@@ -320,7 +312,9 @@ export class CombatFlow {
           this.emit('contested-applied', field.id, candidates[0]); changed = true;
         }
       }
-      const staged = !field.contestedBy ? 'none' : new Set(units.map(unit => unit.controller)).size === 2 ? 'combat' : 'showdown';
+      const controllers = new Set(units.map(unit => unit.controller));
+      if (controllers.size > 2) throw new TurnCombatBlockedError('contested-origin', 'A Battlefield cannot stage a multi-player Combat');
+      const staged = !field.contestedBy ? 'none' : controllers.size === 2 ? 'combat' : 'showdown';
       if (field.staged !== staged) { field.staged = staged; changed = true; }
     }
     return changed;
@@ -328,9 +322,15 @@ export class CombatFlow {
   /** Open staged work after Cleanup has exited, before another player command. */
   advance(): void {
     if (this.chain.items.length) return;
-    if (this.engagement?.result !== undefined && this.engagement.step !== 'control' &&
+    if (this.engagement?.result !== undefined && this.engagement.step === 'result' &&
         this.chain.turnState === 'neutral-open') {
-      this.finishCombat();
+      const damaged = this.units(this.engagement.field).some(unit => unit.damage > 0);
+      if (damaged) this.healCombatUnits();
+      else this.finishCombat();
+      return;
+    }
+    if (this.engagement?.step === 'result' && this.chain.turnState === 'neutral-open') {
+      this.resolveCombatResult();
       return;
     }
     if (this.engagement) {
@@ -340,19 +340,18 @@ export class CombatFlow {
         return;
       }
       if (this.chain.turnState.startsWith('showdown')) {
-        if (new Set(this.units(active.field).map(unit => unit.controller)).size === 2) return;
+        const field = this.fields.find(candidate => candidate.id === active.field)!;
+        const controllers = new Set(this.units(active.field).map(unit => unit.controller));
+        if (active.attacker === undefined && controllers.size === 2 &&
+            this.chain.turnState === 'showdown-open') {
+          this.convertShowdown(active.field);
+          return;
+        }
+        if (controllers.size === 2) return;
         return;
       }
       if (active.step === 'damage') {
         if (this.chain.turnState === 'neutral-open') this.finishCombat();
-        return;
-      }
-      if (active.step === 'result') {
-        if (this.chain.turnState === 'neutral-open') {
-          const damaged = this.units(active.field).some(unit => unit.damage > 0);
-          if (damaged) this.healCombatUnits();
-          else this.finishCombat();
-        }
         return;
       }
       const controllers = [...new Set(this.units(active.field).map(unit => unit.controller))];
@@ -369,7 +368,14 @@ export class CombatFlow {
     }
     if (this.chain.turnState !== 'neutral-open') return;
     const candidates = this.fields.filter(field => field.staged === 'showdown');
-    if (!candidates.length) candidates.push(...this.fields.filter(field => field.staged === 'combat'));
+    if (!candidates.length) {
+      const combat = this.fields.filter(field => field.staged === 'combat');
+      if (combat.length === 1 && this.lifecycleEnabled) {
+        this.openCombat(combat[0]!);
+        return;
+      }
+      candidates.push(...combat);
+    }
     if (!candidates.length) return;
     const id = candidates.length === 1 ? candidates[0]!.id : this.host.choose<string>({
       id: `engagement:${this.chain.pipeline.clock.turn}:${this.chain.pipeline.events.length}`,
@@ -401,7 +407,7 @@ export class CombatFlow {
   /** A Showdown may convert only while its state is open and still has no Chain items. */
   convertShowdown(fieldId: string): CombatStartResult {
     const field = this.fields.find(candidate => candidate.id === fieldId);
-    if (field === undefined || field.staged !== 'combat' || this.engagement?.field !== fieldId ||
+    if (field === undefined || this.engagement?.field !== fieldId ||
         this.engagement.step !== 'showdown' || this.chain.turnState !== 'showdown-open' || this.chain.items.length !== 0) {
       throw new TurnCombatBlockedError('showdown-conversion', 'Showdown cannot convert in the current state');
     }
@@ -412,8 +418,9 @@ export class CombatFlow {
     if (existingFocus === null) throw new TurnCombatBlockedError('combat-focus', 'Combat Showdown has no Focus holder');
     const attacker = field.contestedBy;
     if (attacker === null) throw new TurnCombatBlockedError('combat-role-state', 'Staged Combat has no Contested player');
-    const defender = [...new Set(this.units(fieldId).map(unit => unit.controller))].find(id => id !== attacker);
-    if (defender === undefined) throw new TurnCombatBlockedError('combat-role-state', 'Staged Combat has no Defender');
+    const defenders = [...new Set(this.units(fieldId).map(unit => unit.controller))].filter(id => id !== attacker);
+    if (defenders.length !== 1) throw new TurnCombatBlockedError('combat-role-state', 'Staged Combat must have exactly one Defender');
+    const defender = defenders[0]!;
     const combatId = `combat:${fieldId}:${++this.combatSequence}`;
     this.engagement = { field: fieldId, step: 'showdown', attacker, defender, combatId };
     field.staged = 'none';
@@ -456,6 +463,8 @@ export class CombatFlow {
       replacementCount: (this.chain.pipeline.checkpoint() as {
         readonly replacements?: ReadonlyMap<string, unknown>;
       }).replacements?.size ?? 0,
+      zeroDamageSourceIds: Object.freeze(this.units(active.field)
+        .filter(unit => unit.stunned).map(unit => unit.ref.id)),
     });
   }
   /** Freeze one live allocation plan after the Combat Showdown has closed. */
@@ -502,8 +511,7 @@ export class CombatFlow {
   }
   /** The Defender's legal choice completes and atomically deals both sides. */
   submitDefenderDamage(actor: PlayerId, orderedUIDAmounts: readonly DuelBaseCombatOrderedUIDAmount[]): CombatDamageResult {
-    try {
-      return this.withTransaction(() => {
+    return this.withTransaction(() => {
         const active = this.engagement;
         if (active?.step !== 'damage' || active.damage?.attacker === undefined || active.defender !== actor ||
             active.combatId === undefined) {
@@ -539,7 +547,9 @@ export class CombatFlow {
         emitCombatWave(this.chain, this,
           [{ timingPoint: 'combat-damage-before', player: active.attacker, details }], `${batchId}:before`);
         const execution = this.chain.pipeline.host.executeContract === undefined ? undefined :
-          this.chain.pipeline.host.executeContract({ type: 'batch', transactionId: batchId, actions });
+          actions.length === 0
+            ? { outcome: { status: 'done' as const, events: [] }, emissions: [] }
+            : this.chain.pipeline.host.executeContract({ type: 'batch', transactionId: batchId, actions });
         if (execution === undefined || execution.outcome.status !== 'done') {
           throw new TurnCombatBlockedError('simultaneous-damage-transaction',
             'Both combat damage allocations could not be committed atomically');
@@ -575,8 +585,7 @@ export class CombatFlow {
         this.chain.requestCleanup('combat-damage-dealt');
         return Object.freeze({ field: active.field, combatId: active.combatId, attackerPlayerId: complete.sideIDs[0],
           defenderPlayerId: complete.sideIDs[1], batchId });
-      });
-    } catch (error) { throw error; }
+    });
   }
   /** Start the 468 Resolution step after Combat Cleanup has killed lethal Units. */
   resolveCombatResult(): CombatResult {
@@ -611,7 +620,7 @@ export class CombatFlow {
     const active = this.engagement;
     if (active === null) return;
     if (active.step === 'control') return;
-    const field = this.fields.find(candidate => candidate.id === active.field)!;
+    const field = this.fields.find(candidate => candidate.id === active.field);
     if (field === undefined) throw new TurnCombatBlockedError('unknown-battlefield', 'Combat references an unknown Battlefield');
     if (active.combatId === undefined) {
       field.contestedBy = null; field.staged = 'none'; this.engagement = null;
@@ -621,13 +630,13 @@ export class CombatFlow {
     const result = active.result ?? this.resolveCombatResult();
     if (this.chain.items.length > 0) return;
     this.clearRoles();
-    const resultEvents = this.chain.pipeline.events.filter(event => event.details?.combatId === active.combatId &&
-      event.timingPoint === 'combat-result');
-    if (resultEvents.length === 1) {
+    if (active.endEmitted !== true) {
       emitCombatWave(this.chain, this,
         [{ timingPoint: 'combat-end', details: { combatId: active.combatId, battlefieldId: active.field } }],
         `${active.combatId}:end`);
+      active.endEmitted = true;
     }
+    if (this.chain.items.length > 0) return;
     if (!result.noResult && controllers.length === 1 && field.controller !== controllers[0]) {
       active.step = 'control'; active.scorer = controllers[0]!;
       this.conquer(active.scorer, field.id); active.queued = true;
