@@ -23,6 +23,11 @@ export interface PickCandidateSet {
   readonly phase: PickPhase;
 }
 
+/** A host answer captured before candidate validation. */
+export interface PickPreselection {
+  readonly selected: readonly PickValue[];
+}
+
 /** A Resolve-time non-target pick. It never creates target notifications. */
 export interface NonTargetPickPlan {
   readonly requirement: PickSpec;
@@ -81,6 +86,21 @@ function refKey(ref: ObjectRef): string {
 function valueKey(value: PickValue): string {
   if (isObjectRef(value)) return `ref:${refKey(value)}`;
   return `value:${JSON.stringify(value)}`;
+}
+
+function isObjectRefShape(value: unknown): value is ObjectRef {
+  return isRecord(value) && typeof value.id === "string" && value.id.length > 0 &&
+    typeof value.zoneEntryId === "number" && Number.isSafeInteger(value.zoneEntryId) && value.zoneEntryId >= 0;
+}
+
+/** Read only the explicit `objects` list from a named result receipt. */
+export function receiptObjectValues(value: Value | undefined): ObjectRef[] {
+  if (Array.isArray(value)) return value.filter(isObjectRefShape).map(ref => ({ id: ref.id, zoneEntryId: ref.zoneEntryId }));
+  if (isObjectRefShape(value)) return [{ id: value.id, zoneEntryId: value.zoneEntryId }];
+  if (isRecord(value) && Array.isArray(value.objects)) {
+    return value.objects.filter(isObjectRefShape).map(ref => ({ id: ref.id, zoneEntryId: ref.zoneEntryId }));
+  }
+  return [];
 }
 
 function copyValue(value: PickValue): PickValue {
@@ -176,10 +196,12 @@ function evaluateResult(context: ResolveContext, expression: PickSpec["linked"] 
     throw error;
   }
   if (value === null) throw new PickSelectionError("missing-result", `${id} linked result is unavailable`);
-  if (!Array.isArray(value)) throw new PickSelectionError("invalid-result", `${id} must link an array result`);
+  const list = Array.isArray(value) ? value :
+    isRecord(value) && Array.isArray(value.objects) ? value.objects : undefined;
+  if (list === undefined) throw new PickSelectionError("invalid-result", `${id} must link an object result or an explicit objects array`);
   const result: PickValue[] = [];
   const seen = new Set<string>();
-  for (const item of value) {
+  for (const item of list) {
     if (!isObjectRef(item) && !(typeof item === "string" && item.length > 0)) {
       throw new PickSelectionError(
         "invalid-result",
@@ -212,6 +234,12 @@ function sourceValues(context: ResolveContext, spec: PickSpec, options: PickCand
     }));
   }
   return spec.options.map(item => copyValue(item as PickValue));
+}
+
+function requestedValues(context: ResolveContext, spec: PickSpec): PickValue[] {
+  if (spec.linked !== undefined) return evaluateResult(context, spec.linked, spec.id);
+  const linkedOption = linkedPickExpression(spec);
+  return linkedOption === undefined ? [] : evaluateResult(context, linkedOption, spec.id);
 }
 
 function filteredByObjectFilter(
@@ -269,6 +297,150 @@ export function queryPickCandidates(
   if (spec.exclude !== undefined) values = subtract(values, evaluateResult(context, spec.exclude, spec.id));
   const offered = filteredByObjectFilter(context, values, spec.filter as ObjectFilter | undefined, options, invalid);
   return Object.freeze({ offered: Object.freeze(offered), invalid: Object.freeze(invalid), phase: options.phase ?? "resolve" });
+}
+
+/**
+ * Validate an answer already supplied by the authoritative host. A stale exact
+ * reference is returned unchanged so the consuming primitive can report its
+ * action-specific negated/impossible result. A reference that was never in the
+ * linked receipt, or any object outside the current filter/bounds, is rejected.
+ */
+export function validatePickPreselection(
+  context: ResolveContext,
+  spec: PickSpec,
+  candidates: PickCandidateSet,
+  preselection: PickPreselection
+): PickValue[] {
+  const hasLinkedSource = spec.linked !== undefined || linkedPickExpression(spec) !== undefined;
+  // `candidates` was already derived from the exact receipt and passed through
+  // its current object filter. Re-evaluating the receipt here loses the scope
+  // of nested producers and can accidentally widen or narrow the trusted set.
+  const requested = [...candidates.offered, ...candidates.invalid];
+  const requestedStale = candidates.invalid;
+  const requestedKeys = new Set(requested.map(valueKey));
+  const bounds = pickBounds(spec, candidates.offered.length);
+  const stale: PickValue[] = [];
+  const available = new Set(candidates.offered.map(valueKey));
+  const seen = new Set<string>();
+  const result: PickValue[] = [];
+  for (const value of preselection.selected) {
+    const key = valueKey(value);
+    if (seen.has(key) || (!requestedKeys.has(key) && !requestedStale.some(candidate => valueKey(candidate) === key))) {
+      throw new PickSelectionError("invalid-choice", `${spec.id} preselection contains an unavailable or duplicate value`);
+    }
+    seen.add(key);
+    if (available.has(key)) result.push(copyValue(value));
+    else if (isObjectRef(value) && context.object(value) === null &&
+      requestedStale.some(candidate => valueKey(candidate) === key)) stale.push(copyValue(value));
+    else throw new PickSelectionError("invalid-choice", `${spec.id} preselection failed its current filter`);
+  }
+  const expectedMin = spec.min ?? (spec.selection === "one" ? 1 : 0);
+  const expectedMax = spec.max === undefined || spec.max === null
+    ? requested.length
+    : Math.min(spec.max, Math.max(requested.length, candidates.offered.length));
+  if (result.length + stale.length < expectedMin || result.length + stale.length > expectedMax) {
+    throw new PickSelectionError("invalid-choice", `${spec.id} preselection is outside its required count`);
+  }
+  return [...result, ...stale];
+}
+
+/** Compatibility validation for a host-locked pick whose standalone producer was stripped by the caller. */
+export function validateStandalonePreselection(
+  context: ResolveContext,
+  spec: PickSpec,
+  selected: readonly PickValue[]
+): PickValue[] {
+  if (!Array.isArray(selected)) throw new PickSelectionError("invalid-choice", `${spec.id} preselection must be an array`);
+  const filter = spec.filter as ObjectFilter | undefined;
+  const matches = filter === undefined ? undefined : new Set(context.query(filter).map(object => refKey(object.ref)));
+  const seen = new Set<string>();
+  const result: PickValue[] = [];
+  for (const value of selected) {
+    const key = valueKey(value);
+    if (seen.has(key)) throw new PickSelectionError("invalid-choice", `${spec.id} preselection contains a duplicate value`);
+    if (isObjectRef(value)) {
+      const current = context.object(value);
+      if (current !== null && matches !== undefined && !matches.has(refKey(value))) {
+        throw new PickSelectionError("invalid-choice", `${spec.id} preselection failed its current filter`);
+      }
+    } else if (filter !== undefined) {
+      throw new PickSelectionError("invalid-choice", `${spec.id} object filter cannot accept a scalar preselection`);
+    }
+    seen.add(key);
+    result.push(copyValue(value));
+  }
+  if (result.length > 0 && result.every(value => isObjectRef(value) && context.object(value) === null)) {
+    // A stale locked set is an action-time impossibility for the consuming
+    // primitive, not a missing producer. Preserve its exact identities.
+    return result;
+  }
+  const min = spec.min ?? (spec.selection === "one" ? 1 : 0);
+  const max = spec.max === null || spec.max === undefined ? Number.MAX_SAFE_INTEGER : spec.max;
+  if (result.length === 0 && min === 0) return result;
+  if (result.length < min || result.length > max) {
+    throw new PickSelectionError("invalid-choice", `${spec.id} preselection is outside its required count`);
+  }
+  return result;
+}
+
+/**
+ * Validate a trusted candidate collection for a primitive that owns the
+ * subsequent choice. Unlike a final preselection, the collection is not the
+ * chosen answer, so its size is not constrained by this pick's min/max.
+ */
+export function validateDeferredStandalonePreselection(
+  context: ResolveContext,
+  spec: PickSpec,
+  selected: readonly PickValue[]
+): PickValue[] {
+  if (!Array.isArray(selected)) throw new PickSelectionError("invalid-choice", `${spec.id} deferred candidates must be an array`);
+  const filter = spec.filter as ObjectFilter | undefined;
+  const matches = filter === undefined ? undefined : new Set(context.query(filter).map(object => refKey(object.ref)));
+  const seen = new Set<string>();
+  const result: PickValue[] = [];
+  for (const value of selected) {
+    const key = valueKey(value);
+    if (seen.has(key)) throw new PickSelectionError("invalid-choice", `${spec.id} deferred candidates contain a duplicate value`);
+    if (isObjectRef(value)) {
+      const current = context.object(value);
+      if (current !== null && matches !== undefined && !matches.has(refKey(value))) {
+        throw new PickSelectionError("invalid-choice", `${spec.id} deferred candidate failed its current filter`);
+      }
+    } else if (filter !== undefined) {
+      throw new PickSelectionError("invalid-choice", `${spec.id} object filter cannot accept a scalar candidate`);
+    }
+    seen.add(key);
+    result.push(copyValue(value));
+  }
+  return result;
+}
+
+/**
+ * Validate candidates for a primitive that owns the subsequent choice. This
+ * preserves an offered collection while still enforcing its explicit linked
+ * receipt, current object filter and live incarnation.
+ */
+export function validateDeferredPickPreselection(
+  context: ResolveContext,
+  spec: PickSpec,
+  candidates: PickCandidateSet,
+  selected: readonly PickValue[]
+): PickValue[] {
+  // The candidate set already contains only values present in the exact linked
+  // receipt and still passing the current filter. Validate the host-offered
+  // collection against that computed set so nested producers are not evaluated
+  // again in the wrong scope.
+  const offeredKeys = new Set(candidates.offered.map(valueKey));
+  const seen = new Set<string>();
+  return selected.map(value => {
+    const key = valueKey(value);
+    if (seen.has(key)) throw new PickSelectionError("invalid-choice", `${spec.id} deferred candidates contain a duplicate value`);
+    seen.add(key);
+    if (!offeredKeys.has(key)) {
+      throw new PickSelectionError("invalid-choice", `${spec.id} deferred candidate was not in its filtered linked receipt`);
+    }
+    return copyValue(value);
+  });
 }
 
 function chooseObjects(
@@ -334,6 +506,23 @@ export function resolveNonTargetPick(
   options: PickCandidateOptions = {}
 ): PickResolution {
   const candidates = queryPickCandidates(context, spec, { ...options, phase: "resolve" });
+  if (options.selected !== undefined) {
+    const preselected = validatePickPreselection(context, spec, candidates, { selected: options.selected });
+    if (preselected.length > 0 && candidates.offered.length === 0) {
+      const plan: NonTargetPickPlan = Object.freeze({
+        requirement: Object.freeze({ ...spec }), offered: candidates.offered,
+        selected: Object.freeze(preselected), invalid: Object.freeze([...candidates.invalid, ...preselected]),
+        lockedAt: "resolve", retestAtResolve: true
+      });
+      return Object.freeze({ status: "resolved", plan, selected: plan.selected, invalid: plan.invalid });
+    }
+    const plan: NonTargetPickPlan = Object.freeze({
+      requirement: Object.freeze({ ...spec }), offered: candidates.offered,
+      selected: Object.freeze(preselected), invalid: candidates.invalid,
+      lockedAt: "resolve", retestAtResolve: true
+    });
+    return Object.freeze({ status: "resolved", plan, selected: plan.selected, invalid: plan.invalid });
+  }
   const bounds = pickBounds(spec, candidates.offered.length);
   if (candidates.offered.length < bounds.min) {
     const plan: NonTargetPickPlan = Object.freeze({
