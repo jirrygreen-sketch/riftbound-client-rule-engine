@@ -1,27 +1,46 @@
-import type { V2Command, V2ChooseCommand } from '../../../protocol/dist/v2/commands.js';
+import type { V2ChoiceAnswer, V2ChooseCommand, V2Command } from '../../../protocol/dist/v2/commands.js';
 import { isV2Command } from '../../../protocol/dist/v2/command-guards.js';
 import { ChoiceMemory, type ChoiceMemorySnapshot } from '../chain/finalize/choice-memory.js';
-import { AwaitChoice, type ChoiceRequest, type ObjectRef, type PlayerId } from '../effects/contract.js';
+import { AwaitChoice, type ChoiceRequest, type ObjectRef, type PlayerId, type ResolveContext } from '../effects/contract.js';
 import { executeGameCommand, type GameCommandExecution } from './commands/index.js';
-import type { Match } from './lifecycle.js';
+import type { Match, MatchHost } from './lifecycle.js';
 
-/** Match-level command adapter over the authoritative Match/Chain path. */
+/** Match-level command adapter over the real game command and Chain path. */
 export interface MatchCommandAdapterOptions {
   readonly match: Match;
-  /** Current externally owned state version. */
   readonly stateVersion: number;
+  /** An outer journal may observe only accepted commands. */
+  readonly onCommand?: (record: MatchCommandRecord, receipt: GameCommandExecution) => void;
 }
 
-export interface MatchCommandSnapshot {
-  readonly stateVersion: number;
-  readonly choiceMemory: ChoiceMemorySnapshot;
-  readonly pending: MatchPendingChoice | null;
+export interface MatchChoiceAnswer {
+  readonly choiceId: string;
+  readonly answer: V2ChoiceAnswer;
 }
 
 export interface MatchPendingChoice {
   readonly commandId: string;
   readonly playerId: PlayerId;
   readonly request: ChoiceRequest<unknown>;
+  readonly command: V2Command;
+  readonly answers: readonly MatchChoiceAnswer[];
+}
+
+export interface MatchCommandRecord {
+  readonly playerId: PlayerId;
+  readonly command: V2Command;
+}
+
+export interface MatchCommandSnapshot {
+  readonly stateVersion: number;
+  readonly choiceMemory: ChoiceMemorySnapshot;
+  readonly pending: MatchPendingChoice | null;
+  readonly records: readonly MatchCommandRecord[];
+}
+
+export interface MatchReplayResult {
+  readonly recordCount: number;
+  readonly stateVersion: number;
 }
 
 export interface MatchCommandAdapter {
@@ -29,13 +48,15 @@ export interface MatchCommandAdapter {
   readonly pendingChoice: MatchPendingChoice | null;
   execute(playerId: PlayerId, command: unknown): GameCommandExecution;
   snapshot(): MatchCommandSnapshot;
+  restore(snapshot: MatchCommandSnapshot): void;
+  replay(records: readonly MatchCommandRecord[]): MatchReplayResult;
   detach(): void;
 }
 
 export class MatchCommandError extends Error {
   readonly name = 'MatchCommandError';
   constructor(
-    readonly code: 'card-program-binding' | 'choice-cursor' | 'command-in-progress' | 'unknown-player',
+    readonly code: 'card-program-binding' | 'choice-cursor' | 'command-in-progress' | 'invalid-command' | 'unknown-player',
     message: string,
   ) { super(message); }
 }
@@ -51,7 +72,8 @@ interface ChoiceMemoryCarrier {
   readonly choiceMemory: ChoiceMemory;
 }
 
-/** The Chain owns the mode-memory ledger; this adapter snapshots its public snapshot. */
+type ContextChoice = MatchHost['context'];
+
 function chainChoiceMemory(match: Match): ChoiceMemory {
   const carrier = match.flow.chain as unknown as Partial<ChoiceMemoryCarrier>;
   if (!(carrier.choiceMemory instanceof ChoiceMemory)) {
@@ -65,28 +87,37 @@ function publicPending(pending: PendingInternal | null): MatchPendingChoice | nu
     commandId: pending.command.commandId,
     playerId: pending.playerId,
     request: structuredClone(pending.request),
+    command: structuredClone(pending.command),
+    answers: [...pending.answers].map(([choiceId, answer]) => ({
+      choiceId,
+      answer: structuredClone(answer) as V2ChoiceAnswer,
+    })),
   };
 }
 
 class MatchCommand implements MatchCommandAdapter {
   private version: number;
   private pending: PendingInternal | null = null;
-  private pendingRequest: ChoiceRequest<unknown> | null = null;
+  private cursor: ChoiceRequest<unknown> | null = null;
   private answers: Map<string, unknown> | null = null;
-  private readonly originalChoose: Match['flow']['options']['host']['choose'];
+  private readonly records: MatchCommandRecord[] = [];
+  private readonly onCommand?: MatchCommandAdapterOptions['onCommand'];
+  private readonly host: Match['flow']['chain']['pipeline']['host'];
+  private readonly chainHost: Match['flow']['chain']['pipeline']['host'];
+  private readonly originalContext: ContextChoice;
+  private originalChainContext: Match['flow']['chain']['pipeline']['host']['context'];
 
-  constructor(private readonly match: Match, stateVersion: number) {
+  constructor(private readonly match: Match, stateVersion: number, onCommand?: MatchCommandAdapterOptions['onCommand']) {
     if (!Number.isSafeInteger(stateVersion) || stateVersion < 0) throw new TypeError('stateVersion must be a non-negative integer');
     if (match.programBinding === undefined) throw new MatchCommandError('card-program-binding', 'A trusted card-program registry is required');
     this.version = stateVersion;
-    const host = match.flow.options.host;
-    this.originalChoose = host.choose;
-    host.choose = <T>(request: ChoiceRequest<T>): T => {
-      if (this.pendingRequest !== null) throw new Error('Choice cursor already holds a pending request');
-      if (this.answers?.has(request.id)) return structuredClone(this.answers.get(request.id)) as T;
-      this.pendingRequest = request as ChoiceRequest<unknown>;
-      throw new AwaitChoice(request);
-    };
+    this.onCommand = onCommand;
+    this.host = match.flow.options.host;
+    this.chainHost = match.flow.chain.pipeline.host;
+    this.originalContext = this.host.context;
+    this.originalChainContext = this.chainHost.context;
+    this.host.context = (source, controller, timingPoint) => this.context(this.originalContext, source, controller, timingPoint);
+    this.chainHost.context = (source, controller, timingPoint) => this.context(this.originalChainContext, source, controller, timingPoint);
   }
 
   get stateVersion(): number { return this.version; }
@@ -94,10 +125,12 @@ class MatchCommand implements MatchCommandAdapter {
 
   execute(playerId: PlayerId, input: unknown): GameCommandExecution {
     if (!this.match.turnOrder.includes(playerId)) throw new MatchCommandError('unknown-player', 'Unknown player');
-    if (!isV2Command(input)) throw new MatchCommandError('choice-cursor', 'Invalid protocol v2 command');
+    if (!isV2Command(input)) throw new MatchCommandError('invalid-command', 'Invalid protocol v2 command');
     if (input.stateVersion !== this.version) throw new Error(`stateVersion mismatch: expected ${this.version}, received ${input.stateVersion}`);
     if (input.type === 'choose') return this.resume(playerId, input);
-    if (this.pending !== null) throw new MatchCommandError('command-in-progress', 'A command is waiting for a choice');
+    if (this.pending !== null) {
+      throw new MatchCommandError('command-in-progress', 'A command is waiting for a choice');
+    }
     return this.run(playerId, input);
   }
 
@@ -106,30 +139,81 @@ class MatchCommand implements MatchCommandAdapter {
       stateVersion: this.version,
       choiceMemory: chainChoiceMemory(this.match).snapshot(),
       pending: this.pendingChoice,
+      records: structuredClone(this.records),
     };
   }
 
+  restore(snapshot: MatchCommandSnapshot): void {
+    if (!Number.isSafeInteger(snapshot.stateVersion) || snapshot.stateVersion < 0) throw new TypeError('Invalid command snapshot version');
+    this.version = snapshot.stateVersion;
+    chainChoiceMemory(this.match).restore(snapshot.choiceMemory);
+    this.cursor = null;
+    this.answers = null;
+    this.records.splice(0, this.records.length, ...structuredClone(snapshot.records));
+    this.pending = snapshot.pending === null ? null : {
+      command: structuredClone(snapshot.pending.command),
+      playerId: snapshot.pending.playerId,
+      request: structuredClone(snapshot.pending.request),
+      answers: new Map(snapshot.pending.answers.map(answer => [answer.choiceId, structuredClone(answer.answer)])),
+    };
+  }
+
+  replay(records: readonly MatchCommandRecord[]): MatchReplayResult {
+    for (const record of records) {
+      this.execute(record.playerId, { ...structuredClone(record.command), stateVersion: this.version });
+    }
+    return { recordCount: this.records.length, stateVersion: this.version };
+  }
+
   detach(): void {
-    this.match.flow.options.host.choose = this.originalChoose;
-    this.pendingRequest = null;
+    this.host.context = this.originalContext;
+    this.chainHost.context = this.originalChainContext;
+    this.cursor = null;
     this.answers = null;
   }
 
-  private run(playerId: PlayerId, command: V2Command): GameCommandExecution {
+  private context(base: ContextChoice, source: Parameters<ContextChoice>[0], controller: PlayerId, timingPoint: Parameters<ContextChoice>[2]): ResolveContext {
+    const context = base(source, controller, timingPoint);
+    return new Proxy(context, {
+      get: (target, key) => {
+        if (key !== 'choose') {
+          const value = Reflect.get(target, key);
+          return typeof value === 'function' ? value.bind(target) : value;
+        }
+        return <T>(request: ChoiceRequest<T>): T => {
+          if (this.cursor !== null) throw new Error('Choice cursor already holds a pending request');
+          if (this.answers?.has(request.id)) return structuredClone(this.answers.get(request.id)) as T;
+          this.cursor = request as ChoiceRequest<unknown>;
+          throw new AwaitChoice(request);
+        };
+      },
+    });
+  }
+
+  private run(playerId: PlayerId, command: V2Command, lockedAnswers?: Map<string, unknown>): GameCommandExecution {
     const binding = this.match.programBinding!;
-    this.pendingRequest = null;
-    this.answers = this.pending?.answers ?? new Map();
+    this.cursor = null;
+    this.answers = lockedAnswers ?? this.pending?.answers ?? new Map();
     try {
       const receipt = executeGameCommand({ match: this.match, stateVersion: this.version, binding }, playerId, command);
       this.version += 1;
-      this.pending = null;
+      const record = { playerId, command: structuredClone(command) };
+      this.records.push(record);
+      this.onCommand?.(structuredClone(record), receipt);
       this.answers = null;
+      if (this.pending !== null && command.type === 'choose') {
+        // A single choose may answer only the cursor it was sent for. Any
+        // further request remains represented by the resumed original command.
+        this.pending = null;
+      }
       return receipt;
     } catch (error) {
       if (error instanceof AwaitChoice) {
-        const request = this.pendingRequest ?? error.request;
-        this.pending = { command, playerId, request: request as ChoiceRequest<unknown>, answers: this.answers ?? new Map() };
-        this.pendingRequest = null;
+        const request = this.cursor ?? error.request;
+        this.pending = command.type === 'choose'
+          ? { command: this.pending?.command ?? command, playerId, request: request as ChoiceRequest<unknown>, answers: this.answers ?? new Map() }
+          : { command, playerId, request: request as ChoiceRequest<unknown>, answers: this.answers ?? new Map() };
+        this.cursor = null;
         return {
           commandId: command.commandId,
           type: command.type,
@@ -138,7 +222,7 @@ class MatchCommand implements MatchCommandAdapter {
           winnerPlayerId: this.match.result().winner,
         };
       }
-      this.pendingRequest = null;
+      this.cursor = null;
       this.answers = null;
       throw error;
     }
@@ -150,36 +234,48 @@ class MatchCommand implements MatchCommandAdapter {
     if (pending.playerId !== playerId || pending.request.chooser !== playerId || pending.request.id !== command.choiceId) {
       throw new MatchCommandError('choice-cursor', 'Choice is not owned by this player');
     }
-    if (!validAnswer(pending.request, command.answer)) throw new MatchCommandError('choice-cursor', 'Choice answer is invalid');
-    pending.answers.set(pending.request.id, structuredClone(command.answer));
+    const normalized = normalizeAnswer(pending.request, command.answer);
+    if (!normalized.found) throw new MatchCommandError('choice-cursor', 'Choice answer is invalid');
+    pending.answers.set(pending.request.id, structuredClone(normalized.value));
     this.answers = pending.answers;
     this.pending = null;
-    return this.run(playerId, pending.command);
+    return this.run(playerId, pending.command, pending.answers);
   }
 }
 
-function validAnswer(request: ChoiceRequest<unknown>, answer: unknown): boolean {
-  if (request.type === 'optional') return typeof answer === 'boolean';
-  if (request.type === 'mode') return request.options.includes(answer);
-  if (request.type === 'number') return typeof answer === 'number' && Number.isSafeInteger(answer) && answer >= request.min && answer <= request.max;
-  if (!Array.isArray(answer)) return false;
+interface NormalizedAnswer {
+  readonly found: boolean;
+  readonly value?: unknown;
+}
+
+function normalizeAnswer(request: ChoiceRequest<unknown>, answer: unknown): NormalizedAnswer {
+  if (request.type === 'optional') return typeof answer === 'boolean' ? { found: true, value: answer } : { found: false };
+  if (request.type === 'mode') return request.options.includes(answer) ? { found: true, value: answer } : { found: false };
+  if (request.type === 'number') return typeof answer === 'number' && Number.isSafeInteger(answer) && answer >= request.min && answer <= request.max
+    ? { found: true, value: answer }
+    : { found: false };
+  if (!Array.isArray(answer)) return { found: false };
   const min = request.type === 'select-objects' ? request.min : request.options.length;
   const max = request.type === 'select-objects' ? request.max : request.options.length;
-  if (answer.length < min || answer.length > max) return false;
+  if (answer.length < min || answer.length > max) return { found: false };
   const keys = new Set<string>();
+  const normalized: ObjectRef[] = [];
   for (const value of answer) {
-    if (value === null || typeof value !== 'object') return false;
-    const object = value as Partial<ObjectRef>;
-    if (typeof object.id !== 'string' || !Number.isSafeInteger(object.zoneEntryId) || Number(object.zoneEntryId) < 0) return false;
-    const key = `${object.id}:${String(object.zoneEntryId)}`;
-    if (keys.has(key)) return false;
+    if (value === null || typeof value !== 'object') return { found: false };
+    const object = value as { readonly id?: unknown; readonly objectId?: unknown; readonly zoneEntryId?: unknown };
+    const id = typeof object.id === 'string' ? object.id : object.objectId;
+    if (typeof id !== 'string' || !Number.isSafeInteger(object.zoneEntryId) || Number(object.zoneEntryId) < 0) return { found: false };
+    const key = `${id}:${String(object.zoneEntryId)}`;
+    if (keys.has(key)) return { found: false };
     keys.add(key);
+    normalized.push({ id, zoneEntryId: Number(object.zoneEntryId) });
   }
   const options = new Set(request.options.map(ref => `${ref.id}:${ref.zoneEntryId}`));
-  return [...keys].every(key => options.has(key));
+  if (![...keys].every(key => options.has(key))) return { found: false };
+  return { found: true, value: normalized };
 }
 
 export function createMatchCommandAdapter(options: MatchCommandAdapterOptions): MatchCommandAdapter {
-  return new MatchCommand(options.match, options.stateVersion);
+  return new MatchCommand(options.match, options.stateVersion, options.onCommand);
 }
 

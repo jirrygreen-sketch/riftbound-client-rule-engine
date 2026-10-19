@@ -46,6 +46,20 @@ export interface MatchPrograms {
   readonly programs: ProgramSource;
 }
 
+/** Trusted catalog data installed for each supplied CardProgram. */
+export interface MatchProgramCard {
+  readonly canonicalCardId: string;
+  readonly cardId?: string | null;
+  readonly name?: string;
+  readonly cardType?: string;
+  readonly types?: readonly string[];
+  readonly tags?: readonly string[];
+  readonly domains?: readonly string[];
+  readonly energy?: number | null;
+  readonly power?: number | readonly Domain[] | null;
+  readonly might?: number | null;
+}
+
 export type MatchRulesetVersion = 'core-1.5';
 
 export interface MatchOptions {
@@ -58,6 +72,8 @@ export interface MatchOptions {
   readonly victoryScore?: number;
   readonly battlefieldControllers?: readonly [PlayerId | null, PlayerId | null];
   readonly programs?: MatchPrograms;
+  /** Catalog projection used to reconcile the deck's printed data before setup. */
+  readonly catalog?: readonly MatchProgramCard[];
   readonly host: MatchHost;
 }
 
@@ -239,7 +255,11 @@ function objectPower(card: MatchCard): readonly Domain[] | null {
   if (Array.isArray(printedPower)) {
     const types = (card.types ?? []).map(type => type.toLowerCase());
     if (card.energy === null && types.length > 0 && types.every(type => !['unit', 'gear', 'spell'].includes(type))) return null;
-    return normalizedDomains({ ...card, domains: printedPower, power: null });
+    const domains = normalizedDomains({ ...card, domains: printedPower, power: null });
+    // JSON catalog Power is a scalar amount, while ObjectSnapshot Power is a
+    // Domain list. Preserve the printed amount by repeating the trusted Domain
+    // (or Universal Power marker) once per generic Power symbol.
+    return [...domains];
   }
   if (typeof printedPower !== 'number' || !Number.isSafeInteger(printedPower) || printedPower < 0) {
     throw new TypeError(`Match card ${card.id} has an invalid printed Power value`);
@@ -252,10 +272,22 @@ function objectPower(card: MatchCard): readonly Domain[] | null {
     // numeric payment remains with the catalog-bound printed-cost adapter.
     return ['Fury', 'Calm', 'Mind', 'Body', 'Chaos', 'Order'];
   }
-  return domains;
+  return Array.from({ length: printedPower }, () => domains).flat();
 }
 
 function tokenCard(card: MatchCard, types: readonly string[]) {
+  const normalizedTypes = types.map(type => type.trim().toLowerCase());
+  if (normalizedTypes.includes('legend') || normalizedTypes.includes('champion')) {
+    return {
+      cardId: card.canonicalCardId ?? card.cardId ?? null,
+      name: card.name ?? card.id,
+      types: [...types],
+      tags: [...(card.tags ?? [])],
+      might: null,
+      energy: null,
+      power: null,
+    };
+  }
   return {
     // The source catalog's printing id may differ from the canonical card id.
     // Programs and identity checks are keyed by the canonical id; the setup
@@ -310,6 +342,71 @@ function createDeckCards(deck: MatchDeck, player: PlayerId, zone: DeckZone, host
     // Chain and immediately moved into its shuffled starting zone (CR 114).
     execute(host, { type: 'move-zone', object: requireRef(host, id), to: destination });
   }
+}
+
+function normalizedProgramType(card: MatchProgramCard): readonly string[] | undefined {
+  const explicit = card.types?.map(type => type.trim().toLowerCase()).filter(type => type.length > 0);
+  if (explicit !== undefined && explicit.length > 0) return explicit;
+  const type = card.cardType?.trim().toLowerCase();
+  return type === undefined || type.length === 0 ? undefined : [type];
+}
+
+/**
+ * Reconcile each deck printing with trusted catalog rows before any setup
+ * token is created. A printing and canonical identity may intentionally
+ * differ; neither is guessed, and missing rows fail before state mutation.
+ */
+export function synchronizeMatchDecks(
+  decks: readonly [MatchDeck, MatchDeck],
+  catalog: readonly MatchProgramCard[],
+): readonly [MatchDeck, MatchDeck] {
+  const rows = new Map<string, readonly MatchProgramCard[]>();
+  for (const [index, card] of catalog.entries()) {
+    if (!card || typeof card.canonicalCardId !== 'string' || card.canonicalCardId.length === 0) {
+      throw new TypeError(`Match catalog row ${index} has no canonicalCardId`);
+    }
+    const existing = rows.get(card.canonicalCardId) ?? [];
+    if (!existing.some(row => JSON.stringify(row) === JSON.stringify(card))) {
+      rows.set(card.canonicalCardId, [...existing, card]);
+    }
+  }
+  const reconcile = (card: MatchCard): MatchCard => {
+    const canonicalCardId = card.canonicalCardId ?? card.cardId;
+    if (canonicalCardId === undefined || canonicalCardId === null || canonicalCardId.length === 0) return card;
+    const candidates = rows.get(canonicalCardId) ?? rows.get(card.id) ?? [];
+    if (candidates.length === 0) throw new TypeError(`Match catalog is missing ${canonicalCardId}`);
+    const byPrintingId = candidates.filter(candidate => candidate.cardId === card.id);
+    const byCatalogPrinting = candidates.filter(candidate => candidate.cardId === card.cardId);
+    const trusted = byPrintingId.length === 1
+      ? byPrintingId[0]
+      : byCatalogPrinting.length === 1
+        ? byCatalogPrinting[0]
+        : candidates.length === 1
+          ? candidates[0]
+          : undefined;
+    if (trusted === undefined) throw new TypeError(`Match catalog identity ${canonicalCardId} is ambiguous for ${card.id}`);
+    const types = normalizedProgramType(trusted) ?? card.types;
+    return {
+      ...card,
+      canonicalCardId,
+      ...(trusted.name === undefined ? {} : { name: trusted.name }),
+      ...(trusted.cardType === undefined ? {} : { cardType: trusted.cardType }),
+      ...(types === undefined ? {} : { types }),
+      ...(trusted.tags === undefined ? {} : { tags: [...trusted.tags] }),
+      ...(trusted.domains === undefined ? {} : { domains: [...trusted.domains] }),
+      ...(trusted.energy === undefined ? {} : { energy: trusted.energy }),
+      ...(trusted.power === undefined ? {} : { power: Array.isArray(trusted.power) ? [...trusted.power] as Domain[] : trusted.power }),
+      ...(trusted.might === undefined ? {} : { might: trusted.might }),
+    };
+  };
+  const deck = (value: MatchDeck): MatchDeck => ({
+    mainDeck: value.mainDeck.map(reconcile),
+    runeDeck: value.runeDeck.map(reconcile),
+    championLegend: reconcile(value.championLegend),
+    chosenChampion: reconcile(value.chosenChampion),
+    battlefields: value.battlefields.map(reconcile) as unknown as MatchDeck['battlefields'],
+  });
+  return [deck(decks[0]), deck(decks[1])];
 }
 
 function shuffleWithSeed(zone: DeckZone, player: PlayerId, host: MatchHost, random: MatchRandom): void {
@@ -392,7 +489,9 @@ export function createMatch(options: MatchOptions): Match {
   if (options.decks.length !== 2) {
     throw new TypeError('createMatch requires exactly two decks');
   }
-  const [deckA, deckB] = options.decks;
+  const [deckA, deckB] = options.catalog === undefined
+    ? options.decks
+    : synchronizeMatchDecks(options.decks, options.catalog);
   // Validation happens before setup writes any object or resource state. The
   // concrete registry then drives both direct Play commands and effect.Play.
   const programBinding = options.programs === undefined
