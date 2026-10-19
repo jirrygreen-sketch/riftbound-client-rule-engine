@@ -3,7 +3,7 @@ import type { ContractGameAction, GameAction, ObjectSnapshot } from '../effects/
 import type { PipelineEvent, TimingEmission } from '../events/pipeline-types.js';
 import { bindReplacementAbility, bindStaticAbility, createEngineStaticBinder, type ProgramStaticBinder, type StaticBindingHandle } from './statics.js';
 import { ProgramRegistry } from './registry.js';
-import { registerProgramTriggers, unregisterProgramTriggers } from './triggers.js';
+import { triggerRegistrations, unregisterProgramTriggers } from './triggers.js';
 import { expandProgram } from './keywords.js';
 
 export interface ProgramLifecycleHandle { readonly detach: () => void; }
@@ -25,6 +25,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   const bindReplacementOnChain = binder === undefined;
   const pipeline = engine.pipeline;
   const bindings = new Map<string, Binding>();
+  const playFollowers = new Set<string>();
   const pendingExits = new Map<string, ObjectSnapshot>();
   const undoStack: Undo[][] = [];
   const originalEmitBatch = pipeline.emitBatch.bind(pipeline);
@@ -36,7 +37,14 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   let detached = false;
 
   const refKey = (source: ObjectSnapshot) => `${source.ref.id}:${source.ref.zoneEntryId}`;
-  const signature = (source: ObjectSnapshot) => JSON.stringify({ owner: source.owner, controller: source.controller, zone: source.zone, location: source.location });
+  // A same-incarnation Move changes only its location. Static filters bind a
+  // live source anchor, so rebuilding the registration here would reset its
+  // sequence/timestamp and can duplicate a public aura during the transition.
+  // Trigger and rule filters also resolve their controller from the live host,
+  // so a same-incarnation control change must not rebuild a registered aura.
+  // The zone is part of the signature because it selects the trigger's active
+  // zone; incarnation is already part of the map key.
+  const signature = (source: ObjectSnapshot) => JSON.stringify({ owner: source.owner, zone: source.zone });
   const report = (error: unknown, source: ObjectSnapshot) => { onError?.(error, source); };
   const recordUndo = (undo: Undo) => { for (const stack of undoStack) stack.push(undo); };
   const transaction = <T>(run: () => T): T => {
@@ -64,7 +72,11 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   const programExists = (source: ObjectSnapshot) => registry.inspect(source.cardId) !== undefined;
   const currentForRef = (ref: ObjectSnapshot['ref']) => pipeline.host.objects().find(object => object.ref.id === ref.id && object.ref.zoneEntryId === ref.zoneEntryId) ?? null;
   const currentFor = (source: ObjectSnapshot) => currentForRef(source.ref);
-  const active = (source: ObjectSnapshot) => source.zone === 'board' || source.zone === 'chain';
+  const handFollowers = (source: ObjectSnapshot) => [...bindings.values()].filter(binding =>
+    binding.source.ref.id === source.ref.id && binding.source.zone === 'hand' &&
+    playFollowers.has(refKey(binding.source)));
+  const secretZone = (source: ObjectSnapshot) => source.zone === 'deck' || source.zone === 'rune-deck';
+  const active = (source: ObjectSnapshot) => source.zone === 'board' || source.zone === 'chain' || secretZone(source);
 
   const unregisterReplacementRegistrations = (ids: readonly string[]) => {
     if (ids.length === 0 || !ids.some(id => pipeline.hasReplacementRegistration(id))) return;
@@ -79,9 +91,10 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     if (!binding) return;
     unregisterProgramTriggers(engine, binding.triggerIds);
     for (const handle of binding.staticHandles) { try { handle.unbind(); } catch (error) { report(error, binding.source); } }
-    for (const handle of binding.replacementHandles) { try { handle.unbind(); } catch (error) { report(error, binding.source); } }
     unregisterReplacementRegistrations(binding.replacementIds);
+    for (const handle of binding.replacementHandles) { try { handle.unbind(); } catch (error) { report(error, binding.source); } }
     bindings.delete(k);
+    playFollowers.delete(k);
   };
 
   const bindingIntact = (binding: Binding): boolean => {
@@ -91,6 +104,30 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     return true;
   };
 
+  const registerTriggersIndividually = (program: ReturnType<ProgramRegistry['get']>, source: ObjectSnapshot, abilities: ReturnType<typeof expandProgram>['abilities']): readonly string[] => {
+    const ids: string[] = [];
+    for (const [index, ability] of abilities.entries()) {
+      if (ability.kind !== 'triggered') continue;
+      try {
+        // Bind each expanded trigger through the normal program adapter. A
+        // keyword skeleton with a currently unsupported filter must not erase
+        // an unrelated, executable static or replacement on the same card.
+        const isolated = new ProgramRegistry([{ ...program, status: 'executable', sourceText: '[lifecycle isolated trigger]', abilities: [ability] }]);
+        const [registration] = triggerRegistrations(isolated, source);
+        if (!registration) throw new Error('Trigger adapter returned no registration');
+        const id = `program:${source.ref.id}:${source.ref.zoneEntryId}:${index}`;
+        try { pipeline.registerTrigger({ ...registration, id }); }
+        catch (error) {
+          if (!(error instanceof Error) || error.message !== `Duplicate trigger ${id}`) throw error;
+        }
+        ids.push(id);
+      } catch (error) {
+        report(error, source);
+      }
+    }
+    return ids;
+  };
+
   const attach = (source: ObjectSnapshot, bindStatic: boolean, bindReplacement: boolean): Binding | undefined => {
     if (!programExists(source)) { detach(source); return undefined; }
     const k = refKey(source);
@@ -98,15 +135,14 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     if (existing && existing.signature === signature(source) && bindingIntact(existing)) return existing;
     if (existing) detach(existing.source);
 
-    const triggerIds: string[] = [];
+    let abilities: ReturnType<typeof expandProgram>['abilities'];
     try {
-      for (const id of registerProgramTriggers(registry, engine, source)) triggerIds.push(id);
+      abilities = expandProgram(registry.get(source.cardId), source).abilities;
     } catch (error) {
-      unregisterProgramTriggers(engine, triggerIds);
       report(error, source);
       return undefined;
     }
-    const abilities = expandProgram(registry.get(source.cardId), source).abilities;
+    const triggerIds = registerTriggersIndividually(registry.get(source.cardId), source, abilities);
     const replacementAbilities = abilities.filter((ability): ability is Extract<typeof ability, { kind: 'replacement' }> => ability.kind === 'replacement');
     const expectedReplacementIds = bindReplacementOnChain && replacementAbilities.length > 0
       ? [`replacement:${source.ref.id}:${source.ref.zoneEntryId}`]
@@ -164,31 +200,58 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       if (bindings.get(k) !== binding) return;
       unregisterProgramTriggers(engine, binding.triggerIds);
       for (const handle of binding.staticHandles) { try { handle.unbind(); } catch { /* best effort */ } }
-      for (const handle of binding.replacementHandles) { try { handle.unbind(); } catch { /* best effort */ } }
       unregisterReplacementRegistrations(binding.replacementIds);
+      for (const handle of binding.replacementHandles) { try { handle.unbind(); } catch { /* best effort */ } }
       bindings.delete(k);
     });
     return binding;
   };
 
-  const ensure = (source: ObjectSnapshot) => {
-    const k = refKey(source);
+  const ensure = (source: ObjectSnapshot, useEntryHandoff = false) => {
+    // Entry emissions can carry an older incarnation while the authoritative
+    // host already exposes the new one. `sourceFor` exists for that hand-off; it
+    // must never resolve an exact registered incarnation into a successor.
+    const current = useEntryHandoff
+      ? effectiveBinder.sourceFor?.(source) ?? currentFor(source)
+      : currentFor(source);
+    const k = refKey(current ?? source);
     const existing = bindings.get(k);
-    const current = effectiveBinder.sourceFor?.(source) ?? currentFor(source);
     if (!current || !programExists(current) || !active(current)) { if (existing) detach(existing.source); return; }
+    // A replacement admitted while the card was in Hand follows its newest
+    // incarnation by id. Replacing it with a Chain registration would lose the
+    // pre-transition admission needed to replace the later Board entry.
+    if (current.zone === 'chain' && handFollowers(current).length > 0) return;
     if (existing && existing.signature === signature(current) && bindingIntact(existing)) return;
     if (existing) detach(existing.source);
     // Replacement abilities must be admitted while a permanent is on Chain.
     // The Chain commit hook installs them before its state transition. Static
     // layers become active only once the Board entry is authoritative.
-    attach(current, current.zone === 'board', current.zone === 'board' || bindReplacementOnChain);
+    const attached = attach(current, current.zone === 'board',
+      current.zone === 'board' || (bindReplacementOnChain && (current.zone === 'chain' || secretZone(current))));
+    // The Hand registration follows the card by id only so it can intercept the
+    // Board entry move. Once the exact Board incarnation owns its registration,
+    // retire the temporary follower so later exits cannot detach the new host.
+    if (attached && current.zone === 'board') {
+      for (const follower of handFollowers(current)) detach(follower.source);
+    }
   };
 
   const queueExit = (source: ObjectSnapshot) => {
-    if (!bindings.has(refKey(source))) return;
-    const k = refKey(source);
-    pendingExits.set(k, source);
-    recordUndo(() => { if (pendingExits.get(k) === source) pendingExits.delete(k); });
+    // A Hand binder is the entry-replacement follower. It remains through
+    // Hand -> Chain -> Board; detaching it on the Hand leave would prevent the
+    // production replacement adapter from intercepting the Board move.
+    if (source.zone === 'hand') return;
+    const current = pipeline.host.objects().find(object => object.ref.id === source.ref.id) ?? null;
+    // The Chain-to-Board handoff retains its Chain trigger registration in the
+    // existing lifecycle contract. It is retired together with the Board
+    // incarnation if that host later leaves; ordinary Chain exits still detach.
+    if (source.zone === 'chain' && current?.zone === 'board') return;
+    const keep = current === null ? null : refKey(current);
+    for (const [k, binding] of bindings) {
+      if (binding.source.ref.id !== source.ref.id || k === keep) continue;
+      pendingExits.set(k, binding.source);
+      recordUndo(() => { if (pendingExits.get(k) === binding.source) pendingExits.delete(k); });
+    }
   };
   function flushExits() {
     if (depth !== 0 || !pendingExits.size) return;
@@ -200,6 +263,11 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   const syncCurrent = (source: ObjectSnapshot) => {
     const binding = bindings.get(refKey(source));
     if (!binding || !active(source) || binding.signature === signature(source)) return;
+    // A same-zone snapshot has already crossed its lifecycle entry boundary.
+    // Later timing-only emissions must not rebuild registrations merely because
+    // the mutable host snapshot no longer carries an incidental field.
+    if (binding.source.zone === source.zone) return;
+    if (source.zone === 'chain' && handFollowers(source).length > 0) return;
     detach(binding.source);
     attach(source, source.zone === 'board', source.zone === 'board' || bindReplacementOnChain);
   };
@@ -213,15 +281,28 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     if (current) syncCurrent(current);
   };
 
-  const isEntry = (event: TimingEmission) => event.timingPoint === 'object-enters-board' || event.timingPoint === 'object-enters-chain';
-  const isExit = (event: TimingEmission) => event.timingPoint === 'object-leaves-board' || event.timingPoint === 'object-killed';
+  const isEntry = (event: TimingEmission) => event.timingPoint === 'object-enters-board' || event.timingPoint === 'object-enters-chain' ||
+    event.timingPoint === 'object-enters-deck' || event.timingPoint === 'object-enters-rune-deck';
+  const isExit = (event: TimingEmission) => event.timingPoint === 'object-leaves-board' || event.timingPoint === 'object-killed' ||
+    event.timingPoint === 'object-leaves-deck' || event.timingPoint === 'object-leaves-rune-deck';
+
+  const actionLeaves = (action: GameAction | ContractGameAction): readonly (GameAction | ContractGameAction)[] =>
+    (action as { type?: string }).type === 'batch'
+      ? (action as Extract<ContractGameAction, { type: 'batch' }>).actions
+      : [action];
+  const canLeaveBoard = (action: GameAction | ContractGameAction): boolean => {
+    const leaves = actionLeaves(action);
+    if (leaves.length !== 1 || leaves[0] !== action) return leaves.some(canLeaveBoard);
+    if (['kill', 'banish', 'return-to-hand', 'discard', 'recycle'].includes(action.type)) return true;
+    return action.type === 'move-zone' && !['base', 'battlefield'].includes(action.to);
+  };
 
   const observe = (emissions: readonly TimingEmission[], run: () => readonly PipelineEvent[]) => transaction(() => {
     // A lifecycle attached after initial setup can encounter a pre-existing
     // Board source in its first real event. Resolve only the emitted objects,
     // never the entire derived host view; entries install before publication,
     // and exits retain their registration through the suspended scan wave.
-    for (const emission of emissions) if (emission.object && isEntry(emission)) ensure(emission.object);
+    for (const emission of emissions) if (emission.object && isEntry(emission)) ensure(emission.object, true);
     const events = run();
     for (const emission of emissions) if (emission.object && isExit(emission)) queueExit(emission.object);
     return events;
@@ -230,10 +311,29 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   pipeline.emitBatch = ((emissions: readonly TimingEmission[], action?: GameAction, batchId?: string) =>
     observe(emissions, () => originalEmitBatch(emissions, action, batchId))) as typeof pipeline.emitBatch;
   pipeline.commit = ((action: GameAction) => transaction(() => {
+    if (bindReplacementOnChain && action.type === 'play') {
+      const source = currentForRef(action.object);
+      if (source?.zone === 'hand' && programExists(source)) {
+        const follower = attach(source, false, true);
+        if (follower) playFollowers.add(refKey(follower.source));
+      }
+    }
     if (bindReplacementOnChain && action.type === 'move-zone' && action.to === 'chain') {
       const source = currentForRef(action.object);
-      if (source && programExists(source)) {
+      const followsFromHand = source !== null && handFollowers(source).length > 0;
+      if (source && programExists(source) && !followsFromHand) {
         attach(source, false, true);
+      }
+    }
+    if (canLeaveBoard(action)) {
+      const leaves = actionLeaves(action);
+      for (const leaf of leaves) {
+        if (!('object' in leaf)) continue;
+        const source = currentForRef(leaf.object);
+        // This pre-commit pass exists only to retain a Board source through its
+        // suspended exit wave. Chain and Secret-Zone transitions have their own
+        // entry/handoff rules and must not detach an entry follower here.
+        if (source?.zone === 'board' && programExists(source)) ensure(source);
       }
     }
     const outcome = originalCommit(action);
@@ -262,7 +362,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       // can collect its own death trigger; flushExits detaches after scanning.
       if (event.object && !isExit(event)) syncCurrent(event.object);
       originalOnEvent?.(event);
-      if (event.object && isEntry(event)) ensure(event.object);
+      if (event.object && isEntry(event)) ensure(event.object, true);
       if (event.object && isExit(event)) queueExit(event.object);
     });
   };
@@ -270,10 +370,12 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     return transaction(() => originalDeferTriggerScan(run));
   }) as typeof pipeline.deferTriggerScan;
 
-  // Do not pre-bind existing Board objects: legacy callers may deliberately
-  // install a static through the public binder, and eager lifecycle ownership
-  // would turn that supported path into a duplicate registration. Existing
-  // objects are reconciled on their next real lifecycle boundary.
+  // Main Deck and Rune Deck replacement abilities are active while their host
+  // is in those Secret Zones (CR 370.1.c.1). Bind only the replacement/trigger
+  // surface there; static layers remain restricted to Board permanents.
+  for (const source of pipeline.host.objects()) {
+    if (secretZone(source) && programExists(source)) ensure(source);
+  }
 
   return {
     detach() {
@@ -285,6 +387,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       pipeline.onEvent = originalOnEvent;
       pipeline.deferTriggerScan = originalDeferTriggerScan;
       pendingExits.clear();
+      playFollowers.clear();
       for (const binding of [...bindings.values()]) detach(binding.source);
     }
   };
