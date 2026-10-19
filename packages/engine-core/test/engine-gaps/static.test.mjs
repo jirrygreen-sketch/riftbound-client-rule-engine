@@ -258,6 +258,31 @@ test('RIFT-823 trigger rule declarations bind and unbind through the collection 
   assert.equal(f.engine.pipeline.rules.size, 0);
 });
 
+test('RIFT-823 a failed real action restores the previously bound static registry', () => {
+  const f = runtime(world().player('A').player('B')
+    .unit('sentinel', { cardId: 'card.hash-rollback-sentinel', location: at('one') }));
+  const ability = {
+    kind: 'static',
+    effect: { kind: 'continuous.trigger-multiplicity', mode: 'additional', amount: c(1), appliesTo: 'self' },
+  };
+  createEngineStaticBinder(f.engine).bindStatic(ability, f.kernel.getObject('sentinel'));
+  const before = f.kernel.stateForTest();
+  const perform = f.kernel.perform.bind(f.kernel);
+  f.kernel.perform = action => {
+    if (action.type === 'gain-xp') throw new Error('injected action failure');
+    return perform(action);
+  };
+
+  assert.throws(() => f.engine.commit({ type: 'gain-xp', player: 'A', amount: 1 }), /injected action failure/);
+  assert.deepEqual(f.kernel.stateForTest(), before);
+  assert.equal(f.engine.pipeline.events.length, 0);
+  assert.equal(f.engine.items.length, 0);
+  assert.equal(f.engine.pipeline.rules.size, 1);
+  f.kernel.perform = perform;
+  f.engine.commit({ type: 'move-location', object: f.kernel.ref('sentinel'), to: at('two') });
+  assert.equal(f.engine.pipeline.rules.size, 1);
+});
+
 test('RIFT-823 invalid appliesTo and unsupported kinds remain judge-required', () => {
   const f = runtime(world().player('A').unit('source', { cardId: 'card.hash-invalid-static' }));
   const binder = createEngineStaticBinder(f.engine);
