@@ -593,9 +593,24 @@ test("Singularity executable-view production slice: a Finalize-locked target mov
   assert.equal(harness.kernel.getObject("singularity").zone, "trash");
 });
 
-test.todo(
-  "Singularity: wrong/external actor source-ownership rejection on the default CardProgram -> ChainEngine path — showForeignPlay currently accepts a funded non-owner's play action because describePlay does not validate the source owner or actor; owner: engine-core ChainEngine/program-binding contract."
-);
+test("Singularity public Match: a non-owner cannot play the owner's hand card and the failed command is atomic", () => {
+  const harness = publicMatch();
+  const before = harness.kernel.snapshot();
+  const beforeEvents = structuredClone(harness.match.events());
+  assert.throws(
+    () => harness.send("B", {
+      type: "play",
+      commandId: "singularity-foreign-owner",
+      cardObjectId: harness.source.ref.id
+    }),
+    error => error.name === "GameCommandError" && error.code === "unavailable-object"
+  );
+  assert.deepEqual(harness.kernel.snapshot(), before);
+  assert.deepEqual(harness.match.events(), beforeEvents);
+  assert.deepEqual(harness.match.flow.chain.items, []);
+  assert.equal(harness.kernel.getObject(harness.source.ref.id).zone, "hand");
+  assert.deepEqual(harness.asked, []);
+});
 
 test("Singularity executable-view production slice: Finalize-locked target incarnations are retained through response and Resolve", () => {
   const run = runCardScenario(program, productionScenario({
@@ -616,9 +631,32 @@ test("Singularity executable-view production slice: Finalize-locked target incar
   assert.equal(run.state.chain.length, 0);
 });
 
-test.todo(
-  "Singularity: no-target default-path linkedValues receipt (dealt/dealtTo/dealtCount = 0) — ChainEngine/host currently exposes {} while the primitive completed a no-damage resolution; owner: engine-core ChainEngine scenario adapter/integration contract."
-);
+test("Singularity public Match: zero targets still pays 6 Energy + 2 Mind, resolves to Trash and deals no damage", () => {
+  const harness = publicMatch({ targets: [] });
+  playThroughPublicCommand(harness);
+  const [item] = harness.match.flow.chain.items;
+  assert.equal(item.status, "finalized");
+  assert.deepEqual(item.targetPlans[0].selected, []);
+  assert.deepEqual(item.costPlan.total, {
+    energy: 6,
+    power: [{ amount: 2, allowedDomains: ["Mind"] }],
+    xp: 0,
+    actions: []
+  });
+  assert.equal(item.payment.paid, true);
+  assert.equal(harness.kernel.player("A").energy, 2);
+  assert.deepEqual(harness.kernel.player("A").power, []);
+
+  harness.send("A", { type: "pass", commandId: "zero-public-pass-a" });
+  harness.send("B", { type: "pass", commandId: "zero-public-pass-b" });
+  assert.deepEqual(harness.match.flow.chain.items, []);
+  assert.equal(harness.kernel.getObject(harness.source.ref.id).zone, "trash");
+  for (const id of ["ally-unit", "enemy-unit", "unselected-unit", "non-unit"]) {
+    assert.equal(harness.kernel.getObject(id).damage, 0);
+  }
+  assert.equal(harness.match.events().some(event => event.timingPoint === "became-target"), false);
+  assert.equal(harness.match.events().some(event => event.timingPoint === "damage-dealt"), false);
+});
 
 test("Singularity executable-view primitive slice: a replacement can prevent the first damage action while the other locked target still receives 6", () => {
   // This reproduces the production primitive's ordered per-target transaction.
