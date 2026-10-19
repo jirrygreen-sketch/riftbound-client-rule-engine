@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../dist/index.js";
+import cruelPatron from "../../dist/cards/ogn/cruel-patron.js";
 
 const constant = value => ({ kind: "constant", value });
 const linked = (instructionId = "produce", key = "objects") => ({
@@ -91,4 +92,66 @@ test("unknown fields and runtime ObjectRefs remain rejected", () => {
   rejected([pick({ ordered: true, linked: linked(), source: "global" })], ".picks[0].source", "unknown-field");
   rejected([pick({ ordered: true, linked: { ...linked(), id: "runtime", zoneEntryId: 1 } })], ".picks[0].linked", "invalid-object-selector");
   rejected([pick({ ordered: true, linked: linked(), options: [{ id: "runtime", zoneEntryId: 1 }] })], ".picks[0].options[0]", "invalid-object-selector");
+});
+
+test("legacy cost-payment choices retain descriptive filter fields without widening instruction picks", () => {
+  const costProgram = choice => ({
+    canonicalCardId: "test.cost-choice",
+    rulesetVersion: "core-1.5",
+    status: "judge-required",
+    judgeReason: "synthetic cost-choice compatibility",
+    sourceText: "synthetic",
+    abilities: [{
+      kind: "activated",
+      timing: "action",
+      cost: {
+        kind: "activated",
+        payments: [{ kind: "exhaust", choice }]
+      },
+      body: []
+    }]
+  });
+  const legacyChoice = {
+    id: "friendly-unit",
+    options: ["friendly-unit-on-board"],
+    min: 1,
+    max: 1,
+    selection: "one",
+    zone: "board",
+    type: "unit",
+    controller: "controller",
+    mighty: true
+  };
+  assert.equal(validateCardProgram(costProgram(legacyChoice)).ok, true);
+
+  const instruction = program([{ ...pick({ options: ["friendly-unit-on-board"] }), zone: "board", type: "unit" }]);
+  const widened = validateCardProgram(instruction);
+  assert.equal(widened.ok, false);
+  assert.ok(widened.issues.some(issue => issue.code === "unknown-field" && issue.path.endsWith(".picks[0].zone")));
+  assert.ok(widened.issues.some(issue => issue.code === "unknown-field" && issue.path.endsWith(".picks[0].type")));
+});
+
+test("legacy chooser metadata remains accepted but linked Resolve sources reject descriptive extensions", () => {
+  const legacy = program([{ ...pick({ options: ["dynamic:units"] }), chooser: "call-to-battle.chosen-opponent" }]);
+  assert.equal(validateCardProgram(legacy).ok, true);
+
+  const linkedWithExtension = program([pick({ ordered: true, linked: linked(), mighty: true })]);
+  const result = validateCardProgram(linkedWithExtension);
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some(issue => issue.code === "invalid-linked-pick-extension" && issue.path.endsWith(".picks[0].mighty")));
+});
+
+test("the unmodified Cruel Patron IR retains its legacy cost-choice semantics", () => {
+  const result = validateCardProgram(cruelPatron);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.value.abilities[0].cost.payments[0].choice, {
+    id: "friendly-unit",
+    options: ["friendly-unit-on-board"],
+    min: 1,
+    max: 1,
+    selection: "one",
+    zone: "board",
+    type: "unit",
+    controller: "controller"
+  });
 });
