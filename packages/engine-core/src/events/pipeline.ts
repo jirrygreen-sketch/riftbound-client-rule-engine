@@ -1,4 +1,4 @@
-import type { ActionOutcome, GameAction, ObjectFilter, ObjectSnapshot, PlayerId, ResolveContext } from '../effects/contract.js';
+import type { ActionOutcome, ContractGameAction, GameAction, ObjectFilter, ObjectSnapshot, PlayerId, ResolveContext } from '../effects/contract.js';
 import { getTimingPoint } from './timing-points.js';
 import { matchesTriggerEvent } from './pipeline-match.js';
 import { assertTriggerSpec } from './trigger-spec.js';
@@ -105,6 +105,8 @@ export class EventPipeline {
     this.triggers.set(registration.id, structuredClone(registration));
   }
   unregisterTrigger(id: string): void { this.triggers.delete(id); }
+  /** O(1) lifecycle probe; never snapshots or exposes the mutable registry. */
+  hasTriggerRegistration(id: string): boolean { return this.triggers.has(id); }
   registerTriggerRule(rule: TriggerRule): void {
     if (!rule.id || rule.id.trim().length === 0) throw new TypeError('Trigger rule id must be non-empty');
     if (rule.mode !== 'additional' && rule.mode !== 'multiply' && rule.mode !== 'suppress') {
@@ -131,6 +133,8 @@ export class EventPipeline {
     if (this.replacements.has(registration.id)) throw new Error(`Duplicate replacement ${registration.id}`);
     this.replacements.set(registration.id, registration);
   }
+  /** O(1) lifecycle probe; never snapshots or exposes the mutable registry. */
+  hasReplacementRegistration(id: string): boolean { return this.replacements.has(id); }
   private frequencyKey(registration: TriggerRegistration, source: ObjectSnapshot, event: PipelineEvent): string | null {
     const scope = registration.spec.once;
     if (!scope) return null;
@@ -216,7 +220,7 @@ export class EventPipeline {
       finally { this.scanning = false; }
     }
   }
-  private publish(emissions: readonly TimingEmission[], action: GameAction): PipelineEvent[] {
+  private publish(emissions: readonly TimingEmission[], action?: GameAction): PipelineEvent[] {
     const groups = new Map<string, TimingEmission[]>();
     for (const emission of emissions) {
       const group = emission.simultaneousGroup ?? 'action';
@@ -240,7 +244,6 @@ export class EventPipeline {
   }
   private scan(events: readonly PipelineEvent[]): void {
     const hits: TriggerSnapshot[] = [];
-    const collected = new Map<string, number>();
     for (const event of events) {
     for (const registration of this.triggers.values()) {
       if (registration.spec.at !== event.timingPoint) continue;
@@ -270,12 +273,11 @@ export class EventPipeline {
       const context: TriggerRuleContext = { registration, source: captured, controller, event };
       const effect = this.triggerRuleEffect(context);
       if (effect.suppressed) continue;
-      const alreadyCollected = frequencyKey === null ? 0 : collected.get(frequencyKey) ?? 0;
-      const remaining = frequencyKey === null ? effect.multiplicity : Math.max(0, (frequencyLimit ?? 1) - alreadyCollected);
-      const copies = Math.min(effect.multiplicity, remaining);
-      for (let occurrence = 0; occurrence < copies; occurrence++) {
+      // Keep every frequency-matching instance in the collection wave. The
+      // controller's legal ordering chooses which instance is finalized, and
+      // consume() enforces once/maxPerScope exactly at that point.
+      for (let occurrence = 0; occurrence < effect.multiplicity; occurrence++) {
         hits.push({ registration, source: captured, controller, event, frequencyKey, frequencyLimit, occurrence, multiplicity: effect.multiplicity, batchId: event.batchId });
-        if (frequencyKey !== null) collected.set(frequencyKey, alreadyCollected + occurrence + 1);
       }
     }
     }
@@ -340,6 +342,25 @@ export class EventPipeline {
     const checkpoint = this.host.checkpoint(), own = this.checkpoint();
     try { return this.apply(action, action, new Set()); }
     catch (error) { this.host.restore(checkpoint); this.restore(own); throw error; }
+  }
+  commitContract(action: ContractGameAction): ActionOutcome {
+    const checkpoint = this.host.checkpoint(), own = this.checkpoint();
+    try {
+      if (this.host.executeContract === undefined) {
+        throw new Error('Contract action execution is unavailable');
+      }
+      const execution = this.host.executeContract(action);
+      if (execution.outcome.status !== 'done') {
+        if (execution.emissions.length) throw new Error('Unperformed contract actions cannot emit trigger timings');
+        return execution.outcome;
+      }
+      const events = this.publish(execution.emissions);
+      return { ...execution.outcome, events: [...execution.outcome.events, ...events] };
+    } catch (error) {
+      this.host.restore(checkpoint);
+      this.restore(own);
+      throw error;
+    }
   }
   private affectedPlayer(action: GameAction): PlayerId {
     const ref = 'target' in action ? action.target : 'object' in action ? action.object : undefined;
