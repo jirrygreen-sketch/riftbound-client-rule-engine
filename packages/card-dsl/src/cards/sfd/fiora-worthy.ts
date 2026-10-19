@@ -1,60 +1,121 @@
 import type { Ability, CardProgram } from "../../ir/index.js";
 
 /**
- * Fiora, Worthy (sfd-180-221, fiora-sfd M1 卡组；champion option).
+ * Fiora, Worthy (sfd-180-221 / sfd-180a-221).
  *
- * 原文："When a unit you control becomes [Mighty], you may pay
- *        :rb_rune_order: to ready it. (A unit is Mighty while it has 5+ :rb_might:.)"
+ * Official text checked 2026-10-19 against the merged manifest and the cached
+ * Core Rules v1.5 (updated 2026-10-09, effective 2026-10-16):
+ * https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+ * "When a unit you control becomes [Mighty], you may pay :rb_rune_order: to
+ * ready it. (A unit is Mighty while it has 5+ :rb_might:.)"
  *
- * 规则依据（CR v1.5）：
- * - 709："becomes Mighty" 发生在 Might 从 <5 变为 ≥5 的瞬间——对应封闭时点
- *   "might-changed"（payload 含 previousMight/currentMight，filter 的
- *   becomesMighty 由触发管线据此判定）。
- * - "a unit you control"：触发 filter { controller: "you" }（"you" 由触发管线
- *   按能力控制者解析）；触发来源是那个变成 Mighty 的单位。
- * - 费用 ":rb_rune_order:" 是一个 Order Domain 符文支付。契约 3.1 的 triggered
- *   ability 没有 cost 字段；可选费用触发按 3.2/3.6 建模为：解释器在 Finalize
- *   询问是否支付（optional: true），支付通过 GameAction "pay" 提交，随后
- *   body 用 effect.ready 重置触发来源单位（"it" = 触发来源）。
+ * The trigger is mandatory: the controller must add a legal trigger to the
+ * Chain. "You may pay" is the leading may inside the ability, so the existing
+ * authoring shape is one choice.optional whose body begins with cost.pay and
+ * ends with effect.ready. The leading-choice adapter moves the decision and
+ * cost to Finalize (CR 383.3.a / 383.3.b.1); Resolve receives only the ready
+ * instruction. No top-level TriggeredAbility.cost field is added.
  *
- * 结构说明：
- * - 费用表达为 CostSpec（payments 内一个 order-domain rune 支付），由
- *   Finalize 在触发进链时校验/收缴；该 CostSpec 通过 ability 顶层
- *   `restriction` 无法表达，因此放在 body 第一条指令的自定义
- *   `args.cost` 上并配合注释说明——实际的费用校验由解释器/费用管线按
- *   CostSpec 执行（见 golden 测试的 test.todo，依赖 RIFT-27 费用场景）。
- * - 解释器就绪后：触发 → Finalize（询问支付）→ 支付成功 → Resolve 执行
- *   effect.ready；放弃支付 → 触发不进 Resolve。
+ * ":rb_rune_order:" is one Order Power, not one Energy and not a sacrificed,
+ * exhausted or recycled Rune. "it" is the exact Unit incarnation captured by
+ * the triggering might-changed event, never Fiora merely because she owns the
+ * ability. The `event:it` selector is an ObjectSelector, so it cannot prompt
+ * the player or select another friendly Unit.
+ *
+ * CR 709 makes becoming Mighty a true transition from current Might below 5
+ * to 5 or greater. It is false for 3 -> 4, 5 -> 6 and 5 -> 4. The filter keeps
+ * that transition predicate and the friendly-unit scope. Mighty is checked
+ * when the event occurs; the printed text adds no "if it is still Mighty"
+ * Resolve condition, so this program does not invent one. There is no once cap,
+ * so a later separate 4 -> 5 transition can trigger again.
+ *
+ * status = judge-required after the 2026-10-19 production probe. The correct
+ * IR and Finalize cost translator are present, but the default Chain currently
+ * has no complete producer/consumer edge for this interaction: registering the
+ * transition filter fails closed in programs/filters.ts, real layer changes do
+ * not publish a scanned might-changed event in the default Chain, the generic
+ * pipeline does not assign a frozen event `it` to the trigger snapshot, and
+ * effect.ready's primitive schema does not yet accept the event selector. The
+ * legacy ResolveContext also cannot represent Universal Power, although CR
+ * 135.2.e.5.a / 163.2.b permits it to pay any Domain cost. Those are shared
+ * engine/pipeline responsibilities and must not be approximated by Fiora-
+ * specific settlement code or a player-selected target.
+ *
+ * Evidence URL: the card text is from the official Spiritforged catalog (the
+ * two approved printings above); the CR download and hash are recorded in
+ * docs/rule-source-manifest.json. CR 135.2.e.5.a / 163.2.b govern Universal
+ * Power; CR 383.3.a / 383.3.b.1 govern the leading may and payment timing;
+ * CR 709-711 govern the event-time Mighty transition.
  */
 const abilities: Ability[] = [
-    {
-      kind: "triggered",
-      trigger: {
-        at: "might-changed",
-        filter: {
+  {
+    kind: "triggered",
+    trigger: {
+      at: "might-changed",
+      filter: {
+        event: "might-changed",
+        object: {
           type: "unit",
-          controller: "you",
+          controller: "self",
           becomesMighty: true
         }
-      },
-      optional: true,
-      body: [
-        {
-          id: "fiora-worthy.ready-source",
-          op: "effect.ready",
-          args: {
-            objects: { kind: "constant", value: { kind: "source" } },
-            linkKey: { kind: "constant", value: "readied" }
+      }
+    },
+    // The trigger itself is mandatory; the leading choice.optional owns may.
+    optional: false,
+    body: [
+      {
+        id: "fiora-worthy.opt-in",
+        op: "choice.optional",
+        args: {
+          prompt: {
+            kind: "constant",
+            value: "Pay 1 Order Power to ready the unit that became Mighty?"
+          },
+          body: {
+            kind: "constant",
+            value: [
+              {
+                id: "fiora-worthy.pay-order",
+                op: "cost.pay",
+                args: {
+                  payments: {
+                    kind: "constant",
+                    value: {
+                      power: ["Order"]
+                    }
+                  }
+                }
+              },
+              {
+                id: "fiora-worthy.ready-event-it",
+                op: "effect.ready",
+                args: {
+                  objects: {
+                    kind: "constant",
+                    value: { event: "it" }
+                  },
+                  linkKey: { kind: "constant", value: "readied" }
+                }
+              }
+            ]
           }
         }
-      ]
-    }
-  ];
+      }
+    ]
+  }
+];
 
 const program = {
   canonicalCardId: "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
   rulesetVersion: "core-1.5" as const,
-  status: "executable" as const,
+  status: "judge-required" as const,
+  judgeReason:
+    "Fiora's official text and IR are source-backed, but the default production path is incomplete (probed 2026-10-19): " +
+    "programs/filters.ts rejects object.becomesMighty, the default Chain does not publish a scanned might-changed event after a real layer change, " +
+    "EventPipeline does not install the frozen event `it` on trigger snapshots, effect.ready does not accept `{event:'it'}`, " +
+    "and the legacy ResolveContext cannot represent Universal Power (CR 135.2.e.5.a / 163.2.b). " +
+    "Keep this card blocked until the shared trigger/event/payment owner connects those paths; no player target, Fiora source fallback, or custom resolution is permitted.",
   abilities,
   sourceText:
     "When a unit you control becomes [Mighty], you may pay :rb_rune_order: to ready it. (A unit is Mighty while it has 5+ :rb_might:.)"
