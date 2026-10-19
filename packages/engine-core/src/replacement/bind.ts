@@ -11,6 +11,8 @@ import type {
 import type { ReplacementRegistration, ReplacementResult } from "../events/pipeline-types.js";
 import { evaluateCondition } from "../effects/interpreter/condition.js";
 import { evaluateExpression } from "../effects/interpreter/expr.js";
+import { bindResolveContext } from "../events/action-adapter.js";
+import { AwaitChoice } from "../effects/contract.js";
 import { BlockedReplacementError, REPLACED_EVENT_LINK, REPLACEMENT_ACTIVE_ZONES, type ReplacementAbilityInput, type ReplacementDependencies, type ReplacementPlanInput } from "./types.js";
 import { actionMatchesEventPattern, filterMatchesSnapshot } from "./pattern.js";
 import { planReplacementBody } from "./planner.js";
@@ -82,19 +84,91 @@ export function bindReplacement(
   };
 
   const ctxFor = (snapshot: ObjectSnapshot) => host.context(snapshot, controller());
-  const environment = (snapshot: ObjectSnapshot, overrides?: { linked?: (key: string) => Value | undefined }) => ({
+  const environment = (
+    snapshot: ObjectSnapshot,
+    overrides?: { linked?: (key: string) => Value | undefined },
+    host: ObjectRef = hostRef
+  ) => ({
     context: ctxFor(snapshot),
-    host: hostRef,
+    host,
+    // Bind the affected event object as the condition's `it`. This is a
+    // read-only event role; it does not add a target or a new choice.
+    event: {
+      it: snapshot,
+      object: snapshot,
+      target: snapshot
+    },
     linked: (key: string): Value | undefined => (overrides?.linked ? overrides.linked(key) : ctxFor(snapshot).linked(key)),
     canLookBack: () => true,
     isIgnored: () => false
   });
-  const evaluateAt = (snapshot: ObjectSnapshot, overrides?: { linked?: (key: string) => Value | undefined }) =>
-    (expr: Expr): Value => evaluateExpression(expr, environment(snapshot, overrides));
-  const testCondition = (condition: Condition | undefined, snapshot: ObjectSnapshot): boolean => {
+  const evaluateAt = (
+    snapshot: ObjectSnapshot,
+    overrides?: { linked?: (key: string) => Value | undefined },
+    host?: ObjectRef
+  ) => (expr: Expr): Value => evaluateExpression(expr, environment(snapshot, overrides, host));
+  const evaluateBodyAt = (
+    snapshot: ObjectSnapshot,
+    overrides?: { linked?: (key: string) => Value | undefined },
+    replacedObject?: ObjectRef | null
+  ) => (expr: Expr): Value => {
+    if (expr.kind !== "constant" && expr.kind !== "literal") return evaluateAt(snapshot, overrides)(expr);
+    const value = evaluateAt(snapshot, overrides)(expr);
+    const visit = (entry: unknown): unknown => {
+      if (Array.isArray(entry)) return entry.map(visit);
+      if (!isRecord(entry)) return entry;
+      if (typeof entry.op === "string" && isRecord(entry.args)) {
+        return {
+          ...entry,
+          args: Object.fromEntries(Object.entries(entry.args).map(([key, argument]) => [key, visit(argument)]))
+        };
+      }
+      if ((entry.kind === "constant" || entry.kind === "literal") && "value" in entry &&
+          !(typeof entry.op === "string")) {
+        return { ...entry, value: visit(entry.value) };
+      }
+      return Object.fromEntries(Object.entries(entry).map(([key, argument]) => [key, visit(argument)]));
+    };
+    return visit(value) as Value;
+  };
+  const testCondition = (
+    condition: Condition | undefined,
+    snapshot: ObjectSnapshot,
+    host?: ObjectRef,
+    replacedObject?: ObjectRef | null
+  ): boolean => {
     if (!condition) return true;
     try {
-      return evaluateCondition(condition, environment(snapshot));
+      // The source anchor must be the exact incarnation being evaluated. For
+      // an entering object this is the chain-zone/new Board incarnation, not
+      // the registration-time ref. The host adapter can still resolve the
+      // registration source independently when needed.
+      const base = host === undefined
+        ? ctxFor(snapshot)
+        : bindResolveContext(ctxFor(snapshot), { source: snapshot });
+      const context = replacedObject === undefined || replacedObject === null
+        ? base
+        : bindResolveContext(base, {
+          eventObject: role => role === "it"
+            ? {
+              eventId: 1,
+              role: "it",
+              ref: replacedObject,
+              snapshot: lastKnownOf(replacedObject) ?? snapshot
+            }
+            : null
+        });
+      return evaluateCondition(condition, {
+        context,
+        host: host ?? hostRef,
+        ...(replacedObject === undefined || replacedObject === null ? {} : {
+          event: { it: lastKnownOf(replacedObject) ?? snapshot }
+        }),
+        linked: key => context.linked(key),
+        canLookBack: () => true,
+        isIgnored: () => false,
+        query: filter => context.query(filter)
+      });
     } catch {
       return false;
     }
@@ -116,7 +190,35 @@ export function bindReplacement(
       const state = evaluateConstant(boundSnapshot, args.state, "replacement.enter state", value =>
         value === "ready" || value === "exhausted" ? value : null
       );
-      enterDeclarations.push({ state });
+      const kind = ability.replaces.event ?? ability.replaces.type ?? ability.replaces.kind;
+      // A wrapper declaration carries its own event. A static entry ability
+      // supplies the event through `ability.replaces`; anything else is not an
+      // entry declaration and must fail closed.
+      if (kind !== undefined && kind !== "object-enters-board" && kind !== "board-entry") {
+        throw new BlockedReplacementError("replacement.enter requires an object-enters-board ability pattern");
+      }
+      const rawFilter = args.filter === undefined ? ability.replaces.filter : evaluateConstant(
+        boundSnapshot,
+        args.filter,
+        "replacement.enter filter",
+        value => isRecord(value) ? value : null
+      );
+      const appliesTo = args.appliesTo === undefined ? undefined : evaluateConstant(
+        boundSnapshot,
+        args.appliesTo,
+        "replacement.enter appliesTo",
+        value => isRecord(value) ? value : null
+      );
+      const filter = rawFilter ?? appliesTo;
+      enterDeclarations.push({
+        state,
+        ...(isRecord(filter) ? { filter } : {}),
+        ...(args.window === undefined ? {} : {
+          window: evaluateConstant(boundSnapshot, args.window, "replacement.enter window", value =>
+            value === "permanent" || value === "next-time-this-turn" ? value : null
+          )
+        })
+      });
       continue;
     }
     if (instruction.op === "replacement.event") {
@@ -125,10 +227,13 @@ export function bindReplacement(
       const pattern = evaluateConstant(boundSnapshot, args.event, "replacement.event pattern", value => (isRecord(value) ? value : null));
       let body: readonly Instruction[] = [];
       if (args.instead !== undefined) {
-        if (!Array.isArray(args.instead)) {
-          throw new BlockedReplacementError("replacement.event instead must be an instruction body");
-        }
-        body = args.instead as readonly Instruction[];
+        body = Array.isArray(args.instead)
+          ? args.instead as readonly Instruction[]
+          : evaluateConstant(boundSnapshot, args.instead, "replacement.event instead", value =>
+            Array.isArray(value) && value.every(item => isRecord(item) && typeof item.id === "string" && typeof item.op === "string")
+              ? value as readonly Instruction[]
+              : null
+          );
       }
       const optionalValue = args.optional === undefined
         ? false
@@ -139,6 +244,19 @@ export function bindReplacement(
           value === "next-time-this-turn" || value === "permanent" ? value : null
         );
       eventDeclarations.push({ pattern, body, optional: optionalValue, window: windowValue });
+      try {
+        planReplacementBody(body, { hostRef, replacedObject: null, usedWindow: false }, {
+          host,
+          controller: controller(),
+          evaluate: evaluateBodyAt(boundSnapshot)
+        });
+      } catch (error) {
+        if (!(error instanceof Error) ||
+            (!error.message.includes("replaced-event object binding") &&
+             !error.message.includes("plan-time selector binding is unavailable"))) {
+          throw error;
+        }
+      }
       continue;
     }
     // Non-wrapper instructions belong to the static replaces body; validate
@@ -148,12 +266,14 @@ export function bindReplacement(
       planReplacementBody([instruction], { hostRef, replacedObject: null, usedWindow: false }, {
         host,
         controller: controller(),
-        evaluate: evaluateAt(boundSnapshot)
+        evaluate: evaluateBodyAt(boundSnapshot)
       });
     } catch (error) {
       // The op is supported; only its plan-time binding is unavailable here.
       // Anything else (an unsupported opcode) fails bind time loudly.
-      if (!(error instanceof Error) || !error.message.includes("replaced-event object binding")) {
+      if (!(error instanceof Error) ||
+          (!error.message.includes("replaced-event object binding") &&
+           !error.message.includes("plan-time selector binding is unavailable"))) {
         throw error;
       }
     }
@@ -186,6 +306,10 @@ export function bindReplacement(
         );
         return value !== null;
       })();
+    const crossObjectStateBody = body.length === 1
+      && (body[0]!.op === "effect.ready" || body[0]!.op === "effect.exhaust")
+      && JSON.stringify((body[0]!.args as Readonly<Record<string, unknown>>).objects ??
+        (body[0]!.args as Readonly<Record<string, unknown>>).target).includes(REPLACED_EVENT_LINK);
     const declaredState = body.length === 1 && (body[0]!.op === "effect.ready" || body[0]!.op === "effect.exhaust")
       ? body[0]!.op === "effect.ready" ? "ready" : "exhausted"
       : null;
@@ -193,9 +317,25 @@ export function bindReplacement(
       const state = body[0]!.op === "effect.ready" ? "ready" : "exhausted";
       const filter = staticEvent.filter as Readonly<Record<string, unknown>> | undefined;
       enterDeclarations.push({ state, ...(filter && typeof filter === "object" ? { filter } : {}) });
-      syntheticEnter.add(staticEvent);
+      const selector = (body[0]!.args as Readonly<Record<string, unknown>>).objects ??
+        (body[0]!.args as Readonly<Record<string, unknown>>).target;
+      if (!JSON.stringify(selector).includes(REPLACED_EVENT_LINK)) syntheticEnter.add(staticEvent);
+    }
+    if (kind === "object-enters-board" && declaredState === "ready" && crossObjectStateBody) {
+      // The body is applied at the entry action itself through the normal
+      // static replacement path, not by the host-only synthetic declaration.
+      syntheticEnter.delete(staticEvent);
     }
   }
+  if (staticEvent && syntheticEnter.has(staticEvent)) {
+    // Only the host-scoped orientation form is fully consumed by the synthetic
+    // entry declaration. Cross-object entry bodies remain matchable through
+    // `staticEvent`, with `replacement.object` bound to the entering object.
+  }
+  // A static replacement whose body addresses `replacement.object` is still
+  // an ordinary event replacement. The declared event stays live for matching;
+  // the body receives the affected object at apply time. Bodies scoped to the
+  // host itself remain the entry-orientation form above.
 
   /** One-shot window state, bound to the pipeline turn at declaration time. */
   const windowFor = (declaration: EventDeclaration) => {
@@ -244,6 +384,7 @@ export function bindReplacement(
     target,
     hostRef: hostRefNow() ?? hostRef,
     controller: controller(),
+    hostSnapshot: hostSnapshot() ?? undefined,
     snapshotFor: (ref, post) => host.object(ref) ?? ((post ?? after) ? lastKnownOf(ref) : null)
   });
 
@@ -291,25 +432,49 @@ export function bindReplacement(
     if (action.type !== "move-zone") return false;
     // The chain entry-state action is the only place a permanent's entry
     // orientation is chosen (CR 805.6); the object id locates it.
-    if (action.object.id !== hostRef.id) return false;
+    const enteringHost = action.object.id === hostRef.id;
     const snapshot = host.object(action.object);
     if (!snapshot) return false;
-    if ((action.to !== "base" && action.to !== "battlefield") || snapshot.zone !== "chain") return false;
+    if (action.to !== "base" && action.to !== "battlefield") return false;
+    const directBoardEntry = !trackNewestIncarnation && snapshot.zone === "board" && action.object.zoneEntryId === hostRef.zoneEntryId;
+    if (snapshot.zone !== "chain" && !directBoardEntry) return false;
     // Entry filters describe the replaced event (CR 370.1.b): the entering
     // state the resolver already landed on the chain-zone permanent.
     if (!enterDeclarations.every(declaration => {
       if (!declaration.filter) return true;
-      return filterMatchesSnapshot(declaration.filter, snapshot, action.object, hostRefNow() ?? action.object, controller());
+      const crossObject = !enteringHost;
+      return filterMatchesSnapshot(
+        declaration.filter,
+        snapshot,
+        action.object,
+        crossObject ? hostRefNow() ?? hostRef : action.object,
+        controller(),
+        hostSnapshot() ?? undefined
+      );
     })) return false;
+    if (!testCondition(ability.condition, snapshot, action.object, action.object)) return false;
     // A host following its newest incarnation rebinds at the chain entry;
     // it then intercepts the move itself and carries the orientation.
-    return trackNewestIncarnation && action.object.zoneEntryId !== hostRef.zoneEntryId;
+    // Entry declarations also cover a host already bound from the Board (for
+    // example a token created directly there). They are tied to this binding's
+    // exact incarnation; a later re-entry cannot reuse the registration.
+    return !enteringHost
+      ? snapshot.zone === "chain"
+      : !trackNewestIncarnation
+        ? directBoardEntry
+        : action.object.zoneEntryId !== hostRef.zoneEntryId;
   };
 
+  const optionalValues = new Set(eventDeclarations.map(declaration => declaration.optional));
+  if (optionalValues.size > 1) {
+    throw new BlockedReplacementError("replacement.event optional declarations must agree within one ability");
+  }
   const registration: ReplacementRegistration = {
     id,
     source: boundSnapshot,
     activeZones: REPLACEMENT_ACTIVE_ZONES,
+    ...(ability.optional === true || optionalValues.has(true) ? { optional: true } : {}),
+    ...(ability.oncePerTurn === true ? { oncePerTurn: true } : {}),
     matches: (action: GameAction, _original: GameAction): boolean => {
       if (hostIncarnationMissing) return false;
       if (cancelled) return false;
@@ -318,19 +483,20 @@ export function bindReplacement(
       if (matchesEnterAction(action)) return true;
       const match = matchFor(action);
       if (!match) return false;
-      return testCondition(ability.condition, snapshot);
+      return testCondition(ability.condition, snapshot, undefined, match.replacedObject);
     },
     apply: (action: GameAction, _original: GameAction): ReplacementResult => {
       const snapshot = hostSnapshot();
       if (!snapshot) throw new BlockedReplacementError("Replacement host object is gone");
       if (matchesEnterAction(action)) {
         const declared = enterDeclarations[0]!.state;
-        const hostNow = hostRefNow() ?? (action as Extract<GameAction, { type: "move-zone" }>).object;
-        const stateAction: GameAction = declared === "ready" ? { type: "ready", object: hostNow } : { type: "exhaust", object: hostNow };
+        const entering = (action as Extract<GameAction, { type: "move-zone" }>).object;
+        const stateAction: GameAction = declared === "ready" ? { type: "ready", object: entering } : { type: "exhaust", object: entering };
         // Apply the declared orientation to the chain-zone permanent, then
         // let the move carry it to the Board (CR 369.3, 805.6). A same-state
         // orientation is a no-op action the state kernel accepts.
-        return { status: "replace", actions: [stateAction, action] };
+        const directBoardEntry = !trackNewestIncarnation && entering.id === hostRef.id;
+        return { status: "replace", actions: directBoardEntry ? [stateAction] : [stateAction, action] };
       }
       const match = matchFor(action);
       if (!match) throw new BlockedReplacementError("Replacement.apply called without a matching event");
@@ -341,10 +507,46 @@ export function bindReplacement(
         replacedObject: match.replacedObject,
         usedWindow: window !== null
       };
+      const checkpoint = pipeline.checkpoint?.();
+      const context = ctxFor(snapshot);
+      const eventBinding = match.replacedObject === null ? null : {
+        eventId: 1,
+        role: "it" as const,
+        ref: match.replacedObject,
+        snapshot: lastKnownOf(match.replacedObject) ?? snapshot
+      };
       const evaluate = match.declaration
-        ? evaluateAt(snapshot, { linked: key => key === REPLACED_EVENT_LINK ? match.replacedObject as unknown as Value : undefined })
-        : evaluateAt(snapshot);
-      const actions = planReplacementBody(match.body, planInput, { host, controller: controller(), evaluate });
+        ? evaluateBodyAt(snapshot, { linked: key => key === REPLACED_EVENT_LINK ? match.replacedObject as unknown as Value : undefined }, match.replacedObject)
+        : evaluateBodyAt(snapshot, undefined, match.replacedObject);
+      const planContext = bindResolveContext(context, {
+        targets: id => context.targets(id),
+        picks: id => context.picks(id),
+        ...(eventBinding === null ? {} : { eventObject: role => role === "it" ? eventBinding : null }),
+        linked: key => key === REPLACED_EVENT_LINK
+          ? match.replacedObject as unknown as Value
+          : context.linked(key)
+      });
+      let actions: readonly GameAction[];
+      try {
+        actions = planReplacementBody(match.body, planInput, {
+          host,
+          controller: controller(),
+          evaluate,
+          context: planContext
+        });
+      } catch (error) {
+        if (checkpoint !== undefined && !(error instanceof AwaitChoice)) pipeline.restore?.(checkpoint);
+        throw error;
+      }
+      const suppressesEntry = match.declaration !== null &&
+        (match.declaration.pattern.event ?? match.declaration.pattern.type ?? match.declaration.pattern.kind) === "object-enters-board" &&
+        action.type === "move-zone";
+      if (!suppressesEntry && match.body.length > 0 && actions.length === 0) {
+        if (checkpoint !== undefined) pipeline.restore?.(checkpoint);
+        throw new BlockedReplacementError(
+          "replacement body planned no action; refusing to report prevention for a non-empty alternative"
+        );
+      }
       if (window) window.used = true;
       if (match.declaration) {
         const kind = match.declaration.pattern.event ?? match.declaration.pattern.type ?? match.declaration.pattern.kind;
