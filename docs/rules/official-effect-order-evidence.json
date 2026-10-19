@@ -1759,6 +1759,15 @@
           "exitCode": 0,
           "result": "pending",
           "observed": "Test exists on RIFT-835 branch but not current HEAD."
+        },
+        {
+          "path": "/root/swarm-rift/shared/phase1-next-tasks.json",
+          "line": 722,
+          "testName": "m1_manifest_review",
+          "command": "python3 read-only phase1 m1_manifest_review",
+          "exitCode": 0,
+          "result": "blocked",
+          "observed": "accepted=false; candidate c9f768d8 reports unsupported becomesMighty translation and omitted optional Order Power."
         }
       ],
       "sourceConflictAndSupersession": [
