@@ -44,23 +44,13 @@ function removePaymentGate(instruction: Instruction, instructionId: string): Ins
   return withoutGate as Instruction;
 }
 
-function eventItForTarget(instruction: Instruction, requirement: TargetRequirement | undefined): Instruction | undefined {
-  if (requirement?.id !== 'mistfall.buffed-unit') return undefined;
-  const objects: unknown = instruction.args.objects;
-  if (!isRecord(objects) || objects.kind !== 'constant' || !isRecord(objects.value) ||
-      objects.value.kind !== 'target' || objects.value.id !== requirement.id) return undefined;
-  return {
-    ...instruction,
-    args: { ...instruction.args, objects: { kind: 'constant', value: { event: 'it' } } }
-  };
-}
-
 /**
  * Move a leading choice.optional to Finalize (CR 383.3.a). A body without a
  * leading cost keeps its effect instructions unchanged. A leading cost.pay is
- * also moved into the registration CostPlan (CR 383.3.b.1); its receipt is
- * linked under the removed instruction id and the instruction is dropped from
- * Resolve so it cannot be paid twice.
+ * also moved into the registration CostPlan (CR 383.3.b.1) and dropped from
+ * Resolve so it cannot be paid twice. A pure linkedTo gate is safe because a
+ * failed Finalize never resolves; value reads of the removed instruction fail
+ * closed because no Resolve-scope receipt exists.
  *
  * The adapter covers only the evaluated constant-array effect spelling. A
  * leading choice with any other nested operation is not a safe executable
@@ -97,17 +87,14 @@ export function adaptLeadingChoice(
   }
   if (!rest.length || rest.some(hasNestedControlBody)) return undefined;
   if (rest.some(instruction => dependsOnInstruction(instruction, first.id))) return undefined;
+  // event:it is a frozen referent, but effect.ready's primitive schema cannot
+  // consume it until the 835 chain bridge supplies the binding. Do not turn
+  // the card's target into a player-selected TargetSpec or claim success.
+  if (trigger?.at === 'buff-added' && rest.some(instruction => instruction.op === 'effect.ready')) return undefined;
   const cost = costPayArgsToCostSpec(first.args);
   if (!cost) return undefined;
   const adapted = rest.map(instruction => {
     const ungated = removePaymentGate(instruction, first.id);
-    const eventIt = trigger?.at === 'buff-added' && instruction.op === 'effect.ready'
-      ? eventItForTarget(ungated, ungated.targets?.[0] as TargetRequirement)
-      : undefined;
-    if (eventIt) {
-      const { targets: _eventItTargets, ...withoutTargets } = eventIt as Instruction & { readonly targets?: readonly TargetRequirement[] };
-      return { instruction: withoutTargets as Instruction, targets: [] };
-    }
     return hoistTargets(ungated);
   });
   return {

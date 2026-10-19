@@ -12,6 +12,7 @@ import test from 'node:test';
 
 import { fixture, settle, pendingItems, cardProgram, c } from '../rules/keywords/support.mjs';
 import { triggerRegistrations } from '../../dist/programs/triggers.js';
+import { eventItBinding } from '../../dist/programs/trigger-adapters/event-it.js';
 import kennen from '../../../card-dsl/dist/cards/ven/kennen-keeper-of-balance.js';
 import mistfall from '../../../card-dsl/dist/cards/ogn/mistfall.js';
 import monastery from '../../../card-dsl/dist/cards/ogn/monastery-of-hirana.js';
@@ -270,19 +271,40 @@ test('EG-TRIGGERS: pure payment gate removes only linkedTo, not a receipt read',
   assert.deepEqual(f.kernel.player('A').power, []);
 });
 
-test('EG-TRIGGERS: Mistfall ready target is emitted as a frozen event-it referent', () => {
+test('EG-TRIGGERS: Mistfall event-it ready fails closed until the 835 bridge', () => {
   const program = withAbility(mistfall, triggered(mistfall)[0]);
   const f = fixture({
     programs: [program],
     setup(builder) { builder.unit('mistfall', { cardId: program.canonicalCardId, location: field('one') }); }
   });
-  const [registration] = triggerRegistrations(f.binding.registry, f.get('mistfall'));
-  assert.equal(registration.targets, undefined);
-  assert.deepEqual(registration.body[0].args.objects, {
-    kind: 'constant',
-    value: { event: 'it' }
-  });
+  assert.throws(
+    () => triggerRegistrations(f.binding.registry, f.get('mistfall')),
+    error => error?.code === 'judge-required'
+  );
   assert.equal(mistfall.status, 'judge-required');
+});
+
+test('EG-TRIGGERS: event-it binding freezes eventId, ref, and snapshot for 835', () => {
+  const f = fixture({
+    setup(builder) { builder.unit('buffed', { owner: 'A', exhausted: true, location: field('one') }); }
+  });
+  const snapshot = f.get('buffed');
+  const binding = eventItBinding({
+    eventId: 41,
+    timingPoint: 'buff-added',
+    object: snapshot
+  });
+  assert.ok(binding);
+  assert.equal(binding.eventId, 41);
+  assert.equal(binding.role, 'it');
+  assert.deepEqual(binding.ref, snapshot.ref);
+  assert.equal(binding.snapshot.exhausted, true);
+  assert.equal(Object.isFrozen(binding), true);
+  assert.equal(Object.isFrozen(binding.ref), true);
+  assert.equal(Object.isFrozen(binding.snapshot), true);
+  assert.equal(Object.isFrozen(binding.snapshot.ref), true);
+  assert.equal(Object.isFrozen(binding.snapshot.printed), true);
+  assert.equal(eventItBinding({ eventId: 42, timingPoint: 'turn-end' }), null);
 });
 
 test('EG-TRIGGERS: mid-payment failure rolls back Energy and Power', () => {

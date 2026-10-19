@@ -144,4 +144,5 @@ test("EG-HARNESS production scenario fails closed when Baccai Reaper's Fury Powe
   const result = runCardScenario(executableBaccaiReaper, baccaiScenario([], true));
   assert.deepEqual(result.state.players.A.power, []);
   assert.equal(result.links["baccai-reaper.grant-assault.granted.count"], undefined);
+  assert.equal(result.events.some(event => event.timingPoint === "chain-item-finalize"), false);
 });
