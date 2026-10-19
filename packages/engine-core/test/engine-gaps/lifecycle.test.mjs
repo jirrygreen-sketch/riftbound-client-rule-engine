@@ -8,6 +8,8 @@ import { ChainEngine } from '../../dist/chain/engine.js';
 import { createProgramBinding } from '../../dist/programs/index.js';
 import ekkoRecurrent from '../../../card-dsl/dist/cards/ogn/ekko-recurrent.js';
 import ironBallista from '../../../card-dsl/dist/cards/ogn/iron-ballista.js';
+import rumbleHotheaded from '../../../card-dsl/dist/cards/sfd/rumble-hotheaded.js';
+import unsungHero from '../../../card-dsl/dist/cards/sfd/unsung-hero.js';
 import treasureTrove from '../../../card-dsl/dist/cards/ogn/treasure-trove.js';
 import undertitan from '../../../card-dsl/dist/cards/sfd/undertitan.js';
 import undercoverAgent from '../../../card-dsl/dist/cards/ogn/undercover-agent.js';
@@ -21,7 +23,7 @@ const card = (id, abilities) => ({
   canonicalCardId: id, rulesetVersion: 'core-1.5', status: 'executable', sourceText: id, abilities,
 });
 
-function runtime(builder, programs = [], chooseOverride) {
+function runtime(builder, programs = [], chooseOverride, errorHandler) {
   const kernel = builder.build();
   const asked = [];
   const choose = request => {
@@ -51,7 +53,10 @@ function runtime(builder, programs = [], chooseOverride) {
     describePlay: binding.describePlay,
   });
   const errors = [];
-  const lifecycle = binding.attachLifecycle(engine, error => errors.push(error));
+  const lifecycle = binding.attachLifecycle(engine, error => {
+    errors.push(error);
+    errorHandler?.(error);
+  });
   const enter = id => {
     const object = kernel.getObject(id);
     if (object.zone === 'hand') assert.equal(engine.commit({ type: 'move-zone', object: kernel.ref(id), to: 'chain' }).status, 'done');
@@ -194,18 +199,24 @@ test('a replaced Kill never collects its Deathknell trigger and leaves the origi
   f.lifecycle.detach();
 });
 
-test('Main Deck and Rune Deck Secret Zones bind active replacements and release each old incarnation', () => {
+test('Secret Zones evaluate only replacement abilities active for that zone', () => {
   const f = runtime(world().player('A').player('B')
-    .deck('deck-card', { cardId: ironBallista.canonicalCardId, types: ['unit'] })
-    .rune('rune-card', { cardId: ironBallista.canonicalCardId }), [ironBallista]);
-  const deckRef = f.kernel.ref('deck-card');
-  assert.equal(f.engine.pipeline.hasReplacementRegistration(`replacement:deck-card:${deckRef.zoneEntryId}`), true);
-  const runeRef = f.kernel.ref('rune-card');
-  assert.equal(f.engine.pipeline.hasReplacementRegistration(`replacement:rune-card:${runeRef.zoneEntryId}`), true);
-  assert.equal(f.engine.commit({ type: 'channel-rune', player: 'A', amount: 1 }).status, 'done');
-  assert.equal(f.kernel.getObject('rune-card').zone, 'rune-zone');
-  assert.equal(f.engine.pipeline.hasReplacementRegistration(`replacement:rune-card:${runeRef.zoneEntryId}`), false);
-  assert.equal(f.engine.pipeline.checkpoint().replacements.size, 1, 'the unaffected Main Deck registration remains');
+    .deck('hidden', { cardId: undertitan.canonicalCardId, types: ['unit'] })
+    .deck('inactive', { cardId: rumbleHotheaded.canonicalCardId, types: ['unit'] })
+    .rune('not-secret-relevant', { cardId: ironBallista.canonicalCardId }),
+  [admitted(undertitan), rumbleHotheaded, ironBallista]);
+  const hiddenRef = f.kernel.ref('hidden');
+  assert.equal(f.engine.pipeline.hasReplacementRegistration(`replacement:hidden:${hiddenRef.zoneEntryId}`), true,
+    'the deck-hosted card-revealed replacement is active');
+  assert.equal(f.engine.pipeline.checkpoint().replacements.size, 1,
+    'non-reveal and inactive-zone abilities are not expanded');
+  assert.equal(f.engine.pipeline.checkpoint().triggers.size, 0,
+    'inactive Secret-Zone triggers are not registered');
+  assert.equal(f.engine.layers.registry.list().length, 0,
+    'inactive Secret-Zone statics are not installed');
+  assert.equal(f.errors.length, 0, 'unrelated judge-required abilities do not fail Secret-Zone initialization');
+  assert.equal(undertitan.status, 'judge-required');
+  assert.equal(rumbleHotheaded.status, 'judge-required');
   f.lifecycle.detach();
   assert.equal(f.engine.pipeline.checkpoint().replacements.size, 0);
 });
@@ -220,6 +231,57 @@ test('a Main Deck replacement built from original IR replaces a real reveal acti
   assert.equal(f.engine.commit({ type: 'reveal', object: reveal.ref, players: ['A'] }).status, 'replaced');
   assert.equal(f.kernel.player('A').energy, 2, 'the original replacement body adds Energy');
   assert.equal(f.kernel.getObject('hidden').zone, 'deck');
+  f.lifecycle.detach();
+});
+
+test('Rune Deck replacement matching uses the active zone and leaves unrelated programs untouched', () => {
+  const sourceProgram = admitted(undertitan);
+  const f = runtime(world().player('A').player('B')
+    .rune('rune-hidden', { cardId: sourceProgram.canonicalCardId }), [sourceProgram]);
+  const rune = f.kernel.getObject('rune-hidden');
+  assert.equal(f.engine.pipeline.hasReplacementRegistration(`replacement:rune-hidden:${rune.ref.zoneEntryId}`), false,
+    'a Main Deck reveal replacement is inactive in Rune Deck');
+  assert.equal(f.engine.pipeline.checkpoint().replacements.size, 0);
+  assert.equal(f.errors.length, 0);
+  f.lifecycle.detach();
+});
+
+test('a registered judge-required Board program blocks through the real lifecycle hook', () => {
+  for (const [id, cardId, pattern] of [
+    ['judge', rumbleHotheaded.canonicalCardId, /四(?:处|个)当前缺口/],
+  ]) {
+    const f = runtime(world().player('A').player('B').unit(id, { cardId, types: ['unit'] }), [rumbleHotheaded],
+      undefined, error => { throw error; });
+    const ref = f.kernel.ref(id);
+    const events = f.engine.pipeline.events.length;
+    assert.throws(() => f.engine.commit({ type: 'kill', object: ref }), pattern);
+    assert.deepEqual(f.kernel.ref(id), ref, 'the blocked source keeps its exact incarnation');
+    assert.equal(f.kernel.getObject(id).zone, 'board');
+    assert.equal(f.engine.items.length, 0);
+    assert.equal(f.engine.pipeline.events.length, events);
+    f.lifecycle.detach();
+  }
+});
+
+test('a neutral Board source with no registered program stays a valid lifecycle no-op', () => {
+  const f = runtime(world().player('A').player('B').unit('neutral', {
+    cardId: 'synthetic:neutral', types: ['unit'], might: 2,
+  }));
+  const ref = f.kernel.ref('neutral');
+  assert.equal(f.engine.commit({ type: 'kill', object: ref }).status, 'done');
+  assert.equal(f.kernel.getObject('neutral').zone, 'trash');
+  assert.equal(f.engine.items.length, 0);
+  assert.equal(f.errors.length, 0);
+  f.lifecycle.detach();
+});
+
+test('a supported executable trigger in an active zone remains registered', () => {
+  const f = runtime(world().player('A').player('B')
+    .hand('hero', { cardId: unsungHero.canonicalCardId, types: ['unit'] }), [unsungHero]);
+  assert.equal(f.enter('hero').status, 'done');
+  const ref = f.kernel.ref('hero');
+  assert.equal(f.engine.pipeline.hasTriggerRegistration(`program:hero:${ref.zoneEntryId}:1`), true);
+  assert.equal(f.errors.length, 0);
   f.lifecycle.detach();
 });
 
