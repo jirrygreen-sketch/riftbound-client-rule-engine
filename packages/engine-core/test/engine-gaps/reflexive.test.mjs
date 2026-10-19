@@ -155,6 +155,7 @@ test("an invalid Reflexive target choice rolls back the whole Finalize", () => {
   );
   assert.equal(f.engine.items.length, 1);
   assert.equal(f.engine.items[0]?.status, "pending");
+  assert.equal(f.asked.length, 1);
   assert.equal(f.engine.trace.some(entry => entry.step === "finalized" && entry.item?.startsWith("reflexive:")), false);
   assert.equal(f.snapshot("friend").might, 2);
 });
@@ -233,6 +234,52 @@ test("multiple Reflexive items are created in order with distinct replay identit
     [...f.engine.trace.filter(entry => entry.step === "pending" && entry.item?.startsWith("reflexive:")).map(entry => entry.item)].sort(),
     [...ids].sort(),
   );
+});
+
+test("the creation snapshot keeps its controller after the source changes control", () => {
+  const f = relicFixture();
+  f.engine.emit({ timingPoint: "beginning-start", player: "A" });
+  f.engine.advance();
+  f.engine.pass("A");
+  f.engine.pass("B");
+  const [reflexive] = f.engine.items;
+  const snapshot = f.runtime.snapshots[0];
+  assert.equal(snapshot?.controller, "A");
+  assert.equal(reflexive?.controller, "A");
+  assert.equal(reflexive?.status, "finalized");
+
+  assert.equal(f.engine.commit({ type: "take-control", object: f.kernel.ref("relic"), player: "B" }).status, "done");
+  assert.equal(f.snapshot("relic").controller, "B");
+  assert.equal(f.engine.items[0]?.controller, "A");
+  assert.equal(f.runtime.snapshots[0]?.controller, "A");
+  assert.equal(f.runtime.snapshots[0]?.source.controller, "A");
+  f.engine.advance();
+  finishChain(f);
+  assert.equal(f.snapshot("friend").might, 5);
+});
+
+test("a repeated Reflexive execution gets a distinct deterministic identity", () => {
+  const idsFor = () => {
+    const f = relicFixture({ deck: ["one", "two"], burnedTypes: ["unit"] });
+    const source = f.kernel.getObject("relic");
+    const burn = forgottenRelic.abilities[1].body[0];
+    const reflexive = forgottenRelic.abilities[1].body[1];
+    f.engine.execute({
+      id: "same-reflexive-wave",
+      controller: "A",
+      source,
+      kind: "triggered",
+      body: [burn, reflexive, { ...burn, id: "forgotten-relic.second-burn" }, {
+        ...reflexive,
+        id: "forgotten-relic.second-reflexive",
+      }],
+    });
+    f.engine.advance();
+    f.engine.pass("A");
+    f.engine.pass("B");
+    return f.engine.items.map(item => item.id);
+  };
+  assert.deepEqual(idsFor(), idsFor());
 });
 
 test("a rejected originating Burn creates no Reflexive item", () => {
