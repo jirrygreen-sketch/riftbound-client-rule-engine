@@ -27,6 +27,25 @@ export function matchesTriggerObject(filter: ObjectFilter, object: ObjectSnapsho
   if (filter.characteristics && !Object.entries(filter.characteristics).every(([key, value]) => (object as unknown as Record<string, unknown>)[key] === value)) return false;
   return true;
 }
+/**
+ * CR 709 / 710: "becomes Mighty" is the typed transition from below five to
+ * five or greater. This is not the static predicate currentMight >= 5. Both
+ * snapshots must describe the same live incarnation, and missing Might or an
+ * unknown matcher value fails closed.
+ */
+export function matchesMightyTransition(
+  matcher: unknown,
+  previous: ObjectSnapshot | undefined,
+  current: ObjectSnapshot | undefined,
+): boolean {
+  if (matcher !== true || previous === undefined || current === undefined) return false;
+  if (previous.ref.id !== current.ref.id || previous.ref.zoneEntryId !== current.ref.zoneEntryId) return false;
+  if (previous.zone !== 'board' || current.zone !== 'board') return false;
+  if (previous.types.includes('unit') === false || current.types.includes('unit') === false) return false;
+  if (previous.controller !== current.controller) return false;
+  if (previous.might === null || current.might === null) return false;
+  return previous.might < 5 && current.might >= 5;
+}
 export function matchesTriggerEvent(filter: ObjectFilter | EventPattern, event: PipelineEvent, controller: string): boolean {
   // `it` is part of the card IR contract and is preserved on the runtime event
   // even before the shared trigger-spec declaration exposes its typed field.
@@ -38,6 +57,13 @@ export function matchesTriggerEvent(filter: ObjectFilter | EventPattern, event: 
   if (kind !== undefined && (EVENT_NAMES[kind] ?? kind) !== (EVENT_NAMES[actual] ?? actual)) return false;
   for (const key of ['object', 'source', 'target'] as const) if (pattern[key] && !matchesTriggerObject(pattern[key], event[key], controller)) return false;
   if (pattern.it && (!event.it || !matchesTriggerObject(pattern.it, event.it, controller))) return false;
+  const becomesMighty = (pattern.object as (ObjectFilter & { readonly becomesMighty?: unknown }) | undefined)?.becomesMighty;
+  if (becomesMighty !== undefined) {
+    const before = (event.details as { readonly before?: ObjectSnapshot } | undefined)?.before;
+    const after = (event.details as { readonly after?: ObjectSnapshot } | undefined)?.after;
+    if (!matchesMightyTransition(becomesMighty, before, after)) return false;
+    if (!event.it || event.it.ref.id !== after!.ref.id || event.it.ref.zoneEntryId !== after!.ref.zoneEntryId) return false;
+  }
   if (!playerMatches(pattern.player, event.player, controller)) return false;
   if (pattern.fromZone !== undefined && pattern.fromZone !== event.fromZone || pattern.toZone !== undefined && pattern.toZone !== event.toZone) return false;
   if (pattern.amount !== undefined) {
