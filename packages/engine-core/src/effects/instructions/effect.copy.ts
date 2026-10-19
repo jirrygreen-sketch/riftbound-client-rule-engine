@@ -19,14 +19,16 @@
  * are never derived from the current snapshot or coerced from null to zero.
  *
  * Existing-object copies belong to the copy layer (446.1-2, 479.1.a-d), before
- * trait/ability/arithmetic effects. effect mode reserves onto and duration
- * expressions, but remains blocked: the contract cannot express an attachment
- * lifetime or freeze all copyable text/traits and exceptions independently of
- * the original object's later zone identity. It must not create a new object
- * instead. play mode also remains blocked: Copy has no Chain destination, so
- * Copy-to-Board followed by Play would introduce an incorrect Board entry
- * (185.2.a, 440.2.c). effect.token owns ordinary token definitions; effect.play
- * owns existing playable objects. Neither is a substitute for these paths.
+ * trait/ability/arithmetic effects. effect mode registers one permanent (or
+ * explicitly bounded) copy-layer effect per source/recipient pair and never
+ * creates an object. Its filter includes the recipient's zone-entry identity,
+ * so a later incarnation does not inherit the old effect. Attachment-bound
+ * lifetimes and copyable text/exceptions remain blocked because the contract
+ * cannot freeze them independently of the original object's later identity.
+ * play mode also remains blocked: Copy has no Chain destination, so Copy-to-
+ * Board followed by Play would introduce an incorrect Board entry (185.2.a,
+ * 440.2.c). effect.token owns ordinary token definitions; effect.play owns
+ * existing playable objects. Neither is a substitute for these paths.
  * Unknown copy exceptions are rejected by the schema, never silently ignored.
  *
  * linkKey defaults to copied. Its receipt records the actual done action
@@ -38,9 +40,15 @@
  * P0 3.6 rules 1-3). Unsupported modes link a blockedReason and are negated.
  */
 import type {
-  Expr, GameEvent, InstructionDef, InstructionResult, LocationRef, ObjectRef,
-  ResolveContext, Value
+  Duration, Expr, GameEvent, InstructionDef, InstructionResult, LocationRef,
+  ObjectRef, ResolveContext, Value
 } from "../contract.js";
+import {
+  buildCopyEffectRegistration,
+  copyEffectReceipt,
+  pairCopySources,
+  sameCopyRef,
+} from "../copy/effect.js";
 
 export interface CopyArgs {
   readonly source: Expr;
@@ -120,19 +128,49 @@ function sameRef(left: ObjectRef, right: ObjectRef): boolean {
   return left.id === right.id && left.zoneEntryId === right.zoneEntryId;
 }
 
+function refsFromLinkedValue(value: unknown): ObjectRef[] {
+  if (isRef(value)) return [{ ...value }];
+  if (Array.isArray(value)) return value.flatMap(refsFromLinkedValue);
+  if (!isRecord(value)) return [];
+  return Object.values(value).flatMap(refsFromLinkedValue);
+}
+
+function linkedRefs(ctx: ResolveContext, key: string): unknown[] {
+  const direct = ctx.linked(key);
+  if (direct !== undefined) return [direct];
+  // The interpreter can resolve an instruction id to that instruction's
+  // named result bindings even though ctx.linked() itself only exposes keys.
+  const receipt = ctx.evaluate({ kind: "linked", instructionId: key });
+  return receipt === null ? [] : [receipt];
+}
+
 function currentRefs(ctx: ResolveContext, selector: Selector): ObjectRef[] {
   const values = typeof selector === "string" ? [ctx.source.ref] :
     "target" in selector ? ctx.targets(selector.target) :
-      "pick" in selector ? ctx.picks(selector.pick) : ctx.linked(selector.linked);
+      "pick" in selector ? ctx.picks(selector.pick) : linkedRefs(ctx, selector.linked);
   const refs: ObjectRef[] = [];
-  for (const value of Array.isArray(values) ? values : [values]) {
-    if (isRef(value) && ctx.object(value) !== null && !refs.some(ref => sameRef(ref, value))) refs.push(value);
+  for (const value of values) {
+    for (const ref of refsFromLinkedValue(value)) {
+      if (ctx.object(ref) !== null && !refs.some(current => sameRef(current, ref))) refs.push(ref);
+    }
   }
   return refs;
 }
 
 function isLocation(value: unknown): value is LocationRef {
   return isRecord(value) && (value.type === "base" && isId(value.player) || value.type === "battlefield" && isId(value.id));
+}
+
+function copyDuration(value: unknown, source: ObjectRef): Duration | null {
+  if (value === "permanent") return { type: "permanent" };
+  if (value === "this-turn" || value === "end-of-turn") return { type: "end-of-turn" };
+  if (value === "this-combat" || value === "end-of-combat") return { type: "end-of-combat" };
+  if (value === "while-source-in-zone") return { type: "while-source-in-zone", source };
+  if (isRecord(value) && value.type === "until" && isId(value.at) &&
+      (value.player === undefined || isId(value.player))) {
+    return { type: "until", at: value.at as never, ...(value.player === undefined ? {} : { player: value.player }) };
+  }
+  return null;
 }
 
 export default {
@@ -187,7 +225,58 @@ export default {
       return { status: "negated", reason: "impossible", events };
     };
 
-    if (mode === "effect") return negate("copy-layer-traits-exceptions-and-attachment-duration-unavailable");
+    if (mode === "effect") {
+      if (args.amount !== undefined) throw new TypeError("effect.copy amount is available only for object creation");
+      if (args.onto === undefined) throw new TypeError("effect.copy effect mode requires onto");
+      const onto = ctx.evaluate(args.onto);
+      if (!isSelector(onto)) throw new TypeError("effect.copy onto must be a symbolic ObjectSelector");
+      const rawDuration = args.duration === undefined ? "permanent" : ctx.evaluate(args.duration);
+      const duration = copyDuration(rawDuration, ctx.source.ref);
+      if (duration === null) return negate("copy-layer-attachment-duration-unavailable");
+      if (sources.length === 0) return negate("copy-layer-source-recipient-pairs-unavailable");
+      let recipients = currentRefs(ctx, onto);
+      if (choiceId !== undefined) {
+        sources.sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : left.zoneEntryId - right.zoneEntryId);
+        const answer = ctx.choose<readonly ObjectRef[]>({
+          id: choiceId, type: "select-objects", chooser: ctx.controller, visibility: "public",
+          options: sources, min: 1, max: 1
+        });
+        if (!Array.isArray(answer) || answer.length !== 1 || !isRef(answer[0]) ||
+            !sources.some(ref => sameRef(ref, answer[0]!))) throw new TypeError("Invalid effect.copy choice answer");
+        sources = [answer[0]!];
+      }
+      if (recipients.length === 0) return negate();
+      recipients = recipients.filter(ref => ctx.object(ref)?.zone === "board");
+      if (recipients.length === 0) return negate("copy-effect-recipient-must-be-a-board-object");
+      const sourceObjects = sources.flatMap(ref => {
+        const snapshot = ctx.object(ref);
+        return snapshot === null ? [] : [snapshot];
+      });
+      const recipientObjects = recipients.flatMap(ref => {
+        const snapshot = ctx.object(ref);
+        return snapshot === null ? [] : [snapshot];
+      });
+      const pairs = pairCopySources(sourceObjects, recipientObjects)
+        .filter(pair => !sameCopyRef(pair.source.ref, pair.recipient.ref));
+      if (pairs.length === 0) return negate("copy-layer-source-recipient-pairs-unavailable");
+      const registrations = pairs.map((pair, index) => buildCopyEffectRegistration(
+        ctx.source.ref,
+        pair,
+        duration,
+        key => ctx.linked(key),
+        (key, value) => ctx.link(key, value),
+        index,
+      ));
+      for (const registration of registrations) ctx.addContinuous(registration.effect, registration.duration);
+      const value = copyEffectReceipt(pairs, duration);
+      const linkedValues: Record<string, Value> = {
+        [linkKey]: value as unknown as Value,
+        [linkKey + ".amount"]: pairs.length,
+        [linkKey + ".objects"]: pairs.map(pair => ({ ...pair.recipient.ref })),
+      };
+      for (const [key, linked] of Object.entries(linkedValues)) ctx.link(key, linked);
+      return { status: "executed", events, linkedValues };
+    }
     if (args.onto !== undefined || args.duration !== undefined) return negate("copy-create-cannot-transform-an-existing-object");
     if (mode === "play") return negate("copy-action-cannot-create-a-pending-chain-object");
     const location = args.location === undefined ? null : ctx.evaluate(args.location);
