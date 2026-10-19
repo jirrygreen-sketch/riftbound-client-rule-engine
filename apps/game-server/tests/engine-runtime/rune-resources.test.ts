@@ -266,10 +266,12 @@ describe("RIFT-861 real MatchRuntime Basic Rune resources", () => {
     // Rune Deck order and identities are intentionally never projected, even
     // to the owner. The receipt names the recycled incarnation and the public
     // pool transition proves the same operation did not add Energy.
-    expect(result.receipt.result).toMatchObject({
-      runeAfter: orderRune!.objectId.startsWith("token:")
-        ? { id: orderRune!.objectId, zoneEntryId: orderRune!.zoneEntryId! + 1 }
-        : {},
+    const receiptResult = result.receipt.result as {
+      readonly runeAfter: { readonly id: string; readonly zoneEntryId: number };
+    };
+    expect(receiptResult.runeAfter).toEqual({
+      id: orderRune!.objectId,
+      zoneEntryId: orderRune!.zoneEntryId! + 1,
     });
     expect(result.projection.zones.find(zone => zone.zone === "rune-deck" && zone.ownerPlayerId === "B"))
       .toMatchObject({ count: runeDeckBefore + 1 });
