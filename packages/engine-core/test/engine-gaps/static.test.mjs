@@ -9,6 +9,8 @@ import { world } from '../../dist/effects/testing/index.js';
 import { additionalMightReductions, bonusDamageForDeal, lethalThresholdFor } from '../../dist/effects/modifiers/query.js';
 import { movement, playLocations, restrictions } from '../../dist/layers/rules/query.js';
 import { matchesObjectFilter } from '../../dist/layers/filter.js';
+import { createDuelBoard, placeDuelUnit, selectDuelBattlefields } from '../../dist/duel/battlefields.js';
+import { moveDuelUnitsStandard } from '../../dist/zones/movement.js';
 import { resolveAbilityGrants } from '../../dist/programs/ability-grants/index.js';
 import { createEngineStaticBinder } from '../../dist/programs/statics.js';
 import { createProgramBinding } from '../../dist/programs/index.js';
@@ -115,6 +117,78 @@ test('RIFT-823 every location filter matches LocationRef by value', () => {
   assert.equal(f.snapshot('there').might, 3);
 });
 
+test('RIFT-823 static registrations stay on the exact incarnation across same-zone changes', () => {
+  const f = runtime(world().player('A').player('B')
+    .unit('source', { cardId: 'card.hash-exact-static', might: 2, location: at('one') })
+    .unit('ally', { might: 3, location: at('one') })
+    .unit('enemy', { owner: 'B', controller: 'B', might: 4, location: at('one') }));
+  const ability = {
+    kind: 'static',
+    effect: { kind: 'continuous.grant-keyword', keyword: 'Ganking', filter: {
+      type: 'unit', controller: 'self', sameLocationAs: 'self', other: true,
+    } },
+  };
+  const original = f.kernel.getObject('source');
+  createEngineStaticBinder(f.engine).bindStatic(ability, original);
+  const hasGanking = id => f.snapshot(id).keywords.some(keyword => keyword.id === 'Ganking');
+  assert.equal(hasGanking('ally'), true);
+  assert.equal(hasGanking('source'), false);
+  assert.equal(hasGanking('enemy'), false);
+
+  f.engine.commit({ type: 'move-location', object: f.kernel.ref('source'), to: at('two') });
+  assert.equal(f.kernel.ref('source').zoneEntryId, original.ref.zoneEntryId);
+  assert.equal(hasGanking('ally'), false);
+
+  f.engine.commit({ type: 'take-control', object: f.kernel.ref('source'), player: 'B' });
+  f.engine.commit({ type: 'move-location', object: f.kernel.ref('source'), to: at('one') });
+  assert.equal(hasGanking('enemy'), true);
+  assert.equal(hasGanking('ally'), false);
+});
+
+test('RIFT-823 old incarnation cannot reacquire a static after leave and re-entry', () => {
+  const f = runtime(world().player('A').player('B')
+    .unit('source', { cardId: 'card.hash-incarnation-static', might: 2, location: at('one') })
+    .unit('ally', { might: 3, location: at('one') }));
+  const ability = {
+    kind: 'static',
+    effect: { kind: 'continuous.might', amount: c(2), filter: {
+      type: 'unit', controller: 'self', sameLocationAs: 'self', other: true,
+    } },
+  };
+  const original = f.kernel.getObject('source');
+  createEngineStaticBinder(f.engine).bindStatic(ability, original);
+  assert.equal(f.snapshot('ally').might, 5);
+
+  f.engine.commit({ type: 'move-zone', object: original.ref, to: 'trash' });
+  const left = f.kernel.getObject('source');
+  assert.notEqual(left.ref.zoneEntryId, original.ref.zoneEntryId);
+  assert.equal(f.snapshot('ally').might, 3);
+  f.engine.commit({ type: 'move-zone', object: left.ref, to: 'battlefield', location: at('one') });
+  const returned = f.kernel.getObject('source');
+  assert.notEqual(returned.ref.zoneEntryId, original.ref.zoneEntryId);
+  assert.equal(f.snapshot('ally').might, 3, 'the old registration cannot infer a successor from id/cardId');
+});
+
+test('RIFT-823 static registration ids are reusable and duplicate-safe after unbind', () => {
+  const f = runtime(world().player('A').unit('source', { cardId: 'card.hash-id-static', might: 2 }));
+  const ability = { kind: 'static', effect: { kind: 'continuous.might', amount: c(1), appliesTo: 'self' } };
+  const binder = createEngineStaticBinder(f.engine);
+  const first = binder.bindStatic(ability, f.kernel.getObject('source'));
+  const second = binder.bindStatic(ability, f.kernel.getObject('source'));
+  assert.deepEqual(f.engine.layers.registry.list().map(entry => entry.effect.id), [
+    'program-static:source:1:0', 'program-static:source:1:1',
+  ]);
+  first.unbind();
+  first.unbind();
+  const replacement = binder.bindStatic(ability, f.kernel.getObject('source'));
+  assert.equal(f.engine.layers.registry.list().some(entry => entry.effect.id === 'program-static:source:1:0'), true);
+  assert.throws(() => binder.bindStatic({ ...ability, effect: { ...ability.effect, layer: 'trait' } }, f.kernel.getObject('source')),
+    error => error.code === 'judge-required');
+  assert.equal(f.engine.layers.registry.get('program-static:source:1:2'), undefined);
+  second.unbind();
+  replacement.unbind();
+});
+
 test('RIFT-823 per-object condition unavailability fails closed and defects escape', () => {
   const f = runtime(world().player('A').unit('source', { cardId: 'card.hash-static-condition', might: 2 }));
   const binder = createEngineStaticBinder(f.engine);
@@ -192,15 +266,51 @@ test('RIFT-823 Hidden and Facedown capacity use their dedicated consumers', () =
   assert.equal(f.engine.layers.registry.list().filter(entry => entry.effect.effect.kind === 'static.capability').length, 0);
 });
 
-test('RIFT-823 continuous.movement normalizes string permission into query routes', () => {
+test('RIFT-823 continuous.movement preserves raw KeywordDef permission for the production consumer', () => {
   const f = runtime(world().player('A').unit('mover', { cardId: 'card.hash-mover', location: at('one') }));
   const ability = { kind: 'static', effect: {
     kind: 'continuous.movement', permission: 'battlefield-to-battlefield', source: 'battlefield', destination: 'battlefield', move: 'standard',
   } };
   createEngineStaticBinder(f.engine).bindStatic(ability, f.kernel.getObject('mover'));
   const view = movement(f.engine.layers.registry, f.kernel.ref('mover'), f.snapshot('mover'), 'A');
-  assert.equal(view.canGank, true);
-  assert.deepEqual(view.permissions[0].routes, ['battlefield-to-battlefield']);
+  assert.equal(view.canGank, false, 'the typed query does not reinterpret a raw KeywordDef scalar');
+  assert.deepEqual(view.permissions, []);
+  const raw = f.engine.layers.registry.list().find(entry => entry.effect.effect.kind === 'continuous.movement');
+  assert.equal(raw.effect.effect.permission, 'battlefield-to-battlefield');
+  assert.equal(raw.effect.effect.source, 'battlefield');
+  assert.equal(raw.effect.effect.destination, 'battlefield');
+});
+
+test('RIFT-823 raw movement permission reaches the real Standard Move consumer', () => {
+  const f = runtime(world().player('A').player('B')
+    .unit('laurent', { cardId: 'card.hash-movement-static', might: 3, location: at('one') }));
+  const ability = { kind: 'static', effect: {
+    kind: 'continuous.movement', permission: 'battlefield-to-battlefield',
+    source: 'battlefield', destination: 'battlefield', move: 'standard',
+  } };
+  createEngineStaticBinder(f.engine).bindStatic(ability, f.kernel.getObject('laurent'));
+  const board = createDuelBoard(selectDuelBattlefields([
+    { playerId: 'A', battlefields: [
+      { instanceId: 'a1', cardId: 'print-a1' }, { instanceId: 'a2', cardId: 'print-a2' },
+      { instanceId: 'a3', cardId: 'print-a3' }] },
+    { playerId: 'B', battlefields: [
+      { instanceId: 'b1', cardId: 'print-b1' }, { instanceId: 'b2', cardId: 'print-b2' },
+      { instanceId: 'b3', cardId: 'print-b3' }] },
+  ], () => 0));
+  const placed = placeDuelUnit(board, { objectId: 'laurent', controllerPlayerId: 'A',
+    locationId: JSON.stringify(['duel-battlefield', 'a1']) });
+  const destination = JSON.stringify(['duel-battlefield', placed.battlefields[1].instanceId]);
+  const result = moveDuelUnitsStandard(placed,
+    [{ objectId: 'laurent', readied: true, hasGanking: false }], {
+      actor: 'A', unitUIDs: ['laurent'], destinationLocationId: destination,
+      timing: { phase: 'main', stateOpen: true, turnPlayerId: 'A', priorityPlayerId: 'A' },
+    }, {
+      registry: f.engine.layers.registry,
+      refForUnit: unit => f.kernel.ref(unit.objectId),
+      objectForUnit: unit => f.snapshot(unit.objectId),
+    });
+  assert.equal(result.group.objectIds[0], 'laurent');
+  assert.equal(result.group.exhaustedCount, 1);
 });
 
 test('RIFT-823 bonus damage, lethal threshold and Might reduction preserve action scope and filters', () => {
