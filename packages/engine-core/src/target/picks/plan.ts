@@ -327,7 +327,7 @@ export function validatePickPreselection(
     }
     seen.add(key);
     if (available.has(key)) result.push(copyValue(value));
-    else if (isObjectRef(value) && hasLinkedSource) stale.push(copyValue(value));
+    else if (isObjectRef(value) && hasLinkedSource && context.object(value) === null) stale.push(copyValue(value));
     else if (!hasLinkedSource && isObjectRef(value) && requestedStale.some(candidate => valueKey(candidate) === key)) stale.push(copyValue(value));
     else throw new PickSelectionError("invalid-choice", `${spec.id} preselection failed its current filter`);
   }

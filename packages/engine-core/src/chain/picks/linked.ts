@@ -83,7 +83,11 @@ export function orderedPickResolver(body: readonly Instruction[]): InterpreterOp
     if (spec.exclude !== undefined && !hasResult(spec.exclude.instructionId)) {
       throw new MissingInformation(`Unavailable linked exclusion ${id}`);
     }
-    const noSource = source === undefined || !sourceAvailable;
+    // The original options-only linked spelling is a Resolve source even when
+    // its producer is still in a nested scope. It is not a standalone pick: a
+    // host answer must still be checked against that exact receipt. Only a pick
+    // with no declared linked source uses the standalone compatibility path.
+    const noSource = source === undefined;
     let candidates: PickCandidateSet;
     try {
       candidates = source !== undefined && !sourceAvailable
@@ -134,7 +138,11 @@ export function orderedPickResolver(body: readonly Instruction[]): InterpreterOp
       } catch (error) {
         if (!(error instanceof MissingInformation)) throw error;
       }
-      const stale = receiptObjectValues(receipt);
+      // A filter may legitimately remove every live receipt member. Do not
+      // turn that empty offered set back into the original receipt: only exact
+      // departed incarnations are retained so the consuming primitive can
+      // report its own stale/ignored outcome.
+      const stale = receiptObjectValues(receipt).filter(ref => context.object(ref) === null);
       values = stale.length > 0 ? stale.map(ref => ({ ...ref })) : linkedValues(context, spec);
     } else {
       values = linkedValues(context, spec);
