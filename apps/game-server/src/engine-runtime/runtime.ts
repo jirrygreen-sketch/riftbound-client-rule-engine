@@ -2,7 +2,7 @@ import type { CardProgram } from "../../../../packages/card-dsl/dist/ir/index.js
 import { createMatch, concede, type Match, type MatchDeck } from "../../../../packages/engine-core/dist/game/lifecycle.js";
 import { createActionPipelineHost } from "../../../../packages/engine-core/dist/events/action-adapter.js";
 import { createProgramBinding, type ProgramBinding } from "../../../../packages/engine-core/dist/programs/index.js";
-import type { ChoiceRequest, GameAction, ObjectRef, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
+import type { ChoiceRequest, Domain, GameAction, ObjectRef, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
 import { isV2Command, type V2ChoiceAnswer, type V2Command, type V2Projection } from "../../../../packages/protocol/dist/v2/index.js";
 import { assertRuntimeJournal, ENGINE_RUNTIME_RULESET_VERSION, RuntimeJournalWriter, canonicalJson, type RuntimeJournal, type RuntimeJournalEntry, digest } from "./journal.js";
 import { EngineRuntimeHost, type RuntimeCard } from "./host.js";
@@ -96,16 +96,20 @@ class MatchRuntime implements EngineRuntime {
     const seats = this.runtimeOptions.seats ?? [{ playerId: "A", name: "Player A" }, { playerId: "B", name: "Player B" }];
     if (seats.length !== 2 || new Set(seats.map(seat => seat.playerId)).size !== 2) throw new TypeError("Engine runtime requires exactly two unique seats");
     let choice: ChoiceRequest<unknown> | null = null;
+    const normalizedDecks = this.normalizeDecks(this.runtimeOptions.decks);
+    const catalogDomains = this.catalogDomains(normalizedDecks);
     const hostState = new EngineRuntimeHost(Object.fromEntries(seats.map(seat => [seat.playerId, seat.name])), request => {
       if (this.decision !== undefined) { const answer = this.decision; this.decision = undefined; return answer as never; }
       choice = request as ChoiceRequest<unknown>;
       throw new PendingChoiceError(request as ChoiceRequest<unknown>);
-    });
+    }, catalogDomains);
     this.host = hostState;
-    const normalizedDecks = this.normalizeDecks(this.runtimeOptions.decks);
     const pipelineHost = createActionPipelineHost({
       checkpoint: () => hostState.checkpoint(), restore: checkpoint => hostState.restore(checkpoint), objects: () => hostState.objects(),
       perform: action => hostState.perform(action), choose: request => hostState.choose(request),
+      performWithDeathBoundary: (action, boundary) => hostState.performWithDeathBoundary(action, boundary),
+      performKillBatchWithDeathBoundary: (actions, batchId, boundary) =>
+        hostState.performKillBatchWithDeathBoundary(actions, batchId, boundary),
       context: (source, controller, timingPoint) => hostState.context(source, controller, timingPoint),
     });
     const matchHost = { ...pipelineHost, player: (id: PlayerId) => hostState.player(id) };
@@ -327,7 +331,7 @@ class MatchRuntime implements EngineRuntime {
       return { accepted: true, objectId: command.sourceObjectId, abilityId: command.abilityId };
     }
     if (command.type === "declare-attack" || command.type === "declare-defense") throw new Error(`${command.type} is not available until the combat transaction adapter is installed`);
-    return { accepted: true };
+    throw new Error(`Unhandled runtime command: ${(command as { readonly type?: unknown }).type ?? "unknown"}`);
   }
 
   private resolveObject(id: string): ReturnType<EngineRuntimeHost["objects"]>[number] {
@@ -418,12 +422,39 @@ class MatchRuntime implements EngineRuntime {
   }
 
   private normalizeDecks(decks: readonly [EngineRuntimeDeck, EngineRuntimeDeck]): readonly [EngineRuntimeDeck, EngineRuntimeDeck] {
+    const copy = (card: RuntimeCard): RuntimeCard => ({
+      ...card,
+      ...(card.domains === undefined ? {} : { domains: [...card.domains] }),
+    });
     return decks.map(deck => ({
-      ...deck,
-      mainDeck: deck.mainDeck.map(card => ({ ...card })), runeDeck: deck.runeDeck.map(card => ({ ...card })),
-      championLegend: { ...deck.championLegend }, chosenChampion: { ...deck.chosenChampion },
-      battlefields: deck.battlefields.map(card => ({ ...card })) as unknown as EngineRuntimeDeck["battlefields"],
+      ...deck, mainDeck: deck.mainDeck.map(copy), runeDeck: deck.runeDeck.map(copy),
+      championLegend: copy(deck.championLegend), chosenChampion: copy(deck.chosenChampion),
+      battlefields: deck.battlefields.map(copy) as unknown as EngineRuntimeDeck["battlefields"],
     })) as unknown as readonly [EngineRuntimeDeck, EngineRuntimeDeck];
+  }
+
+  private catalogDomains(decks: readonly [EngineRuntimeDeck, EngineRuntimeDeck]): ReadonlyMap<string, readonly Domain[]> {
+    const known = new Set<Domain>(["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]);
+    const result = new Map<string, readonly Domain[]>();
+    const cards = decks.flatMap(deck => [
+      ...deck.mainDeck, ...deck.runeDeck, deck.championLegend, deck.chosenChampion, ...deck.battlefields,
+    ]);
+    for (const card of cards) {
+      if (card.domains === undefined) continue;
+      const domains: Domain[] = [];
+      for (const [index, domain] of card.domains.entries()) {
+        if (!known.has(domain)) throw new TypeError(`Runtime card ${card.id} has an invalid Domain at index ${index}`);
+        if (!domains.includes(domain)) domains.push(domain);
+      }
+      const cardId = card.cardId ?? card.id;
+      const previous = result.get(cardId);
+      if (previous !== undefined &&
+          (previous.length !== domains.length || previous.some(domain => !domains.includes(domain)))) {
+        throw new TypeError(`Trusted catalog Domains disagree for card ${cardId}`);
+      }
+      result.set(cardId, domains);
+    }
+    return result;
   }
 }
 
