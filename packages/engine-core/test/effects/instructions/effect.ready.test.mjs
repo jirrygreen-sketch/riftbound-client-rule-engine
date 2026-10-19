@@ -1,12 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import ready from "../../../src/effects/instructions/effect.ready.ts";
+import { runAbilityBody } from "../../../dist/effects/interpreter.js";
 import { AwaitChoice, runInstruction, world } from "../../../src/effects/testing/index.ts";
+import {
+  bindResolveContext,
+  createActionPipelineHost
+} from "../../../dist/events/action-adapter.js";
+import { ChainEngine } from "../../../dist/chain/engine.js";
+import { EventPipeline } from "../../../dist/events/pipeline.js";
+import { triggerEventObjectBinding } from "../../../dist/events/pipeline-types.js";
 
 const literal = (value) => ({ kind: "constant", value });
+const FIORA_CANONICAL_ID =
+  "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f";
 const target = (id) => literal({ kind: "target", id });
 const pick = (id) => literal({ kind: "pick", id });
 const source = literal({ kind: "source" });
+const eventIt = literal({ event: "it" });
 const query = (filter) => literal({ kind: "query", filter });
 const choose = (id, filter, extra = {}) => literal({ kind: "choose", id, filter, ...extra });
 const linked = (key) => ({ kind: "linked-value", instructionId: "previous-instruction", key });
@@ -23,6 +34,29 @@ const gear = (id, values = {}) => ({
 });
 const withSource = (kernel, id) => kernel.clone({ sourceSnapshot: kernel.getObject(id) });
 const readyAction = (run) => run.events.filter((event) => event.action === "ready");
+const readyInstruction = (id = "ready-event-it") => ({
+  id,
+  op: "effect.ready",
+  args: { objects: eventIt, linkKey: literal("readied") }
+});
+const bindingFor = (snapshot, overrides = {}) => ({
+  eventId: 41,
+  role: "it",
+  ref: { id: snapshot.ref.id, zoneEntryId: snapshot.ref.zoneEntryId },
+  snapshot: structuredClone(snapshot),
+  ...overrides
+});
+const eventContext = (kernel, eventObject, overrides = {}) => new Proxy(kernel, {
+  get(target, key) {
+    if (key === "source") return target.getObject("fiora") ?? target.source;
+    if (key === "controller") return "A";
+    if (key === "timingPoint") return "might-changed";
+    if (key === "eventObject") return eventObject;
+    if (key in overrides) return overrides[key];
+    const value = Reflect.get(target, key);
+    return typeof value === "function" ? value.bind(target) : value;
+  }
+});
 
 test("effect.ready readies an exhausted current target and links the actual result", () => {
   const kernel = world()
@@ -245,6 +279,377 @@ test("effect.ready rejects malformed arguments and forged choice answers", () =>
     );
     assert.equal(kernel.getObject("u1").exhausted, true);
   }
+});
+
+test("effect.ready accepts only the exact static event:it selector", () => {
+  const expected = { objects: { event: "it" } };
+  assert.deepEqual(ready.argsSchema.parse(expected), expected);
+  assert.deepEqual(
+    ready.argsSchema.parse({ objects: { event: "it" }, amount: 1, linkKey: "eventReady" }),
+    { objects: { event: "it" }, amount: 1, linkKey: "eventReady" }
+  );
+
+  for (const objects of [
+    { event: "source" },
+    { event: "target" },
+    { event: "it", extra: true },
+    { event: "it", target: "unit" },
+    { event: "it", id: "event-unit", zoneEntryId: 1 },
+    { event: 1 },
+    { event: null },
+    { event: undefined },
+    { kind: "event", event: "it" },
+    { event: "it", id: "event-unit" },
+    { event: "it", zoneEntryId: 1 }
+  ]) {
+    assert.throws(() => ready.argsSchema.parse({ objects }), TypeError, JSON.stringify(objects));
+  }
+
+  const runtimeRef = { id: "event-unit", zoneEntryId: 1 };
+  assert.deepEqual(ready.argsSchema.parse({ objects: runtimeRef }), { objects: runtimeRef });
+});
+
+test("effect.ready readies the exact event object, not Fiora or the source", () => {
+  const kernel = world()
+    .unit("fiora", { cardId: FIORA_CANONICAL_ID, might: 5, exhausted: true })
+    .unit("becomes-mighty", {
+      might: 5,
+      exhausted: true,
+      location: { type: "battlefield", id: "battlefield-1" }
+    })
+    .build();
+  const eventSnapshot = kernel.getObject("becomes-mighty");
+  const binding = bindingFor(eventSnapshot);
+  const before = kernel.stateForTest();
+  let chooseCalls = 0;
+  const ctx = eventContext(kernel, (role) => role === "it" ? binding : null, {
+    choose() {
+      chooseCalls += 1;
+      throw new Error("event:it must not choose a player target");
+    }
+  });
+
+  const result = ready.execute(ctx, ready.argsSchema.parse({ objects: eventIt }));
+  assert.equal(result.status, "executed");
+  assert.equal(kernel.getObject("becomes-mighty").exhausted, false);
+  assert.equal(kernel.getObject("fiora").exhausted, true);
+  assert.deepEqual(result.events.map((event) => event.action), ["ready"]);
+  assert.deepEqual(result.linkedValues.readied, {
+    count: 1,
+    objects: [binding.ref]
+  });
+  assert.equal(chooseCalls, 0);
+  assert.notDeepEqual(kernel.stateForTest(), before);
+});
+
+test("event:it ready is idempotent and emits exactly one receipt-backed Ready event", () => {
+  const kernel = world().unit("event-unit", { exhausted: true }).build();
+  const binding = bindingFor(kernel.getObject("event-unit"));
+  const ctx = eventContext(kernel, (role) => role === "it" ? binding : null);
+  const args = ready.argsSchema.parse({ objects: eventIt });
+
+  const first = ready.execute(ctx, args);
+  const second = ready.execute(ctx, args);
+  assert.equal(first.status, "executed");
+  assert.equal(second.status, "executed");
+  assert.deepEqual(first.events.map((event) => event.action), ["ready"]);
+  assert.equal(second.events.length, 0);
+  assert.deepEqual(first.linkedValues.readied, { count: 1, objects: [binding.ref] });
+  assert.deepEqual(second.linkedValues.readied, { count: 0, objects: [] });
+  assert.equal(kernel.events.filter((event) => event.action === "ready").length, 1);
+});
+
+test("event:it never follows a stale id into a new incarnation or uses event LKI", () => {
+  const kernel = world().unit("event-unit", { exhausted: true }).build();
+  const stale = kernel.ref("event-unit");
+  const binding = bindingFor(kernel.getObject("event-unit"));
+  assert.equal(kernel.perform({ type: "return-to-hand", object: stale }).status, "done");
+  assert.equal(
+    kernel.perform({
+      type: "move-zone",
+      object: kernel.ref("event-unit"),
+      to: "battlefield",
+      location: battlefield
+    }).status,
+    "done"
+  );
+  assert.equal(kernel.getObject("event-unit").exhausted, true);
+  const before = kernel.stateForTest();
+  const ctx = eventContext(kernel, (role) => role === "it" ? binding : null);
+  const result = ready.execute(ctx, ready.argsSchema.parse({ objects: eventIt }));
+
+  assert.deepEqual(result, { status: "ignored", reason: "mistargeted" });
+  assert.notDeepEqual(kernel.ref("event-unit"), stale);
+  assert.equal(kernel.getObject("event-unit").exhausted, true);
+  assert.deepEqual(kernel.stateForTest(), before);
+});
+
+test("event:it obeys amount zero after validating its frozen binding", () => {
+  const kernel = world().unit("event-unit", { exhausted: true }).build();
+  const binding = bindingFor(kernel.getObject("event-unit"));
+  const before = kernel.stateForTest();
+  const result = ready.execute(
+    eventContext(kernel, (role) => role === "it" ? binding : null),
+    ready.argsSchema.parse({ objects: eventIt, amount: 0 })
+  );
+
+  assert.equal(result.status, "executed");
+  assert.equal(result.events.length, 0);
+  assert.deepEqual(result.linkedValues.readied, { count: 0, objects: [] });
+  assert.equal(kernel.getObject("event-unit").exhausted, true);
+  assert.deepEqual(kernel.stateForTest(), before);
+});
+
+test("event:it rejects missing and forged bindings with no state or resource side effects", () => {
+  const validKernel = world().unit("event-unit", { exhausted: true }).build();
+  const snapshot = validKernel.getObject("event-unit");
+  const malformed = [
+    undefined,
+    () => null,
+    () => bindingFor(snapshot, { role: "source" }),
+    () => bindingFor(snapshot, { eventId: 0 }),
+    () => bindingFor(snapshot, { ref: { id: snapshot.ref.id, zoneEntryId: snapshot.ref.zoneEntryId + 1 } }),
+    () => bindingFor(snapshot, { snapshot: { ...snapshot, ref: { id: snapshot.ref.id, zoneEntryId: snapshot.ref.zoneEntryId + 1 } } })
+  ];
+
+  for (const eventObject of malformed) {
+    const kernel = world()
+      .player("A", { energy: 3, power: ["Order", "Fury"] })
+      .unit("fiora", { cardId: FIORA_CANONICAL_ID, exhausted: true })
+      .unit("event-unit", { exhausted: true })
+      .build();
+    const before = kernel.stateForTest();
+    const ctx = eventContext(kernel, eventObject);
+    assert.throws(
+      () => ready.execute(ctx, ready.argsSchema.parse({ objects: eventIt })),
+      (error) => error?.name === "Error" && /event object binding|no it object/i.test(error.message),
+      String(eventObject)
+    );
+    assert.deepEqual(kernel.stateForTest(), before);
+    assert.deepEqual(kernel.player("A").power, ["Order", "Fury"]);
+    assert.equal(kernel.player("A").energy, 3);
+    assert.deepEqual(kernel.player("A").runes, []);
+    assert.deepEqual(kernel.stateForTest(), before);
+    assert.equal(kernel.events.length, 0);
+  }
+
+  const zero = world().unit("event-unit", { exhausted: true }).build();
+  const zeroBefore = zero.stateForTest();
+  assert.throws(
+    () => ready.execute(eventContext(zero, () => null), ready.argsSchema.parse({ objects: eventIt, amount: 0 })),
+    (error) => error?.name === "Error" && /no it object/i.test(error.message)
+  );
+  assert.deepEqual(zero.stateForTest(), zeroBefore);
+});
+
+test("a later suspension rolls back a prior event:it Ready and its receipt", () => {
+  const kernel = world().unit("event-unit", { exhausted: true }).build();
+  const binding = bindingFor(kernel.getObject("event-unit"));
+  const laterChoice = {
+    id: "later-choice",
+    op: "choice.optional",
+    args: { body: literal([]) }
+  };
+  const before = kernel.stateForTest();
+  const waiting = runInstruction(
+    {
+      op: "test.ready-then-suspend",
+      argsSchema: { parse: (value) => value },
+      execute: (current) => runAbilityBody(
+        [readyInstruction(), laterChoice],
+        new Proxy(current, {
+          get(target, key) {
+            if (key === "eventObject") return (role) => role === "it" ? binding : null;
+            const value = Reflect.get(target, key);
+            return typeof value === "function" ? value.bind(target) : value;
+          }
+        })
+      )
+    },
+    {},
+    { world: kernel }
+  );
+
+  // runInstruction rolls the TestWorld back when the interpreter suspends.
+  assert.ok(waiting.asked instanceof AwaitChoice);
+  assert.equal(kernel.getObject("event-unit").exhausted, true);
+  assert.deepEqual(kernel.stateForTest(), before);
+});
+
+test("interpreter ignores event:it without a binding and rejects an extra selector key", () => {
+  const missing = world().unit("source").unit("event-unit", { exhausted: true }).build();
+  const missingBefore = missing.stateForTest();
+  const ignored = runAbilityBody([readyInstruction()], eventContext(missing, undefined));
+  assert.equal(ignored.status, "partial");
+  assert.deepEqual(ignored.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.deepEqual(missing.stateForTest(), missingBefore);
+
+  const invalid = world().unit("source").unit("event-unit", { exhausted: true }).build();
+  const invalidBefore = invalid.stateForTest();
+  assert.throws(
+    () =>
+      runAbilityBody(
+        [{
+          ...readyInstruction(),
+          args: { objects: literal({ event: "it", target: "unit" }) }
+        }],
+        eventContext(invalid, () => bindingFor(invalid.getObject("event-unit")))
+      ),
+    TypeError
+  );
+  assert.deepEqual(invalid.stateForTest(), invalidBefore);
+});
+
+test("a real EventPipeline trigger carries event:it through Resolve and commits one Ready receipt", () => {
+  const kernel = world()
+    .unit("fiora", { cardId: FIORA_CANONICAL_ID, might: 5, exhausted: true })
+    .unit("event-unit", { exhausted: true })
+    .build();
+  const asked = [];
+  const choose = (request) => {
+    asked.push(request);
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (saved) => {
+      kernel.restore(saved.state);
+      kernel.copyLinkedFrom(saved.links);
+    },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    performContract: (action) => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) => {
+      return bindResolveContext(kernel, { source, controller, timingPoint, choose });
+    },
+    testTrigger: (registration) => kernel.test(registration.spec.condition)
+  });
+  const pipeline = new EventPipeline(host, ["A", "B"], "A");
+  const snapshots = [];
+  pipeline.onTrigger = (snapshot) => snapshots.push(snapshot);
+  pipeline.registerTrigger({
+    id: "fiora-worthy-ready-observer",
+    source: kernel.getObject("fiora"),
+    controller: "A",
+    spec: { at: "might-changed", filter: {} },
+    body: [readyInstruction()]
+  });
+
+  const eventUnit = kernel.getObject("event-unit");
+  const event = pipeline.emit({
+    timingPoint: "might-changed",
+    kind: "might-changed",
+    object: eventUnit,
+    it: eventUnit,
+    player: "A"
+  });
+  assert.equal(snapshots.length, 1);
+  assert.deepEqual(snapshots[0].event.it.ref, event.it.ref);
+  const binding = triggerEventObjectBinding(snapshots[0], "it");
+  assert.ok(binding);
+  assert.deepEqual(binding.ref, kernel.ref("event-unit"));
+
+  const context = bindResolveContext(
+    host.context(kernel.getObject("fiora"), "A", "chain-item-resolve"),
+    { eventObject: (role) => role === "it" ? binding : null }
+  );
+  const before = kernel.stateForTest();
+  const outcome = runAbilityBody([readyInstruction()], context);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results[0].result.status, "executed");
+  assert.equal(kernel.getObject("event-unit").exhausted, false);
+  assert.equal(kernel.getObject("fiora").exhausted, true);
+  const readyEvents = outcome.events.filter((candidate) => candidate.action === "ready");
+  assert.equal(readyEvents.length, 1);
+  // TestWorld's primitive receipt and the default adapter's timing id both
+  // identify the committed action; this seam need not invent a pipeline event.
+  assert.equal(readyEvents[0].reason, "ready");
+  assert.deepEqual(outcome.linkedValues["ready-event-it.readied"], {
+    count: 1,
+    objects: [binding.ref]
+  });
+  assert.notDeepEqual(kernel.stateForTest(), before);
+  assert.deepEqual(asked, []);
+
+  const beforeReplay = kernel.stateForTest();
+  const replay = runAbilityBody([readyInstruction()], context);
+  assert.equal(replay.status, "executed");
+  assert.equal(replay.events.length, 0);
+  assert.deepEqual(replay.linkedValues["ready-event-it.readied"], { count: 0, objects: [] });
+  assert.deepEqual(kernel.stateForTest(), beforeReplay);
+});
+
+test("default Chain Finalize then Resolve readies event:it exactly once", () => {
+  const kernel = world()
+    .unit("fiora", { cardId: FIORA_CANONICAL_ID, might: 5, exhausted: true })
+    .unit("event-unit", { exhausted: true })
+    .build();
+  const choose = (request) => { throw new AwaitChoice(request); };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (saved) => {
+      kernel.restore(saved.state);
+      kernel.copyLinkedFrom(saved.links);
+    },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    performContract: (action) => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: (registration) => kernel.test(registration.spec.condition)
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host,
+    cleanup: () => false
+  });
+  engine.pipeline.registerTrigger({
+    id: "fiora-worthy-ready-default-chain",
+    source: kernel.getObject("fiora"),
+    controller: "A",
+    spec: { at: "might-changed", filter: {} },
+    body: [readyInstruction()]
+  });
+  const eventSnapshot = kernel.getObject("event-unit");
+  const emitted = engine.pipeline.emit({
+    timingPoint: "might-changed",
+    kind: "might-changed",
+    object: eventSnapshot,
+    it: eventSnapshot,
+    player: "A"
+  });
+  assert.equal(engine.items.length, 1);
+  assert.equal(engine.items[0].status, "pending");
+  assert.equal(engine.items[0].trigger.event.eventId, emitted.eventId);
+  assert.deepEqual(engine.items[0].trigger.event.it.ref, kernel.ref("event-unit"));
+
+  engine.advance();
+  assert.equal(engine.items[0].status, "finalized");
+  assert.equal(kernel.getObject("event-unit").exhausted, true);
+  assert.equal(engine.priority, "A");
+  engine.pass("A");
+  assert.equal(engine.priority, "B");
+  assert.equal(engine.items.length, 1);
+  engine.pass("B");
+
+  assert.equal(engine.items.length, 0);
+  assert.equal(kernel.getObject("event-unit").exhausted, false);
+  assert.equal(kernel.getObject("fiora").exhausted, true);
+  const resolved = engine.pipeline.events.filter((candidate) => candidate.timingPoint === "object-readied");
+  assert.equal(resolved.length, 1);
+  assert.equal(resolved[0].action.type, "ready");
+  assert.deepEqual(resolved[0].object.ref, kernel.ref("event-unit"));
+  assert.deepEqual(
+    engine.pipeline.events.filter((candidate) => candidate.timingPoint === "became-target"),
+    []
+  );
+  assert.equal(kernel.player("A").power.length, 0);
 });
 
 test("effect.ready negates an impossible forced choice and caps it to the available amount", () => {
