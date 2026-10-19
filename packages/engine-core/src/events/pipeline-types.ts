@@ -71,6 +71,27 @@ export interface TriggerRegistration {
   /** Optional explicit cap for a once scope; omitted means one occurrence. */
   readonly maxPerScope?: number;
 }
+/** A read-only, stable view of a live trigger registration for rules adapters. */
+export type RegisteredTrigger = TriggerRegistration;
+
+/**
+ * A named-trigger activation is a new rules operation, not an occurrence of the
+ * named real event (CR 383.4.g.2). It deliberately has no PipelineEvent,
+ * eventId, timing point, action, or event-it role. The immutable event identity
+ * is assigned only if the consuming Chain creates a real Pending item.
+ */
+export interface NamedTriggerActivation {
+  readonly kind: 'named-trigger-activation';
+  readonly registration: RegisteredTrigger;
+  readonly source: ObjectSnapshot;
+  readonly controller: PlayerId;
+  readonly frequencyKey: string | null;
+  readonly frequencyLimit?: number;
+  /** The caller must install the resulting Pending item in this transaction. */
+  readonly transaction: unknown;
+  /** Consumes frequency once; later calls for the same token return false. */
+  consume(): boolean;
+}
 export interface TriggerSnapshot {
   readonly registration: TriggerRegistration;
   readonly source: ObjectSnapshot;
