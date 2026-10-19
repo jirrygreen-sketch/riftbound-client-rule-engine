@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
 import {
   DUEL_RULESET_ID,
   DUEL_COMMAND_PACKET_PROFILE_V3_ACTIONS_1,
+  isJournal,
   isServerMessage,
   type ClientSession,
   type DuelCommandMessageV3Actions1,
@@ -64,7 +65,7 @@ interface Booted {
 }
 
 function boot(catalog: CardCatalogRuntime, region?: ReturnType<typeof bindConstructedRegion>): Booted {
-  const room = new GameRoom("constructed-regional-room", DUEL_RULESET_ID, catalog, () => 0, "p4", region);
+  const room = new GameRoom("constructed-regional-room", DUEL_RULESET_ID, catalog, () => 0, "p4", region, undefined, "legacy-p4");
   const outbox: ServerToClientMessage[][] = [[], []];
   const send = outbox.map(list => (message: ServerToClientMessage) => {
     expect(isServerMessage(message)).toBe(true);
@@ -127,9 +128,7 @@ describe("regional constructed room", () => {
     expect(h.room.status).toBe("playing");
     const archive = h.room.exportArchive();
     expect(archive.constructedRegion?.regionCode).toBe("ROW");
-    expect(archive.duelProfile).toBe("p4");
-    expect(archive.duelJournal?.schemaVersion).toBe(5);
-    expect(archive.duelJournal?.profile).toBe("regional-public-chain-v1");
+    expect(isJournal(archive.journal)).toBe(true);
   });
 
   it("keeps a CN room creatable but rejects the same deck while OGN/OGS launch is unknown", async () => {
@@ -181,7 +180,7 @@ describe("regional constructed room", () => {
       h.room.currentRoomVersion, DECK, "p1-deck", h.send[0]!);
     expect(h.room.status).toBe("waiting");
     const archive = h.room.exportArchive();
-    expect(archive.duelJournal).toBeNull();
+    expect(archive.journal).toBeNull();
     const restored = GameRoom.restore(archive, catalog);
     expect(restored.constructedRegion?.regionCode).toBe("ROW");
     expect(restored.status).toBe("waiting");
@@ -190,14 +189,14 @@ describe("regional constructed room", () => {
     expect(() => GameRoom.restore(reRegion, catalog)).toThrow();
   });
 
-  it("restores a started schema-5 regional archive with matching replay views and trusted-source rejection", async () => {
+  it("restores a started current-journal regional archive with matching replay views and trusted-source rejection", async () => {
     const catalog = await runtime();
     const h = boot(catalog, ROW);
     playBoth(h);
     mulliganToMain(h);
     expect(h.room.status).toBe("playing");
     const archive = h.room.exportArchive();
-    expect(archive.duelJournal?.schemaVersion).toBe(5);
+    expect(isJournal(archive.journal)).toBe(true);
 
     const restored = GameRoom.restore(archive, catalog);
     expect(restored.constructedRegion?.regionCode).toBe("ROW");
@@ -232,7 +231,7 @@ describe("regional constructed room", () => {
     (forgedDate as { constructedRegion: { eventDate: string } }).constructedRegion.eventDate = "2026-05-08";
     expect(() => GameRoom.restore(forgedDate, catalog)).toThrow();
 
-    // Removing the region context from a started schema-5 archive is refused.
+    // Removing the region context from a started current archive is refused.
     const stripped = structuredClone(archive) as unknown as Record<string, unknown>;
     delete stripped.constructedRegion;
     expect(() => GameRoom.restore(stripped, catalog)).toThrow();
@@ -240,7 +239,7 @@ describe("regional constructed room", () => {
     expect(CONSTRUCTED_RELEASE_SCHEDULE_DIGEST).toMatch(/^sha256:[a-f0-9]{64}$/);
   });
 
-  it("keeps a legacy region-less room on schema 4 and original behavior", async () => {
+  it("keeps a legacy region-less room on the current journal format and original behavior", async () => {
     const catalog = await runtime();
     const h = boot(catalog);
     expect(h.room.constructedRegion).toBeUndefined();
@@ -248,11 +247,11 @@ describe("regional constructed room", () => {
     expect(h.room.status).toBe("playing");
     const archive = h.room.exportArchive();
     expect(archive.constructedRegion).toBeUndefined();
-    expect(archive.duelJournal?.schemaVersion).toBe(4);
+    expect(isJournal(archive.journal)).toBe(true);
     const restored = GameRoom.restore(archive, catalog);
     expect(restored.constructedRegion).toBeUndefined();
     expect(restored.status).toBe("playing");
-    expect(restored.exportArchive().duelJournal?.schemaVersion).toBe(4);
+    expect(isJournal(restored.exportArchive().journal)).toBe(true);
   });
 });
 
@@ -267,7 +266,7 @@ describe("regional constructed room over the real WebSocket selector", () => {
     const server = createGameServer({
       port: Number(process.env.SWARM_PORT_BASE ?? 31780),
       constructedPolicy: { asOf: EVENT_DATE },
-      catalog: p4RuntimeFixtureCatalog, duelRoomProfile: "p4",
+      catalog: p4RuntimeFixtureCatalog, duelRoomProfile: "p4", duelRuntimeMode: "legacy-p4",
       roomIdFactory: () => `regional-ws-room-${roomSeq++}`, roomStore: new InMemoryRoomStore()
     });
     let roomSeq = 0;

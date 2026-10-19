@@ -61,7 +61,10 @@ describe("optional Unit canonical choice clock P4", () => {
     expect(send(recorded, "alice", { type: "play-card", cardUID: target.uid, windowId: action.windowId }, "old-play").result.ack.ok).toBe(true);
     expect(playing(recorded).match.stateVersion).toBe(before);
     expect(recorded.archive().schemaVersion).toBe(6);
-  }, 90_000);
+  // The full replay trace has exceeded 90s and 140s+ under shared-runner
+  // load; keep every assertion and give the runner clock the same headroom
+  // as the 300s P4 command-flow tests.
+  }, 300_000);
 
   it.each(["pay", "decline"] as const)("advances one canonical clock and preserves %s through replay", async decision => {
     const { options, recorded: initial } = await fixture(DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK);
@@ -144,5 +147,5 @@ describe("optional Unit canonical choice clock P4", () => {
     const finalReplay = replayDuelCommandArchiveP4(finalArchive,
       createDuelReplayGateP4(options, digestDuelCommandArchiveP4(finalArchive), DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK));
     for (const viewer of ["alice", "bob", null]) expect(finalReplay.runtime.project(viewer)).toEqual(recorded.runtime.project(viewer));
-  }, 90_000);
+  }, 300_000);
 });

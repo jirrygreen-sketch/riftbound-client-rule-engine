@@ -109,6 +109,7 @@ import { projectDuelRuntimeV3 } from "./runtime/projection.js";
 import { createDuelNativeOperationJournalV2, type DuelNativeOperationJournalV2,
   type DuelNativeObservedCommitV2 } from "./operation-journal-v2.js";
 import { createDuelEngagementServicesV2 } from "./engagement-services-v2.js";
+import { ContinuousEffectRegistry } from "../../../../packages/engine-core/dist/layers/duration.js";
 import { createP4SpellServices, type P4SpellServices } from "./p4-spell-services.js";
 import { createP4OptionalUnitServices, createDuelOptionalUnitProgramReader } from "./optional-unit-services-p4.js";
 import { createOptionalUnitPaymentEntryV3 } from "./optional-unit-payment-entry-v3.js";
@@ -169,6 +170,8 @@ export interface DuelAuthoritativeRuntimeP4Options {
   readonly constructedRegion?: ConstructedRegionContext;
   /** Optional private test/fault adapter; production uses its owned native journal. */
   readonly globalJournal?: DuelProductionSourceServicesOptionsV2["globalJournal"];
+  /** Server-owned effects consumed by the real engagement lethal lifecycle. */
+  readonly continuousEffects?: ContinuousEffectRegistry;
 }
 
 export interface DuelAuthoritativeRuntimeP4Ack {
@@ -607,7 +610,7 @@ export function createAuthoritativeDuelRuntimeP4(options: DuelAuthoritativeRunti
     }
     const cost = makeCostAuthority(options.catalog, sourceServices, head);
     const cleanup = createDuelEngagementServicesV2({ currentHead: head, sources: sourceServices,
-      randomIndex: options.randomIndex });
+      randomIndex: options.randomIndex, ...(options.continuousEffects ? { effects: options.continuousEffects } : {}) });
     const turn: DuelTurnServicesV2 = {
       sources: sourceServices.phaseRegistry, randomIndex: options.randomIndex,
       lethalEvaluators: cleanup.lethalEvaluators, approveLethal: cleanup.approveLethal,
@@ -745,7 +748,8 @@ export function createAuthoritativeDuelRuntimeP4(options: DuelAuthoritativeRunti
   const engagementServices = () => {
     ensureServices();
     if (!sourceServices) throw new TypeError("source services unavailable");
-    return createDuelEngagementServicesV2({ currentHead: head, sources: sourceServices, randomIndex: options.randomIndex });
+    return createDuelEngagementServicesV2({ currentHead: head, sources: sourceServices, randomIndex: options.randomIndex,
+      ...(options.continuousEffects ? { effects: options.continuousEffects } : {}) });
   };
   const spellDispatcher = {
     claim: (request: { readonly actor: string; readonly commandId: string; readonly payloadFingerprint: string }) => {
