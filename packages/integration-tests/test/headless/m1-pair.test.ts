@@ -325,7 +325,7 @@ describe("RIFT-857 two-precon acceptance", () => {
         }),
       }));
     expect(manifest.lifecycleSetupEvidence).toEqual(expect.objectContaining({
-      currentHead: "423af7ea1114e30eb1ad5335b20efc0078a40520",
+      currentHead: "e2710938ce4b4cc9c492dcf1e848c7ba9801b703",
       reviewHead: "f036b0e5026aba1668ae88be2d74a05abeb55670",
       requiredNewsourceCommit: "b6dc9debd813125413085a8a301f1ccdec5ef092",
       requiredNewsourceAncestorOfCurrent: false,
