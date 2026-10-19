@@ -78,7 +78,12 @@ function scene(program, { energy = 3, power = ["Fury"], invalidateBeforeFinalize
     pipelineOnEvent?.(event);
     if (event.timingPoint === "chain-item-finalize") {
       const item = engine.items[0];
-      finalized = item ? { object: item.object, plan: item.costPlan, receipt: item.payment } : null;
+      finalized = item ? {
+        object: item.object,
+        targetPlans: item.targetPlans,
+        plan: item.costPlan,
+        receipt: item.payment,
+      } : null;
     }
   };
   const source = kernel.getObject(id);
@@ -143,6 +148,8 @@ test("Legion Rearguard pay/decline use the Finalize choice, exact resources, rec
   assert.equal(paid.kernel.getObject(paid.id).ref.zoneEntryId, 1);
   paid.setDecision(true);
   paid.engine.execute(paid.draft);
+  assert.equal(paid.asked.length, 2);
+  assert.equal(paid.asked[1].id, paid.asked[0].id);
   assert.equal(paid.kernel.player("A").energy, 0);
   assert.deepEqual(paid.kernel.player("A").power, []);
   assert.equal(paid.kernel.getObject(paid.id).exhausted, false);
@@ -154,6 +161,7 @@ test("Legion Rearguard pay/decline use the Finalize choice, exact resources, rec
   assert.ok(paidFinalize);
   assert.deepEqual(paidFinalize.plan.source, paid.source.ref);
   assert.deepEqual(paidFinalize.object, { id: paid.source.ref.id, zoneEntryId: paid.source.ref.zoneEntryId + 1 });
+  assert.deepEqual(paidFinalize.targetPlans, [], "the original Accelerate units have no TargetSpec");
   assert.deepEqual(paidFinalize.plan.selectedAdditional, [{
     id: paid.described.cost.optionalAdditional[0].id, kind: "accelerate",
   }]);
@@ -200,6 +208,8 @@ test("Legion Rearguard pay/decline use the Finalize choice, exact resources, rec
   assert.throws(() => declined.engine.execute(declined.draft), AwaitChoice);
   declined.setDecision(false);
   declined.engine.execute(declined.draft);
+  assert.equal(declined.asked.length, 2);
+  assert.equal(declined.asked[1].id, declined.asked[0].id);
   assert.equal(declined.kernel.player("A").energy, 1);
   assert.deepEqual(declined.kernel.player("A").power, ["Fury"]);
   assert.equal(declined.kernel.getObject(declined.id).exhausted, true);

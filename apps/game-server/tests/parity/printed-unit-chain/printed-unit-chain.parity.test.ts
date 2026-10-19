@@ -273,6 +273,8 @@ describe("printed Unit Chain parity: new kernel primitives", () => {
 
       answer = selected;
       engine.execute(draft);
+      expect(asked).toHaveLength(2);
+      expect(asked[1]).toMatchObject({ id: asked[0]!.id, type: "optional" });
 
       const unit = kernel.getObject("ogn-010-298");
       expect({
