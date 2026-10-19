@@ -25,8 +25,13 @@ export interface MatchChoiceCursor {
 }
 
 export interface MatchPendingChoice {
-  readonly commandId: string;
+  /** Owner of the suspended original command. */
   readonly playerId: PlayerId;
+  /** Owner of the current question, which may be another player. */
+  readonly chooser: PlayerId;
+  readonly commandId: string;
+  /** Event cursor before the original command started. */
+  readonly previousEventSeq: number;
   readonly request: ChoiceRequest<unknown>;
   readonly command: V2Command;
   readonly answers: readonly MatchChoiceAnswer[];
@@ -51,6 +56,7 @@ export interface MatchReplayResult {
 }
 
 export interface MatchCommandAdapter {
+  readonly match: Match;
   readonly stateVersion: number;
   readonly pendingChoice: MatchPendingChoice | null;
   execute(playerId: PlayerId, command: unknown): GameCommandExecution;
@@ -73,6 +79,8 @@ interface PendingInternal {
   readonly playerId: PlayerId;
   readonly request: ChoiceRequest<unknown>;
   readonly answers: Map<string, unknown>;
+  /** Event cursor immediately before the original command attempted execution. */
+  readonly previousEventSeq: number;
 }
 
 interface ChoiceMemoryCarrier {
@@ -93,6 +101,8 @@ function publicPending(pending: PendingInternal | null): MatchPendingChoice | nu
   return pending === null ? null : {
     commandId: pending.command.commandId,
     playerId: pending.playerId,
+    chooser: pending.request.chooser,
+    previousEventSeq: pending.previousEventSeq,
     request: structuredClone(pending.request),
     command: structuredClone(pending.command),
     answers: [...pending.answers].map(([choiceId, answer]) => ({
@@ -116,7 +126,7 @@ class MatchCommand implements MatchCommandAdapter {
   private originalChainContext: Match['flow']['chain']['pipeline']['host']['context'];
   private readonly lifecycle: ReturnType<NonNullable<Match['programBinding']>['attachLifecycle']>;
 
-  constructor(private readonly match: Match, stateVersion: number, onCommand?: MatchCommandAdapterOptions['onCommand']) {
+  constructor(readonly match: Match, stateVersion: number, onCommand?: MatchCommandAdapterOptions['onCommand']) {
     if (!Number.isSafeInteger(stateVersion) || stateVersion < 0) throw new TypeError('stateVersion must be a non-negative integer');
     if (match.programBinding === undefined) throw new MatchCommandError('card-program-binding', 'A trusted card-program registry is required');
     this.version = stateVersion;
@@ -163,6 +173,7 @@ class MatchCommand implements MatchCommandAdapter {
     this.pending = snapshot.pending === null ? null : {
       command: structuredClone(snapshot.pending.command),
       playerId: snapshot.pending.playerId,
+      previousEventSeq: snapshot.pending.previousEventSeq,
       request: structuredClone(snapshot.pending.request),
       answers: new Map(snapshot.pending.answers.map(answer => [answer.choiceId, structuredClone(answer.answer)])),
     };
@@ -211,6 +222,7 @@ class MatchCommand implements MatchCommandAdapter {
 
   private run(playerId: PlayerId, command: V2Command): GameCommandExecution {
     const binding = this.match.programBinding!;
+    const previousEventSeq = this.match.events().length;
     this.cursor = null;
     this.answers = new Map();
     try {
@@ -222,9 +234,12 @@ class MatchCommand implements MatchCommandAdapter {
     } catch (error) {
       if (error instanceof AwaitChoice) {
         const request = this.cursor ?? error.request;
-        const receipt = this.pendingReceipt(command);
+        const receipt = this.pendingReceipt(command, previousEventSeq);
         this.record(playerId, command, receipt);
-        this.pending = { command, playerId, request: request as ChoiceRequest<unknown>, answers: this.answers ?? new Map() };
+        this.pending = {
+          command, playerId, request: request as ChoiceRequest<unknown>,
+          answers: this.answers ?? new Map(), previousEventSeq,
+        };
         this.cursor = null;
         return receipt;
       }
@@ -237,13 +252,14 @@ class MatchCommand implements MatchCommandAdapter {
   private resume(playerId: PlayerId, command: V2ChooseCommand): GameCommandExecution {
     const pending = this.pending;
     if (pending === null) throw new MatchCommandError('choice-cursor', 'No choice is pending');
-    if (pending.playerId !== playerId || pending.request.chooser !== playerId || pending.request.id !== command.choiceId) {
+    if (pending.request.chooser !== playerId || pending.request.id !== command.choiceId) {
       throw new MatchCommandError('choice-cursor', 'Choice is not owned by this player');
     }
     const normalized = normalizeAnswer(pending.request, command.answer);
     if (!normalized.found) throw new MatchCommandError('choice-cursor', 'Choice answer is invalid');
-    pending.answers.set(pending.request.id, structuredClone(normalized.value));
-    this.answers = pending.answers;
+    const answers = new Map(pending.answers);
+    answers.set(pending.request.id, structuredClone(normalized.value));
+    this.answers = answers;
     this.pending = null;
     this.cursor = null;
     try {
@@ -253,19 +269,26 @@ class MatchCommand implements MatchCommandAdapter {
         binding: this.match.programBinding!,
       }, playerId, pending.command);
       this.version += 1;
-      this.record(playerId, command, receipt);
+      const continuationReceipt = {
+        ...receipt,
+        commandId: command.commandId,
+        type: command.type,
+        previousEventSeq: pending.previousEventSeq,
+      };
+      this.record(playerId, command, continuationReceipt);
       this.answers = null;
-      return receipt;
+      return continuationReceipt;
     } catch (error) {
       if (error instanceof AwaitChoice) {
         const request = this.cursor ?? error.request;
-        const receipt = this.pendingReceipt(command);
+        const receipt = this.pendingReceipt(command, pending.previousEventSeq);
         this.record(playerId, command, receipt);
         this.pending = {
           command: pending.command,
           playerId: pending.playerId,
           request: request as ChoiceRequest<unknown>,
-          answers: pending.answers,
+          answers,
+          previousEventSeq: pending.previousEventSeq,
         };
         this.cursor = null;
         return receipt;
@@ -283,12 +306,12 @@ class MatchCommand implements MatchCommandAdapter {
     this.onCommand?.(structuredClone(record), receipt);
   }
 
-  private pendingReceipt(command: V2Command): GameCommandExecution {
+  private pendingReceipt(command: V2Command, previousEventSeq: number): GameCommandExecution {
     const eventSeq = this.match.events().length;
     return {
       commandId: command.commandId,
       type: command.type,
-      previousEventSeq: eventSeq,
+      previousEventSeq,
       eventSeq,
       winnerPlayerId: this.match.result().winner,
     };
