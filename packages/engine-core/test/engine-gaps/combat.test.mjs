@@ -237,6 +237,57 @@ test('EG-COMBAT default TurnFlow production assembly opens staged Combat without
   assert.equal(turn.chain.pipeline.events.filter(event => event.timingPoint === 'attack-declared').length, 1);
   assert.equal(turn.chain.pipeline.events.filter(event => event.timingPoint === 'defense-declared').length, 1);
 });
+
+test('EG-COMBAT TurnFlow advances Combat Cleanup, Result, Control, Score, and End', () => {
+  const builder = world().player('A').player('B')
+    .unit('attacker', { owner: 'A', controller: 'A', might: 4, power: null, keywords: [], location: field('bf1') })
+    .unit('defender', { owner: 'B', controller: 'B', might: 3, power: null, keywords: [], location: field('bf2') });
+  for (const player of ['A', 'B']) {
+    builder.deck([`${player}:deck:0`, `${player}:deck:1`], { owner: player });
+    builder.rune([`${player}:rune:0`, `${player}:rune:1`], { owner: player });
+  }
+  const kernel = builder.build();
+  const choose = request => {
+    if (request.type === 'mode' && request.id.startsWith('engagement:')) return request.options[0];
+    if (request.type === 'select-objects' && request.min === request.max && request.options.length === request.min) return [...request.options];
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => kernel.test(registration.spec.condition),
+  });
+  const turn = new TurnFlow({ host, player: id => kernel.player(id), turnOrder: ['A', 'B'],
+    battlefields: [{ id: 'bf1', controller: 'B' }, { id: 'bf2', controller: null }] });
+  turn.start();
+  assert.equal(turn.chain.commit({ type: 'move-location', object: kernel.ref('defender'),
+    to: field('bf1') }).status, 'done');
+  turn.advance();
+  assert.equal(turn.chain.focus, 'A');
+  turn.chain.pass('A');
+  turn.chain.pass('B');
+  turn.combat.prepareDamage();
+  turn.combat.submitAttackerDamage('A', [{ uid: 'defender', amount: 4 }]);
+  turn.combat.submitDefenderDamage('B', [{ uid: 'attacker', amount: 3 }]);
+  turn.advance();
+  turn.advance();
+  const timings = turn.chain.pipeline.events.map(event => event.timingPoint);
+  const result = timings.indexOf('combat-result');
+  const control = timings.indexOf('control-established');
+  const conquer = timings.indexOf('conquer');
+  const score = timings.indexOf('score');
+  const end = timings.indexOf('combat-end');
+  assert.ok(result >= 0 && result < control && control < conquer && conquer < score && score < end);
+  assert.equal(turn.combat.active, false);
+  assert.equal(kernel.player('A').score, 1);
+});
+
 test('EG-COMBAT default TurnFlow consumes a real Conquer and Score before combat-end', () => {
   // CR v1.5: https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
   // 468.1 Comparable Cleanup, 468.3 Combat Result, 468.5 Control + Conquer,
@@ -766,6 +817,29 @@ test('EG-COMBAT no-result when both sides are removed produces neither Conquer n
   assert.equal(f.flow.active, false);
 });
 
+test('EG-COMBAT Result uses only current Battlefield Units for a side result', () => {
+  const f = combatFixture({
+    attacker: { id: 'attacker', might: 6, cardId: null, keywords: [] },
+    defender: { id: 'defender', might: 3, cardId: null, keywords: [] },
+    cleanup: 'lethal',
+    extraUnits: [
+      { id: 'attacker-away', controller: 'A', might: 9, location: { type: 'base', player: 'A' } },
+      { id: 'defender-away', controller: 'B', might: 9, location: { type: 'base', player: 'B' } },
+    ],
+  });
+  f.started();
+  f.closeShowdown();
+  f.flow.prepareDamage();
+  f.flow.submitAttackerDamage('A', [{ uid: 'defender', amount: 6 }]);
+  f.flow.submitDefenderDamage('B', [{ uid: 'attacker', amount: 3 }]);
+  f.chain.advance();
+  f.flow.advance();
+  f.flow.advance();
+  assert.equal(f.events('combat-result')[0].details.noResult, false);
+  assert.equal(f.events('combat-result')[0].details.winnerId, 'A');
+  assert.equal(f.events('combat-start').length, 1);
+});
+
 test('EG-COMBAT Recall leaves Attackers in Base and does not restage Combat at the old Battlefield', () => {
   // CR v1.5 468.3.d / 468.3.d.1 / 468.5. Timeline: simultaneous damage ->
   // Combat Cleanup -> combat-result(noResult) -> local Control -> combat-end.
@@ -846,6 +920,32 @@ test('EG-COMBAT CR 468.1.a.2 recalls Attackers through RecallAction and marks th
   assert.deepEqual(f.flow.current?.cleanup?.recall?.unitKeys, ['attacker:1']);
   f.flow.advance();
   assert.equal(f.events('combat-result')[0].details.noResult, true);
+});
+
+test('EG-COMBAT Recall ignores Base and other Battlefield Units when determining local Remaining', () => {
+  const f = combatFixture({
+    attacker: { id: 'attacker', might: 5, cardId: null, keywords: [] },
+    defender: { id: 'defender', might: 5, cardId: null, keywords: [] },
+    extraUnits: [
+      { id: 'nearby-a', controller: 'A', might: 9, location: { type: 'base', player: 'A' } },
+      { id: 'nearby-b', controller: 'B', might: 9, location: { type: 'base', player: 'B' } },
+    ],
+  });
+  f.started();
+  f.closeShowdown();
+  f.flow.prepareDamage();
+  f.flow.submitAttackerDamage('A', [{ uid: 'defender', amount: 5 }]);
+  f.flow.submitDefenderDamage('B', [{ uid: 'attacker', amount: 5 }]);
+  f.chain.advance();
+  f.flow.advance();
+  f.flow.advance();
+  assert.equal(f.events('combat-result')[0].details.noResult, true);
+  assert.equal(f.events('combat-result')[0].details.winnerId, null);
+  assert.equal(f.kernel.getObject('attacker').location.type, 'base');
+  assert.deepEqual(f.kernel.getObject('defender').location, field('bf1'));
+  assert.equal(f.flow.battlefields[0].staged, 'none');
+  assert.equal(f.flow.battlefields[0].contestedBy, null);
+  assert.equal(f.events('combat-start').length, 1);
 });
 
 test('EG-COMBAT multi-Attacker CR 468.1 Special Cleanup Recall is atomic and retryable', () => {
