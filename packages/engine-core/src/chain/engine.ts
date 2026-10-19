@@ -135,6 +135,7 @@ export interface PaymentContinuationHostPort {
 interface PaymentContinuationBinding {
   readonly notice: PaymentContinuationSnapshot;
   readonly checkpoint: unknown;
+  readonly owner: ChainEngine;
   state: 'suspended' | 'live' | 'consumed';
 }
 
@@ -240,6 +241,7 @@ function paymentContinuationAuthority(input: {
   readonly checkpoint: unknown;
   readonly turn: number;
   readonly digest: string;
+  readonly owner: ChainEngine;
 }): PaymentContinuation {
   const snapshot = Object.freeze({
     contract: 'riftbound.chain.payment-continuation.v1' as const,
@@ -251,7 +253,9 @@ function paymentContinuationAuthority(input: {
     costPlanId: input.costPlanId,
   });
   const handle = Object.freeze({ snapshot }) as PaymentContinuation;
-  PAYMENT_CONTINUATION_BINDINGS.set(handle, { notice: snapshot, checkpoint: input.checkpoint, state: 'suspended' });
+  PAYMENT_CONTINUATION_BINDINGS.set(handle, {
+    notice: snapshot, checkpoint: input.checkpoint, owner: input.owner, state: 'suspended',
+  });
   return handle;
 }
 
@@ -973,6 +977,7 @@ export class ChainEngine {
       itemId: item.id, payer: item.controller, source: item.source.ref, costPlanId: item.costPlan.id,
       turn: this.pipeline.clock.turn,
       digest,
+      owner: this,
       checkpoint: {
         itemId: item.id,
         chain: {
@@ -1017,6 +1022,19 @@ export class ChainEngine {
   /** Resume the suspension rebuilt by this authoritative Chain/journal replay. */
   resumePaymentContinuation(handle: PaymentContinuation, options: PaymentContinuationExecutionOptions): PaymentContinuationResult {
     const binding = paymentContinuationBinding(handle);
+    // A handle is an opaque process-local capability owned by the exact
+    // authoritative Chain that created it. Equal content digests never make
+    // handles interchangeable across Chain instances.
+    if (binding !== null && binding.owner !== this) {
+      throw new Error('Payment continuation handle belongs to another authoritative Chain');
+    }
+    if (binding !== null && this.consumedPaymentContinuations.has(handle.snapshot.continuationId)) {
+      throw new Error('Payment continuation was already consumed');
+    }
+    if (binding !== null && this.suspendedPaymentContinuations.get(handle.snapshot.continuationId) !== handle &&
+        this.paymentContinuation !== handle) {
+      throw new Error('Payment continuation handle is not a member of this authoritative Chain');
+    }
     const current = this.paymentContinuation;
     if (binding === null || (current === null && binding.state !== 'suspended') || (current !== null && binding.state !== 'live')) {
       throw new Error('Payment continuation handle is stale or not authoritative');
@@ -1059,6 +1077,7 @@ export class ChainEngine {
         binding.state = 'consumed';
         this.paymentSuspended = false;
         this.consumedPaymentContinuations.add(key);
+        this.suspendedPaymentContinuations.delete(key);
         this.paymentContinuation = null;
         this.paymentContinuationCheckpoint = null;
         return { continuationId: snapshot.continuationId, epoch: snapshot.epoch, itemId: snapshot.itemId, add, payment };
