@@ -335,7 +335,7 @@ test("EG-REPLACEMENT original selectors distinguish target, pick, linked, query,
   );
 });
 
-test("EG-REPLACEMENT a non-target query failure is not silently treated as success", () => {
+test("EG-REPLACEMENT an empty non-target query yields zero actions without weakening stale references", () => {
   const f = runtime(world().player("A").unit("host"));
   const planner = {
     host: deps(f).host,
@@ -343,12 +343,12 @@ test("EG-REPLACEMENT a non-target query failure is not silently treated as succe
     evaluate: expr => f.kernel.evaluate(expr),
     context: f.host.context(f.kernel.getObject("host"), "A", "cleanup-start")
   };
-  assert.throws(
-    () => planReplacementBody([{
+  assert.deepEqual(
+    planReplacementBody([{
       id: "empty-query", op: "effect.kill",
       args: { objects: c({ kind: "query", filter: { type: "gear", zone: "board" } }) }
     }], { hostRef: f.kernel.ref("host"), replacedObject: null, usedWindow: false }, planner),
-    error => error instanceof BlockedReplacementError && /selected no current objects/.test(error.message)
+    []
   );
 });
 
@@ -371,4 +371,37 @@ test("EG-REPLACEMENT Deathknell removal half is kept distinct from pre-execution
   assert.equal(f.get("victim").zone, "trash");
   assert.ok(f.engine.trace.some(entry => entry.step === "pending" && entry.item.startsWith("trigger:")));
   assert.equal(f.engine.trace.some(entry => entry.step === "removed" && entry.reason === "death-replaced"), false);
+});
+
+test("EG-REPLACEMENT empty set selectors execute as zero actions while target/pick selectors fail closed", () => {
+  const f = runtime(world().player("A").unit("host"));
+  const planner = {
+    host: deps(f).host,
+    controller: "A",
+    evaluate: expr => f.kernel.evaluate(expr),
+    context: f.host.context(f.kernel.getObject("host"), "A", "cleanup-start")
+  };
+  const emptyQuery = selector => planReplacementBody([{
+    id: "empty-query", op: "effect.ready", args: { objects: c(selector) }
+  }], { hostRef: f.kernel.ref("host"), replacedObject: null, usedWindow: false }, planner);
+  assert.deepEqual(emptyQuery({ kind: "query", filter: { type: "gear", zone: "board" } }), []);
+  assert.deepEqual(emptyQuery({ kind: "choose", id: "no-options", filter: { type: "gear" }, min: 0, max: 1 }), []);
+  assert.throws(
+    () => planReplacementBody([{
+      id: "missing-target", op: "effect.ready", args: { objects: c({ target: "missing" }) }
+    }], { hostRef: f.kernel.ref("host"), replacedObject: null, usedWindow: false }, planner),
+    error => error instanceof BlockedReplacementError && /target has no current object/.test(error.message)
+  );
+});
+
+test("EG-REPLACEMENT phase-procedure remains fail-closed instead of approximating a draw action", () => {
+  const f = runtime(world().player("A").unit("host"));
+  const eventDef = instructionDefinitionsById.get("replacement.event");
+  assert.throws(
+    () => eventDef.execute(f.host.context(f.kernel.getObject("host"), "A", "chain-item-resolve"), {
+      event: c({ event: "phase-procedure", procedure: "draw", player: "self" }),
+      instead: c([])
+    }),
+    error => error instanceof BlockedReplacementError && /Unsupported replacement.event event/.test(error.message)
+  );
 });

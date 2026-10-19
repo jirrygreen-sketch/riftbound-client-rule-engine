@@ -30,8 +30,7 @@ const ACTION_KINDS: Readonly<Record<string, readonly GameAction["type"][]>> = {
   "card-revealed": ["reveal"],
   "object-enters-zone": ["move-zone", "return-to-hand", "recycle", "banish", "discard"],
   "object-leaves-chain": ["move-zone", "banish"],
-  "object-leaves-zone": ["move-zone", "move-location", "return-to-hand", "recycle", "banish", "kill"],
-  "phase-procedure": []
+  "object-leaves-zone": ["move-zone", "move-location", "return-to-hand", "recycle", "banish", "kill"]
 };
 
 /** The action ref an EventPattern object filter inspects. */
@@ -118,17 +117,7 @@ export function actionMatchesEventPattern(input: PatternMatchInput): boolean {
   const { pattern, action, target, hostRef, controller } = input;
   const kind = pattern.event ?? pattern.type ?? pattern.kind;
   const actionTypes = typeof kind === "string" ? ACTION_KINDS[kind] : undefined;
-  if (!actionTypes) return false;
-  if (actionTypes.length > 0 && !actionTypes.includes(action.type)) return false;
-  if (kind === "phase-procedure") {
-    const procedure = pattern.procedure;
-    const player = pattern.player;
-    const expectedProcedure = action.type === "draw" ? "draw" : undefined;
-    if (expectedProcedure === undefined || procedure !== expectedProcedure) return false;
-    if (player === "self") return "player" in action && action.player === controller;
-    if (typeof player === "string" && player !== "any") return "player" in action && action.player === player;
-    return player === undefined || player === "any";
-  }
+  if (!actionTypes || !actionTypes.includes(action.type)) return false;
   if (kind === "object-enters-board" && (action.type !== "move-zone" || (action.to !== "base" && action.to !== "battlefield"))) return false;
   if (kind === "object-leaves-chain" &&
       (action.type !== "move-zone" || ("object" in action && input.snapshotFor(action.object)?.zone !== "chain"))) return false;

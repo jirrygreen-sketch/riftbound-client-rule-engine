@@ -76,7 +76,7 @@ const argsSchema: Schema<ReplacementEventArgs> = {
 const SUPPORTED_EVENTS = new Set([
   "object-enters-board", "object-killed", "object-readied", "object-exhausted",
   "damage", "score", "card-played", "card-revealed",
-  "object-enters-zone", "object-leaves-chain", "object-leaves-zone", "phase-procedure"
+  "object-enters-zone", "object-leaves-chain", "object-leaves-zone"
 ]);
 
 function eventPattern(value: Value | undefined): Readonly<Record<string, unknown>> {
@@ -187,6 +187,27 @@ const replacementEvent = {
         { id: `${ctx.source.ref.id}.replacement.event.pay`, op: "cost.pay", args: { payments: constant(normalizedCost as Value) } },
         ...instead
       ];
+      if (object === undefined) {
+        const declaration: Instruction = {
+          id: `${ctx.source.ref.id}.replacement.event`,
+          op: "replacement.event",
+          args: {
+            event: constant(event as unknown as Value),
+            window: constant(window),
+            optional: constant(optional),
+            instead: constant(bodyWithCost as unknown as Value)
+          }
+        };
+        const bound = bindWithDuration(ctx, { replaces: {}, with: [declaration] }, lifetime, registration => ({
+          ...registration,
+          optional: optional || registration.optional === true
+        }));
+        return {
+          status: "executed",
+          events: [],
+          linkedValues: { replacementId: bound.id, duration: lifetime, window, costExposed: true }
+        };
+      }
       const declaration: Instruction = {
         id: `${ctx.source.ref.id}.replacement.event`,
         op: "replacement.event",
