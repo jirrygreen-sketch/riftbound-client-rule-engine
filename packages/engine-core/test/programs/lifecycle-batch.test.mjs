@@ -33,6 +33,7 @@ function runtime(cards, programs) {
     restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
     objects: () => kernel.objects,
     perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
     performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
     choose,
     context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
@@ -87,6 +88,44 @@ test('a real atomic Kill batch runs one leave detach and leaves no stale program
   const deaths = f.engine.pipeline.events.filter(event => event.timingPoint === 'object-killed');
   assert.equal(deaths.length, 2);
   assert.ok(deaths.every(event => event.batchId === 'kill-wave'));
+  assert.equal(f.engine.pipeline.checkpoint().triggers.size, 0);
+  lifecycle.detach();
+});
+
+test('typed commitContract runs the same one-wave death triggers and LKI as commit', () => {
+  const observer = card('observer', [{ kind: 'triggered', trigger: { at: 'object-killed', filter: {} }, optional: false,
+    body: [{ id: 'draw', op: 'effect.draw', args: { amount: constant(1) } }] }]);
+  const f = runtime([{ id: 'a', cardId: 'observer' }, { id: 'b', cardId: 'observer' }], [observer]);
+  const lifecycle = f.binding.attachLifecycle(f.engine);
+  const outcome = f.engine.pipeline.commitContract(killBatch([f.kernel.ref('a'), f.kernel.ref('b')], 'typed-kill-wave'));
+  assert.equal(outcome.status, 'done');
+  const deaths = f.engine.pipeline.events.filter(event => event.timingPoint === 'object-killed');
+  assert.equal(deaths.length, 2);
+  assert.ok(deaths.every(event => event.batchId === 'typed-kill-wave'));
+  assert.deepEqual(deaths.map(event => event.object.ref.id).sort(), ['a', 'b']);
+  assert.equal(f.engine.items.length, 2);
+  assert.deepEqual(f.engine.items.map(item => item.trigger.source.ref.id).sort(), ['a', 'b']);
+  assert.ok(f.engine.items.every(item => item.trigger.event.batchId === 'typed-kill-wave'));
+  assert.equal(f.engine.pipeline.checkpoint().triggers.size, 0);
+  lifecycle.detach();
+});
+
+test('typed commitContract failure rolls back and retries the same incarnation without duplicate bindings', () => {
+  const observer = card('observer', [{ kind: 'triggered', trigger: { at: 'object-killed', filter: {} }, optional: false,
+    body: [{ id: 'draw', op: 'effect.draw', args: { amount: constant(1) } }] }]);
+  const f = runtime([{ id: 'a', cardId: 'observer' }, { id: 'b', cardId: 'observer' }], [observer]);
+  const lifecycle = f.binding.attachLifecycle(f.engine);
+  const originalOnTrigger = f.engine.pipeline.onTrigger;
+  f.engine.pipeline.onTrigger = () => { throw new Error('typed trigger failure'); };
+  assert.throws(() => f.engine.pipeline.commitContract(killBatch([f.kernel.ref('a'), f.kernel.ref('b')], 'typed-fail')), /typed trigger failure/);
+  assert.equal(f.kernel.getObject('a').zone, 'board');
+  assert.equal(f.kernel.getObject('b').zone, 'board');
+  assert.equal(f.engine.pipeline.events.length, 0);
+  assert.equal(f.engine.pipeline.checkpoint().triggers.size, 0);
+  f.engine.pipeline.onTrigger = originalOnTrigger;
+  const outcome = f.engine.pipeline.commitContract(killBatch([f.kernel.ref('a'), f.kernel.ref('b')], 'typed-retry'));
+  assert.equal(outcome.status, 'done');
+  assert.equal(f.engine.items.length, 2);
   assert.equal(f.engine.pipeline.checkpoint().triggers.size, 0);
   lifecycle.detach();
 });

@@ -1,5 +1,5 @@
 import type { ChainEngine } from '../chain/engine.js';
-import type { GameAction, ObjectSnapshot } from '../effects/contract.js';
+import type { ContractGameAction, GameAction, ObjectSnapshot } from '../effects/contract.js';
 import type { PipelineEvent, TimingEmission } from '../events/pipeline-types.js';
 import { bindReplacementAbility, bindStaticAbility, createEngineStaticBinder, type ProgramStaticBinder, type StaticBindingHandle } from './statics.js';
 import { ProgramRegistry } from './registry.js';
@@ -29,7 +29,9 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   const undoStack: Undo[][] = [];
   const originalEmitBatch = pipeline.emitBatch.bind(pipeline);
   const originalCommit = pipeline.commit.bind(pipeline);
+  const originalCommitContract = pipeline.commitContract.bind(pipeline);
   const originalDeferTriggerScan = pipeline.deferTriggerScan.bind(pipeline);
+  const originalOnEvent = pipeline.onEvent;
   let depth = 0;
   let detached = false;
 
@@ -178,6 +180,18 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     reconcile();
   }
 
+  const syncCurrent = (source: ObjectSnapshot) => {
+    const current = currentFor(source);
+    if (!current || !active(current)) return;
+    const binding = bindings.get(refKey(source));
+    if (!binding || binding.signature === signature(current)) return;
+    detach(binding.source);
+    attach(current, current.zone === 'board', current.zone === 'board' || bindReplacementOnChain);
+  };
+  const syncBindings = () => {
+    for (const source of pipeline.host.objects()) syncCurrent(source);
+  };
+
   const isEntry = (event: TimingEmission) => event.timingPoint === 'object-enters-board' || event.timingPoint === 'object-enters-chain';
   const isExit = (event: TimingEmission) => event.timingPoint === 'object-leaves-board' || event.timingPoint === 'object-killed';
 
@@ -195,8 +209,28 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       const source = pipeline.host.objects().find(object => object.ref.id === action.object.id && object.ref.zoneEntryId === action.object.zoneEntryId);
       if (source && programExists(source)) attach(source, false, true);
     }
-    return originalCommit(action);
+    const outcome = originalCommit(action);
+    if (outcome.status === 'done' || outcome.status === 'replaced') {
+      syncBindings();
+    }
+    return outcome;
   })) as typeof pipeline.commit;
+  pipeline.commitContract = ((action: ContractGameAction) => transaction(() => {
+    reconcile();
+    const outcome = originalCommitContract(action);
+    if (outcome.status === 'done' || outcome.status === 'replaced') {
+      syncBindings();
+    }
+    return outcome;
+  })) as typeof pipeline.commitContract;
+  pipeline.onEvent = event => {
+    transaction(() => {
+      if (event.object) syncBindings();
+      originalOnEvent?.(event);
+      if (event.object && isEntry(event)) ensure(event.object);
+      if (event.object && isExit(event)) queueExit(event.object);
+    });
+  };
   pipeline.deferTriggerScan = (<T>(run: () => T): T => {
     return transaction(() => originalDeferTriggerScan(run));
   }) as typeof pipeline.deferTriggerScan;
@@ -212,6 +246,8 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       detached = true;
       pipeline.emitBatch = originalEmitBatch;
       pipeline.commit = originalCommit;
+      pipeline.commitContract = originalCommitContract;
+      pipeline.onEvent = originalOnEvent;
       pipeline.deferTriggerScan = originalDeferTriggerScan;
       pendingExits.clear();
       for (const binding of [...bindings.values()]) detach(binding.source);
