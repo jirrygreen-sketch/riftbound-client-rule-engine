@@ -41,6 +41,8 @@ export interface EngineRuntimeOptions {
   readonly programs?: readonly CardProgram[] | ReadonlyMap<string, CardProgram>;
   readonly engineVersion?: string;
   readonly createdAt?: string;
+  /** Non-wire lifecycle seam for asserting post-execution transaction failure. */
+  readonly afterCommandExecution?: (command: V2Command, clock: { readonly stateVersion: number; readonly eventSeq: number }) => void;
 }
 
 export interface RuntimeReceipt {
@@ -186,9 +188,14 @@ class MatchRuntime implements EngineRuntime {
     }
     if (command.stateVersion !== this.stateVersion) return this.rejected(command, playerId, `stateVersion mismatch: expected ${this.stateVersion}, received ${command.stateVersion}`);
     if (command.type === "choose") return this.choose(playerId, command);
+    const beforeCommand = this.journal();
     try {
       const result = this.execute(playerId, command);
       this.stateVersion += 1;
+      this.runtimeOptions.afterCommandExecution?.(command, {
+        stateVersion: this.stateVersion,
+        eventSeq: this.match!.events().length,
+      });
       const receipt: RuntimeReceipt = { commandId: command.commandId, status: "accepted", stateVersion: this.stateVersion, eventSeq: this.match!.events().length, result };
       this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
       this.appendJournal(playerId, command, receipt, result);
@@ -205,6 +212,10 @@ class MatchRuntime implements EngineRuntime {
         });
         return { receipt, projection: this.projectFor(playerId) };
       }
+      // If the command has already mutated state, restore from the last
+      // committed journal rather than retaining a consumed resource plan,
+      // uncommitted receipt or partial event sequence.
+      this.restore(beforeCommand);
       return this.rejected(command, playerId, error instanceof Error ? error.message : String(error));
     }
   }

@@ -119,6 +119,14 @@ async function projection(client: Client, minimumStateVersion = -1): Promise<V2P
   return value;
 }
 
+async function syncAt(client: Client, clientSession: ClientSession, requestId: string,
+  minimumStateVersion: number): Promise<V2Projection> {
+  client.send({ type: "sync-events", requestId, afterEventSeq: 0 });
+  await client.wait(value => (value as { type?: unknown }).type === "request-result" &&
+    (value as { requestId?: unknown }).requestId === requestId);
+  return projection(client, minimumStateVersion);
+}
+
 async function pair(port: number, storageDirectory?: string, roomStore?: FileRoomStore) {
   const running = roomStore === undefined
     ? await start(port, storageDirectory)
@@ -160,6 +168,11 @@ async function sync(client: Client, session: ClientSession, requestId: string): 
     (value as { requestId?: unknown }).requestId === requestId);
 }
 
+// Core Rules v1.5 (2026-10-09):
+// https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// CR 164.2, 166.1, 312.1.a, 357.1.a, 430.2.a, 430.3.
+// Bubble Bot canonical: card.hash-34880fcae16bd9461e4c318dfb455365ff9e353db357f948b4a15dea7e01b389.
+// Mind/Fury Rune canonical IDs match the focused runtime source header above.
 describe("default createGameServer v2 Rune resource path", () => {
   it("activates real Rune Energy through the default public room and persists the ACK across restart", async () => {
     const port = 36060;
@@ -260,7 +273,79 @@ describe("default createGameServer v2 Rune resource path", () => {
     expect(rejected).toMatchObject({ code: "protocol-error" });
   }, 120_000);
 
-  it("rolls a Rune command back when the durable room write fails and refuses a stale retry", async () => {
+  it("uses real Rune Energy to pay a real hand card in the active player's Main", async () => {
+    const port = 36063;
+    const running = await pair(port);
+    await Promise.all([sync(running.alice, running.sessionA, "sync-pay-a0"),
+      sync(running.bob, running.sessionB, "sync-pay-b0")]);
+    let [viewA, viewB] = await Promise.all([projection(running.alice), projection(running.bob)]);
+    let actorIsAlice = false;
+    let actor = running.alice;
+    let view = viewA;
+    let card: V2Projection["objects"][number] | undefined;
+    for (let index = 0; index < 8; index += 1) {
+      actorIsAlice = viewA.activePlayerId === running.sessionA.playerId;
+      actor = actorIsAlice ? running.alice : running.bob;
+      view = actorIsAlice ? viewA : viewB;
+      // Each prior turn completed only after both projections were synced to
+      // its accepted receipt clock; the selected hand is therefore current.
+      const ownerPlayerId = view.viewerPlayerId!;
+      card = view.zones.find(zone => zone.zone === "hand" && zone.ownerPlayerId === ownerPlayerId)
+        ?.objects?.find(object => object.name === "Bubble Bot");
+      if (card && view.turnNumber >= 5) break;
+      actor.send({ type: "command", protocolVersion: PROTOCOL_V2_VERSION,
+        command: { type: "pass", commandId: `pay-main-advance-${index}`, stateVersion: view.stateVersion } });
+      await receipt(actor, `pay-main-advance-${index}`);
+      const currentVersion = view.stateVersion + 1;
+      [viewA, viewB] = await Promise.all([
+        syncAt(running.alice, running.sessionA, `sync-pay-a${index + 1}`, currentVersion),
+        syncAt(running.bob, running.sessionB, `sync-pay-b${index + 1}`, currentVersion),
+      ]);
+    }
+    expect(card).toBeTruthy();
+    const ownerPlayerId = view.viewerPlayerId!;
+    const requiredEnergy = 3;
+    let stateVersion = view.stateVersion;
+    for (let index = 0; index < requiredEnergy; index += 1) {
+      const current = view.zones.find(zone => zone.zone === "rune-zone" && zone.ownerPlayerId === ownerPlayerId)
+        ?.objects?.find(object => object.exhausted === false);
+      expect(current, `Ready Rune ${index + 1} required`).toBeTruthy();
+      actor.send({ type: "command", protocolVersion: PROTOCOL_V2_VERSION,
+        command: { type: "rune-energy", commandId: `pay-rune-energy-${index}`, stateVersion,
+          runeObjectId: current!.objectId, zoneEntryId: current!.zoneEntryId! } });
+      const result = await receipt(actor, `pay-rune-energy-${index}`);
+      expect(result, JSON.stringify(result)).toMatchObject({ accepted: true, duplicate: false });
+      stateVersion = result.stateVersion;
+      const [nextA, nextB] = await Promise.all([
+        projection(running.alice, stateVersion),
+        projection(running.bob, stateVersion),
+      ]);
+      view = actorIsAlice ? nextA : nextB;
+    }
+    actor.send({ type: "command", protocolVersion: PROTOCOL_V2_VERSION,
+      command: { type: "play", commandId: "pay-real-hand-card", stateVersion, cardObjectId: card!.objectId } });
+    const played = await receipt(actor, "pay-real-hand-card");
+    expect(played, JSON.stringify(played)).toMatchObject({ accepted: true, duplicate: false });
+    await Promise.all([sync(running.alice, running.sessionA, "sync-paid-a"),
+      sync(running.bob, running.sessionB, "sync-paid-b")]);
+    const [paidA, paidB] = await Promise.all([
+      projection(running.alice, played.stateVersion), projection(running.bob, played.stateVersion),
+    ]);
+    const paid = actorIsAlice ? paidA : paidB;
+    expect(paid.players.find(player => player.playerId === ownerPlayerId)?.energy).toBe(0);
+    // Unit/Gear enter their Board location and resolve immediately. Their
+    // absence from Chain after Finalize/Resolve is the authoritative result;
+    // the card and its real cost must no longer be in the paying hand/pool.
+    expect(paid.objects.find(object => object.objectId === card!.objectId)).toMatchObject({
+      zone: "base",
+      location: { kind: "base", playerId: ownerPlayerId },
+    });
+    expect(paid.zones.find(zone => zone.zone === "hand" && zone.ownerPlayerId === ownerPlayerId)
+      ?.objects?.some(object => object.objectId === card!.objectId)).toBe(false);
+    expect(paid.pendingChoice).toEqual({ status: "none" });
+  }, 180_000);
+
+  it("rolls a Rune command back when the durable room write fails and retries exactly once", async () => {
     const port = 36062;
     const taskDirectory = path.join("/tmp", process.env.SWARM_TASK ?? "RIFT-861-eg-v2-rune-runtime");
     await mkdir(taskDirectory, { recursive: true });
@@ -279,7 +364,10 @@ describe("default createGameServer v2 Rune resource path", () => {
     await Promise.all([sync(running.alice, running.sessionA, "sync-fail-a0"),
       sync(running.bob, running.sessionB, "sync-fail-b0")]);
     let [viewA, viewB] = await Promise.all([projection(running.alice), projection(running.bob)]);
-    for (const index of [0, 1, 2, 3]) {
+    // Six passes reach B's second Main. The three Runes channeled in B's first
+    // Channel Phase are exhausted, so this is the first authoritative window
+    // where B has a ready Rune from the prior Awaken Phase.
+    for (const index of [0, 1, 2, 3, 4, 5]) {
       const view = viewA.activePlayerId === running.sessionA.playerId ? viewA : viewB;
       const client = view.activePlayerId === running.sessionA.playerId ? running.alice : running.bob;
       client.send({ type: "command", protocolVersion: PROTOCOL_V2_VERSION,
@@ -303,7 +391,7 @@ describe("default createGameServer v2 Rune resource path", () => {
     actor.send(command);
     const failed = await actor.wait(value => value !== null && typeof value === "object" &&
       (value as { type?: unknown }).type === "error" &&
-      /rune metadata write failed/.test(String((value as { message?: unknown }).message)));
+      /rune metadata write failed/.test(String((value as { message?: unknown }).message)), false);
     expect(failed).toMatchObject({ code: "command-rejected", message: "rune metadata write failed" });
     actor.discardErrors();
     await Promise.all([sync(running.alice, running.sessionA, "sync-rollback-a"),
@@ -314,8 +402,26 @@ describe("default createGameServer v2 Rune resource path", () => {
     expect(rolled.objects.find(object => object.objectId === rune!.objectId)?.exhausted).toBe(false);
     expect(rolled.players.find(player => player.playerId === ownerPlayerId)?.energy).toBe(0);
     actor.send(command);
-    const rejected = await receipt(actor, "rune-storage-failure");
-    expect(rejected).toMatchObject({ accepted: false });
-    expect(rejected.rejection).toMatch(/stateVersion mismatch/);
+    const retried = await receipt(actor, "rune-storage-failure");
+    expect(retried).toMatchObject({ accepted: true, duplicate: false,
+      stateVersion: view.stateVersion + 1 });
+    await Promise.all([sync(running.alice, running.sessionA, "sync-retry-a"),
+      sync(running.bob, running.sessionB, "sync-retry-b")]);
+    const [retriedA, retriedB] = await Promise.all([
+      projection(running.alice, retried.stateVersion),
+      projection(running.bob, retried.stateVersion),
+    ]);
+    const committed = actorIsAlice ? retriedA : retriedB;
+    expect(committed.players.find(player => player.playerId === ownerPlayerId)?.energy).toBe(1);
+    expect(committed.objects.find(object => object.objectId === rune!.objectId)?.exhausted).toBe(true);
+    actor.send(command);
+    expect(await receipt(actor, "rune-storage-failure"))
+      .toMatchObject({ accepted: true, duplicate: true, stateVersion: retried.stateVersion });
+    const [duplicateA, duplicateB] = await Promise.all([
+      projection(running.alice, retried.stateVersion),
+      projection(running.bob, retried.stateVersion),
+    ]);
+    const afterDuplicate = actorIsAlice ? duplicateA : duplicateB;
+    expect(afterDuplicate.players.find(player => player.playerId === ownerPlayerId)?.energy).toBe(1);
   }, 180_000);
 });

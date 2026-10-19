@@ -127,7 +127,8 @@ export function projectRuntime(
   const chain = match.flow.chain.items;
   const chainSnapshot: V2ChainSnapshot = {
     status: chain.length ? "open" : "closed",
-    phase: pendingChoice ? "await-commit" : chain.length ? "execute" : "open",
+    phase: pendingChoice ? "await-commit" : chain.some(item => item.status === "pending") ? "finalize"
+      : chain.length ? "resolve" : "open",
     priorityPlayerId: match.flow.chain.priority, focusPlayerId: match.flow.chain.focus,
     items: chain.map(item => ({ itemId: item.id, controllerPlayerId: item.controller, status: item.status === "finalized" ? "finalized" : "pending", kind: item.kind, sourceObjectId: item.source.ref.id, sourceVisibility: "public" as const })),
   };

@@ -96,6 +96,13 @@ function readyRunes(runtime: ReturnType<typeof createEngineRuntime>, playerId: s
   return (zone?.objects ?? []).filter(object => object.exhausted === false);
 }
 
+// Core Rules v1.5 (2026-10-09):
+// https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// Rune rules: 164.1/164.2, 166.1, 357.1.a, 417.1.b, 430.2-430.3.
+// Mind Rune canonical: card.hash-a8a4cb783649a0339782e2d3808d6144661c621634da7c9f79b4f87981fac97b.
+// Fury Rune canonical: card.hash-30497c69657abd1d3abf17f9b3766e7d064817473a88828ca2ef4ab9b51f7902.
+// Consult the Past canonical: card.hash-2ebf1fe6e5ed7bb875f1c112b3e0ed1635b557c0c0ad550d752b8dd376243007.
+// Radiance CR303.2.a, effective 2026-10-16, was checked and adds no Rune-specific ordering rule.
 describe("RIFT-861 real MatchRuntime Basic Rune resources", () => {
   it("turns four real Rune Energy adds into the real Consult the Past Energy cost", () => {
     const deckA = m1Deck("rumble-sfd");
@@ -142,6 +149,9 @@ describe("RIFT-861 real MatchRuntime Basic Rune resources", () => {
       sourceObjectId: card!.objectId,
       controllerPlayerId: "A",
     }));
+    expect(played.projection.chain.phase).toBe("resolve");
+    expect(played.projection.priority.window).toBe("closed");
+    expect(played.projection.pendingChoice).toEqual({ status: "none" });
     const payer = played.projection.chain.priorityPlayerId;
     expect(payer).toBe("A");
     const firstPass = runtime.submit(payer!, {
@@ -185,6 +195,43 @@ describe("RIFT-861 real MatchRuntime Basic Rune resources", () => {
       decks: [deckA, deckB], seed: "r861-1", firstPlayer: "A", programs: programs(deckA, deckB),
     }).restore(runtime.journal());
     expect(restored.projectFor("A")).toEqual(runtime.projectFor("A"));
+  }, 120_000);
+
+  it("restores a committed baseline after a late nested Rune Add failure and re-plans a clean retry", () => {
+    const deckA = m1Deck("rumble-sfd");
+    const deckB = m1Deck("fiora-sfd");
+    let failOnce = true;
+    const runtime = createEngineRuntime({
+      matchId: "duel:r861-late-rune", roomId: "r861-late-rune",
+      decks: [deckA, deckB], seed: "r861-1", firstPlayer: "A", programs: programs(deckA, deckB),
+      afterCommandExecution: command => {
+        if (failOnce && command.type === "rune-energy") {
+          failOnce = false;
+          throw new Error("late nested Rune Add failure");
+        }
+      },
+    }).start();
+    toMain(runtime, 4);
+    const before = runtime.projectFor("A");
+    const journalBefore = runtime.journal();
+    const rune = readyRunes(runtime, "A")[0]!;
+    const input = {
+      type: "rune-energy" as const, commandId: "late-rune-add", stateVersion: before.stateVersion,
+      runeObjectId: rune.objectId, zoneEntryId: rune.zoneEntryId!,
+    };
+    const failed = runtime.submit("A", input);
+    expect(failed.receipt.status).toBe("rejected");
+    expect(failed.receipt.error).toBe("late nested Rune Add failure");
+    expect(failed.projection).toEqual(before);
+    expect(runtime.journal()).toEqual(journalBefore);
+    const retried = runtime.submit("A", input);
+    expect(retried.receipt.status, JSON.stringify(retried.receipt)).toBe("accepted");
+    expect(retried.projection.players.find(player => player.playerId === "A")?.energy).toBe(1);
+    expect(retried.projection.objects.find(object => object.objectId === rune.objectId)?.exhausted).toBe(true);
+    expect(retried.receipt.eventSeq).toBeGreaterThan(failed.receipt.eventSeq);
+    const duplicate = runtime.submit("A", input);
+    expect(duplicate.receipt).toMatchObject({ status: "duplicate", eventSeq: retried.receipt.eventSeq });
+    expect(duplicate.projection.players.find(player => player.playerId === "A")?.energy).toBe(1);
   }, 120_000);
 
   it("rejects a Power Request outside an authoritative Priority or parent payment window", () => {
