@@ -206,6 +206,178 @@ test("EG-RECALL never reports impossible after a throwing consumer, and transact
   assert.equal(kernel.history({ action: "recall" }), 0);
 });
 
+test("EG-RECALL keeps unsupported-consumer and invalid-receipt refusals side-effect free", () => {
+  const failures = [
+    new TypeError("consumer does not support Recall"),
+    new Error("Unknown action type: recall before write"),
+  ];
+  for (const failure of failures) {
+    const { kernel } = layeredRecall({ persistent: true });
+    const ref = kernel.ref("hero");
+    const before = kernel.stateForTest();
+    const outcome = performRecall(bindResolveContext(kernel, {
+      source: kernel.getObject("source"), controller: "A",
+      contractActions: createContractActionCapability(() => { throw failure; }),
+    }), ref);
+    assert.equal(outcome.status, "impossible");
+    assert.equal(outcome.count, 0);
+    assert.deepEqual(outcome.events, []);
+    assert.match(outcome.blockedReason, /consumer unavailable/);
+    assert.deepEqual(kernel.stateForTest(), before);
+  }
+
+  const { kernel } = layeredRecall({ persistent: true });
+  const ref = kernel.ref("hero");
+  const before = kernel.stateForTest();
+  const outcome = performRecall(bindResolveContext(kernel, {
+    source: kernel.getObject("source"), controller: "A",
+    contractActions: createContractActionCapability(() => ({
+      status: "done", events: [],
+      receipt: { status: "rolled-back", actions: [{ type: "recall", status: "impossible" }] },
+    })),
+  }), ref);
+  assert.equal(outcome.status, "impossible");
+  assert.equal(outcome.count, 0);
+  assert.deepEqual(outcome.events, []);
+  assert.match(outcome.blockedReason, /did not commit a preserved Recall/);
+  assert.deepEqual(kernel.stateForTest(), before);
+});
+
+test("EG-RECALL never hides a committed Recall behind post-write Error, TypeError, or Unknown action", () => {
+  const cases = [
+    {
+      label: "Error",
+      error: new Error("consumer failed after authoritative recall"),
+      expected: { name: "Error", message: "consumer failed after authoritative recall" },
+    },
+    {
+      label: "TypeError",
+      error: new TypeError("consumer failed after authoritative recall"),
+      expected: { name: "RecallAtomicityError", message: /changed persistent state/ },
+    },
+    {
+      label: "UnknownActionError",
+      error: new Error("Unknown action type: recall after authoritative commit"),
+      expected: { name: "RecallAtomicityError", message: /changed persistent state/ },
+    },
+  ];
+  for (const { label, error, expected } of cases) {
+    const { kernel } = layeredRecall({ persistent: true });
+    const ref = kernel.ref("hero");
+    const checkpoint = kernel.snapshot();
+    const context = bindResolveContext(kernel, {
+      source: kernel.getObject("source"), controller: "A",
+      contractActions: createContractActionCapability(action => {
+        kernel.performContract(action);
+        throw error;
+      }),
+    });
+
+    assert.throws(() => performRecall(context, ref), expected, label);
+    assert.deepEqual(kernel.getObject("hero").ref, ref);
+    assert.deepEqual(kernel.getObject("hero").location, base("A"));
+    assert.equal(kernel.getObject("hero").damage, 2);
+    assert.equal(kernel.getObject("hero").exhausted, true);
+    assert.equal(kernel.getObject("hero").stunned, true);
+    assert.equal(kernel.getObject("hero").buffs, 2);
+    assert.equal(kernel.getObject("hero").empowered, 2);
+    assert.deepEqual([...kernel.getObject("hero").counters], [["mark", 3]]);
+    assert.equal(kernel.history({ action: "recall", object: ref }), 1);
+    assert.equal(kernel.history({ action: "move-location", object: ref }), 0);
+    assert.equal(kernel.events.filter(event => event.action === "recall").length, 1);
+    kernel.restore(checkpoint);
+  }
+});
+
+test("EG-RECALL transaction restores a committed Recall after TypeError/Unknown action and permits retry", () => {
+  for (const error of [
+    new TypeError("consumer failed after authoritative recall"),
+    new Error("Unknown action type: recall after authoritative commit"),
+  ]) {
+    const { kernel } = layeredRecall({ persistent: true });
+    const ref = kernel.ref("hero");
+    const before = kernel.stateForTest();
+    let fail = true;
+    const transaction = run => {
+      const state = kernel.snapshot();
+      const linked = kernel.clone();
+      try {
+        return run();
+      } catch (caught) {
+        kernel.restore(state);
+        kernel.copyLinkedFrom(linked);
+        throw caught;
+      }
+    };
+    const context = bindResolveContext(kernel, {
+      source: kernel.getObject("source"), controller: "A", transaction,
+      contractActions: createContractActionCapability(action => {
+        const outcome = kernel.performContract(action);
+        if (fail) {
+          fail = false;
+          throw error;
+        }
+        return outcome;
+      }),
+    });
+
+    const rolledBack = performRecall(context, ref);
+    assert.equal(rolledBack.status, "impossible");
+    assert.equal(rolledBack.count, 0);
+    assert.deepEqual(rolledBack.events, []);
+    assert.match(rolledBack.blockedReason, /consumer unavailable/);
+    assert.deepEqual(kernel.getObject("hero").location, battlefield);
+    assert.equal(kernel.history({ action: "recall" }), 0);
+    assert.equal(kernel.history({ action: "move-location" }), 0);
+    // TestWorld.snapshot() includes the two setup actions and their events.
+    // Those historical observations remain; the failed Recall publishes none.
+    assert.deepEqual(kernel.stateForTest(), before);
+    assert.equal(kernel.events.filter(event => event.action === "recall").length, 0);
+
+    const retried = performRecall(context, ref);
+    assert.equal(retried.status, "done");
+    assert.equal(retried.count, 1);
+    assert.equal(retried.receipt.status, "committed");
+    assert.deepEqual(retried.receipt.actions, [{ type: "recall", status: "done" }]);
+    assert.equal(retried.events.length, 1);
+    assert.equal(retried.events[0].action, "recall");
+    assert.deepEqual(kernel.getObject("hero").location, base("A"));
+    assert.deepEqual(kernel.getObject("hero").ref, ref);
+    assert.equal(kernel.history({ action: "recall", object: ref }), 1);
+    assert.equal(kernel.history({ action: "move-location", object: ref }), 0);
+    assert.equal(kernel.events.filter(event => event.action === "recall").length, 1);
+  }
+});
+
+test("EG-RECALL rejects a fake transaction that restores location but leaves Recall writes", () => {
+  const { kernel } = layeredRecall({ persistent: true });
+  const ref = kernel.ref("hero");
+  const transaction = run => {
+    try {
+      return run();
+    } catch (caught) {
+      // Simulate an incomplete rollback that only puts the object back.
+      kernel.perform({ type: "move-location", object: ref, to: battlefield });
+      throw caught;
+    }
+  };
+  const context = bindResolveContext(kernel, {
+    source: kernel.getObject("source"), controller: "A", transaction,
+    contractActions: createContractActionCapability(action => {
+      kernel.performContract(action);
+      throw new TypeError("consumer failed after authoritative recall");
+    }),
+  });
+
+  assert.throws(() => performRecall(context, ref), { name: "RecallAtomicityError" });
+  assert.deepEqual(kernel.getObject("hero").location, battlefield);
+  assert.deepEqual(kernel.getObject("hero").ref, ref);
+  assert.equal(kernel.history({ action: "recall", object: ref }), 1);
+  assert.equal(kernel.history({ action: "move-location", object: ref }), 1);
+  assert.equal(kernel.events.filter(event => event.action === "recall").length, 1);
+  assert.equal(kernel.events.filter(event => event.action === "move-location").length, 1);
+});
+
 test("EG-RECALL moves a Board Permanent to its controller Base without a destination choice", () => {
   const kernel = scenario();
   const before = kernel.getObject("hero");
