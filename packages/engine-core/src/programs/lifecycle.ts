@@ -1,3 +1,4 @@
+import type { CardProgram } from '@riftbound/card-dsl';
 import type { ChainEngine } from '../chain/engine.js';
 import type { ContractGameAction, GameAction, ObjectSnapshot } from '../effects/contract.js';
 import type { PipelineEvent, TimingEmission } from '../events/pipeline-types.js';
@@ -5,6 +6,7 @@ import { bindReplacementAbility, bindStaticAbility, createEngineStaticBinder, ty
 import { ProgramRegistry } from './registry.js';
 import { triggerRegistrations, unregisterProgramTriggers } from './triggers.js';
 import { expandProgram } from './keywords.js';
+import { ProgramBindingError } from './errors.js';
 
 export interface ProgramLifecycleHandle { readonly detach: () => void; }
 
@@ -77,6 +79,26 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     playFollowers.has(refKey(binding.source)));
   const secretZone = (source: ObjectSnapshot) => source.zone === 'deck' || source.zone === 'rune-deck';
   const active = (source: ObjectSnapshot) => source.zone === 'board' || source.zone === 'chain' || secretZone(source);
+  const secretZoneReplacement = (ability: CardProgram['abilities'][number], source: ObjectSnapshot): boolean => {
+    if (ability.kind !== 'replacement') return false;
+    const pattern = ability.replaces;
+    const event = pattern.event ?? pattern.type ?? pattern.kind;
+    // A replacement effect is active in a Secret Zone only for an event that
+    // involves the host while it is there (CR 370.1.c.1). The published card
+    // IR spells this as card-revealed with either a zone filter or a self
+    // player/source anchor. Other abilities on the same program are inactive
+    // in Deck/Rune Deck and must not make initialization expand their bodies.
+    if (event !== 'card-revealed') return false;
+    const filter = typeof pattern.filter === 'object' && pattern.filter !== null ? pattern.filter as Record<string, unknown> : undefined;
+    const nested = filter && typeof filter.filter === 'object' && filter.filter !== null ? filter.filter as Record<string, unknown> : undefined;
+    const zone = filter?.zone ?? nested?.zone;
+    const self = filter?.source === 'self' || filter?.player === 'self' || pattern.player === 'self' ||
+      nested?.source === 'self' || nested?.player === 'self';
+    return zone === source.zone || (zone === undefined && self);
+  };
+  const secretZoneAbilities = (program: CardProgram, source: ObjectSnapshot): ReturnType<typeof expandProgram>['abilities'] => {
+    return program.abilities.filter(ability => secretZoneReplacement(ability, source));
+  };
 
   const unregisterReplacementRegistrations = (ids: readonly string[]) => {
     if (ids.length === 0 || !ids.some(id => pipeline.hasReplacementRegistration(id))) return;
@@ -129,7 +151,22 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   };
 
   const attach = (source: ObjectSnapshot, bindStatic: boolean, bindReplacement: boolean): Binding | undefined => {
-    if (!programExists(source)) { detach(source); return undefined; }
+    const program = registry.inspect(source.cardId);
+    if (!program) {
+      // No program means this object contributes no lifecycle surface. Synthetic
+      // tokens and neutral setup objects are valid Board/Chain sources; a real
+      // registered judge-required program is handled below and still blocks.
+      detach(source);
+      return undefined;
+    }
+    if (!secretZone(source) && program.status !== 'executable') {
+      const reason = program.status === 'judge-required'
+        ? (program.judgeReason ?? `Card program ${program.canonicalCardId} requires a judge`)
+        : `Card program ${program.canonicalCardId} has no executable ability`;
+      report(new ProgramBindingError('judge-required', reason, program), source);
+      detach(source);
+      return undefined;
+    }
     const k = refKey(source);
     const existing = bindings.get(k);
     if (existing && existing.signature === signature(source) && bindingIntact(existing)) return existing;
@@ -137,12 +174,21 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
 
     let abilities: ReturnType<typeof expandProgram>['abilities'];
     try {
-      abilities = expandProgram(registry.get(source.cardId), source).abilities;
+      if (secretZone(source)) {
+        // Only replacement effects that actually operate from this Secret
+        // Zone are evaluated. In particular, do not expand unrelated static,
+        // triggered, keyword, or play bodies merely because the card happens
+        // to be in Deck/Rune Deck.
+        abilities = bindReplacement ? secretZoneAbilities(program, source) : [];
+        if (abilities.length === 0) { detach(source); return undefined; }
+      } else {
+        abilities = expandProgram(program, source).abilities;
+      }
     } catch (error) {
       report(error, source);
       return undefined;
     }
-    const triggerIds = registerTriggersIndividually(registry.get(source.cardId), source, abilities);
+    const triggerIds = registerTriggersIndividually(program, source, abilities);
     const replacementAbilities = abilities.filter((ability): ability is Extract<typeof ability, { kind: 'replacement' }> => ability.kind === 'replacement');
     const expectedReplacementIds = bindReplacementOnChain && replacementAbilities.length > 0
       ? [`replacement:${source.ref.id}:${source.ref.zoneEntryId}`]
@@ -216,7 +262,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       : currentFor(source);
     const k = refKey(current ?? source);
     const existing = bindings.get(k);
-    if (!current || !programExists(current) || !active(current)) { if (existing) detach(existing.source); return; }
+    if (!current || !active(current)) { if (existing) detach(existing.source); return; }
     // A replacement admitted while the card was in Hand follows its newest
     // incarnation by id. Replacing it with a Chain registration would lose the
     // pre-transition admission needed to replace the later Board entry.
@@ -321,7 +367,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     if (bindReplacementOnChain && action.type === 'move-zone' && action.to === 'chain') {
       const source = currentForRef(action.object);
       const followsFromHand = source !== null && handFollowers(source).length > 0;
-      if (source && programExists(source) && !followsFromHand) {
+      if (source && !followsFromHand) {
         attach(source, false, true);
       }
     }
@@ -333,7 +379,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
         // This pre-commit pass exists only to retain a Board source through its
         // suspended exit wave. Chain and Secret-Zone transitions have their own
         // entry/handoff rules and must not detach an entry follower here.
-        if (source?.zone === 'board' && programExists(source)) ensure(source);
+        if (source?.zone === 'board') ensure(source);
       }
     }
     const outcome = originalCommit(action);
@@ -349,7 +395,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     for (const leaf of leaves) {
       if (!('object' in leaf)) continue;
       const source = currentForRef(leaf.object);
-      if (source && programExists(source)) ensure(source);
+      if (source) ensure(source);
     }
     const outcome = originalCommitContract(action);
     if (outcome.status === 'done' || outcome.status === 'replaced') syncAction(action);
@@ -370,11 +416,11 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     return transaction(() => originalDeferTriggerScan(run));
   }) as typeof pipeline.deferTriggerScan;
 
-  // Main Deck and Rune Deck replacement abilities are active while their host
-  // is in those Secret Zones (CR 370.1.c.1). Bind only the replacement/trigger
-  // surface there; static layers remain restricted to Board permanents.
+  // Main Deck and Rune Deck replacement effects are active only for an event
+  // that involves that same card while it is there (CR 370.1.c.1). Inactive
+  // abilities are not expanded; Board/Chain remain the full active surface.
   for (const source of pipeline.host.objects()) {
-    if (secretZone(source) && programExists(source)) ensure(source);
+    if (secretZone(source)) ensure(source);
   }
 
   return {

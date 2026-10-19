@@ -75,6 +75,37 @@ function sameRef(left: ObjectRef, right: ObjectRef): boolean {
   return left.id === right.id && left.zoneEntryId === right.zoneEntryId;
 }
 
+/**
+ * CR 457-460 preserves the underlying Permanent. Layer output such as Might,
+ * keywords, movement permissions and `printed` is recomputed after Recall and
+ * may legitimately differ when the object leaves a location-bound aura.
+ * Keep every stored game-state field, including all statuses and resources,
+ * but compare those persistent fields separately from derived characteristics.
+ */
+function persistentState(object: ObjectSnapshot): Readonly<Record<string, unknown>> {
+  return {
+    ref: object.ref,
+    owner: object.owner,
+    controller: object.controller,
+    zone: object.zone,
+    combatRole: object.combatRole,
+    exhausted: object.exhausted,
+    damage: object.damage,
+    stunned: object.stunned,
+    buffs: object.buffs,
+    empowered: object.empowered,
+    empoweredCount: object.empoweredCount,
+    attachedTo: object.attachedTo,
+    faceDown: object.faceDown,
+    facedownLocation: object.facedownLocation,
+    isToken: object.isToken,
+  };
+}
+
+function samePersistentState(before: ObjectSnapshot, after: ObjectSnapshot): boolean {
+  return JSON.stringify(persistentState(before)) === JSON.stringify(persistentState(after));
+}
+
 function committedRecall(
   action: RecallAction,
   before: ObjectSnapshot,
@@ -88,7 +119,7 @@ function committedRecall(
       !sameRef(after.ref, action.object) || after.zone !== "board" ||
       after.controller !== action.player || after.location === null ||
       !sameLocation(after.location, recallDestination(after)) ||
-      JSON.stringify({ ...before, location: null }) !== JSON.stringify({ ...after, location: null })) {
+      !samePersistentState(before, after)) {
     return false;
   }
   return outcome.events.some(event => {
@@ -107,6 +138,35 @@ class InvalidRecallCommit extends Error {
     super("RecallAction consumer returned an invalid committed result");
     this.name = "InvalidRecallCommit";
   }
+}
+
+class RecallAtomicityError extends Error {
+  constructor() {
+    super("RecallAction consumer changed persistent state without committing a valid Recall");
+    this.name = "RecallAtomicityError";
+  }
+}
+
+function stateUnchanged(ctx: ResolveContext, before: ObjectSnapshot, ref: ObjectRef): boolean {
+  const after = ctx.object(ref);
+  return after !== null && sameRef(after.ref, before.ref) &&
+    sameLocation(after.location, before.location) && samePersistentState(before, after);
+}
+
+function recallStateUnchanged(
+  ctx: ResolveContext,
+  before: ObjectSnapshot,
+  ref: ObjectRef,
+  historyCount: number,
+): boolean {
+  return stateUnchanged(ctx, before, ref) && ctx.history({}) === historyCount;
+}
+
+function blockedAtomicRecall(ref: ObjectRef, from: LocationRef | null): RecallOutcome {
+  return {
+    status: "impossible", events: [], count: 0, object: refOf(ref), from, to: null,
+    blockedReason: "RecallAction consumer changed persistent state without committing a valid Recall",
+  };
 }
 
 /**
@@ -142,30 +202,49 @@ export function performRecall(ctx: ResolveContext, ref: ObjectRef, options: Reca
       blockedReason: "RecallAction consumer unavailable (RIFT-849/810/835/837)"
     };
   }
+  const historyCount = ctx.history({});
   let outcome: ActionOutcome;
   try {
     const execute = () => {
       const candidate = capability.perform(recall);
-      if (candidate.status === "done" && !committedRecall(recall, before!, ctx.object(refOf(ref)), candidate)) {
-        throw new InvalidRecallCommit();
+      const after = ctx.object(refOf(ref));
+      if (candidate.status === "done") {
+        if (!committedRecall(recall, before!, after, candidate)) {
+          if (!recallStateUnchanged(ctx, before!, refOf(ref), historyCount)) throw new RecallAtomicityError();
+          throw new InvalidRecallCommit();
+        }
+      } else if (!recallStateUnchanged(ctx, before!, refOf(ref), historyCount)) {
+        throw new RecallAtomicityError();
       }
       return candidate;
     };
     outcome = ctx.transaction === undefined ? execute() : ctx.transaction(execute);
   } catch (error) {
     if (error instanceof InvalidRecallCommit) {
+      if (!recallStateUnchanged(ctx, before!, refOf(ref), historyCount)) throw new RecallAtomicityError();
       return {
         status: "impossible", events: [], count: 0, object: refOf(ref), from, to: null,
         blockedReason: "RecallAction consumer did not commit a preserved Recall with an independent observation",
       };
     }
+    if (error instanceof RecallAtomicityError) {
+      if (ctx.transaction !== undefined && recallStateUnchanged(ctx, before!, refOf(ref), historyCount)) {
+        return blockedAtomicRecall(ref, from);
+      }
+      throw error;
+    }
     if (error instanceof TypeError || error instanceof Error && /Unknown action type: recall/.test(error.message)) {
+      if (!recallStateUnchanged(ctx, before!, refOf(ref), historyCount)) throw new RecallAtomicityError();
       return {
         status: "impossible", events: [], count: 0, object: refOf(ref), from, to: null,
         blockedReason: "RecallAction consumer unavailable (RIFT-849/810/835/837)"
       };
     }
     throw error;
+  }
+  if (outcome.status !== "done" &&
+      !recallStateUnchanged(ctx, before!, refOf(ref), historyCount)) {
+    throw new RecallAtomicityError();
   }
   const after = outcome.status === "done" ? ctx.object(refOf(ref)) : null;
   const moved = committedRecall(recall, before!, after, outcome);
