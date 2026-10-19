@@ -11,6 +11,8 @@ import type {
   CostPlanInput,
   OptionalCostInput,
 } from '../../cost/plan-types.js';
+import { bindFinalizedTargetPlans } from '../../target/target-plan.js';
+import type { TargetPlan, TargetsFinalizedEvent } from '../../target/target-plan.js';
 import {
   finalizeChoicePlan,
   type ChoicePlan,
@@ -162,38 +164,119 @@ export function finalizeInstructionChoices(
   body: readonly Instruction[],
   options: ChoicePlanOptions = {},
 ): ChoicePlan {
-  return finalizeChoicePlan(context, body, options);
+  const finalized: TargetPlan[] = [];
+  let bound = bindFinalizedTargetPlans(context, finalized);
+  const refresh = (): void => { bound = bindFinalizedTargetPlans(context, finalized); };
+  const targetOptions = {
+    ...options.targetOptions,
+    onTargetsFinalized: (event: TargetsFinalizedEvent) => {
+      options.targetOptions?.onTargetsFinalized?.(event);
+      finalized.push(event.plan);
+      refresh();
+    },
+  };
+  const plan = finalizeChoicePlan(bound, body, { ...options, targetOptions });
+  if (finalized.length === 0) return plan;
+  // `finalizeChoicePlan` exposes immutable plan records, while cross-target
+  // legality is evaluated during that walk. Rebuild the returned records with
+  // the exact locked selections after all relations have passed.
+  const targets = plan.targets.map(target => {
+    const matching = finalized.find(candidate =>
+      candidate.requirement.id === target.plan.requirement.id &&
+      candidate.mode === target.plan.mode && candidate.repeatIndex === target.plan.repeatIndex);
+    return matching === undefined ? target : { ...target, plan: matching };
+  });
+  return Object.freeze({ ...plan, targets: Object.freeze(targets) });
 }
 
 export function hasFinalizeChoices(body: readonly Instruction[]): boolean {
-  const visit = (instructions: readonly Instruction[]): boolean => instructions.some(instruction => {
+  const visit = (instructions: readonly Instruction[], insideChoice = false): boolean => instructions.some(instruction => {
     if (instruction.op === 'choice.mode') return true;
-    if (instruction.op === 'sequence') {
-      const bodyExpression = instruction.args.body;
-      if (bodyExpression !== undefined && (bodyExpression.kind === 'constant' || bodyExpression.kind === 'literal') &&
-          'value' in bodyExpression && Array.isArray(bodyExpression.value)) {
-        return visit(bodyExpression.value as unknown as readonly Instruction[]);
-      }
+    if (instruction.op === 'repeat') {
+      if ((instruction.targets?.length ?? 0) > 0 || visit(controlBodies(instruction).flat(), insideChoice)) return true;
     }
-    return false;
+    if (instruction.op === 'choice.optional') {
+      if ((instruction.targets?.length ?? 0) > 0 || visit(controlBodies(instruction).flat(), true)) return true;
+    }
+    if (instruction.op === 'sequence') return visit(controlBodies(instruction).flat(), insideChoice);
+    return insideChoice && (instruction.targets?.length ?? 0) > 0;
   });
   return visit(body);
 }
 
-/** Targets declared on a mode node are chosen before its branch is entered. */
-export function modeNodeTargetRequirements(body: readonly Instruction[]): readonly import('../../target/target-plan.js').TargetRequirement[] {
+function controlBodies(instruction: Instruction): readonly (readonly Instruction[])[] {
+  const result: (readonly Instruction[])[] = [];
+  if (['sequence', 'choice.optional', 'repeat'].includes(instruction.op)) {
+    const expression = instruction.args.body;
+    if (expression !== undefined && (expression.kind === 'constant' || expression.kind === 'literal') &&
+        'value' in expression && Array.isArray(expression.value)) {
+      result.push(expression.value as unknown as readonly Instruction[]);
+    }
+  }
+  if (instruction.op === 'choice.mode') {
+    const expression = instruction.args.modes;
+    if (expression !== undefined && (expression.kind === 'constant' || expression.kind === 'literal') &&
+        'value' in expression && Array.isArray(expression.value)) {
+      for (const mode of expression.value as unknown as readonly { readonly body?: unknown }[]) {
+        if (Array.isArray(mode.body)) result.push(mode.body as readonly Instruction[]);
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * ChoicePlan locks ordinary instruction targets while walking selected bodies.
+ * Control nodes themselves are not instructions in that walk, so their targets
+ * are collected here before the ChoicePlan is evaluated.
+ */
+export function controlNodeTargetRequirements(
+  body: readonly Instruction[],
+  plan?: ChoicePlan,
+): readonly import('../../target/target-plan.js').TargetRequirement[] {
   const result: import('../../target/target-plan.js').TargetRequirement[] = [];
-  const visit = (instructions: readonly Instruction[]): void => {
+  const samePath = (left: readonly string[], right: readonly string[]): boolean =>
+    left.length === right.length && left.every((segment, index) => segment === right[index]);
+  const visit = (instructions: readonly Instruction[], modePath: readonly string[]): void => {
     for (const instruction of instructions) {
-      if (instruction.op === 'choice.mode') result.push(...(instruction.targets ?? []) as readonly import('../../target/target-plan.js').TargetRequirement[]);
-      if (instruction.op !== 'sequence') continue;
-      const bodyExpression = instruction.args.body;
-      if (bodyExpression !== undefined && (bodyExpression.kind === 'constant' || bodyExpression.kind === 'literal') &&
-          'value' in bodyExpression && Array.isArray(bodyExpression.value)) visit(bodyExpression.value as unknown as readonly Instruction[]);
+      if (['sequence', 'choice.optional', 'choice.mode', 'repeat'].includes(instruction.op)) {
+        result.push(...(instruction.targets ?? []) as readonly import('../../target/target-plan.js').TargetRequirement[]);
+      }
+      if (instruction.op === 'sequence') {
+        for (const nested of controlBodies(instruction)) visit(nested, modePath);
+      } else if (instruction.op === 'choice.optional') {
+        const choice = plan?.optionalChoices.find(candidate =>
+          candidate.instructionId === instruction.id && samePath(candidate.modePath, modePath));
+        if (plan === undefined || choice?.accepted === true) {
+          for (const nested of controlBodies(instruction)) visit(nested, modePath);
+        }
+      } else if (instruction.op === 'choice.mode') {
+        const selection = plan?.selectedModes.find(candidate =>
+          candidate.instructionId === instruction.id && samePath(candidate.modePath, modePath));
+        const modes = instruction.args.modes;
+        if (modes === undefined || (modes.kind !== 'constant' && modes.kind !== 'literal') || !Array.isArray(modes.value)) continue;
+        for (const mode of modes.value as unknown as readonly { readonly id?: unknown; readonly body?: unknown }[]) {
+          if (typeof mode.id !== 'string' || !Array.isArray(mode.body)) continue;
+          const copies = plan === undefined
+            ? 1
+            : selection?.selected.filter(selected => selected === mode.id).length ?? 0;
+          for (let index = 0; index < copies; index++) {
+            visit(mode.body as readonly Instruction[], [...modePath, mode.id]);
+          }
+        }
+      }
+      // A repeat body with targets is rejected before planning. Its other
+      // control nodes cannot contribute stable control-level target plans
+      // without an instruction-and-iteration scoped lifecycle.
     }
   };
-  visit(body);
+  visit(body, []);
   return Object.freeze(result);
+}
+
+/** Backward-compatible name for the original mode-only helper. */
+export function modeNodeTargetRequirements(body: readonly Instruction[]): readonly import('../../target/target-plan.js').TargetRequirement[] {
+  return controlNodeTargetRequirements(body);
 }
 
 export function hasChoiceMemory(body: readonly Instruction[]): boolean {
@@ -203,14 +286,7 @@ export function hasChoiceMemory(body: readonly Instruction[]): boolean {
       return args.memoryKey !== undefined || args.choiceMemoryKey !== undefined ||
         args.remember !== undefined || args.excludeChosen !== undefined;
     }
-    if (instruction.op === 'sequence') {
-      const bodyExpression = instruction.args.body;
-      if (bodyExpression !== undefined && (bodyExpression.kind === 'constant' || bodyExpression.kind === 'literal') &&
-          'value' in bodyExpression && Array.isArray(bodyExpression.value)) {
-        return visit(bodyExpression.value as unknown as readonly Instruction[]);
-      }
-    }
-    return false;
+    return controlBodies(instruction).some(visit);
   });
   return visit(body);
 }

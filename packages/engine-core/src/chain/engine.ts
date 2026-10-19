@@ -18,7 +18,7 @@ import { bindResolveContext } from '../events/action-adapter.js';
 import { finalizeOrderedPickPlans, lockedOrderedPicks, type OrderedPickPlan } from './picks/plan.js';
 import { choicePlanAnswers, ChoicePlanError, type ChoicePlan } from './finalize/choices.js';
 import { ChoiceMemory } from './finalize/choice-memory.js';
-import { finalizeCostPlanInput, finalizeInstructionChoices, hasChoiceMemory, hasFinalizeChoices, modeNodeTargetRequirements } from './finalize/index.js';
+import { controlNodeTargetRequirements, finalizeCostPlanInput, finalizeInstructionChoices, hasChoiceMemory, hasFinalizeChoices } from './finalize/index.js';
 import { collectTargetTaxes } from '../target/tax/index.js';
 import { boundTargetTaxes, ignoresTargetTax } from '../programs/static-adapters/capabilities.js';
 
@@ -420,7 +420,7 @@ export class ChainEngine {
             repeatIndex: target.plan.repeatIndex,
           }));
           const covered = new Set(plannedTargets.map(target => target.requirement.id));
-          for (const requirement of modeNodeTargetRequirements(item.body)) {
+          for (const requirement of controlNodeTargetRequirements(item.body, item.choicePlan)) {
             if (!covered.has(requirement.id)) plannedTargets.push({ requirement, selected: undefined, mode: undefined, repeatIndex: undefined });
           }
           for (const planned of plannedTargets) {
@@ -446,6 +446,7 @@ export class ChainEngine {
               onTargeted: event => this.emitBecameTarget(item, context, event.target),
             });
             item.targetPlans.push(finalized);
+            context = bindFinalizedTargetPlans(context, item.targetPlans);
           }
         }
         if (!controlPlanRequired) {
@@ -676,8 +677,14 @@ export class ChainEngine {
 class TriggerFinalizeFailure extends Error { constructor(readonly cause: unknown) { super('Trigger cannot be finalized'); } }
 
 /** Never let interpreter-local target choices silently bypass the event pipeline. */
-function assertFinalizationSurface(body: readonly Instruction[], controlPlanRequired = false, nested = false): void {
+function assertFinalizationSurface(body: readonly Instruction[], controlPlanRequired = false, nested = false, repeated = false): void {
   for (const instruction of body) {
+    if (instruction.op === 'repeat' && instruction.targets?.length) {
+      throw new ChainContractBlockedError('Repeated targets require an instruction-and-iteration target lifecycle adapter');
+    }
+    if (repeated && instruction.targets?.length) {
+      throw new ChainContractBlockedError('Repeated targets require an instruction-and-iteration target lifecycle adapter');
+    }
     if (nested && instruction.targets?.length) {
       if (!controlPlanRequired) throw new ChainContractBlockedError('Nested/repeated targets require an interpreter target-selection lifecycle adapter');
     }
@@ -687,16 +694,14 @@ function assertFinalizationSurface(body: readonly Instruction[], controlPlanRequ
       }
     }
     const expression = instruction.args.body;
-    if (instruction.op === 'sequence' && expression && (expression.kind === 'constant' || expression.kind === 'literal') && Array.isArray(expression.value)) {
-      assertFinalizationSurface(expression.value as unknown as readonly Instruction[], controlPlanRequired, true);
+    if (['sequence', 'choice.optional', 'repeat'].includes(instruction.op) && expression && (expression.kind === 'constant' || expression.kind === 'literal') && Array.isArray(expression.value)) {
+      assertFinalizationSurface(expression.value as unknown as readonly Instruction[], controlPlanRequired, true, repeated || instruction.op === 'repeat');
     }
-    if (instruction.op === 'choice.mode' && expression && (expression.kind === 'constant' || expression.kind === 'literal') && Array.isArray(expression.value)) {
-      for (const mode of expression.value as unknown as readonly { readonly body?: unknown }[]) {
-        if (Array.isArray(mode.body)) assertFinalizationSurface(mode.body as readonly Instruction[], controlPlanRequired, true);
+    const modes = instruction.args.modes;
+    if (instruction.op === 'choice.mode' && modes && (modes.kind === 'constant' || modes.kind === 'literal') && Array.isArray(modes.value)) {
+      for (const mode of modes.value as unknown as readonly { readonly body?: unknown }[]) {
+        if (Array.isArray(mode.body)) assertFinalizationSurface(mode.body as readonly Instruction[], controlPlanRequired, true, repeated);
       }
-    }
-    if (instruction.op === 'repeat' && expression && (expression.kind === 'constant' || expression.kind === 'literal') && Array.isArray(expression.value)) {
-      assertFinalizationSurface(expression.value as unknown as readonly Instruction[], controlPlanRequired, true);
     }
   }
 }

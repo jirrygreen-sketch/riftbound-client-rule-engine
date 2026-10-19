@@ -8,6 +8,8 @@ import sealOfRage from '../../../card-dsl/dist/cards/ogn/seal-of-rage.js';
 import theHarrowing from '../../../card-dsl/dist/cards/ogn/the-harrowing.js';
 import supernova from '../../../card-dsl/dist/cards/rad/supernova.js';
 import smokeAndMirrors from '../../../card-dsl/dist/cards/unl/smoke-and-mirrors.js';
+import bedevilingStranger from '../../../card-dsl/dist/cards/rad/bedeviling-stranger.js';
+import overtOperation from '../../../card-dsl/dist/cards/ogn/overt-operation.js';
 import { ChainEngine } from '../../dist/chain/engine.js';
 import { activateReactionAddDuringPayment } from '../../dist/chain/finalize/add-window.js';
 import { AwaitChoice } from '../../dist/effects/contract.js';
@@ -409,4 +411,130 @@ test('original Harrowing IR creates and settles a nested Play chain item through
   assert.deepEqual(f.kernel.player('A').power, []);
   assert.equal(f.engine.trace.filter(entry => entry.step === 'pending').length, 2);
   assert.equal(theHarrowing.status, 'judge-required');
+});
+
+test('original optional-body target finalizes once, resolves through the default Chain, and revalidates its incarnation', () => {
+  const program = admitted(bedevilingStranger);
+  const f = scene(
+    world().player('A').player('B')
+      .unit('source', { cardId: program.canonicalCardId, location: field('one') })
+      .unit('enemy', { owner: 'B', location: field('one') })
+      .deck(['A:deck:1'], { owner: 'A' }).deck(['B:deck:1'], { owner: 'B' }),
+    [program],
+    {
+      'bedeviling-stranger.may-return/optional': true,
+      'target:bedeviling-stranger.enemy-unit-there': [{ id: 'enemy', zoneEntryId: 1 }],
+      'bedeviling-stranger.choose-battlefield/location%3Abedeviling-stranger.chosen-battlefield': field('one'),
+    },
+  );
+  const [registration] = triggerRegistrations(f.binding.registry, f.kernel.getObject('source'));
+  f.engine.pipeline.registerTrigger(registration);
+  f.engine.emit({ timingPoint: 'card-played', object: f.kernel.getObject('source'), source: f.kernel.getObject('source'), player: 'A' });
+  f.engine.advance();
+  const [item] = f.engine.items;
+  assert.equal(item.status, 'finalized');
+  assert.deepEqual(item.choicePlan.optionalChoices.map(choice => choice.accepted), [true]);
+  assert.deepEqual(item.targetPlans.map(plan => plan.selected), [[f.kernel.ref('enemy')]]);
+  assert.deepEqual(f.asked.map(request => request.id), [
+    'bedeviling-stranger.may-return/optional',
+    'target:bedeviling-stranger.enemy-unit-there',
+  ]);
+
+  f.engine.pass('A'); f.engine.pass('B');
+  assert.equal(f.kernel.getObject('enemy').zone, 'hand');
+  assert.equal(f.asked.length, 3, 'Resolve replays the optional decision and frozen target instead of selecting again');
+  assert.equal(bedevilingStranger.status, 'judge-required', 'the source program and its Hidden gap remain untouched');
+});
+
+test('declined original optional body locks no nested target and never performs its effect', () => {
+  const program = admitted(bedevilingStranger);
+  const f = scene(
+    world().player('A').player('B')
+      .unit('source', { cardId: program.canonicalCardId, location: field('one') })
+      .unit('enemy', { owner: 'B', location: field('one') }),
+    [program],
+    {
+      'bedeviling-stranger.may-return/optional': false,
+      'bedeviling-stranger.choose-battlefield/location%3Abedeviling-stranger.chosen-battlefield': field('one'),
+    },
+  );
+  const [registration] = triggerRegistrations(f.binding.registry, f.kernel.getObject('source'));
+  f.engine.pipeline.registerTrigger(registration);
+  f.engine.emit({ timingPoint: 'card-played', object: f.kernel.getObject('source'), source: f.kernel.getObject('source'), player: 'A' });
+  f.engine.advance();
+  const [item] = f.engine.items;
+  assert.equal(item.choicePlan.status, 'finalized');
+  assert.deepEqual(item.choicePlan.optionalChoices.map(choice => choice.accepted), [false]);
+  assert.deepEqual(item.targetPlans, []);
+  assert.deepEqual(f.asked.map(request => request.id), ['bedeviling-stranger.may-return/optional']);
+  f.engine.pass('A'); f.engine.pass('B');
+  assert.equal(f.kernel.getObject('enemy').zone, 'board');
+  assert.deepEqual(f.asked.map(request => request.id), [
+    'bedeviling-stranger.may-return/optional',
+    'bedeviling-stranger.choose-battlefield/location%3Abedeviling-stranger.chosen-battlefield',
+  ]);
+});
+
+test('a selected optional target that changes incarnation is ignored and the finalized body rolls back', () => {
+  const program = admitted(bedevilingStranger);
+  const f = scene(
+    world().player('A').player('B')
+      .unit('source', { cardId: program.canonicalCardId, location: field('one') })
+      .unit('enemy', { owner: 'B', location: field('one') }),
+    [program],
+    {
+      'bedeviling-stranger.may-return/optional': true,
+      'target:bedeviling-stranger.enemy-unit-there': [{ id: 'enemy', zoneEntryId: 1 }],
+      'bedeviling-stranger.choose-battlefield/location%3Abedeviling-stranger.chosen-battlefield': field('one'),
+    },
+  );
+  const [registration] = triggerRegistrations(f.binding.registry, f.kernel.getObject('source'));
+  f.engine.pipeline.registerTrigger(registration);
+  f.engine.emit({ timingPoint: 'card-played', object: f.kernel.getObject('source'), source: f.kernel.getObject('source'), player: 'A' });
+  f.engine.advance();
+  const before = f.kernel.getObject('enemy');
+  f.kernel.addObject({ ...before, ref: { id: 'enemy', zoneEntryId: 2 } }, 'board');
+  f.engine.pass('A'); f.engine.pass('B');
+  assert.equal(f.kernel.getObject('enemy').zone, 'board');
+  assert.equal(f.kernel.getObject('enemy').ref.zoneEntryId, 2);
+});
+
+test('an illegal optional-body target answer rolls back Finalize before any item or cost is committed', () => {
+  const program = admitted(bedevilingStranger);
+  const f = scene(
+    world().player('A').player('B')
+      .unit('source', { cardId: program.canonicalCardId, location: field('one') })
+      .unit('enemy', { owner: 'B', location: field('one') }),
+    [program],
+    {
+      'bedeviling-stranger.may-return/optional': true,
+      'target:bedeviling-stranger.enemy-unit-there': [{ id: 'enemy', zoneEntryId: 999 }],
+    },
+  );
+  const [registration] = triggerRegistrations(f.binding.registry, f.kernel.getObject('source'));
+  f.engine.pipeline.registerTrigger(registration);
+  f.engine.emit({ timingPoint: 'card-played', object: f.kernel.getObject('source'), source: f.kernel.getObject('source'), player: 'A' });
+  assert.throws(() => f.engine.advance(), /illegal target/i);
+  assert.equal(f.engine.items[0].status, 'pending');
+  assert.equal(f.engine.items[0].targetPlans.length, 0);
+  assert.equal(f.kernel.getObject('enemy').zone, 'board');
+  assert.equal(f.kernel.getObject('enemy').ref.zoneEntryId, 1);
+});
+
+test('original repeat-with-target IR remains precisely blocked without an instruction-and-iteration scope', () => {
+  const play = overtOperation.abilities.find(ability => ability.kind === 'play');
+  const f = scene(
+    world().player('A').player('B')
+      .hand('source', { types: ['spell'], energy: 0, power: [] }),
+    [],
+  );
+  assert.throws(
+    () => f.engine.execute({
+      id: 'repeat-target-probe', controller: 'A', source: f.kernel.getObject('source'), kind: 'spell', speed: 'normal',
+      cost: { id: 'free', cost: { energy: constant(0) } }, body: play.body,
+    }),
+    error => error.status === 'blocked' && /instruction-and-iteration target lifecycle adapter/.test(error.message),
+  );
+  assert.equal(f.engine.items.length, 0);
+  assert.equal(overtOperation.status, 'judge-required');
 });
