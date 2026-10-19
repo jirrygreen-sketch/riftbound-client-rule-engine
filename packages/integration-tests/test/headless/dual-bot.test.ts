@@ -9,14 +9,14 @@ import {
   buildM1Deck,
   runHeadlessGame,
   runHeadlessMatrix,
-  runHeadlessRegression,
+  createHeadlessRegressionHarness,
 } from "../../src/headless/index.js";
 
 describe("M1 headless dual-bot regression", () => {
-  const run = runHeadlessRegression();
+  const run = createHeadlessRegressionHarness();
 
   it("runs five fixed seeds for every pair of the four M1 decks", () => {
-    const summary = run.matrix;
+    const summary = run.matrix();
     expect(summary.games).toBe(30);
     expect(summary.pairings).toHaveLength(6);
     expect(summary.pairings.every(pairing => pairing.games === 5)).toBe(true);
@@ -59,7 +59,7 @@ describe("M1 headless dual-bot regression", () => {
   });
 
   it("keeps one seed deterministic across repeated runs", () => {
-    const [first, second] = run.determinism;
+    const [first, second] = run.determinism();
     expect(second.winner).toBe(first.winner);
     expect(second.turnNumber).toBe(first.turnNumber);
     expect(second.termination).toBe(first.termination);
@@ -75,7 +75,7 @@ describe("M1 headless dual-bot regression", () => {
   }, 30_000);
 
   it("keeps blocked runs unfinished instead of awarding a concession win", () => {
-    const result = run.blocked;
+    const result = run.blocked();
     expect(result.actionCoverage.commands.concede).toBe(0);
     expect(result.victoryScore).toBe(8);
     expect(result.replayMatches).toBe(true);
@@ -91,7 +91,7 @@ describe("M1 headless dual-bot regression", () => {
   });
 
   it("answers target choices through the ResolveContext instead of throwing AwaitChoice", () => {
-    const result = run.targets;
+    const result = run.targets();
     expect(result.actionCoverage.choices["select-objects"]).toBeGreaterThan(0);
     expect(result.exceptions).toEqual([]);
     expect(result.replayMatches).toBe(true);
@@ -100,7 +100,7 @@ describe("M1 headless dual-bot regression", () => {
   }, 30_000);
 
   it("preserves unsupported source-trigger diagnostics without advancing or fabricating a winner", () => {
-    const result = run.sourceTrigger;
+    const result = run.sourceTrigger();
     expect(result.replayMatches).toBe(true);
     expect(result.exceptions).toEqual([]);
     expect(result.actionCoverage.commands.concede).toBe(0);
@@ -116,8 +116,8 @@ describe("M1 headless dual-bot regression", () => {
   }, 30_000);
 
   it("rejects altered journal commands, events and state even when scores and winner still match", () => {
-    const journal: HeadlessJournal = run.tamper.journal;
-    const result = run.tamper.result;
+    const journal: HeadlessJournal = run.tamper().journal;
+    const result = run.tamper().result;
     expect(result.replayMatches).toBe(true);
     expect(replayHeadlessJournal(journal)).toBe(true);
     const wrongCommand = structuredClone(journal);
@@ -132,8 +132,17 @@ describe("M1 headless dual-bot regression", () => {
       failure: entry.failure ? { ...entry.failure, message: "altered" } : { name: "Error", code: "fake", message: "fake" } })) })).toBe(false);
   }, 30_000);
 
+  it("keeps legacy journals without an integrity field strictly replayable", () => {
+    let journal: HeadlessJournal | undefined;
+    runHeadlessGame(HEADLESS_SEEDS[0]!, { maxActions: 1, onJournal: value => { journal = value; } });
+    expect(journal).toBeDefined();
+    const { integrity: _integrity, ...legacy } = journal!;
+    expect(replayHeadlessJournal(legacy)).toBe(true);
+    expect(replayHeadlessJournal({ ...legacy, events: legacy.events.slice(1) })).toBe(false);
+  });
+
   it("aggregates actual winners, turns and committed battle events", () => {
-    const summary = run.aggregate;
+    const summary = run.aggregate();
     expect(summary.averageTurns).toBe(summary.totalTurns / 2);
     expect(summary.winners).toBe(summary.results.filter(result => result.termination === "winner").length);
     expect(summary.winsByPlayer.A! + summary.winsByPlayer.B!).toBe(summary.winners);

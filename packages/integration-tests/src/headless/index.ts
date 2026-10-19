@@ -13,6 +13,7 @@ export {
   runHeadlessGames,
   runHeadlessMatrix,
   runHeadlessRegression,
+  createHeadlessRegressionHarness,
   type HeadlessActionCoverage,
   type HeadlessBattleStats,
   type HeadlessCommand,
@@ -33,6 +34,7 @@ export {
   type HeadlessRunSummary,
   type HeadlessRegressionOptions,
   type HeadlessRegressionRun,
+  type HeadlessRegressionHarness,
   type HeadlessStats,
 } from "./duel.js";
 export {

@@ -77,6 +77,16 @@ export interface HeadlessRegressionRun {
   readonly aggregate: HeadlessRunSummary;
 }
 
+export interface HeadlessRegressionHarness {
+  matrix(): HeadlessMatrixSummary;
+  determinism(): readonly [HeadlessStats, HeadlessStats];
+  blocked(): HeadlessStats;
+  targets(): HeadlessStats;
+  sourceTrigger(): HeadlessStats;
+  tamper(): { readonly journal: HeadlessJournal; readonly result: HeadlessStats };
+  aggregate(): HeadlessRunSummary;
+}
+
 /** Counts come only from committed engine events, never from bot intentions. */
 export interface HeadlessBattleStats {
   readonly showdowns: number;
@@ -197,7 +207,8 @@ interface HeadlessWorld {
   readonly kernel: TestWorld;
   readonly host: PipelineHost & { readonly player: (id: PlayerId) => ReturnType<TestWorld["player"]> };
   readonly counters: MutableCounters;
-  readonly projectionInput: (match?: Match) => Parameters<typeof projectFor>[0];
+  readonly projectionInput: (match?: Match, events?: readonly unknown[]) => Parameters<typeof projectFor>[0];
+  readonly invalidateProjection: () => void;
 }
 
 export interface HeadlessWorldCheckpoint {
@@ -383,14 +394,16 @@ function makeWorld(seed: string): HeadlessWorld {
     }
     return cachedObjects;
   };
+  let projectionRevision = 0;
   let projectionInputRevision = -1;
-  let cachedProjectionInput: Parameters<typeof projectFor>[0] | undefined;
-  const projectionInput = (match?: Match): Parameters<typeof projectFor>[0] => {
-    if (projectionInputRevision !== objectRevision || cachedProjectionInput === undefined) {
-      cachedProjectionInput = projectionInputForKernel(kernel, match);
-      projectionInputRevision = objectRevision;
+  let cachedProjectionBase: Parameters<typeof projectFor>[0] | undefined;
+  const invalidateProjection = (): void => { projectionRevision += 1; };
+  const projectionInput = (match?: Match, events: readonly unknown[] = kernel.events): Parameters<typeof projectFor>[0] => {
+    if (projectionInputRevision !== projectionRevision || cachedProjectionBase === undefined) {
+      cachedProjectionBase = projectionBaseInputForKernel(kernel, match);
+      projectionInputRevision = projectionRevision;
     }
-    return cachedProjectionInput;
+    return { ...cachedProjectionBase, stateVersion: kernel.events.length, eventSeq: kernel.events.length, events };
   };
   const counters: MutableCounters = {
     judgeRequiredRejections: 0,
@@ -405,11 +418,13 @@ function makeWorld(seed: string): HeadlessWorld {
     restore: snapshot => {
       checkpoints.restore(snapshot);
       objectRevision += 1;
+      invalidateProjection();
     },
     objects,
     perform: action => {
       objectRevision += 1;
       checkpoints.invalidate();
+      invalidateProjection();
       return kernel.perform(action);
     },
     choose,
@@ -420,6 +435,7 @@ function makeWorld(seed: string): HeadlessWorld {
       choose,
       link: (key, value) => {
         checkpoints.invalidate();
+        invalidateProjection();
         kernel.link(key, value);
       },
     }),
@@ -431,7 +447,8 @@ function makeWorld(seed: string): HeadlessWorld {
     kernel,
     host,
     counters,
-    projectionInput: match => projectionInput(match),
+    projectionInput,
+    invalidateProjection,
   };
 }
 
@@ -500,11 +517,9 @@ export function headlessProjectionLeaks(projection: ProjectionV2, hiddenRefs: re
   return leaks;
 }
 
-function projectionInputForKernel(kernel: TestWorld, match?: Match): Parameters<typeof projectFor>[0] {
+function projectionBaseInputForKernel(kernel: TestWorld, match?: Match): Parameters<typeof projectFor>[0] {
   const players = ["A", "B"] as const;
   return {
-    stateVersion: kernel.events.length,
-    eventSeq: kernel.events.length,
     phase: match?.flow.phase ?? "playing",
     turn: match?.flow.turn,
     priorityPlayerId: match?.flow.chain.priority,
@@ -558,12 +573,16 @@ function projectionInputForKernel(kernel: TestWorld, match?: Match): Parameters<
       power: object.power,
       location: object.location,
     })),
-    events: kernel.events,
   };
 }
 
-function projectionForKernel(state: HeadlessWorld, viewer: PlayerId | "spectator", match?: Match): ReturnType<typeof projectFor> {
-  return projectFor(state.projectionInput(match), viewer);
+function projectionForKernel(
+  state: HeadlessWorld,
+  viewer: PlayerId | "spectator",
+  match?: Match,
+  events: readonly unknown[] = state.kernel.events,
+): ReturnType<typeof projectFor> {
+  return projectFor(state.projectionInput(match, events), viewer);
 }
 
 function botChoice(
@@ -706,26 +725,31 @@ function isLegalRejection(error: unknown): boolean {
 
 function executeCommand(context: HeadlessContext, command: HeadlessCommand): void {
   const { match, state, programs } = context;
-  switch (command.type) {
-    case "idle": match.flow.endTurn(command.player); return;
-    case "pass": match.flow.pass(command.player); return;
-    case "advance": match.flow.advance(); return;
-    case "combat-damage": match.flow.combat.dealDamage(); return;
-    case "move":
-      if (command.to.type === "base") {
-        throw new HeadlessContractBlockedError("standard-move-base-destination",
-          "TurnFlow.move accepts only a Battlefield id; no public atomic Standard Move command accepts a Base destination (CR 144.4.b)");
+  try {
+    switch (command.type) {
+      case "idle": match.flow.endTurn(command.player); return;
+      case "pass": match.flow.pass(command.player); return;
+      case "advance": match.flow.advance(); return;
+      case "combat-damage": match.flow.combat.dealDamage(); return;
+      case "move":
+        if (command.to.type === "base") {
+          throw new HeadlessContractBlockedError("standard-move-base-destination",
+            "TurnFlow.move accepts only a Battlefield id; no public atomic Standard Move command accepts a Base destination (CR 144.4.b)");
+        }
+        match.flow.move(command.player, command.object, command.to.id);
+        return;
+      case "play": {
+        const source = state.kernel.objects.find(object => object.ref.id === command.object.id &&
+          object.ref.zoneEntryId === command.object.zoneEntryId) as DraftableCard | undefined;
+        if (!source || source.zone !== "hand" || source.controller !== command.player) throw new Error("Missing owned Hand source");
+        const draft = createBotDraft(programs, source, command.player, command.location, state.counters, command.id);
+        if (!draft) throw new HeadlessContractBlockedError("unsupported-program", "No executable CardProgram for the requested play");
+        match.flow.execute(draft);
       }
-      match.flow.move(command.player, command.object, command.to.id);
-      return;
-    case "play": {
-      const source = state.kernel.objects.find(object => object.ref.id === command.object.id &&
-        object.ref.zoneEntryId === command.object.zoneEntryId) as DraftableCard | undefined;
-      if (!source || source.zone !== "hand" || source.controller !== command.player) throw new Error("Missing owned Hand source");
-      const draft = createBotDraft(programs, source, command.player, command.location, state.counters, command.id);
-      if (!draft) throw new HeadlessContractBlockedError("unsupported-program", "No executable CardProgram for the requested play");
-      match.flow.execute(draft);
     }
+  } finally {
+    // Chain phase, priority and chain items can change without a kernel action.
+    state.invalidateProjection();
   }
 }
 
@@ -833,13 +857,16 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
   let guardReason: HeadlessStats["guardReason"] = null;
   let privacySafe = true;
   let privacyChecks = 0;
+  let auditedEventCount = 0;
   const checkPrivacy = () => {
+    const unauditedEvents = state.kernel.events.slice(auditedEventCount);
     for (const viewer of ["A", "B", "spectator"] as const) {
       privacyChecks++;
       const hidden = state.kernel.objects.filter(object => object.zone === "deck" || object.zone === "rune-deck" ||
         object.zone === "hand" && object.owner !== viewer).map(object => object.ref);
-      if (headlessProjectionLeaks(projectionForKernel(state, viewer, match), hidden).length) privacySafe = false;
+      if (headlessProjectionLeaks(projectionForKernel(state, viewer, match, unauditedEvents), hidden).length) privacySafe = false;
     }
+    auditedEventCount = state.kernel.events.length;
   };
   checkPrivacy();
   const rejected = new Set<string>();
@@ -1046,5 +1073,24 @@ export function runHeadlessRegression(options: HeadlessRegressionOptions = {}): 
     sourceTrigger,
     tamper: { journal, result: tamperResult },
     aggregate,
+  };
+}
+
+/** Lazy, once-only access to the fixed regression cases for focused tests. */
+export function createHeadlessRegressionHarness(options: HeadlessRegressionOptions = {}): HeadlessRegressionHarness {
+  let shared: HeadlessRegressionRun | undefined;
+  let determinism: readonly [HeadlessStats, HeadlessStats] | undefined;
+  const once = (): HeadlessRegressionRun => shared ??= runHeadlessRegression(options);
+  return {
+    matrix: () => once().matrix,
+    determinism: () => determinism ??= (() => {
+      const run = once();
+      return run.determinism;
+    })(),
+    blocked: () => once().blocked,
+    targets: () => once().targets,
+    sourceTrigger: () => once().sourceTrigger,
+    tamper: () => once().tamper,
+    aggregate: () => once().aggregate,
   };
 }
