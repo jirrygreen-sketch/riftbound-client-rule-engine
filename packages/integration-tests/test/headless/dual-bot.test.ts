@@ -9,11 +9,14 @@ import {
   buildM1Deck,
   runHeadlessGame,
   runHeadlessMatrix,
+  createHeadlessRegressionHarness,
 } from "../../src/headless/index.js";
 
 describe("M1 headless dual-bot regression", () => {
+  const run = createHeadlessRegressionHarness();
+
   it("runs five fixed seeds for every pair of the four M1 decks", () => {
-    const summary = runHeadlessMatrix({ games: 5, decks: M1_DECK_IDS, seeds: HEADLESS_SEEDS.slice(0, 5) });
+    const summary = run.matrix();
     expect(summary.games).toBe(30);
     expect(summary.pairings).toHaveLength(6);
     expect(summary.pairings.every(pairing => pairing.games === 5)).toBe(true);
@@ -56,8 +59,7 @@ describe("M1 headless dual-bot regression", () => {
   });
 
   it("keeps one seed deterministic across repeated runs", () => {
-    const first = runHeadlessGame(HEADLESS_SEEDS[0]!, { decks: ["vex-unl", "vi-unl"] });
-    const second = runHeadlessGame(HEADLESS_SEEDS[0]!, { decks: ["vex-unl", "vi-unl"] });
+    const [first, second] = run.determinism();
     expect(second.winner).toBe(first.winner);
     expect(second.turnNumber).toBe(first.turnNumber);
     expect(second.termination).toBe(first.termination);
@@ -73,7 +75,7 @@ describe("M1 headless dual-bot regression", () => {
   }, 30_000);
 
   it("keeps blocked runs unfinished instead of awarding a concession win", () => {
-    const result = runHeadlessGame(HEADLESS_SEEDS[0]!);
+    const result = run.blocked();
     expect(result.actionCoverage.commands.concede).toBe(0);
     expect(result.victoryScore).toBe(8);
     expect(result.replayMatches).toBe(true);
@@ -89,7 +91,7 @@ describe("M1 headless dual-bot regression", () => {
   });
 
   it("answers target choices through the ResolveContext instead of throwing AwaitChoice", () => {
-    const result = runHeadlessGame("RIFT-739-natural-1");
+    const result = run.targets();
     expect(result.actionCoverage.choices["select-objects"]).toBeGreaterThan(0);
     expect(result.exceptions).toEqual([]);
     expect(result.replayMatches).toBe(true);
@@ -98,14 +100,14 @@ describe("M1 headless dual-bot regression", () => {
   }, 30_000);
 
   it("preserves unsupported source-trigger diagnostics without advancing or fabricating a winner", () => {
-    const result = runHeadlessGame(HEADLESS_SEEDS[2]!, { decks: ["fiora-sfd", "vex-unl"] });
+    const result = run.sourceTrigger();
     expect(result.replayMatches).toBe(true);
     expect(result.exceptions).toEqual([]);
     expect(result.actionCoverage.commands.concede).toBe(0);
     if (result.termination === "blocked") {
       expect(result.winner).toBeNull();
       expect(result.blockers).toEqual(expect.arrayContaining([expect.objectContaining({
-        name: "TriggerSpecValidationError", code: "unsupported-trigger-spec", message: expect.stringContaining("trigger.filter.event"),
+        name: "ProgramBindingError", code: "judge-required", message: "Unsupported filter field battlefieldWas",
       })]));
     } else {
       expect(result.termination).toBe("winner");
@@ -114,25 +116,33 @@ describe("M1 headless dual-bot regression", () => {
   }, 30_000);
 
   it("rejects altered journal commands, events and state even when scores and winner still match", () => {
-    let journal: HeadlessJournal | undefined;
-    const result = runHeadlessGame(HEADLESS_SEEDS[0]!, { onJournal: value => { journal = value; } });
-    expect(journal).toBeDefined();
+    const journal: HeadlessJournal = run.tamper().journal;
+    const result = run.tamper().result;
     expect(result.replayMatches).toBe(true);
-    expect(replayHeadlessJournal(journal!)).toBe(true);
-    const wrongCommand = structuredClone(journal!);
+    expect(replayHeadlessJournal(journal)).toBe(true);
+    const wrongCommand = structuredClone(journal);
     const first = wrongCommand.commands[0]!;
     const changedCommand = first.command.type === "play" || first.command.type === "move"
       ? { ...first.command, object: { ...first.command.object, zoneEntryId: -1 } }
       : { type: "pass" as const, player: "unknown-player" };
-    expect(replayHeadlessJournal({ ...journal!, commands: [{ ...first, command: changedCommand }, ...journal!.commands.slice(1)] })).toBe(false);
-    expect(replayHeadlessJournal({ ...journal!, events: journal!.events.slice(1) })).toBe(false);
-    expect(replayHeadlessJournal({ ...journal!, final: { ...journal!.final, stateDigest: "altered" } })).toBe(false);
-    expect(replayHeadlessJournal({ ...journal!, commands: journal!.commands.map(entry => ({ ...entry,
+    expect(replayHeadlessJournal({ ...journal, commands: [{ ...first, command: changedCommand }, ...journal.commands.slice(1)] })).toBe(false);
+    expect(replayHeadlessJournal({ ...journal, events: journal.events.slice(1) })).toBe(false);
+    expect(replayHeadlessJournal({ ...journal, final: { ...journal.final, stateDigest: "altered" } })).toBe(false);
+    expect(replayHeadlessJournal({ ...journal, commands: journal.commands.map(entry => ({ ...entry,
       failure: entry.failure ? { ...entry.failure, message: "altered" } : { name: "Error", code: "fake", message: "fake" } })) })).toBe(false);
   }, 30_000);
 
+  it("keeps legacy journals without an integrity field strictly replayable", () => {
+    let journal: HeadlessJournal | undefined;
+    runHeadlessGame(HEADLESS_SEEDS[0]!, { maxActions: 1, onJournal: value => { journal = value; } });
+    expect(journal).toBeDefined();
+    const { integrity: _integrity, ...legacy } = journal!;
+    expect(replayHeadlessJournal(legacy)).toBe(true);
+    expect(replayHeadlessJournal({ ...legacy, events: legacy.events.slice(1) })).toBe(false);
+  });
+
   it("aggregates actual winners, turns and committed battle events", () => {
-    const summary = runHeadlessGames(2, HEADLESS_SEEDS.slice(0, 2));
+    const summary = run.aggregate();
     expect(summary.averageTurns).toBe(summary.totalTurns / 2);
     expect(summary.winners).toBe(summary.results.filter(result => result.termination === "winner").length);
     expect(summary.winsByPlayer.A! + summary.winsByPlayer.B!).toBe(summary.winners);

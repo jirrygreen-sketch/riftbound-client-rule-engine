@@ -11,16 +11,22 @@ import {
 import { createProgramBinding } from '../../dist/programs/index.js';
 import { matchesTriggerEvent } from '../../dist/events/pipeline-match.js';
 import { triggerEventObjectBinding } from '../../dist/events/pipeline-types.js';
+import { EventPipeline } from '../../dist/events/pipeline.js';
+import { createActionPipelineHost } from '../../dist/events/action-adapter.js';
+import { bindResolveContext } from '../../dist/events/action-adapter.js';
+import { AwaitChoice } from '../../dist/effects/contract.js';
+import { world } from '../../dist/effects/testing/index.js';
 import frigidJewel from '../../../card-dsl/dist/cards/unl/frigid-jewel.js';
 import karthusEternal from '../../../card-dsl/dist/cards/ogn/karthus-eternal.js';
 
 test('EG-PIPELINE: one per-batch trigger is collected for an atomic multi-object draw, then a new batch is independent', () => {
-  const f = fixture();
+  const f = fixture({ choose: request => request.type === 'mode' ? request.options[0] : undefined });
   trigger(f, 'once-per-batch', { body: [], spec: { at: 'card-drawn', once: 'per-batch' } });
 
   f.engine.commit({ type: 'draw', player: 'A', amount: 2 });
-  assert.equal(f.engine.items.length, 1);
+  assert.equal(f.engine.items.length, 2);
   assert.equal(f.engine.items[0].trigger.batchId, f.engine.pipeline.events.find(event => event.timingPoint === 'card-drawn').batchId);
+  assert.notEqual(f.engine.items[0].trigger.event.eventId, f.engine.items[1].trigger.event.eventId);
 
   f.engine.advance();
   resolveAll(f.engine);
@@ -75,7 +81,8 @@ test('EG-PIPELINE: source-scoped suppression follows zone lifecycle and is colle
 });
 
 test('EG-PIPELINE: malformed trigger ordering rolls back events, frequency usage, and dynamic rules', () => {
-  const f = fixture({ choose: request => request.type === 'mode' ? 'missing' : undefined });
+  let validOrder = false;
+  const f = fixture({ choose: request => request.type === 'mode' ? (validOrder ? request.options[0] : 'missing') : undefined });
   trigger(f, 'one', { body: [], spec: { at: 'turn-end', once: 'per-turn' } });
   trigger(f, 'two', { body: [], spec: { at: 'turn-end' } });
   f.engine.pipeline.registerTriggerRule(additionalTriggerRule({
@@ -90,9 +97,12 @@ test('EG-PIPELINE: malformed trigger ordering rolls back events, frequency usage
   // The rule remains registered after a failed action checkpoint, while the
   // failed batch and its once reservation do not.
   const before = f.engine.pipeline.events.length;
+  validOrder = true;
   f.engine.pipeline.unregisterTrigger('two');
   f.engine.emit({ timingPoint: 'turn-end' });
   assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === 'turn-end').length, 1);
+  assert.equal(f.engine.items.length, 2);
+  f.engine.advance();
   assert.equal(f.engine.items.length, 1);
 });
 
@@ -100,6 +110,7 @@ test('EG-PIPELINE: original Frigid Jewel IR reaches the production binding and f
   const program = { ...frigidJewel, status: 'executable', judgeReason: undefined };
   const f = fixture({
     choose: request => {
+      if (request.type === 'mode' && /order/.test(request.id)) return request.options[0];
       if (request.type === 'select-objects' && request.id === 'target:frigid-jewel.friendly-unit') {
         return [request.options.find(option => option.id === 'ally')];
       }
@@ -126,11 +137,15 @@ test('EG-PIPELINE: original Frigid Jewel IR reaches the production binding and f
   assert.deepEqual(binding.registerProgramTriggers(f.engine, f.kernel.getObject('jewel')), ['program:jewel:1:0']);
 
   assert.equal(f.engine.commit({ type: 'draw', player: 'A', amount: 2 }).status, 'done');
-  assert.equal(f.engine.items.length, 1);
+  // Two card-drawn instances are preserved so the controller can choose the
+  // instance serving as the Nth-time condition; Finalize consumes once.
+  assert.equal(f.engine.items.length, 2);
   assert.equal(f.engine.items[0].trigger.registration.id, 'program:jewel:1:0');
   assert.equal(f.engine.items[0].trigger.batchId, f.engine.pipeline.events.find(event => event.timingPoint === 'card-drawn').batchId);
+  assert.notEqual(f.engine.items[0].trigger.event.eventId, f.engine.items[1].trigger.event.eventId);
 
   f.engine.advance();
+  assert.equal(f.engine.items.length, 1);
   resolveAll(f.engine);
   const registrations = f.engine.layers.registry.list();
   assert.equal(registrations.length, 1);
@@ -417,4 +432,158 @@ test('EG-PIPELINE: event and trigger snapshots preserve the same immutable event
   assert.notEqual(f.kernel.ref('source').zoneEntryId, oldRef.zoneEntryId);
   assert.deepEqual(binding.ref, oldIt);
   assert.deepEqual(triggerEventObjectBinding({ ...trigger, event: { ...trigger.event, it: undefined } }, 'it'), null);
+});
+
+test('EG-PIPELINE: commitContract publishes the host Batch emissions through one trigger scan', () => {
+  const kernel = world()
+    .unit('source', { might: 2, location: { type: 'base', player: 'A' } })
+    .unit('enemy', { owner: 'B', controller: 'B', location: { type: 'battlefield', id: 'battlefield-1' } })
+    .build();
+  const choose = request => { throw new AwaitChoice(request); };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => kernel.test(registration.spec.condition),
+  });
+  const checkpoint = host.checkpoint();
+  const pipeline = new EventPipeline(host, ['A', 'B'], 'A');
+  const observed = [];
+  pipeline.registerTrigger({
+    id: 'typed-batch-observer',
+    source: kernel.getObject('source'),
+    controller: 'A',
+    spec: { at: 'object-killed', filter: { event: 'object-killed' }, once: 'per-batch' },
+    body: [],
+  });
+  pipeline.onTrigger = snapshot => observed.push({
+    eventId: snapshot.event.eventId,
+    batchId: snapshot.batchId,
+    objectId: snapshot.event.object.ref.id,
+    bothInTrash: kernel.getObject('source').zone === 'trash' && kernel.getObject('enemy').zone === 'trash',
+  });
+  const outcome = pipeline.commitContract({
+    type: 'batch',
+    transactionId: 'typed:pipeline-wave',
+    actions: [
+      { type: 'kill', object: kernel.ref('source') },
+      { type: 'kill', object: kernel.ref('enemy') },
+    ],
+  });
+  assert.equal(outcome.status, 'done');
+  assert.equal(outcome.receipt.status, 'committed');
+  assert.equal(pipeline.events.filter(event => event.timingPoint === 'object-killed').length, 2);
+  // The registered observer is once-per-batch; the controller chooses one of
+  // the two source events, so only that chosen instance reaches Finalize.
+  assert.equal(observed.length, 1);
+  assert.ok(observed.every(hit => hit.batchId === 'typed:pipeline-wave' && hit.bothInTrash));
+  host.restore(checkpoint);
+});
+
+test('EG-PIPELINE: commitContract fails closed when the typed host seam is absent', () => {
+  const kernel = world().unit('source').build();
+  const f = fixture();
+  const checkpoint = f.host.checkpoint();
+  const pipeline = new EventPipeline({ ...f.host, executeContract: undefined }, ['A', 'B'], 'A');
+  assert.throws(() => pipeline.commitContract({
+    type: 'batch',
+    transactionId: 'typed:missing-host',
+    actions: [{ type: 'kill', object: f.kernel.ref('source') }],
+  }), /Contract action execution is unavailable/);
+  assert.equal(pipeline.events.length, 0);
+  f.host.restore(checkpoint);
+  assert.equal(f.kernel.getObject('source').zone, 'board');
+});
+
+test('EG-PIPELINE: commitContract rolls back host state and pipeline snapshots when scanning fails', () => {
+  const kernel = world()
+    .unit('source', { location: { type: 'base', player: 'A' } })
+    .unit('enemy', { owner: 'B', controller: 'B', location: { type: 'battlefield', id: 'battlefield-1' } })
+    .build();
+  const choose = request => request.type === 'mode' ? 'invalid' : (() => { throw new AwaitChoice(request); })();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => kernel.test(registration.spec.condition),
+  });
+  const checkpoint = host.checkpoint();
+  const pipeline = new EventPipeline(host, ['A', 'B'], 'A');
+  pipeline.registerTrigger({
+    id: 'one', source: kernel.getObject('source'), controller: 'A',
+    spec: { at: 'object-killed', filter: { event: 'object-killed' } }, body: [],
+  });
+  pipeline.registerTrigger({
+    id: 'two', source: kernel.getObject('enemy'), controller: 'B',
+    spec: { at: 'object-killed', filter: { event: 'object-killed' } }, body: [],
+  });
+  pipeline.onTrigger = () => { throw new Error('typed scan failed'); };
+  assert.throws(() => pipeline.commitContract({
+    type: 'batch', transactionId: 'typed:rollback',
+    actions: [
+      { type: 'kill', object: kernel.ref('source') },
+      { type: 'kill', object: kernel.ref('enemy') },
+    ],
+  }), /typed scan failed/);
+  assert.equal(pipeline.events.length, 0);
+  assert.equal(kernel.getObject('source').zone, 'board');
+  assert.equal(kernel.getObject('enemy').zone, 'board');
+  host.restore(checkpoint);
+});
+
+test('EG-PIPELINE: registration probes are O(1) reads and follow checkpoint restore without side effects', () => {
+  const f = fixture();
+  const pipeline = f.engine.pipeline;
+  const trigger = {
+    id: 'probe-trigger',
+    source: f.kernel.getObject('source'),
+    controller: 'A',
+    spec: { at: 'card-drawn', filter: {} },
+    body: [],
+  };
+  const replacement = {
+    id: 'probe-replacement',
+    matches: action => action.type === 'draw',
+    apply: () => ({ status: 'prevent' }),
+  };
+  const beforeEvents = pipeline.events;
+  const beforeClock = structuredClone(pipeline.clock);
+  const checkpoint = pipeline.checkpoint.bind(pipeline);
+  let checkpointCalls = 0;
+  pipeline.checkpoint = () => { checkpointCalls += 1; return checkpoint(); };
+  const empty = pipeline.checkpoint();
+
+  assert.equal(pipeline.hasTriggerRegistration(trigger.id), false);
+  assert.equal(pipeline.hasReplacementRegistration(replacement.id), false);
+  pipeline.registerTrigger(trigger);
+  pipeline.registerReplacement(replacement);
+  assert.equal(pipeline.hasTriggerRegistration(trigger.id), true);
+  assert.equal(pipeline.hasReplacementRegistration(replacement.id), true);
+
+  const saved = pipeline.checkpoint();
+  pipeline.unregisterTrigger(trigger.id);
+  assert.equal(pipeline.hasTriggerRegistration(trigger.id), false);
+  assert.equal(pipeline.hasReplacementRegistration(replacement.id), true);
+  pipeline.restore(empty);
+  assert.equal(pipeline.hasTriggerRegistration(trigger.id), false);
+  assert.equal(pipeline.hasReplacementRegistration(replacement.id), false);
+  pipeline.restore(saved);
+  assert.equal(pipeline.hasTriggerRegistration(trigger.id), true);
+  assert.equal(pipeline.hasReplacementRegistration(replacement.id), true);
+
+  assert.deepEqual(pipeline.events, beforeEvents);
+  assert.deepEqual(pipeline.clock, beforeClock);
+  assert.equal(pipeline.hasTriggerRegistration(trigger.id), true);
+  assert.equal(pipeline.hasReplacementRegistration(replacement.id), true);
+  assert.equal(checkpointCalls, 2, 'probes must not snapshot the pipeline');
 });
