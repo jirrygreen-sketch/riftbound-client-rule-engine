@@ -163,5 +163,8 @@ describe("actual optional Unit P4 command flow", () => {
     { profile: DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK, decision: "pay" },
     { profile: DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK, decision: "decline" },
   ] as const)("$profile keeps original $decision choice through two entries and strict replay",
-    async ({ profile, decision }) => run(profile, decision), 90_000);
+    // Shared-runner full runs have observed 289s/627s wall times for these
+    // genuine end-to-end flows under serial load; keep every step and give the
+    // runner clock the same headroom as the 300s P4 room flow tests.
+    async ({ profile, decision }) => run(profile, decision), 300_000);
 });

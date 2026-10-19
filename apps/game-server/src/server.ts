@@ -106,6 +106,7 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
   if (options.duelRuntimeMode !== undefined && options.duelRuntimeMode !== "legacy-p4" && options.duelRuntimeMode !== "engine-v2") {
     throw new TypeError("Invalid duel runtime mode");
   }
+  const duelRuntimeMode = options.duelRuntimeMode ?? "engine-v2";
   const rooms = new Map<string, GameRoom>();
   const contexts = new Set<SocketContext>();
   let roomMutationQueue: Promise<unknown> = Promise.resolve();
@@ -411,7 +412,7 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
           requireCatalog,
           options.duelRandomIndex,
           options.storageDirectory,
-          options.duelRuntimeMode
+          duelRuntimeMode
         )))
         .catch(error => {
           sendError(send, error);
@@ -637,6 +638,9 @@ async function handleInbound(
             "command-rejected"
           );
         }
+        if (rulesetId === DUEL_RULESET_ID && context.protocolMode === "v1" && duelRuntimeMode !== "legacy-p4") {
+          throw new RoomError("Protocol v1 Duel rooms require explicit duelRuntimeMode=legacy-p4", "protocol-error");
+        }
         const roomId = makeRoomId();
         const catalog = rulesetId === FOUNDATION_RULESET_ID || rulesetId === DUEL_RULESET_ID
           ? await loadCatalog().then(() => requireCatalog())
@@ -653,7 +657,7 @@ async function handleInbound(
           undefined,
           parsed.constructedRegion ? bindConstructedRegion(parsed.constructedRegion) : undefined,
           undefined,
-          context.protocolMode === "v2" ? "engine-v2" : duelRuntimeMode ?? "legacy-p4"
+          context.protocolMode === "v2" ? "engine-v2" : duelRuntimeMode
         );
         await room.enableDurability(storageDirectory);
         if (rooms.has(roomId)) {
@@ -704,7 +708,7 @@ async function handleInbound(
         }
 
         const room = await requireRoom(roomStore, rooms, parsed.roomId);
-        if (room.runtimeMode !== (context.protocolMode === "v2" ? "engine-v2" : duelRuntimeMode ?? "legacy-p4") &&
+        if (room.runtimeMode !== (context.protocolMode === "v2" ? "engine-v2" : "legacy-p4") &&
             room.rulesetId === DUEL_RULESET_ID) {
           throw new RoomError("The room requires a different protocol/runtime version", "protocol-error");
         }

@@ -17,6 +17,8 @@ import type {
   ZoneDestination,
   ZoneId,
 } from "../../../../packages/engine-core/dist/effects/contract.js";
+import { disempowerTransition, empoweredState, empowerTransition, readEmpowered }
+  from "../../../../packages/engine-core/dist/zones/empower-state.js";
 
 export interface RuntimeCard {
   readonly id: string;
@@ -32,7 +34,7 @@ export interface RuntimeCard {
 
 type MutableObject = {
   -readonly [K in keyof ObjectSnapshot]: ObjectSnapshot[K];
-} & { counters: Record<string, number> };
+} & { counters: Record<string, number>; empowered: number };
 
 type RuntimeZone = ZoneId | "base" | "battlefield" | "champion" | "legend";
 
@@ -125,7 +127,7 @@ export class EngineRuntimeHost {
       energy: card.energy === undefined ? null : card.energy,
       power: card.power == null ? null : [...card.power], exhausted: false, damage: 0,
       stunned: false, buffs: 0, attachedTo: null, faceDown: zone === "deck" || zone === "rune-deck", isToken: false,
-      counters: {},
+      counters: {}, empowered: 0,
     };
     this.objectMap.set(id, object);
     this.players.get(player)!.zones[zone].push(id);
@@ -230,8 +232,21 @@ export class EngineRuntimeHost {
         case "spend-xp": { const player = this.requirePlayer(action.player); if (player.xp < action.amount) return this.prevented(); player.xp -= action.amount; return this.done(action.amount); }
         case "buff": { const object = this.requireObject(action.object); object.buffs += action.amount; return this.done(object.buffs); }
         case "spend-buff": { const object = this.requireObject(action.object); if (object.buffs < action.amount) return this.prevented(); object.buffs -= action.amount; return this.done(object.buffs); }
-        case "empower": { const object = this.requireObject(action.object); object.buffs += action.amount ?? 1; return this.done(object.buffs); }
-        case "disempower": this.requireObject(action.object).buffs = 0; return this.done();
+        case "empower": {
+          const object = this.requireObject(action.object);
+          const transition = empowerTransition(readEmpowered(object), {
+            amount: action.amount ?? 1, multiple: action.multiple, limit: action.limit });
+          if (!transition.changed) return this.prevented();
+          Object.assign(object, empoweredState(transition.currentCount));
+          return this.done(object.empowered);
+        }
+        case "disempower": {
+          const object = this.requireObject(action.object);
+          const transition = disempowerTransition(readEmpowered(object));
+          if (!transition.changed) return this.prevented();
+          Object.assign(object, empoweredState(transition.currentCount));
+          return this.done();
+        }
         case "add-counter": {
           const object = this.requireObject(action.object); object.counters[action.counter] = (object.counters[action.counter] ?? 0) + action.amount; return this.done(object.counters[action.counter]);
         }
@@ -364,7 +379,8 @@ function matchesFilter(object: ObjectSnapshot, filter: ObjectFilter): boolean {
   for (const key of ["zone", "type", "owner", "controller"] as const) {
     const value = candidate[key]; if (value === undefined || value === "any") continue;
     const actual = key === "type" ? object.types : object[key];
-    if (Array.isArray(actual) ? !actual.includes(value as never) : actual !== value) return false;
+    const wanted = Array.isArray(value) ? value : [value];
+    if (Array.isArray(actual) ? !wanted.some(entry => actual.includes(entry as never)) : !wanted.includes(actual as never)) return false;
   }
   return true;
 }
