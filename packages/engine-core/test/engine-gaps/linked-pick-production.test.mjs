@@ -53,7 +53,16 @@ function runtime(builder, kernel = builder.build()) {
   });
   const engine = new ChainEngine({
     turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host,
-    cleanup: () => false
+    cleanup: () => false,
+    describePlay: action => ({
+      id: `play:${action.object.id}:${action.player}`,
+      controller: action.player,
+      source: kernel.getObject(action.object.id),
+      kind: "unit",
+      speed: "action",
+      body: [],
+      location: action.location ?? { type: "base", player: action.player }
+    })
   });
   return { kernel, engine, answers, requests };
 }
@@ -417,7 +426,8 @@ test("a stale host preselection keeps its exact incarnation while a filtered liv
   const gear = f.kernel.ref("gear");
   f.kernel.link("show.revealed", [gear]);
   const liveCandidates = { offered: [], invalid: [gear], phase: "resolve" };
-  assert.deepEqual(validatePickPreselection(receiptContext, spec, liveCandidates, { selected: [gear] }), [gear]);
+  assert.throws(() => validatePickPreselection(receiptContext, spec, liveCandidates, { selected: [gear] }),
+    error => error instanceof PickSelectionError && error.code === "invalid-choice");
 });
 
 test("linked filter and bounds preserve receipt order, exclude outside identities, and reject bad answers atomically", () => {
@@ -663,23 +673,27 @@ test("Scrutinizing Scope draw-if-other uses its original linked option rather th
 test("Void Burrower's original nested play pick reuses a validated host answer and replays deterministically", () => {
   const run = () => {
     const builder = world()
-      .player("A")
+      .player("A", { energy: 20 })
       .player("B")
       .base("source", { controller: "A", owner: "A", might: 2 })
       .object("burrower", { cardId: voidBurrower.canonicalCardId, owner: "A", controller: "A", types: ["legend"], zone: "board" })
-      .deck(["first", "second"], { owner: "A", types: ["unit"] });
+      .deck(["first", "second"], { owner: "A", types: ["unit"], energy: 0, power: [] });
     const kernel = builder.build();
     const f = runtime(builder, kernel.clone({ sourceSnapshot: kernel.getObject("burrower") }));
     const first = f.kernel.zoneSlice("A", "deck", "top", 1).map(object => object.ref);
     f.kernel.setPicks("void-burrower.top-two", f.kernel.zoneSlice("A", "deck", "top", 2).map(object => object.ref));
+    f.kernel.setPicks("void-burrower.play-one", first);
     start(f, burrowerBody, "burrower");
     f.engine.pass(f.engine.priority);
     const optional = awaitOnResolve(f, false);
     f.answers.set(optional.id, true);
-    f.answers.set(`${optional.id}/void-burrower.play-one/void-burrower.play-one-choice`, first);
-    f.kernel.setPicks("void-burrower.play-one", f.kernel.zoneSlice("A", "deck", "top", 2).map(object => object.ref));
-    try { f.engine.pass(f.engine.priority); } catch {}
-    finishWithoutChoices(f);
+    const playChoiceId = `${optional.id}/void-burrower.play-one/void-burrower.play-one-choice`;
+    f.answers.set(playChoiceId, first);
+    for (let guard = 0; guard < 8 && f.engine.items.length; guard++) {
+      try { f.engine.pass(f.engine.priority); } catch (error) {
+        if (!(error instanceof AwaitChoice) || error.request.id !== playChoiceId) throw error;
+      }
+    }
     return f;
   };
 

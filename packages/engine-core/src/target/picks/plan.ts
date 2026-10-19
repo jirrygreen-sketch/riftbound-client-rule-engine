@@ -330,7 +330,8 @@ export function validatePickPreselection(
     }
     seen.add(key);
     if (available.has(key)) result.push(copyValue(value));
-    else if (isObjectRef(value) && requestedStale.some(candidate => valueKey(candidate) === key)) stale.push(copyValue(value));
+    else if (isObjectRef(value) && context.object(value) === null &&
+      requestedStale.some(candidate => valueKey(candidate) === key)) stale.push(copyValue(value));
     else throw new PickSelectionError("invalid-choice", `${spec.id} preselection failed its current filter`);
   }
   const expectedMin = spec.min ?? (spec.selection === "one" ? 1 : 0);
@@ -378,6 +379,38 @@ export function validateStandalonePreselection(
   if (result.length === 0 && min === 0) return result;
   if (result.length < min || result.length > max) {
     throw new PickSelectionError("invalid-choice", `${spec.id} preselection is outside its required count`);
+  }
+  return result;
+}
+
+/**
+ * Validate a trusted candidate collection for a primitive that owns the
+ * subsequent choice. Unlike a final preselection, the collection is not the
+ * chosen answer, so its size is not constrained by this pick's min/max.
+ */
+export function validateDeferredStandalonePreselection(
+  context: ResolveContext,
+  spec: PickSpec,
+  selected: readonly PickValue[]
+): PickValue[] {
+  if (!Array.isArray(selected)) throw new PickSelectionError("invalid-choice", `${spec.id} deferred candidates must be an array`);
+  const filter = spec.filter as ObjectFilter | undefined;
+  const matches = filter === undefined ? undefined : new Set(context.query(filter).map(object => refKey(object.ref)));
+  const seen = new Set<string>();
+  const result: PickValue[] = [];
+  for (const value of selected) {
+    const key = valueKey(value);
+    if (seen.has(key)) throw new PickSelectionError("invalid-choice", `${spec.id} deferred candidates contain a duplicate value`);
+    if (isObjectRef(value)) {
+      const current = context.object(value);
+      if (current !== null && matches !== undefined && !matches.has(refKey(value))) {
+        throw new PickSelectionError("invalid-choice", `${spec.id} deferred candidate failed its current filter`);
+      }
+    } else if (filter !== undefined) {
+      throw new PickSelectionError("invalid-choice", `${spec.id} object filter cannot accept a scalar candidate`);
+    }
+    seen.add(key);
+    result.push(copyValue(value));
   }
   return result;
 }

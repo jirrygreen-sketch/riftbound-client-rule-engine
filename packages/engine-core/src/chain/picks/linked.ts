@@ -3,7 +3,7 @@ import type { ChoiceRequest, Instruction, InstructionDef, ObjectRef, ResolveCont
 import type { InstructionRegistry, InterpreterOptions } from '../../effects/interpreter.js';
 import { bindResolveContext } from '../../events/action-adapter.js';
 import { MissingInformation } from '../../effects/interpreter/values.js';
-import { PickSelectionError, linkedPickExpression, queryPickCandidates, receiptObjectValues, resolveNonTargetPick, validateDeferredPickPreselection, validatePickPreselection, validateStandalonePreselection, type PickCandidateSet } from '../../target/picks/plan.js';
+import { PickSelectionError, linkedPickExpression, queryPickCandidates, receiptObjectValues, resolveNonTargetPick, validateDeferredPickPreselection, validateDeferredStandalonePreselection, validatePickPreselection, validateStandalonePreselection, type PickCandidateSet } from '../../target/picks/plan.js';
 import { OrderedPickError, orderedPickSpecs, pickSpecs } from './plan.js';
 
 function isObjectRef(value: unknown): value is ObjectRef {
@@ -126,7 +126,7 @@ export function orderedPickResolver(body: readonly Instruction[]): InterpreterOp
     // compatibility path; that path still enforces filter, bounds and live
     // incarnation below. A declared-but-not-yet-executed producer never falls
     // back to source/target guessing.
-    const noSource = source === undefined;
+    const standaloneCompatibility = !sourceDeclared;
     let candidates: PickCandidateSet;
     try {
       candidates = source !== undefined && !sourceAvailable
@@ -163,8 +163,10 @@ export function orderedPickResolver(body: readonly Instruction[]): InterpreterOp
     let values: PickOutput[];
     if (supplied.length > 0) {
       const selected = deferred.has(id)
-        ? validateDeferredPickPreselection(context, spec, candidates, supplied as never)
-        : noSource
+        ? sourceDeclared
+          ? validateDeferredPickPreselection(context, spec, candidates, supplied as never)
+          : validateDeferredStandalonePreselection(context, spec, supplied as never)
+        : standaloneCompatibility
           ? validateStandalonePreselection(context, spec, supplied as never)
           : validatePickPreselection(context, spec, candidates, { selected: supplied as never });
       values = selected.map(value => isObjectRef(value) ? { id: value.id, zoneEntryId: value.zoneEntryId } : String(value));
