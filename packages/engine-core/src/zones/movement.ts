@@ -433,4 +433,3 @@ export function assertDuelStandardMoveUnitStillLegal(
     `unit ${unitId} needs Ganking to move battlefield to battlefield`);
   recheck.validate(unitId);
 }
-
