@@ -98,6 +98,55 @@ describe("engine runtime", () => {
     expect(opponent.objects.filter(object => object.ownerPlayerId === "A" && object.zone === "facedown").every(object => object.cardId === undefined && object.name === undefined)).toBe(true);
   });
 
+  it("projects authoritative Buff and layered Empowered counters without conflating them", () => {
+    const decks = [m1Deck("rumble-sfd"), m1Deck("fiora-sfd")] as const;
+    const probe = createEngineRuntime({ matchId: "counter-projection-probe", decks, seed: "counters" }).start();
+    const source = probe.projectFor("A").objects.find(object => object.zone === "hand" && object.ownerPlayerId === "A" && object.cardId);
+    expect(source?.cardId).toBeTruthy();
+    const program = {
+      canonicalCardId: source!.cardId,
+      rulesetVersion: "core-1.5",
+      status: "executable",
+      sourceText: "counter projection test",
+      abilities: [{
+        kind: "activated",
+        timing: "action",
+        cost: { kind: "explicit", energy: { kind: "constant", value: 0 } },
+        body: [
+          { id: "add-buff", op: "effect.buff", args: { mode: { kind: "constant", value: "buff" },
+            objects: { kind: "constant", value: { kind: "source" } },
+            amount: { kind: "constant", value: 2 } } },
+          { id: "empower", op: "effect.empower", args: { objects: { kind: "constant", value: { kind: "source" } } } },
+        ],
+      }],
+    } as const;
+    const runtime = createEngineRuntime({ matchId: "counter-projection", decks, seed: "counters", programs: [program] }).start();
+    const objectId = source!.objectId;
+    const moved = runtime.submit("A", { type: "move", commandId: "move-counter-source", stateVersion: 0,
+      objectId, to: { zone: "base", playerId: "A" } });
+    const activated = runtime.submit("A", { type: "activate", commandId: "activate-counters",
+      stateVersion: moved.receipt.stateVersion, sourceObjectId: objectId, abilityId: "0" });
+    expect(activated.receipt.status).toBe("accepted");
+    runtime.submit("A", { type: "pass", commandId: "pass-counter-a", stateVersion: activated.receipt.stateVersion });
+    const resolved = runtime.submit("B", { type: "pass", commandId: "pass-counter-b",
+      stateVersion: runtime.projectFor(null).stateVersion });
+    expect(resolved.receipt.status, JSON.stringify(resolved.receipt)).toBe("accepted");
+
+    for (const viewer of ["A", "B", null] as const) {
+      const projection = runtime.projectFor(viewer);
+      expect(isV2Projection(projection)).toBe(true);
+      expect(projection.objects.find(object => object.objectId === objectId)?.counters).toMatchObject({
+        buffs: 1,
+        empowered: 1,
+        empoweredCount: 1,
+      });
+    }
+    const restored = createEngineRuntime({ matchId: "counter-projection", decks, seed: "counters", programs: [program] })
+      .restore(runtime.journal());
+    expect(restored.projectFor("A").objects.find(object => object.objectId === objectId)?.counters)
+      .toEqual(runtime.projectFor("A").objects.find(object => object.objectId === objectId)?.counters);
+  }, 60_000);
+
   // Runtime bootstrapping loads protocol + engine-core source through the
   // per-worker transformer; under serial full-suite load these can exceed the
   // default 10s without any assertion change.

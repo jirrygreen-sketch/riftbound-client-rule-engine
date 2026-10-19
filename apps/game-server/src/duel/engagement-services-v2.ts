@@ -69,6 +69,11 @@ export function createDuelEngagementServicesV2(options: {
       if (inspected.status !== 'ready' || inspected.handlers.length ||
           JSON.stringify(inspected.sources.map(source => source.uid)) !== JSON.stringify(request.sourceUIDs))
         return { status: 'pending' as const };
+      // An end-of-combat modifier remains active through the combat's Lethal
+      // Damage check and expires only after the real combat-end boundary has
+      // proved source closure. Permanent entries are unaffected by expireAt().
+      if (request.boundary === 'combat-end') options.effects?.expireAt(
+        { id: 'combat-end' }, () => null);
       return { status: 'none' as const, matchId: request.match.matchId,
         stateVersion: request.match.stateVersion, eventSeq: request.match.eventSeq,
         boundary: request.boundary, taskId: request.taskId, sourceUIDs: request.sourceUIDs };

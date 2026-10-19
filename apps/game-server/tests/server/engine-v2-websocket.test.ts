@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import { WebSocket } from "ws";
 import { DUEL_RULESET_ID, type ClientSession, type RoomDeckSubmission } from "@riftbound/protocol";
@@ -120,9 +120,12 @@ function assertPrivateProjection(value: V2Projection, viewerPlayerId: string, op
 
 describe("protocol v2 engine runtime over WebSocket", () => {
   it("creates, resumes and restores a private two-client match", async () => {
-    const directory = await mkdtemp(path.join("/tmp", "rift-350-v2-"));
+    const port = Number(process.env.SWARM_PORT_BASE ?? 34680);
+    const taskDirectory = path.join("/tmp", process.env.SWARM_TASK ?? "RIFT-350-server-cutover-engine-runtime");
+    await mkdir(taskDirectory, { recursive: true });
+    const directory = await mkdtemp(path.join(taskDirectory, "v2-"));
     directories.push(directory);
-    const running = await start(33040, directory);
+    const running = await start(port, directory);
     const [deckA, deckB] = await m1Submissions();
     const alice = await connect(running.url);
     alice.send({ type: "create-room", requestId: "create", playerName: "Alice", rulesetId: DUEL_RULESET_ID });
@@ -197,7 +200,7 @@ describe("protocol v2 engine runtime over WebSocket", () => {
     await bob.close();
     await resumed.close();
     await running.server.stop();
-    const restarted = await start(33040, directory);
+    const restarted = await start(port, directory);
     const [restoredA, restoredB] = await Promise.all([
       connect(restarted.url, sessionA, receipt.eventSeq),
       connect(restarted.url, sessionB, receipt.eventSeq)
