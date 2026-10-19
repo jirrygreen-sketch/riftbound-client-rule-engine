@@ -300,7 +300,7 @@ describe("RIFT-857 two-precon acceptance", () => {
     }));
   });
 
-  it("keeps Fiora, Worthy dependency-not-ready and records the newsource lifecycle gap", () => {
+  it("keeps Fiora, Worthy contract-request-required and records the newsource lifecycle gap", () => {
     const manifest = readManifest() as Omit<Manifest, "canonicalWhitelist"> & {
       readonly canonicalWhitelist: readonly DetailedManifestCard[];
     };
@@ -325,7 +325,7 @@ describe("RIFT-857 two-precon acceptance", () => {
         }),
       }));
     expect(manifest.lifecycleSetupEvidence).toEqual(expect.objectContaining({
-      currentHead: "f6c0ed7dc002e9e4eae3c667549d1b2b08d2e75a",
+      currentHead: "423af7ea1114e30eb1ad5335b20efc0078a40520",
       reviewHead: "f036b0e5026aba1668ae88be2d74a05abeb55670",
       requiredNewsourceCommit: "b6dc9debd813125413085a8a301f1ccdec5ef092",
       requiredNewsourceAncestorOfCurrent: false,

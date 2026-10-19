@@ -117,7 +117,7 @@ the two-precon gate.
 
 ## RIFT-831 setup status
 
-The current task HEAD `f6c0ed7dc002e9e4eae3c667549d1b2b08d2e75a` does not
+The current task HEAD `423af7ea1114e30eb1ad5335b20efc0078a40520` does not
 contain the required newsource merge `b6dc9debd813125413085a8a301f1ccdec5ef092`.
 The parent review HEAD `f036b0e5026aba1668ae88be2d74a05abeb55670` is also not
 an ancestor of this task HEAD. The current lifecycle is SHA-256
