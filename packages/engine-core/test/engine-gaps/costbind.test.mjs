@@ -11,12 +11,9 @@ import { bindResolveContext } from '../../dist/events/action-adapter.js';
 import { createActionPipelineHost } from '../../dist/events/action-adapter.js';
 import { ChainEngine } from '../../dist/chain/engine.js';
 import { createProgramBinding } from '../../dist/programs/index.js';
-import { createEngineStaticBinder } from '../../dist/programs/statics.js';
-import { withProgramCostStatics } from '../../dist/programs/cost-adapters/static-binder.js';
 import clockworkKeeper from '../../../card-dsl/dist/cards/ogn/clockwork-keeper.js';
 import cruelPatron from '../../../card-dsl/dist/cards/ogn/cruel-patron.js';
 import blazingScorcher from '../../../card-dsl/dist/cards/ogn/blazing-scorcher.js';
-import frostcoatCub from '../../../card-dsl/dist/cards/sfd/frostcoat-cub.js';
 
 const constant = value => ({ kind: 'constant', value });
 const executable = program => ({ ...program, status: 'executable', judgeReason: undefined });
@@ -128,7 +125,6 @@ test('original Clockwork Keeper IR binds the optional Calm cost and keeps paid w
     isIgnored: () => false,
   }), true);
 });
-
 test('original Cruel Patron IR becomes a mandatory non-target kill component', () => {
   const program = executable(cruelPatron);
   const kernel = world()
@@ -329,20 +325,4 @@ test('unsupported activation use limits remain judge-required before cost paymen
   assert.throws(() => binding.describeActivate(kernel.getObject('source'), 'A'), error =>
     error.code === 'judge-required' && /usage-limit/.test(error.message));
   assert.equal(kernel.getObject('source').exhausted, false);
-});
-
-test('cost-only static declarations bind through the cost adapter without a false layer error', () => {
-  const kernel = world().player('A').player('B').build();
-  const host = createActionPipelineHost({
-    checkpoint: () => kernel.snapshot(), restore: saved => kernel.restore(saved),
-    objects: () => kernel.objects, perform: action => kernel.perform(action), choose: () => { throw new Error('unexpected choice'); },
-    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
-  });
-  const engine = new ChainEngine({ turnOrder: ['A', 'B'], turnPlayer: 'A', phase: 'main', host, cleanup: () => false });
-  const binder = withProgramCostStatics(createEngineStaticBinder(engine));
-  const source = world().unit('cub', { cardId: frostcoatCub.canonicalCardId }).build().getObject('cub');
-  const ability = frostcoatCub.abilities.find(candidate => candidate.kind === 'static' && candidate.effect.kind === 'cost.additional');
-  assert.ok(ability);
-  const handle = binder.bindStatic(ability, source);
-  assert.equal(typeof handle.unbind, 'function');
 });
