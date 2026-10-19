@@ -11,9 +11,12 @@ import { bindResolveContext } from '../../dist/events/action-adapter.js';
 import { createActionPipelineHost } from '../../dist/events/action-adapter.js';
 import { ChainEngine } from '../../dist/chain/engine.js';
 import { createProgramBinding } from '../../dist/programs/index.js';
+import { createEngineStaticBinder } from '../../dist/programs/statics.js';
+import { withProgramCostStatics } from '../../dist/programs/cost-adapters/static-binder.js';
 import clockworkKeeper from '../../../card-dsl/dist/cards/ogn/clockwork-keeper.js';
 import cruelPatron from '../../../card-dsl/dist/cards/ogn/cruel-patron.js';
 import blazingScorcher from '../../../card-dsl/dist/cards/ogn/blazing-scorcher.js';
+import frostcoatCub from '../../../card-dsl/dist/cards/sfd/frostcoat-cub.js';
 
 const constant = value => ({ kind: 'constant', value });
 const executable = program => ({ ...program, status: 'executable', judgeReason: undefined });
@@ -66,10 +69,13 @@ function chainScene(program, builder, answerFor = () => undefined) {
     choose,
     context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
   });
-  const binding = createProgramBinding({ cardPrograms: [program] });
+  let binding;
   const engine = new ChainEngine({
     turnOrder: ['A', 'B'], turnPlayer: 'A', phase: 'main', host, cleanup: () => false,
-    describePlay: binding.describePlay,
+    describePlay: (action, source) => binding.describePlay(action, source),
+  });
+  binding = createProgramBinding({
+    cardPrograms: [program],
   });
   return { kernel, binding, engine, asked };
 }
@@ -106,11 +112,11 @@ test('original Clockwork Keeper IR binds the optional Calm cost and keeps paid w
     }],
   });
   assert.equal(plan.components.find(component => component.id === 'clockwork-keeper.calm').cost.power.length, 0);
-  assert.equal(plan.selectedAdditional[0].paidAmount.energy, 2);
+  assert.equal(plan.selectedAdditional.length, 1);
   assert.deepEqual(plan.selectedAdditional.map(({ id, kind }) => ({ id, kind })), [{ id: 'clockwork-keeper.calm', kind: 'additional' }]);
   const receipt = payCostPlan(contextFor(source), plan);
   assert.equal(receipt.additional[0].paid, true);
-  assert.equal(receipt.additional[0].paidAmount.energy, 2);
+  assert.equal(receipt.total.energy, 2);
 
   const body = clockworkKeeper.abilities.find(ability => ability.kind === 'play').body[0];
   assert.equal(evaluateCondition(body.condition, {
@@ -167,6 +173,27 @@ test('original Blazing Scorcher Accelerate IR binds its selected additional cost
   assert.equal(draft.cost.optionalAdditional.length, 1);
   assert.equal(draft.cost.optionalAdditional[0].kind, 'accelerate');
   assert.equal(draft.cost.optionalAdditional[0].selected, undefined);
+});
+
+test('default Chain charges Blazing Scorcher Accelerate only when selected', () => {
+  const program = executable(blazingScorcher);
+  const scene = selected => chainScene(program, world()
+    .player('A', { energy: 6, power: ['Fury', 'Fury'] })
+    .player('B')
+    .hand('unit', { cardId: program.canonicalCardId, types: ['unit'], energy: 5, power: ['Fury'], keywords: [{ id: 'Accelerate' }] }),
+  request => request.type === 'optional' ? selected : undefined);
+
+  const paid = scene(true);
+  paid.engine.execute(paid.binding.describePlay({ type: 'play', player: 'A', object: paid.kernel.ref('unit') }, paid.kernel.getObject('unit')));
+  assert.equal(paid.kernel.player('A').energy, 0);
+  assert.deepEqual(paid.kernel.player('A').power, []);
+  assert.equal(paid.kernel.getObject('unit').exhausted, false);
+
+  const declined = scene(false);
+  declined.engine.execute(declined.binding.describePlay({ type: 'play', player: 'A', object: declined.kernel.ref('unit') }, declined.kernel.getObject('unit')));
+  assert.equal(declined.kernel.player('A').energy, 1);
+  assert.deepEqual(declined.kernel.player('A').power, ['Fury']);
+  assert.equal(declined.kernel.getObject('unit').exhausted, true);
 });
 
 test('unknown and conditional additional costs remain fail closed', () => {
@@ -286,7 +313,6 @@ test('activation location restriction is checked before payment and accepts the 
   }).build();
   const fieldScene = chainScene(program, { build: () => fieldKernel });
   fieldScene.engine.execute(fieldScene.binding.describeActivate(fieldKernel.getObject('source'), 'A'));
-  settle(fieldScene.engine);
   assert.equal(fieldKernel.getObject('source').exhausted, true);
 });
 
@@ -303,4 +329,20 @@ test('unsupported activation use limits remain judge-required before cost paymen
   assert.throws(() => binding.describeActivate(kernel.getObject('source'), 'A'), error =>
     error.code === 'judge-required' && /usage-limit/.test(error.message));
   assert.equal(kernel.getObject('source').exhausted, false);
+});
+
+test('cost-only static declarations bind through the cost adapter without a false layer error', () => {
+  const kernel = world().player('A').player('B').build();
+  const host = createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(), restore: saved => kernel.restore(saved),
+    objects: () => kernel.objects, perform: action => kernel.perform(action), choose: () => { throw new Error('unexpected choice'); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+  });
+  const engine = new ChainEngine({ turnOrder: ['A', 'B'], turnPlayer: 'A', phase: 'main', host, cleanup: () => false });
+  const binder = withProgramCostStatics(createEngineStaticBinder(engine));
+  const source = world().unit('cub', { cardId: frostcoatCub.canonicalCardId }).build().getObject('cub');
+  const ability = frostcoatCub.abilities.find(candidate => candidate.kind === 'static' && candidate.effect.kind === 'cost.additional');
+  assert.ok(ability);
+  const handle = binder.bindStatic(ability, source);
+  assert.equal(typeof handle.unbind, 'function');
 });

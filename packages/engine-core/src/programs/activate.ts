@@ -24,16 +24,12 @@ function translateActivationRestriction(
     if (restriction.condition !== undefined || restriction.value !== undefined) {
       judgeRequired(`Activation restriction ${id} combines a location restriction with another rule`);
     }
-    return [{
-      kind: 'compare',
-      left: {
-        kind: 'count',
-        subject: 'objects',
-        filter: { objectId: source.ref.id, zone: 'board', location: 'battlefield' },
-      },
-      operator: 'gte',
-      right: { kind: 'constant', value: 1 },
-    }];
+    if (source.location?.type !== 'battlefield') return [{ kind: 'never' }];
+    // The production Chain evaluates these conditions with its canonical
+    // evaluator; it also retests them at Finalize. The source incarnation is
+    // fixed for the activation, so bind the location fact captured from that
+    // source rather than inventing a generic location predicate.
+    return [{ kind: 'always' }];
   }
   return translateRestriction(restriction, id);
 }

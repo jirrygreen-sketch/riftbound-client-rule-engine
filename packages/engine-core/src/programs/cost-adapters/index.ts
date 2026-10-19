@@ -22,6 +22,8 @@ export interface ProgramCostBinding {
   readonly additionalIds: readonly string[];
 }
 
+export { isProgramCostStatic, withProgramCostStatics } from './static-binder.js';
+
 const ADDITIONAL_KINDS = new Set(['additional', 'additional-cost', 'cost.additional']);
 const BASE_KINDS = new Set(['printed', 'cost.printed', 'activated', 'cost.activated', 'explicit']);
 const COMPONENT_METADATA = new Set(['id', 'optional', 'stage', 'keyword', 'appliesTo', 'when', 'fromZone']);
@@ -283,7 +285,9 @@ function keywordCost(
   }
   if (kind === 'repeat.cost') {
     if (cost === undefined || normalizedKind(cost.kind) === 'repeat') {
-      judgeRequired(`Repeat ${instance} has no printed cost; it cannot become free`);
+      // A bare Repeat keyword has no printed parameters in this projection.
+      // There is no optional cost to add; the base Play still proceeds once.
+      return undefined;
     }
     return { optional: { id: instance, kind: 'repeat', cost } };
   }
