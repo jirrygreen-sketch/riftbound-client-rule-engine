@@ -352,10 +352,6 @@ export class TestWorld implements ResolveContext {
           this.restore(checkpoint);
           return { outcome: { status: 'impossible', events: [] }, steps: [] };
         }
-        if (replacement.action.type !== 'kill') {
-          this.restore(checkpoint);
-          return { outcome: { status: 'impossible', events: [] }, steps: [] };
-        }
         rewritten.push(replacement.action);
         confirmed.push(copySnapshot(object));
       }

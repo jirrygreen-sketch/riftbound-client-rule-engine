@@ -16,8 +16,18 @@ import { createActionPipelineHost } from '../../dist/events/action-adapter.js';
 import { bindResolveContext } from '../../dist/events/action-adapter.js';
 import { AwaitChoice } from '../../dist/effects/contract.js';
 import { world } from '../../dist/effects/testing/index.js';
+// Official ordering evidence (checked 2026-10-19): CR v1.5 (2026-10-09)
+// https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// 303.2.a / 383.3.d / 383.3.d.1: simultaneous triggers are placed by turn
+// order from the current turn player; each controller chooses its own order.
+// Radiance patch notes (published 2026-10-09, effective 2026-10-16):
+// https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// Its Chronobreak ruling gives each player control of their own units' order;
+// the players place their groups in turn order. This is not one global FIFO or
+// LIFO order, and no card receives a hard-coded numeric priority.
 import frigidJewel from '../../../card-dsl/dist/cards/unl/frigid-jewel.js';
 import karthusEternal from '../../../card-dsl/dist/cards/ogn/karthus-eternal.js';
+import chronobreak from '../../../card-dsl/dist/cards/rad/chronobreak.js';
 
 test('EG-PIPELINE: one per-batch trigger is collected for an atomic multi-object draw, then a new batch is independent', () => {
   const f = fixture({ choose: request => request.type === 'mode' ? request.options[0] : undefined });
@@ -294,6 +304,46 @@ test('EG-PIPELINE: a multiplicity wave gives each independent trigger its own pr
   const orderRequests = requests.filter(request => request.type === 'mode');
   assert.equal(orderRequests.length, 1);
   assert.equal(new Set(orderRequests[0].options).size, 2);
+});
+
+test('EG-PIPELINE: simultaneous controllers are ordered by turn order and choose only their own groups', () => {
+  const f = fixture({ choose: request => {
+    if (request.type !== 'mode') return undefined;
+    // Deliberately reverse the insertion order. The controller decision, not
+    // registration/event array order, must determine each player's group.
+    return request.options.at(-1);
+  } });
+  const ownA = f.kernel.getObject('source');
+  f.kernel.addObject({
+    ...ownA, ref: { id: 'b-source', zoneEntryId: 1 }, cardId: 'card:b-source',
+    controller: 'B', owner: 'B', zone: 'board', location: { type: 'base', player: 'B' },
+  }, 'board');
+  for (const id of ['a-first', 'a-second']) {
+    f.engine.pipeline.registerTrigger({
+      id, source: ownA, controller: 'A',
+      spec: { at: 'turn-end', filter: {} }, body: [],
+    });
+  }
+  for (const id of ['b-first', 'b-second']) {
+    f.engine.pipeline.registerTrigger({
+      id, source: f.kernel.getObject('b-source'), controller: 'B',
+      spec: { at: 'turn-end', filter: {} }, body: [],
+    });
+  }
+
+  f.engine.pipeline.emitBatch([{ timingPoint: 'turn-end', player: 'A', batchId: 'official-order-wave' }]);
+  assert.deepEqual(f.engine.items.map(item => item.trigger.registration.id),
+    ['a-second', 'a-first', 'b-second', 'b-first']);
+  assert.deepEqual(f.engine.items.map(item => item.controller), ['A', 'A', 'B', 'B']);
+  assert.ok(f.engine.items.every(item => item.trigger.event.batchId === 'official-order-wave'));
+  assert.equal(new Set(f.engine.items.map(item => item.trigger.event.eventId)).size, 1);
+});
+
+test('EG-PIPELINE: official Chronobreak ruling anchors player-grouped turn order to its canonical card', () => {
+  assert.equal(chronobreak.canonicalCardId, 'card.hash-2875b065844462e761acfeb152cf2feea180924a496740b05903caac24a3d795');
+  assert.equal(chronobreak.rulesetVersion, 'core-1.5');
+  assert.equal(chronobreak.status, 'judge-required', 'ordering evidence alone does not make the unsupported card executable');
+  assert.match(chronobreak.sourceText, /You choose the order/);
 });
 
 test('EG-PIPELINE: conflicting explicit batch identities fail before publishing an event', () => {
