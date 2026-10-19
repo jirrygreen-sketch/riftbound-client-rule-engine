@@ -45,4 +45,3 @@ export function registerAbilityGrant(
   }, duration);
   return { unbind: () => { engine.layers.removeContinuous(id); } };
 }
-

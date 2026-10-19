@@ -274,4 +274,3 @@ test('RIFT-823 null printed values remain null through representative static IR'
   assert.equal(f.kernel.getObject('elder').energy, null);
   assert.equal(f.kernel.getObject('elder').power, null);
 });
-
