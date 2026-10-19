@@ -260,13 +260,6 @@ function paymentContinuationBinding(handle: unknown): PaymentContinuationBinding
     ? PAYMENT_CONTINUATION_BINDINGS.get(handle as PaymentContinuation) ?? null : null;
 }
 
-function paymentCheckpointRecord(checkpoint: unknown): Readonly<Record<string, unknown>> {
-  if (checkpoint === null || typeof checkpoint !== 'object' || Array.isArray(checkpoint)) {
-    throw new TypeError('Payment continuation checkpoint must be detached record data');
-  }
-  return checkpoint as Readonly<Record<string, unknown>>;
-}
-
 function paymentReactionAddReceipt(
   events: readonly import('../events/pipeline-types.js').PipelineEvent[],
   item: ChainItem,
@@ -1146,38 +1139,6 @@ export class ChainEngine {
     const receipt = paymentReactionAddReceipt(this.pipeline.events.slice(beforeEvents), finalized, outcome, item.id, draft);
     this.busy = 'finalize';
     return receipt;
-  }
-  private restorePaymentContinuationStructure(checkpoint: unknown): void {
-    const saved = paymentCheckpointRecord(checkpoint);
-    const chain = paymentCheckpointRecord(saved.chain);
-    const entries = chain.entries as ChainItem[];
-    if (!Array.isArray(entries)) throw new TypeError('Payment continuation Chain entries are invalid');
-    this.entries = structuredClone(entries);
-    this.issued = new Set(chain.issued as string[]);
-    this.traces = structuredClone(chain.traces as ChainTrace[]);
-    this.outstanding = [...chain.outstanding as string[]];
-    this.cleanupNeeded = chain.cleanupNeeded as boolean;
-    this.priorityHolder = chain.priorityHolder as PlayerId | null;
-    this.focusHolder = chain.focusHolder as PlayerId | null;
-    this.showdown = chain.showdown as boolean;
-    this.origin = chain.origin as ChainKind | null;
-    this.priorityPasses = chain.priorityPasses as number;
-    this.focusPasses = chain.focusPasses as number;
-    this.triggerSequence = chain.triggerSequence as number;
-    this.delayedSequence = chain.delayedSequence as number;
-    this.phase = chain.phase as string;
-    this.busy = 'finalize';
-    this.choiceMemory.restore(structuredClone(chain.choiceMemory) as ReturnType<ChoiceMemory['snapshot']>);
-    this.finalizeAnswers = new Map([...(chain.finalizeAnswers as Map<string, unknown>)].map(([key, value]) => [key, structuredClone(value)] as const));
-    const pipeline = paymentCheckpointRecord(saved.pipeline);
-    this.pipeline.restore(structuredClone(pipeline) as ReturnType<EventPipeline['checkpoint']>);
-    const layers = saved.layers;
-    if (!Array.isArray(layers)) throw new TypeError('Payment continuation layer registry is invalid');
-    this.layers.registry.clear();
-    for (const entry of layers as ReturnType<ChainEngine['layers']['registry']['snapshot']>) {
-      this.layers.registry.register(entry.effect, entry.duration, entry.timestamp);
-    }
-    this.layers.setObjects(this.options.host.objects());
   }
   advance(): void {
     if (this.busy !== 'idle') throw new Error('HOT FEPR is not reentrant');
