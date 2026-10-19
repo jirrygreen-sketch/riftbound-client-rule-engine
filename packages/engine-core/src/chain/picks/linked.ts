@@ -1,9 +1,9 @@
 import type { PickSpec } from '@riftbound/card-dsl';
-import type { ChoiceRequest, Instruction, InstructionDef, ObjectRef, ResolveContext } from '../../effects/contract.js';
+import type { ChoiceRequest, Instruction, InstructionDef, ObjectRef, ResolveContext, Value } from '../../effects/contract.js';
 import type { InstructionRegistry, InterpreterOptions } from '../../effects/interpreter.js';
 import { bindResolveContext } from '../../events/action-adapter.js';
 import { MissingInformation } from '../../effects/interpreter/values.js';
-import { PickSelectionError, linkedPickExpression, queryPickCandidates, receiptObjectValues, resolveNonTargetPick, validatePickPreselection, validateStandalonePreselection } from '../../target/picks/plan.js';
+import { PickSelectionError, linkedPickExpression, queryPickCandidates, receiptObjectValues, resolveNonTargetPick, validateDeferredPickPreselection, validatePickPreselection, validateStandalonePreselection, type PickCandidateSet } from '../../target/picks/plan.js';
 import { OrderedPickError, orderedPickSpecs, pickSpecs } from './plan.js';
 
 function isObjectRef(value: unknown): value is ObjectRef {
@@ -47,11 +47,21 @@ function choose<T>(context: ResolveContext, request: ChoiceRequest<T>): T {
 
 /** Bridge actual inspect/reveal/choice.order results to the primitive pick APIs. */
 export function orderedPickResolver(body: readonly Instruction[]): InterpreterOptions['picks'] {
+  const deferred = new Set<string>();
+  const collectDeferred = (instructions: readonly Instruction[]): void => {
+    for (const instruction of instructions) {
+      if (instruction.op === 'effect.play' && 'choice' in instruction.args) {
+        for (const spec of instruction.picks ?? []) deferred.add(spec.id);
+      }
+      const expression = instruction.args.body;
+      if (expression && (expression.kind === 'constant' || expression.kind === 'literal') && Array.isArray(expression.value)) {
+        collectDeferred(expression.value as unknown as readonly Instruction[]);
+      }
+    }
+  };
+  collectDeferred(body);
   const byId = new Map(pickSpecs(body)
     .filter(spec => spec.linked !== undefined || linkedPickExpression(spec) !== undefined || spec.filter !== undefined)
-    .map(spec => [spec.id, spec]));
-  const standalone = new Map(pickSpecs(body)
-    .filter(spec => spec.filter !== undefined)
     .map(spec => [spec.id, spec]));
   // One resolver is constructed per Resolve attempt. Cache one answer for all
   // instruction-local contexts in that settlement so a reused pick id remains
@@ -63,21 +73,20 @@ export function orderedPickResolver(body: readonly Instruction[]): InterpreterOp
     // returns undefined. Use that explicit reentry seam to read a host-supplied
     // answer without recursively invoking this resolver.
     if (active.has(id)) return undefined;
-    let spec = byId.get(id);
-    if (!spec) spec = standalone.get(id);
-    const source = spec?.linked ?? (spec === undefined ? undefined : linkedPickExpression(spec)) ??
-      (spec !== undefined && Array.isArray(spec.options) && spec.options.length === 1 &&
-        spec.options[0] !== null && typeof spec.options[0] === 'object' && !Array.isArray(spec.options[0]) &&
-        (spec.options[0] as Record<string, unknown>).kind === 'linked-value'
-        ? spec.options[0] as PickSpec['linked'] : undefined);
-    if (spec && spec.linked !== undefined && [source, spec.exclude]
-      .some(expression => expression && !hasResult(expression.instructionId))) {
+    const spec = byId.get(id);
+    if (!spec) return undefined;
+    const source = spec.linked ?? linkedPickExpression(spec);
+    const sourceAvailable = source !== undefined && hasResult(source.instructionId);
+    if (spec.linked !== undefined && source !== undefined && !sourceAvailable) {
       throw new MissingInformation(`Unavailable linked pick ${id}`);
     }
-    if (!spec) return undefined;
-    let candidates;
+    if (spec.exclude !== undefined && !hasResult(spec.exclude.instructionId)) {
+      throw new MissingInformation(`Unavailable linked exclusion ${id}`);
+    }
+    const noSource = source === undefined || !sourceAvailable;
+    let candidates: PickCandidateSet;
     try {
-            candidates = standalone.has(id) && spec.filter !== undefined
+      candidates = source !== undefined && !sourceAvailable
         ? Object.freeze({ offered: Object.freeze([]), invalid: Object.freeze([]), phase: 'resolve' as const })
         : queryPickCandidates(context, spec, { phase: 'resolve' });
     } catch (error) {
@@ -86,24 +95,11 @@ export function orderedPickResolver(body: readonly Instruction[]): InterpreterOp
       }
       throw error;
     }
-    if (source !== undefined && candidates.offered.length === 0) {
-      let receipt: Value | undefined;
-      try {
-        receipt = context.evaluate(source as never);
-      } catch (error) {
-        if (!(error instanceof MissingInformation)) throw error;
-      }
-      const stale = receiptObjectValues(receipt);
-      if (stale.length > 0) {
-        const values = stale.map(ref => ({ ...ref }));
-        cache.set(JSON.stringify({ id, source, stale }), Object.freeze(values));
-        return values.map(ref => ({ ...ref }));
-      }
-    }
     const cacheKey = JSON.stringify({
       id,
       controller: context.controller,
       source,
+      sourceAvailable,
       exclude: spec.exclude,
       filter: spec.filter,
       min: spec.min,
@@ -121,27 +117,27 @@ export function orderedPickResolver(body: readonly Instruction[]): InterpreterOp
     } finally {
       active.delete(id);
     }
-    if (standalone.has(id) && supplied.length > 0) {
-      const values = validateStandalonePreselection(context, spec, supplied as never)
-        .map(value => isObjectRef(value) ? { id: value.id, zoneEntryId: value.zoneEntryId } : String(value));
-      cache.set(cacheKey, Object.freeze(values.map(value => typeof value === 'string' ? value : Object.freeze({ ...value }))));
-      return values.map(value => typeof value === 'string' ? value : { ...value });
-    }
     let values: PickOutput[];
-    if (supplied.length > 0 && standalone.has(id)) {
-      const selected = validateStandalonePreselection(context, spec, supplied as never);
+    if (supplied.length > 0) {
+      const selected = deferred.has(id)
+        ? validateDeferredPickPreselection(context, spec, candidates, supplied as never)
+        : noSource
+          ? validateStandalonePreselection(context, spec, supplied as never)
+          : validatePickPreselection(context, spec, candidates, { selected: supplied as never });
       values = selected.map(value => isObjectRef(value) ? { id: value.id, zoneEntryId: value.zoneEntryId } : String(value));
-    } else if (supplied.length > 0) {
-      const selected = validatePickPreselection(context, spec, candidates, { selected: supplied as never });
-      values = selected.map(value => isObjectRef(value) ? { id: value.id, zoneEntryId: value.zoneEntryId } : String(value));
+    } else if (source !== undefined && !sourceAvailable) {
+      throw new MissingInformation(`Unavailable linked pick ${id}`);
+    } else if (source !== undefined && candidates.offered.length === 0) {
+      let receipt: Value | undefined;
+      try {
+        receipt = context.evaluate(source as never);
+      } catch (error) {
+        if (!(error instanceof MissingInformation)) throw error;
+      }
+      const stale = receiptObjectValues(receipt);
+      values = stale.length > 0 ? stale.map(ref => ({ ...ref })) : linkedValues(context, spec);
     } else {
-      const staleReceipt = [source, spec.exclude]
-        .filter((expression): expression is NonNullable<typeof expression> => expression !== undefined)
-        .flatMap(expression => receiptObjectValues(context.evaluate(expression as never)));
-      const stale = staleReceipt.filter(ref => !candidates.offered.some(value =>
-        isObjectRef(value) && value.id === ref.id && value.zoneEntryId === ref.zoneEntryId));
-      if (stale.length > 0 && candidates.offered.length === 0) values = stale.map(ref => ({ ...ref }));
-      else values = linkedValues(context, spec);
+      values = linkedValues(context, spec);
     }
     cache.set(cacheKey, Object.freeze(values.map(value => typeof value === 'string' ? value : Object.freeze({ ...value }))));
     return values.map(value => typeof value === 'string' ? value : { ...value });

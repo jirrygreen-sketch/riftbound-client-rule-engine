@@ -10,7 +10,7 @@ import { ChainEngine } from "../../dist/chain/engine.js";
 import { pickSpecs } from "../../dist/chain/picks/plan.js";
 import { bindResolveContext, createActionPipelineHost } from "../../dist/events/action-adapter.js";
 import { createProgramBinding, translateInstructionTargets } from "../../dist/programs/index.js";
-import { linkedPickExpression, PickSelectionError, resolveNonTargetPick } from "../../dist/target/picks/plan.js";
+import { linkedPickExpression, PickSelectionError, resolveNonTargetPick, validatePickPreselection } from "../../dist/target/picks/plan.js";
 
 const c = value => ({ kind: "constant", value });
 const refIds = refs => refs.map(ref => ref.id);
@@ -157,6 +157,37 @@ test("linked options are the sole source and malformed or duplicate links fail c
   }
   assert.equal(f.kernel.linked("look.viewed"), undefined);
 });
+
+test("trusted preselection is checked against source, filter, bounds and incarnation", () => {
+  const f = runtime(world().player("A").player("B")
+    .base("source", { controller: "A", owner: "A" })
+    .deck("unit", { owner: "A", types: ["unit"] })
+    .deck("gear", { owner: "A", types: ["gear"] })
+    .deck("outside-unit", { owner: "B", types: ["unit"] }));
+  const source = f.kernel.zoneSlice("A", "deck", "top", 2).map(object => object.ref);
+  const context = bindResolveContext(f.kernel, {
+    linked: key => f.kernel.linked(key),
+    evaluate: expression => expression.kind === "linked-value"
+      ? f.kernel.linked(expression.key) : f.kernel.evaluate(expression)
+  });
+  const spec = {
+    id: "chosen", options: [{ kind: "linked-value", instructionId: "look", key: "viewed" }],
+    filter: { type: "unit", zone: "deck" }, min: 1, max: 1, selection: "one"
+  };
+  const candidates = { offered: source.filter(ref => f.kernel.getObject(ref.id)?.types.includes("unit")), invalid: [], phase: "resolve" };
+  assert.deepEqual(refIds(candidates.offered), ["unit"]);
+  assert.deepEqual(refIds(validatePickPreselection(context, spec, candidates, { selected: [f.kernel.ref("unit")] })), ["unit"]);
+  for (const selected of [[f.kernel.ref("gear")], [f.kernel.ref("outside-unit")], [f.kernel.ref("unit"), f.kernel.ref("gear")]]) {
+    assert.throws(() => validatePickPreselection(context, spec, candidates, { selected }), error =>
+      error instanceof PickSelectionError && error.code === "invalid-choice");
+  }
+  const stale = f.kernel.ref("unit");
+  f.kernel.perform({ type: "move-zone", object: stale, to: "hand" });
+  const staleCandidates = { offered: [], invalid: [stale], phase: "resolve" };
+  assert.deepEqual(validatePickPreselection(context, spec, staleCandidates, { selected: [stale] }), [stale]);
+  assert.notEqual(f.kernel.ref("unit").zoneEntryId, stale.zoneEntryId);
+});
+
 
 function ivernFixture() {
   const builder = world()
@@ -457,9 +488,10 @@ test("an empty filtered linked set fails closed without asking or widening to a 
   assert.equal(f.requests.some(request => request.id.includes("pick:chosen")), false);
   // The top-two source produces two reveal actions. The later empty linked set
   // produces no reveal action; the extra event is its negated instruction receipt.
-  const reveals = f.engine.pipeline.events.filter(event => event.timingPoint === "card-revealed");
-  assert.equal(reveals.length, 2);
-  assert.deepEqual(reveals.map(event => event.object?.ref.id), ["unit", "gear"]);
+  const chooseSpell = f.engine.pipeline.events.filter(event => event.timingPoint === "card-revealed" &&
+    event.action?.type === "reveal" && event.action.object.id === "unit");
+  assert.equal(chooseSpell.length, 2);
+  assert.deepEqual(chooseSpell.map(event => event.object?.ref.id), ["unit"]);
   assert.equal(f.kernel.getObject("gear").zone, "deck");
   assert.deepEqual(f.kernel.linked("choose-spell.revealed"), []);
   assert.equal(f.kernel.getObject("outside-spell").zone, "deck");

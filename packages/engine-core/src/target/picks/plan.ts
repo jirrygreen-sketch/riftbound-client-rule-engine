@@ -373,10 +373,45 @@ export function validateStandalonePreselection(
   }
   const min = spec.min ?? (spec.selection === "one" ? 1 : 0);
   const max = spec.max === null || spec.max === undefined ? Number.MAX_SAFE_INTEGER : spec.max;
+  if (result.length === 0 && min === 0) return result;
   if (result.length < min || result.length > max) {
     throw new PickSelectionError("invalid-choice", `${spec.id} preselection is outside its required count`);
   }
   return result;
+}
+
+/**
+ * Validate candidates for a primitive that owns the subsequent choice. This
+ * preserves an offered collection while still enforcing its explicit linked
+ * receipt, current object filter and live incarnation.
+ */
+export function validateDeferredPickPreselection(
+  context: ResolveContext,
+  spec: PickSpec,
+  candidates: PickCandidateSet,
+  selected: readonly PickValue[]
+): PickValue[] {
+  const source = spec.linked ?? linkedPickExpression(spec);
+  const sourceValuesList = source === undefined ? undefined : requestedValues(context, spec);
+  const sourceKeys = sourceValuesList === undefined ? undefined : new Set(sourceValuesList.map(valueKey));
+  const filterKeys = spec.filter === undefined ? undefined : new Set(context.query(spec.filter as ObjectFilter).map(object => refKey(object.ref)));
+  const seen = new Set<string>();
+  return selected.map(value => {
+    const key = valueKey(value);
+    if (seen.has(key)) throw new PickSelectionError("invalid-choice", `${spec.id} deferred candidates contain a duplicate value`);
+    seen.add(key);
+    if (sourceKeys !== undefined && !sourceKeys.has(key)) {
+      throw new PickSelectionError("invalid-choice", `${spec.id} deferred candidate was not in its linked receipt`);
+    }
+    if (isObjectRef(value)) {
+      if (filterKeys !== undefined && !filterKeys.has(refKey(value))) {
+        throw new PickSelectionError("invalid-choice", `${spec.id} deferred candidate failed its current filter`);
+      }
+    } else if (spec.filter !== undefined) {
+      throw new PickSelectionError("invalid-choice", `${spec.id} object filter cannot accept a scalar candidate`);
+    }
+    return copyValue(value);
+  });
 }
 
 function chooseObjects(
