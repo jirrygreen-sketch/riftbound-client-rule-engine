@@ -139,7 +139,7 @@ export function pickSpecs(body: readonly Instruction[]): PickSpec[] {
 
 /** The explicit ordered subset retained for the Finalize source lifecycle. */
 export function orderedPickSpecs(body: readonly Instruction[]): PickSpec[] {
-  return pickSpecs(body).filter(spec => spec.ordered === true || isLinkedOptionsCompatibility(spec)).map(spec => {
+  return pickSpecs(body).filter(spec => spec.ordered === true).map(spec => {
     checkSource(spec);
     return spec;
   });

@@ -129,6 +129,7 @@ function installPrevent(
   ctx: ResolveContext,
   dependencies: ReplacementDependencies,
   pattern: Readonly<Record<string, unknown>>,
+  patternObjectRef: ObjectRef | undefined,
   prevented: number | "all",
   lifetime: ReplacementDuration,
   optional: boolean
@@ -161,6 +162,9 @@ function installPrevent(
       if (!active()) return false;
       if (action.type !== "damage") return false;
       if (lifetime === "this-turn" && typeof remaining === "number" && remaining <= 0) return false;
+      const expected = patternObjectRef;
+      if (expected !== undefined &&
+          (action.target.id !== expected.id || action.target.zoneEntryId !== expected.zoneEntryId)) return false;
       const target = { object: action.target };
       return actionMatchesEventPattern({
         pattern,
@@ -168,6 +172,7 @@ function installPrevent(
         target,
         hostRef: source.ref,
         controller: source.controller,
+        hostSnapshot: source,
         snapshotFor
       });
     },
@@ -203,6 +208,7 @@ const replacementPrevent = {
     const optional = bool(evaluated(ctx, args.optional));
     const appliesTo = evaluated(ctx, args.appliesTo);
     const target = evaluated(ctx, args.target);
+    let patternObjectRef: ObjectRef | undefined;
     validateFilter(appliesTo, "appliesTo");
     let pattern: Readonly<Record<string, unknown>> = event;
     if (appliesTo !== undefined) pattern = { ...pattern, filter: appliesTo as unknown as Readonly<Record<string, unknown>> };
@@ -212,13 +218,14 @@ const replacementPrevent = {
       } else if (isRecord(target) && typeof target.target === "string") {
         const refs = ctx.targets(target.target);
         if (refs.length !== 1) throw new BlockedReplacementError("replacement.prevent target requires one finalized target");
+        patternObjectRef = { id: refs[0]!.id, zoneEntryId: refs[0]!.zoneEntryId };
         pattern = { ...pattern, filter: { ...(isRecord(pattern.filter) ? pattern.filter : {}), objectId: refs[0]!.id } };
       } else {
         throw new BlockedReplacementError("replacement.prevent target binding is unsupported");
       }
     }
     const dependencies = replacementDependencies(ctx);
-    const bound = installPrevent(ctx, dependencies, pattern, prevented, lifetime, optional);
+    const bound = installPrevent(ctx, dependencies, pattern, patternObjectRef, prevented, lifetime, optional);
     return {
       status: "executed",
       events: [],

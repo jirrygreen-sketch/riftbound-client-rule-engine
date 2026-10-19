@@ -1,15 +1,20 @@
-import type {
-  ActionOutcome, GameEvent, LocationRef, ObjectRef, ObjectSnapshot,
-  RecallAction, ResolveContext
+import {
+  CONTRACT_ACTION_CAPABILITY_VERSION,
+  type ActionOutcome,
+  type GameEvent,
+  type LocationRef,
+  type ObjectRef,
+  type ObjectSnapshot,
+  type RecallAction,
+  type ResolveContext,
 } from "../effects/contract.js";
 import { sameLocation } from "../target/location/ref.js";
 
 /**
  * Recall is the relocation of a Permanent to its Base without being a Move
- * (CR v1.5 457). The additive contract now has RecallAction, but the default
- * production adapters have not yet installed its capability. This helper
- * submits the independent action when the host exposes that capability and
- * otherwise fails closed with a blocked receipt:
+ * (CR v1.5 457). The additive contract now has RecallAction. This helper
+ * submits the independent action when the host exposes the versioned
+ * capability and otherwise fails closed with a blocked receipt:
  *
  * - 458.1: a Recall must not trigger abilities keyed to Move actions. The
  *   reference kernel records move-location history and the action adapter
@@ -22,10 +27,10 @@ import { sameLocation } from "../target/location/ref.js";
  *   evaluated through the Location module's Move permissions (allowsMove /
  *   movement restrictions / 451.2 two-controller occupancy). Only the printed
  *   object shape and the Base-of-its-controller destination are enforced.
- * - 458.2 / 460: the relocation changes position while preserving object
- *   identity (the same zone entry) and its damage and statuses. Those
- *   obligations belong to the RecallAction consumer and are not simulated by
- *   this primitive when that consumer is unavailable.
+ * - 458.2 / 460: a successful result must keep the exact zone-entry identity,
+ *   all non-location characteristics, the original controller, and the Base
+ *   of that controller. It must also carry one committed recall receipt and
+ *   an independent recall observation. A bare `done` result is rejected.
  * - 459: Gear is a Permanent and can be recalled exactly like a Unit.
  * - The Cleanup recall-action obligation (CR 323.6) stays with turn flow.
  *
@@ -66,6 +71,104 @@ function refOf(ref: ObjectRef): ObjectRef {
   return { id: ref.id, zoneEntryId: ref.zoneEntryId };
 }
 
+function sameRef(left: ObjectRef, right: ObjectRef): boolean {
+  return left.id === right.id && left.zoneEntryId === right.zoneEntryId;
+}
+
+/**
+ * CR 457-460 preserves the underlying Permanent. Layer output such as Might,
+ * keywords, movement permissions and `printed` is recomputed after Recall and
+ * may legitimately differ when the object leaves a location-bound aura.
+ * Keep every stored game-state field, including all statuses and resources,
+ * but compare those persistent fields separately from derived characteristics.
+ */
+function persistentState(object: ObjectSnapshot): Readonly<Record<string, unknown>> {
+  return {
+    ref: object.ref,
+    owner: object.owner,
+    controller: object.controller,
+    zone: object.zone,
+    combatRole: object.combatRole,
+    exhausted: object.exhausted,
+    damage: object.damage,
+    stunned: object.stunned,
+    buffs: object.buffs,
+    empowered: object.empowered,
+    empoweredCount: object.empoweredCount,
+    attachedTo: object.attachedTo,
+    faceDown: object.faceDown,
+    facedownLocation: object.facedownLocation,
+    isToken: object.isToken,
+  };
+}
+
+function samePersistentState(before: ObjectSnapshot, after: ObjectSnapshot): boolean {
+  return JSON.stringify(persistentState(before)) === JSON.stringify(persistentState(after));
+}
+
+function committedRecall(
+  action: RecallAction,
+  before: ObjectSnapshot,
+  after: ObjectSnapshot | null,
+  outcome: ActionOutcome,
+): boolean {
+  const receipt = outcome.receipt;
+  if (outcome.status !== "done" || receipt?.status !== "committed" ||
+      receipt.actions.length !== 1 || receipt.actions[0]?.type !== "recall" ||
+      receipt.actions[0]?.status !== "done" || after === null ||
+      !sameRef(after.ref, action.object) || after.zone !== "board" ||
+      after.controller !== action.player || after.location === null ||
+      !sameLocation(after.location, recallDestination(after)) ||
+      !samePersistentState(before, after)) {
+    return false;
+  }
+  return outcome.events.some(event => {
+    const observed = event as GameEvent & {
+      readonly action?: unknown;
+      readonly details?: { readonly recall?: unknown; readonly from?: unknown; readonly to?: unknown };
+    };
+    return observed.action === "recall" && observed.details?.recall === true &&
+      sameLocation(observed.details.from as LocationRef | null | undefined, before.location) &&
+      sameLocation(observed.details.to as LocationRef | null | undefined, after.location);
+  });
+}
+
+class InvalidRecallCommit extends Error {
+  constructor() {
+    super("RecallAction consumer returned an invalid committed result");
+    this.name = "InvalidRecallCommit";
+  }
+}
+
+class RecallAtomicityError extends Error {
+  constructor() {
+    super("RecallAction consumer changed persistent state without committing a valid Recall");
+    this.name = "RecallAtomicityError";
+  }
+}
+
+function stateUnchanged(ctx: ResolveContext, before: ObjectSnapshot, ref: ObjectRef): boolean {
+  const after = ctx.object(ref);
+  return after !== null && sameRef(after.ref, before.ref) &&
+    sameLocation(after.location, before.location) && samePersistentState(before, after);
+}
+
+function recallStateUnchanged(
+  ctx: ResolveContext,
+  before: ObjectSnapshot,
+  ref: ObjectRef,
+  historyCount: number,
+): boolean {
+  return stateUnchanged(ctx, before, ref) && ctx.history({}) === historyCount;
+}
+
+function blockedAtomicRecall(ref: ObjectRef, from: LocationRef | null): RecallOutcome {
+  return {
+    status: "impossible", events: [], count: 0, object: refOf(ref), from, to: null,
+    blockedReason: "RecallAction consumer changed persistent state without committing a valid Recall",
+  };
+}
+
 /**
  * Perform one Recall (CR v1.5 457-460): relocate a Board Permanent to its
  * current controller's Base without Move restrictions and without claiming a
@@ -92,20 +195,46 @@ export function performRecall(ctx: ResolveContext, ref: ObjectRef, options: Reca
   // The versioned contract capability is additive. Use it when the host has
   // installed the owner task's bridge; do not probe the legacy perform()
   // method with an action outside its closed GameAction type.
-  const capability = (ctx as ResolveContext & {
-    readonly contractActions?: { readonly perform: (action: RecallAction) => ActionOutcome };
-  }).contractActions;
-  if (capability === undefined) {
+  const capability = ctx.contractActions;
+  if (capability === undefined || capability.version !== CONTRACT_ACTION_CAPABILITY_VERSION) {
     return {
       status: "impossible", events: [], count: 0, object: refOf(ref), from, to: null,
       blockedReason: "RecallAction consumer unavailable (RIFT-849/810/835/837)"
     };
   }
+  const historyCount = ctx.history({});
   let outcome: ActionOutcome;
   try {
-    outcome = capability.perform(recall);
+    const execute = () => {
+      const candidate = capability.perform(recall);
+      const after = ctx.object(refOf(ref));
+      if (candidate.status === "done") {
+        if (!committedRecall(recall, before!, after, candidate)) {
+          if (!recallStateUnchanged(ctx, before!, refOf(ref), historyCount)) throw new RecallAtomicityError();
+          throw new InvalidRecallCommit();
+        }
+      } else if (!recallStateUnchanged(ctx, before!, refOf(ref), historyCount)) {
+        throw new RecallAtomicityError();
+      }
+      return candidate;
+    };
+    outcome = ctx.transaction === undefined ? execute() : ctx.transaction(execute);
   } catch (error) {
+    if (error instanceof InvalidRecallCommit) {
+      if (!recallStateUnchanged(ctx, before!, refOf(ref), historyCount)) throw new RecallAtomicityError();
+      return {
+        status: "impossible", events: [], count: 0, object: refOf(ref), from, to: null,
+        blockedReason: "RecallAction consumer did not commit a preserved Recall with an independent observation",
+      };
+    }
+    if (error instanceof RecallAtomicityError) {
+      if (ctx.transaction !== undefined && recallStateUnchanged(ctx, before!, refOf(ref), historyCount)) {
+        return blockedAtomicRecall(ref, from);
+      }
+      throw error;
+    }
     if (error instanceof TypeError || error instanceof Error && /Unknown action type: recall/.test(error.message)) {
+      if (!recallStateUnchanged(ctx, before!, refOf(ref), historyCount)) throw new RecallAtomicityError();
       return {
         status: "impossible", events: [], count: 0, object: refOf(ref), from, to: null,
         blockedReason: "RecallAction consumer unavailable (RIFT-849/810/835/837)"
@@ -113,16 +242,19 @@ export function performRecall(ctx: ResolveContext, ref: ObjectRef, options: Reca
     }
     throw error;
   }
+  if (outcome.status !== "done" &&
+      !recallStateUnchanged(ctx, before!, refOf(ref), historyCount)) {
+    throw new RecallAtomicityError();
+  }
   const after = outcome.status === "done" ? ctx.object(refOf(ref)) : null;
-  const moved = after !== null && after.zone === "board" && after.location !== null &&
-    !sameLocation(from, after.location);
+  const moved = committedRecall(recall, before!, after, outcome);
   return {
     status: outcome.status,
     events: [...outcome.events],
     count: moved ? 1 : 0,
     object: refOf(ref),
     from,
-    to: moved ? after.location : null,
+    to: moved && after !== null ? after.location : null,
     ...(outcome.receipt === undefined ? {} : { receipt: outcome.receipt })
   };
 }
