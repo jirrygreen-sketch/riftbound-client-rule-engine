@@ -85,17 +85,11 @@ test('region board includes both Bases and Battlefields through the production b
 test('unconsumed generic layers fail closed while dedicated adapters retain their routes', () => {
   const f = fixture();
   const binder = createEngineStaticBinder(f.engine);
-  for (const kind of [
-    'continuous.grant-abilities',
-  ]) {
-    for (const layer of [undefined, 'ability', 'arithmetic']) {
-      assert.throws(() => binder.bindStatic({ kind: 'static', effect: { kind, layer } }, f.kernel.getObject('source')),
-        error => error instanceof ProgramBindingError && error.code === 'judge-required' && /has no layer mapping/.test(error.message), kind);
-      assert.equal(f.engine.layers.registry.list().length, 0);
-    }
-  }
-  for (const kind of ['continuous.bonus-damage', 'continuous.lethal-threshold', 'continuous.modify-might-reduction']) {
-    assert.throws(() => layerFor({ kind }), error => error.code === 'judge-required' && /has no layer mapping/.test(error.message));
+  for (const kind of ['continuous.grant-abilities', 'continuous.facedown-capacity',
+    'continuous.play-permission', 'continuous.target-restriction']) {
+    assert.throws(() => binder.bindStatic({ kind: 'static', effect: { kind } }, f.kernel.getObject('source')),
+      error => error instanceof ProgramBindingError && error.code === 'judge-required' && /has no layer mapping/.test(error.message), kind);
+    assert.equal(f.engine.layers.registry.list().length, 0);
   }
 });
 
@@ -380,15 +374,45 @@ test('staticFilter keeps symbolic anchors for per-query re-evaluation', () => {
   assert.equal(staticFilter({ filter: { sameLocationAs: 'self' } }, away).location, undefined, 'non-board sources bind no concrete location');
 });
 
-test('layerFor covers supported continuous effect kinds with contract 3.4 layers', () => {
+test('layerFor covers every known continuous effect kind with contract 3.4 layers', () => {
   const cases = [
     ['continuous.copy', 'copy'],
     ['continuous.set-type', 'trait'],
     ['continuous.add-tag', 'trait'],
+    ['continuous.remove-type', 'trait'],
+    ['continuous.facedown-capacity', 'trait'],
+    ['continuous.bonus-damage', 'arithmetic'],
+    ['continuous.lethal-threshold', 'arithmetic'],
+    ['continuous.modify-might-reduction', 'arithmetic'],
+    ['continuous.grant-abilities', 'ability'],
+    ['continuous.grant-ability', 'ability'],
     ['continuous.grant-keyword', 'ability'],
+    ['continuous.ignore-abilities', 'ability'],
+    ['continuous.ignore-ability', 'ability'],
+    ['continuous.ignore-target-tax', 'ability'],
+    ['continuous.location', 'ability'],
     ['continuous.restrict', 'ability'],
+    ['continuous.require', 'ability'],
+    ['continuous.applied-cost', 'ability'],
+    ['continuous.play-permission', 'ability'],
+    ['continuous.target-restriction', 'ability'],
+    ['continuous.trigger-multiplicity', 'ability'],
+    ['continuous.trigger-suppression', 'ability'],
+    ['continuous.cost-modification', 'ability'],
     ['continuous.combat', 'ability'],
+    ['condition.predicate', 'ability'],
+    ['condition.value', 'ability'],
     ['continuous.might', 'arithmetic'],
+    ['target.tax', 'ability'],
+    ['play-location-permission', 'ability'],
+    ['accelerate.cost', 'ability'],
+    ['repeat.cost', 'ability'],
+    ['cost.additional', 'ability'],
+    ['cost.hidden', 'ability'],
+    ['cost.modify', 'ability'],
+    ['cost.activated', 'ability'],
+    ['cost.exhaust', 'ability'],
+    ['cost.printed', 'ability'],
     ['might', 'arithmetic'],
     ['buff', 'arithmetic'],
     ['grant-keyword', 'ability'],
@@ -397,7 +421,7 @@ test('layerFor covers supported continuous effect kinds with contract 3.4 layers
     assert.equal(layerFor({ kind }), layer, 'layerFor(' + kind + ')');
   }
   assert.throws(() => layerFor({ kind: 'continuous.might', layer: 'trait' }), error => error.code === 'judge-required');
-  for (const kind of ['condition.predicate', 'play-location-permission', 'cost.reveal', 'totally-unknown-kind', 'continuous.bonus-damage', 'continuous.lethal-threshold', 'continuous.grant-ability', 'continuous.grant-abilities', 'continuous.cost-modification', 'continuous.modify-might-reduction', 'cost.additional', 'cost.hidden', 'cost.modify', 'target.tax']) {
+  for (const kind of ['cost.reveal', 'totally-unknown-kind']) {
     assert.throws(
       () => layerFor({ kind }),
       error => error.code === 'judge-required' && /has no layer mapping/.test(error.message),
@@ -406,7 +430,7 @@ test('layerFor covers supported continuous effect kinds with contract 3.4 layers
   }
 });
 
-test('layerFor explicitly blocks unconsumed continuous kinds emitted by merged card programs', () => {
+test('all merged card-program continuous kinds have contract mappings while unconsumed production paths stay closed', () => {
   const kinds = new Set();
   for (const program of cardProgramsById.values()) {
     for (const ability of program.abilities ?? []) {
@@ -416,18 +440,18 @@ test('layerFor explicitly blocks unconsumed continuous kinds emitted by merged c
     }
   }
   assert.ok(kinds.size > 0, 'merged programs expose continuous kinds');
-  const supported = new Set(['continuous.might', 'continuous.grant-keyword', 'continuous.keyword', 'continuous.movement', 'continuous.restrict', 'continuous.combat']);
-  const blocked = new Set([
-    'continuous.bonus-damage', 'continuous.cost-modification',
-    'continuous.facedown-capacity', 'continuous.grant-abilities', 'continuous.grant-ability',
-    'continuous.ignore-abilities', 'continuous.ignore-ability', 'continuous.ignore-target-tax',
-    'continuous.lethal-threshold', 'continuous.modify-might-reduction', 'continuous.play-permission',
-    'continuous.target-restriction', 'continuous.trigger-multiplicity', 'continuous.trigger-suppression',
-  ]);
+  const production = new Set(['continuous.might', 'continuous.grant-keyword', 'continuous.keyword',
+    'continuous.movement', 'continuous.restrict', 'continuous.combat']);
   for (const kind of kinds) {
-    assert.ok(supported.has(kind) || blocked.has(kind), `classify new kind ${kind} before enabling it`);
-    if (supported.has(kind)) assert.doesNotThrow(() => layerFor({ kind }));
-    else assert.throws(() => layerFor({ kind }), error => error.code === 'judge-required' && /has no layer mapping/.test(error.message));
+    assert.doesNotThrow(() => layerFor({ kind }), kind);
+    if (!production.has(kind) && [
+      'continuous.grant-abilities', 'continuous.ignore-abilities', 'continuous.facedown-capacity',
+      'continuous.play-permission', 'continuous.target-restriction',
+    ].includes(kind)) {
+      const f = fixture();
+      assert.throws(() => createEngineStaticBinder(f.engine).bindStatic({ kind: 'static', effect: { kind } }, f.kernel.getObject('source')),
+        error => error.code === 'judge-required' && /has no layer mapping|Unsupported static/.test(error.message), kind);
+    }
   }
 });
 

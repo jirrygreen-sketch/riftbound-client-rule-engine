@@ -70,9 +70,10 @@ const LIFECYCLE_BRIDGED_PIPELINES = new WeakSet<object>();
  * exactly once from the enclosing batch.
  */
 function bridgeLifecycleOnEvent(engine: ChainEngine): void {
-  const pipeline = engine.pipeline as typeof engine.pipeline & {
+  const pipeline = engine.pipeline as (typeof engine.pipeline & {
     onEvent?: (event: { readonly timingPoint?: string }) => void;
-  };
+  }) | undefined;
+  if (pipeline === undefined || pipeline === null) return;
   if (LIFECYCLE_BRIDGED_PIPELINES.has(pipeline) || typeof pipeline.emit !== 'function' ||
       typeof pipeline.emitBatch !== 'function') return;
   LIFECYCLE_BRIDGED_PIPELINES.add(pipeline);
@@ -105,6 +106,7 @@ const LAYER_BY_KIND: Readonly<Record<string, LayerName>> = Object.freeze({
   'continuous.set-type': 'trait',
   'continuous.set-types': 'trait',
   'continuous.add-type': 'trait',
+  'continuous.remove-type': 'trait',
   'continuous.add-tag': 'trait',
   'continuous.remove-tag': 'trait',
   'continuous.facedown-capacity': 'trait',
@@ -138,6 +140,8 @@ const LAYER_BY_KIND: Readonly<Record<string, LayerName>> = Object.freeze({
   'continuous.trigger-suppression': 'ability',
   'continuous.cost-modification': 'ability',
   'continuous.combat': 'ability',
+  'condition.predicate': 'ability',
+  'condition.value': 'ability',
   'requirement': 'ability',
   'restriction': 'ability',
   'applied-cost': 'ability',
@@ -148,8 +152,12 @@ const LAYER_BY_KIND: Readonly<Record<string, LayerName>> = Object.freeze({
   'cost.additional': 'ability',
   'cost.hidden': 'ability',
   'cost.modify': 'ability',
+  'cost.activated': 'ability',
+  'cost.exhaust': 'ability',
+  'cost.printed': 'ability',
 });
 
+/** Map every known ContinuousEffect family to its contract 3.4 layer. */
 export function layerFor(effect: AnyRecord): LayerName {
   const declared = effect.layer;
   const kind = String(effect.kind ?? '').toLowerCase();
@@ -507,12 +515,12 @@ function registerCost(engine: ChainEngine, ability: StaticAbility, source: Objec
 function bindStatic(engine: ChainEngine, ability: StaticAbility, source: ObjectSnapshot, ordinal: number): StaticBindingHandle {
   const kind = String(record(ability.effect).kind ?? '').toLowerCase();
   const id = `program-static:${source.ref.id}:${source.ref.zoneEntryId}:${ordinal}`;
-  // These authored families have a contract layer but no production consumer.
-  // Keep them fail-closed even though layerFor can classify the declaration.
+  // These contract families have no production consumer yet. Keep their old
+  // fail-closed behavior even though layerFor can classify the declaration.
   if (kind === 'continuous.grant-abilities' || kind === 'continuous.ignore-abilities' ||
       kind === 'continuous.facedown-capacity' || kind === 'continuous.play-permission' ||
       kind === 'continuous.target-restriction') {
-    throw new ProgramBindingError('judge-required', `Static ability kind ${kind} has no layer consumer`);
+    throw new ProgramBindingError('judge-required', `Static ability kind ${kind} has no layer mapping`);
   }
   if (kind === 'continuous.grant-ability' || kind === 'continuous.ignore-ability') {
     return registerAbilityGrantRoute(engine, ability, source, id);
