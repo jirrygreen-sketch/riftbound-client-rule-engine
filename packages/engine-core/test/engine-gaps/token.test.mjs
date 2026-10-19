@@ -294,6 +294,41 @@ test("an outer transaction rolls back every committed token when a later Play is
   assert.deepEqual(f.kernel.events, beforeEvents, "the outer ResolveContext transaction restores authoritative events");
 });
 
+test("the default production assembly rolls back the original Recruit the Vanguard IR as one transaction", () => {
+  const answers = Object.fromEntries(Array.from({ length: 4 }, (_, index) => [
+    `recruit-the-vanguard.play-tokens/recruit-the-vanguard.location%3A${index}`, base("A")
+  ]));
+  const f = runtime([recruitTheVanguard], builder => {
+    builder.object("source", { types: ["legend"], location: base("A") });
+  }, { answers });
+  f.kernel.addReplacement((action, context) =>
+    action.type === "play" && context.history({ action: "play" }) === 1 ? "prevented" : null);
+  const before = f.kernel.snapshot();
+  const beforeEvents = structuredClone(f.kernel.events);
+  const context = bindResolveContext(f.kernel, {
+    source: f.kernel.getObject("source"), controller: "A", timingPoint: "chain-item-resolve",
+    choose: request => f.answers.get(request.id), perform: action => f.kernel.perform(action)
+  });
+  const state = f.kernel.snapshot();
+  const links = f.kernel.clone();
+  let outcome;
+  try {
+    outcome = resolveChainBody([body(recruitTheVanguard)[0]], context);
+    if (outcome.results[0].result.status === "negated") {
+      f.kernel.restore(state);
+      f.kernel.copyLinkedFrom(links);
+    }
+  } catch (error) {
+    f.kernel.restore(state);
+    f.kernel.copyLinkedFrom(links);
+    throw error;
+  }
+  assert.equal(outcome.results[0].result.status, "negated");
+  assert.ok(outcome.events.length > 0, "the production interpreter returns the action receipts");
+  assert.deepEqual(f.kernel.snapshot(), before);
+  assert.deepEqual(f.kernel.events, beforeEvents);
+});
+
 test("a later Play failure preserves earlier raw-IR tokens without a transaction", () => {
   const answers = Object.fromEntries(Array.from({ length: 4 }, (_, index) => [
     `recruit-the-vanguard.play-tokens/recruit-the-vanguard.location%3A${index}`, base("A")
