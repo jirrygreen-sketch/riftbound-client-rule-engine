@@ -67,7 +67,7 @@ function runtime(builder, programs = [], chooseOverride) {
   return { kernel, engine, binding, lifecycle, errors, asked, enter, settle };
 }
 
-test('original Deathknell IR queues Pending before Trash, preserves source LKI, and resolves once', () => {
+test('original Deathknell IR queues a Pending item, preserves source LKI, and resolves once', () => {
   const sourceProgram = admitted(undercoverAgent);
   const f = runtime(world().player('A', { energy: 10, power: ['Order'] }).player('B')
     .hand('agent', { cardId: sourceProgram.canonicalCardId, types: ['unit'] })
