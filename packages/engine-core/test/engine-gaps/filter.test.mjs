@@ -199,7 +199,7 @@ test('EG-FILTER original Yone IR clears the first default program-binding block 
 });
 
 test('EG-FILTER Yone consumer accepts only uncontrolled pre-control and rejects missing/controlled/stale facts', () => {
-  const object = world().unit('yone', { might: 4 }).build().getObject('yone');
+  const object = world().unit('yone', { might: 4, location: field('bf1') }).build().getObject('yone');
   const base = {
     type: 'task-resolved', seq: 1, eventId: 1, turnNumber: 1, activePlayerId: 'A',
     taskId: 'conquer:yone', sourceCardId: 'card:yone', reason: 'conquer', autoResolved: true,
@@ -213,11 +213,16 @@ test('EG-FILTER Yone consumer accepts only uncontrolled pre-control and rejects 
   assert.equal(matchesTriggerEvent(filter, { ...valid, details: { battlefieldId: 'bf1', objectId: 'yone', playerId: 'A' } }, 'A'), false);
   assert.equal(matchesTriggerEvent(filter, { ...valid, details: { ...valid.details, battlefieldId: undefined } }, 'A'), false);
   assert.equal(matchesTriggerEvent(filter, { ...valid, object: { ...object, ref: { ...object.ref, zoneEntryId: 2 } }, source: object, it: object }, 'A'), false);
+  assert.equal(matchesTriggerEvent(filter, { ...valid, object: { ...object, types: ['gear'] }, source: { ...object, types: ['gear'] }, it: { ...object, types: ['gear'] } }, 'A'), false);
+  assert.equal(matchesTriggerEvent(filter, { ...valid, player: undefined, details: { ...valid.details, playerId: undefined } }, 'A'), false);
+  assert.equal(matchesTriggerEvent(filter, { ...valid, details: { ...valid.details, playerId: 'B' } }, 'A'), false);
+  assert.equal(matchesTriggerEvent(filter, { ...valid, object: { ...object, location: { type: 'battlefield', id: 'bf2' } }, source: { ...object, location: { type: 'battlefield', id: 'bf2' } }, it: { ...object, location: { type: 'battlefield', id: 'bf2' } } }, 'A'), false);
+  assert.equal(matchesTriggerEvent(filter, { ...valid, source: { ...object, controller: 'B' } }, 'A'), false);
 });
 
 test('EG-FILTER registered Yone trigger consumes only an uncontrolled conquer emission', () => {
   const program = { ...yoneBlademaster, status: 'executable', judgeReason: undefined };
-  const kernel = world().player('A').player('B').unit('yone', { cardId: program.canonicalCardId, might: 4 })
+  const kernel = world().player('A').player('B').unit('yone', { cardId: program.canonicalCardId, might: 4, location: field('bf1') })
     .unit('enemy', { owner: 'B', controller: 'B', location: { type: 'base', player: 'B' } }).build();
   const binding = createProgramBinding({ cardPrograms: [program] });
   const host = createActionPipelineHost({
@@ -245,6 +250,39 @@ test('EG-FILTER registered Yone trigger consumes only an uncontrolled conquer em
   assert.equal(engine.pipeline.events.length, eventsBefore + 1, 'the real conquer fact remains logged');
   assert.equal(engine.pipeline.events.at(-1).details.battlefieldControllerBefore, 'B');
   assert.equal(engine.items.length, triggerCount);
+});
+
+test('EG-FILTER default Chain scan rejects wrong-field and wrong-actors without consuming or leaving Pending', () => {
+  const program = { ...yoneBlademaster, status: 'executable', judgeReason: undefined };
+  const kernel = world().player('A').player('B').unit('yone', { cardId: program.canonicalCardId, might: 4, location: field('bf1') }).build();
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => true,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+  });
+  const engine = new ChainEngine({ turnOrder: ['A', 'B'], turnPlayer: 'A', phase: 'main', host, cleanup: () => false });
+  binding.registerProgramTriggers(engine, kernel.getObject('yone'));
+  const object = kernel.getObject('yone');
+  const checkpoint = engine.pipeline.checkpoint();
+  for (const event of [
+    { object: { ...object, location: field('bf2') }, source: { ...object, location: field('bf2') }, it: { ...object, location: field('bf2') }, player: 'A',
+      details: { battlefieldId: 'bf1', objectId: 'yone', playerId: 'A', battlefieldControllerBefore: null } },
+    { object: { ...object, types: ['gear'] }, source: { ...object, types: ['gear'] }, it: { ...object, types: ['gear'] }, player: 'A',
+      details: { battlefieldId: 'bf1', objectId: 'yone', playerId: 'A', battlefieldControllerBefore: null } },
+    { object, source: { ...object, controller: 'B' }, it: object, player: 'A',
+      details: { battlefieldId: 'bf1', objectId: 'yone', playerId: 'A', battlefieldControllerBefore: null } },
+    { object, source: object, it: object, player: undefined,
+      details: { battlefieldId: 'bf1', objectId: 'yone', playerId: undefined, battlefieldControllerBefore: null } },
+  ]) {
+    engine.emit({ timingPoint: 'conquer', kind: 'conquer', ...event, batchId: `negative-${engine.pipeline.events.length}` });
+    assert.equal(engine.items.length, 0);
+    assert.equal([...engine.pipeline.checkpoint().consumed.entries()].length, checkpoint.consumed.size);
+  }
+  assert.equal(engine.pipeline.events.filter(event => event.timingPoint === 'conquer').length, 4);
 });
 
 test('EG-FILTER Yone consumer is independent per conquer source and rolls a failed matching wave back', () => {
@@ -288,7 +326,7 @@ test('EG-FILTER Yone consumer is independent per conquer source and rolls a fail
 });
 
 test('EG-FILTER battlefieldWas matches only a strict authoritative conquer event snapshot', () => {
-  const object = world().unit('yone').build().getObject('yone');
+  const object = world().unit('yone', { location: field('bf1') }).build().getObject('yone');
   const event = {
     type: 'task-resolved', seq: 1, eventId: 1, turnNumber: 1, activePlayerId: 'A',
     taskId: 'conquer:test', sourceCardId: 'card:yone', reason: 'conquer', autoResolved: true,

@@ -81,11 +81,23 @@ export function matchesTriggerEvent(filter: ObjectFilter | EventPattern, event: 
     if (event.timingPoint !== 'conquer' || details === null || details === undefined || !Object.hasOwn(details, 'battlefieldControllerBefore')) return false;
     const battlefieldId = details.battlefieldId;
     const objectId = details.objectId;
-    if (typeof battlefieldId !== 'string' || battlefieldId.length === 0 || typeof objectId !== 'string' || objectId.length === 0) return false;
-    if (event.object?.ref.id !== objectId || event.object.zone !== 'board') return false;
-    if (event.source !== undefined && (event.source.ref.id !== objectId || event.source.ref.zoneEntryId !== event.object.ref.zoneEntryId)) return false;
-    if (event.it !== undefined && (event.it.ref.id !== objectId || event.it.ref.zoneEntryId !== event.object.ref.zoneEntryId)) return false;
-    if (event.player !== details.playerId) return false;
+    const playerId = details.playerId;
+    if (typeof battlefieldId !== 'string' || battlefieldId.length === 0 ||
+        typeof objectId !== 'string' || objectId.length === 0 ||
+        typeof playerId !== 'string' || playerId.length === 0 ||
+        typeof event.player !== 'string' || event.player.length === 0) return false;
+    const object = event.object;
+    if (object === undefined || object.ref.id !== objectId || object.zone !== 'board' ||
+        !object.types.includes('unit') || object.location?.type !== 'battlefield' ||
+        object.location.id !== battlefieldId || object.controller !== playerId) return false;
+    if (event.source === undefined || event.it === undefined ||
+        event.source.ref.id !== objectId || event.source.ref.zoneEntryId !== object.ref.zoneEntryId ||
+        event.it.ref.id !== objectId || event.it.ref.zoneEntryId !== object.ref.zoneEntryId) return false;
+    for (const capture of [event.source, event.it]) {
+      if (capture.location?.type !== 'battlefield' || capture.location.id !== battlefieldId ||
+          !capture.types.includes('unit') || capture.controller !== playerId) return false;
+    }
+    if (event.player !== playerId) return false;
     const before = details.battlefieldControllerBefore;
     if (before !== null && (typeof before !== 'string' || before.length === 0)) return false;
     if (pattern.details.battlefieldControllerBefore !== before) return false;
