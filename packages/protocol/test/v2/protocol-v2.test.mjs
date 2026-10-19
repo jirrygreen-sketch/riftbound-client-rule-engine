@@ -28,7 +28,9 @@ test("v2 admits every engine command with idempotency and state version", () => 
     { ...base, type: "move", objectId: "a-unit-1", to: { zone: "battlefield", locationId: "field-1" } },
     { ...base, type: "declare-attack", battlefieldId: "field-1", attackerObjectIds: ["a-unit-1"] },
     { ...base, type: "declare-defense", battlefieldId: "field-1", defenderObjectIds: ["b-unit-1"] },
-    { ...base, type: "concede" }
+    { ...base, type: "concede" },
+    { ...base, type: "rune-energy", runeObjectId: "a-rune-1", zoneEntryId: 0 },
+    { ...base, type: "rune-power", runeObjectId: "b-rune-1", zoneEntryId: 1 }
   ];
   for (const command of commands) assert.equal(isV2Command(command), true, command.type);
   assert.equal(isV2CommandEnvelope({ contract: PROTOCOL_V2_COMMAND_CONTRACT, command: commands[1] }), true);

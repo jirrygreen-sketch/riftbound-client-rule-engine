@@ -55,6 +55,19 @@ function command(command: Omit<V2Command, "commandId" | "stateVersion">, command
   return { ...command, commandId, stateVersion } as V2Command;
 }
 
+function openingPlayable(
+  runtime: ReturnType<typeof createEngineRuntime>,
+  deck: EngineRuntimeDeck,
+): { readonly objectId: string; readonly cardId: string } {
+  const projected = runtime.projectFor("A").objects.find(object => {
+    if (object.zone !== "hand" || object.ownerPlayerId !== "A" || object.cardId === undefined) return false;
+    const card = deck.mainDeck.find(candidate => candidate.cardId === object.cardId);
+    return card?.types?.some(type => ["unit", "spell", "gear"].includes(type.toLowerCase())) === true;
+  });
+  if (!projected?.cardId) throw new Error("Opening hand requires a playable card for the program binding test");
+  return { objectId: projected.objectId, cardId: projected.cardId };
+}
+
 describe("engine runtime", () => {
   it("keeps ordinary Buffs separate from layered Empowered state and rolls back a failed mutation", () => {
     const host = new EngineRuntimeHost({ A: "A", B: "B" }, () => { throw new Error("unexpected choice"); });
@@ -101,31 +114,35 @@ describe("engine runtime", () => {
   it("projects authoritative Buff and layered Empowered counters without conflating them", () => {
     const decks = [m1Deck("rumble-sfd"), m1Deck("fiora-sfd")] as const;
     const probe = createEngineRuntime({ matchId: "counter-projection-probe", decks, seed: "counters" }).start();
-    const source = probe.projectFor("A").objects.find(object => object.zone === "hand" && object.ownerPlayerId === "A" && object.cardId);
-    expect(source?.cardId).toBeTruthy();
+    const source = openingPlayable(probe, decks[0]);
     const program = {
-      canonicalCardId: source!.cardId,
+      canonicalCardId: source.cardId,
       rulesetVersion: "core-1.5",
       status: "executable",
       sourceText: "counter projection test",
-      abilities: [{
-        kind: "activated",
-        timing: "action",
-        cost: { kind: "explicit", energy: { kind: "constant", value: 0 } },
-        body: [
-          { id: "add-buff", op: "effect.buff", args: { mode: { kind: "constant", value: "buff" },
-            objects: { kind: "constant", value: { kind: "source" } },
-            amount: { kind: "constant", value: 2 } } },
-          { id: "empower", op: "effect.empower", args: { objects: { kind: "constant", value: { kind: "source" } } } },
-        ],
-      }],
+      abilities: [
+        { kind: "play", cost: { energy: { kind: "constant", value: 0 } }, body: [] },
+        {
+          kind: "activated",
+          timing: "action",
+          cost: { kind: "explicit", energy: { kind: "constant", value: 0 } },
+          body: [
+            { id: "add-buff", op: "effect.buff", args: { mode: { kind: "constant", value: "buff" },
+              objects: { kind: "constant", value: { kind: "source" } },
+              amount: { kind: "constant", value: 2 } } },
+            { id: "empower", op: "effect.empower", args: { objects: { kind: "constant", value: { kind: "source" } } } },
+          ],
+        },
+      ],
     } as const;
     const runtime = createEngineRuntime({ matchId: "counter-projection", decks, seed: "counters", programs: [program] }).start();
-    const objectId = source!.objectId;
-    const moved = runtime.submit("A", { type: "move", commandId: "move-counter-source", stateVersion: 0,
-      objectId, to: { zone: "base", playerId: "A" } });
+    const objectId = runtime.projectFor("A").objects.find(object => object.zone === "hand" && object.ownerPlayerId === "A" &&
+      object.cardId === source.cardId)!.objectId;
+    const played = runtime.submit("A", { type: "play", commandId: "play-counter-source",
+      stateVersion: 0, cardObjectId: objectId });
+    expect(played.receipt.status, JSON.stringify(played.receipt)).toBe("accepted");
     const activated = runtime.submit("A", { type: "activate", commandId: "activate-counters",
-      stateVersion: moved.receipt.stateVersion, sourceObjectId: objectId, abilityId: "0" });
+      stateVersion: played.receipt.stateVersion, sourceObjectId: objectId, abilityId: "0" });
     expect(activated.receipt.status).toBe("accepted");
     runtime.submit("A", { type: "pass", commandId: "pass-counter-a", stateVersion: activated.receipt.stateVersion });
     const resolved = runtime.submit("B", { type: "pass", commandId: "pass-counter-b",
@@ -218,26 +235,26 @@ describe("engine runtime", () => {
   it("journals a suspended choice and replays it before the answer", () => {
     const decks = [m1Deck("rumble-sfd"), m1Deck("fiora-sfd")] as const;
     const probe = createEngineRuntime({ matchId: "m4", decks, seed: "m4" }).start();
-    const source = probe.projectFor("A").objects.find(object => object.zone === "hand" && object.ownerPlayerId === "A" && object.cardId);
-    expect(source?.cardId).toBeTruthy();
+    const source = openingPlayable(probe, decks[0]);
     const program = {
-      canonicalCardId: source!.cardId,
+      canonicalCardId: source.cardId,
       rulesetVersion: "core-1.5",
       status: "executable",
       sourceText: "runtime choice test",
       abilities: [{
-        kind: "activated",
-        timing: "action",
-        cost: { kind: "explicit", energy: { kind: "constant", value: 0 } },
+        kind: "play",
+        cost: { energy: { kind: "constant", value: 0 } },
         body: [{ id: "choose", op: "choice.optional", args: { body: { kind: "constant", value: [] } } }],
       }],
     } as const;
     const runtime = createEngineRuntime({ matchId: "m4", decks, seed: "m4", programs: [program] }).start();
-    const objectId = source!.objectId;
-    runtime.submit("A", { type: "move", commandId: "move-choice-source", stateVersion: 0, objectId, to: { zone: "base", playerId: "A" } });
-    runtime.submit("A", { type: "activate", commandId: "activate-choice", stateVersion: 1, sourceObjectId: objectId, abilityId: "0" });
-    runtime.submit("A", { type: "pass", commandId: "pass-choice-a", stateVersion: 2 });
-    const pending = runtime.submit("B", { type: "pass", commandId: "pass-choice-b", stateVersion: 3 });
+    const objectId = runtime.projectFor("A").objects.find(object => object.zone === "hand" && object.ownerPlayerId === "A" &&
+      object.cardId === source.cardId)!.objectId;
+    const played = runtime.submit("A", { type: "play", commandId: "play-choice-source",
+      stateVersion: 0, cardObjectId: objectId });
+    expect(played.receipt.status, JSON.stringify(played.receipt)).toBe("accepted");
+    runtime.submit("A", { type: "pass", commandId: "pass-choice-a", stateVersion: played.receipt.stateVersion });
+    const pending = runtime.submit("B", { type: "pass", commandId: "pass-choice-b", stateVersion: played.receipt.stateVersion + 1 });
     expect(pending.receipt.status).toBe("pending");
     expect(pending.receipt.choice?.ownerPlayerId).toBe("A");
     expect(runtime.journal().entries.at(-1)?.pendingReason).toMatchObject({ kind: "optional" });
@@ -245,13 +262,13 @@ describe("engine runtime", () => {
       status: "pending",
       choiceId: pending.receipt.choice!.choiceId,
       ownerPlayerId: "A",
-      stateVersion: 3,
+      stateVersion: played.receipt.stateVersion + 1,
       kind: "optional",
     });
     const answered = runtime.submit("A", {
       type: "choose",
       commandId: "answer-choice",
-      stateVersion: 3,
+      stateVersion: played.receipt.stateVersion + 1,
       choiceId: pending.receipt.choice!.choiceId,
       answer: false,
     });

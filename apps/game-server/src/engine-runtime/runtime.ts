@@ -2,6 +2,7 @@ import type { CardProgram } from "../../../../packages/card-dsl/dist/ir/index.js
 import { createMatch, concede, type Match, type MatchDeck } from "../../../../packages/engine-core/dist/game/lifecycle.js";
 import { createActionPipelineHost } from "../../../../packages/engine-core/dist/events/action-adapter.js";
 import { createProgramBinding, type ProgramBinding } from "../../../../packages/engine-core/dist/programs/index.js";
+import { inspectStandardMove } from "../../../../packages/engine-core/dist/game/commands/movement.js";
 import type { ChoiceRequest, Domain, GameAction, ObjectRef, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
 import {
   executeBasicRuneResourcePlan,
@@ -312,15 +313,14 @@ class MatchRuntime implements EngineRuntime {
     if (command.type === "move") {
       const ref = this.resolveObjectRef(command.objectId, command.stateVersion);
       this.assertCanControl(playerId, ref);
-      let outcome;
-      if (command.to.zone === "deck" || command.to.zone === "rune-deck") {
-        outcome = this.host!.perform({ type: "move-zone", object: ref, to: command.to.zone === "deck" ? command.to.position === "top" ? "deck-top" : "deck-bottom" : "rune-deck" });
-      } else {
-        const destination = command.to as { readonly zone: string; readonly locationId?: string; readonly playerId?: string };
-        outcome = this.host!.perform({ type: "move-zone", object: ref, to: destination.zone as never, location: destination.locationId ? destination.zone === "battlefield" ? { type: "battlefield", id: destination.locationId } : destination.zone === "base" ? { type: "base", player: destination.playerId ?? playerId } : undefined : undefined });
-      }
-      if (outcome.status !== "done") throw new Error(`Move could not be applied: ${outcome.status}`);
-      return { accepted: true, objectId: command.objectId };
+      // Core owns Standard Move legality. Validation is complete today; the
+      // atomic Exhaust + Move transaction remains explicitly blocked there.
+      inspectStandardMove({ match, stateVersion: this.stateVersion }, playerId,
+        [command.objectId], command.to);
+      // Core has validated the full Standard Move formation. The transaction
+      // remains intentionally blocked until the core owner exposes its atomic
+      // Exhaust + Move operation.
+      throw new Error("Movement transaction is unavailable: standard-move-transaction");
     }
     if (command.type === "play") {
       if (!this.binding) throw new Error("No trusted card-program registry is bound");

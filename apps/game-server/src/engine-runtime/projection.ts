@@ -126,7 +126,8 @@ export function projectRuntime(
   }));
   const chain = match.flow.chain.items;
   const chainSnapshot: V2ChainSnapshot = {
-    status: chain.length ? "open" : "closed", phase: chain.length ? "resolve" : "open",
+    status: chain.length ? "open" : "closed",
+    phase: pendingChoice ? "await-commit" : chain.length ? "execute" : "open",
     priorityPlayerId: match.flow.chain.priority, focusPlayerId: match.flow.chain.focus,
     items: chain.map(item => ({ itemId: item.id, controllerPlayerId: item.controller, status: item.status === "finalized" ? "finalized" : "pending", kind: item.kind, sourceObjectId: item.source.ref.id, sourceVisibility: "public" as const })),
   };
@@ -161,7 +162,11 @@ export function projectRuntime(
     zones,
     objects,
     chain: chainSnapshot,
-    priority: { playerId: match.flow.chain.priority, focusPlayerId: match.flow.chain.focus, window: chain.length ? "choice" : "open" },
+    priority: {
+      playerId: match.flow.chain.priority,
+      focusPlayerId: match.flow.chain.focus,
+      window: pendingChoice ? "choice" : match.flow.chain.focus !== null ? "showdown" : chain.length ? "closed" : "open",
+    },
     scoring,
     pendingChoice: projectedChoice,
     winnerPlayerId: match.result().winner,
