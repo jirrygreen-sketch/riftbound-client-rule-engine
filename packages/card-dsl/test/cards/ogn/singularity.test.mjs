@@ -13,6 +13,10 @@ import { bindResolveContext, createActionPipelineHost } from "../../../../engine
 import { executeGameCommand } from "../../../../engine-core/dist/game/commands/index.js";
 import { createMatch } from "../../../../engine-core/dist/game/lifecycle.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import {
+  executeBasicRuneResourcePlan,
+  planBasicRuneResourceActivation
+} from "../../../../engine-core/dist/runes/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 
 const CANONICAL_CARD_ID = "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b";
@@ -98,15 +102,15 @@ test("Singularity production golden uses the original IR and its official printe
   ));
 });
 
-test("Singularity public Match: the shipped executable Program starts from its original IR without a target, cost, Chain or event mutation", () => {
+test("Singularity public Match: the shipped program, after real Basic Rune funding, starts from its original IR and lets Finalize pay", () => {
   const harness = publicMatch({ programs: [program] });
-  const beforeKernel = harness.kernel.snapshot();
   const beforeEvents = structuredClone(harness.match.events());
-  const beforeItems = structuredClone(harness.match.flow.chain.items);
   playThroughPublicCommand(harness);
-  assert.notDeepEqual(harness.kernel.snapshot(), beforeKernel);
+  assert.equal(harness.kernel.player("A").energy, 2);
+  assert.deepEqual(harness.kernel.player("A").power, []);
+  assert.equal(harness.match.flow.chain.items.length, 1);
+  assert.equal(harness.match.flow.chain.items[0].payment.paid, true);
   assert.notDeepEqual(harness.match.events(), beforeEvents);
-  assert.notDeepEqual(harness.match.flow.chain.items, beforeItems);
   assert.deepEqual(harness.asked.map(request => request.id), ["target:damaged-units"]);
   assert.equal(harness.stateVersion(), 1);
 });
@@ -679,8 +683,59 @@ function realM1Deck() {
   };
 }
 
+function fundFromBasicRunes(kernel, match, energy, power, player = "A") {
+  const before = kernel.player(player);
+  assert.deepEqual([before.energy, before.power], [0, []]);
+  const initialRuneCount = before.runePool.length;
+  const channeled = kernel.perform({ type: "channel-rune", player, amount: 8 });
+  assert.equal(channeled.status, "done");
+  const runes = kernel.objectsInZone(player, "rune-zone").map(ref => kernel.getObject(ref.id));
+  assert.equal(runes.length, initialRuneCount + 8, "opening-phase Runes plus eight explicitly channeled Runes");
+  assert.ok(runes.every(rune => rune.tags.includes("Basic")));
+  const catalogByCanonical = new Map(OFFICIAL_CATALOG.cards.map(card => [card.canonicalCardId, card]));
+  const resolveIdentity = cardId => {
+    const card = catalogByCanonical.get(cardId);
+    assert.ok(card && card.domains.length === 1);
+    return { cardId, canonicalCardId: cardId, domain: card.domains[0] };
+  };
+  const spend = (rune, type, activationId) => {
+    const plan = planBasicRuneResourceActivation({
+      chain: match.flow.chain,
+      state: { objects: () => kernel.objects, player: id => kernel.player(id) },
+      resolveIdentity,
+      request: {
+        actor: player,
+        activationId,
+        intent: { type, runeObjectId: rune.ref.id, zoneEntryId: rune.ref.zoneEntryId },
+        window: { kind: "priority" }
+      }
+    });
+    return executeBasicRuneResourcePlan(plan);
+  };
+  let powerAdded = 0;
+  for (const [index, domain] of power.entries()) {
+    const rune = kernel.objectsInZone(player, "rune-zone")
+      .map(ref => kernel.getObject(ref.id))
+      .find(candidate => catalogByCanonical.get(candidate.cardId).domains[0] === domain);
+    if (!rune) break;
+    assert.equal(spend(rune, "rune-power", `${player}-singularity-power-${index}`).powerAdded[0], domain);
+    powerAdded++;
+  }
+  const energyRunes = kernel.objectsInZone(player, "rune-zone")
+    .map(ref => kernel.getObject(ref.id))
+    .filter(rune => !rune.exhausted);
+  const energyAdded = Math.min(energy, energyRunes.length);
+  for (const [index, rune] of energyRunes.slice(0, energyAdded).entries()) {
+    assert.equal(spend(rune, "rune-energy", `${player}-singularity-energy-${index}`).energyAdded, 1);
+  }
+  assert.deepEqual(
+    [kernel.player(player).energy, kernel.player(player).power],
+    [energyAdded, power.slice(0, powerAdded)]
+  );
+}
+
 function publicMatch({
-  /** TEST SETUP ONLY: seed the trusted Main pool; Finalize still pays it. */
+  /** Target resources are produced from real Basic Rune rules actions. */
   energy = 8,
   power = ["Mind", "Mind"],
   targets = ["ally-unit", "enemy-unit"],
@@ -735,8 +790,7 @@ function publicMatch({
     .filter(object => object.cardId === CANONICAL_CARD_ID);
   assert.equal(sources.length, 1, "selection target is A-owned and hidden from B");
   const [source] = sources;
-  kernel.perform({ type: "gain-energy", player: "A", amount: energy });
-  kernel.perform({ type: "gain-power", player: "A", power });
+  fundFromBasicRunes(kernel, match, energy, power);
   let stateVersion = 0;
   const send = (actor, command, contextVersion = stateVersion) => {
     const result = executeGameCommand(
@@ -1025,11 +1079,14 @@ test("Singularity public Match: a real B-owned Retreat removes one locked target
     version += 1;
     return result;
   };
-  kernel.perform({ type: "gain-energy", player: "A", amount: 8 });
-  kernel.perform({ type: "gain-power", player: "A", power: ["Mind", "Mind"] });
-  kernel.perform({ type: "gain-energy", player: "B", amount: 1 });
+  fundFromBasicRunes(kernel, match, 8, ["Mind", "Mind"], "A");
   send("A", { type: "play", commandId: "response-singularity", cardObjectId: singularity.ref.id });
   send("A", { type: "pass", commandId: "response-play-pass-a" });
+  // B's opening-phase Runes are real, but B cannot spend them as a generic
+  // fixture while Singularity owns Priority. The current public resource
+  // command is payment-only for this state. Give B its one Energy for the
+  // focused Reaction step; Retreat's public Finalize still pays that Energy.
+  kernel.perform({ type: "gain-energy", player: "B", amount: 1 });
   send("B", {
     type: "play",
     commandId: "retreat-response",
