@@ -101,9 +101,11 @@ test("the Reflexive item resolves the originating result and applies its own tar
   assert.deepEqual(pendingItems(f.engine), ["trigger:1", "reflexive:trigger:1:forgotten-relic.burned-card:1"]);
   assert.deepEqual(resolvedItems(f.engine), pendingItems(f.engine));
   assert.deepEqual(
-    f.kernel.continuousEffects.map(entry => ({ kind: entry.effect.effect.kind, amount: entry.effect.effect.amount, duration: entry.duration })),
+    f.engine.layers.registry.snapshot().map(entry => ({ kind: entry.effect.effect.kind, amount: entry.effect.effect.amount, duration: entry.duration })),
     [{ kind: "continuous.might", amount: 3, duration: { type: "end-of-turn" } }],
   );
+  assert.equal(f.kernel.continuousEffects.length, 0, "production ChainEngine, not the reference kernel, owns the layer");
+  assert.equal(f.snapshot("friend").might, 5);
   assert.equal(f.engine.layers.registry.snapshot().length, 1);
   assert.equal(f.engine.items.length, 0);
   assert.equal(f.runtime.snapshots.length, 0);

@@ -90,11 +90,17 @@ function collectRefs(value: unknown, output: ObjectRef[], seen = new Set<string>
   for (const entry of Object.values(value)) collectRefs(entry, output, seen);
 }
 
-function currentIncarnation(ctx: ResolveContext, ref: ObjectRef): ObjectRef {
+function resultIncarnation(ctx: ResolveContext, ref: ObjectRef): ObjectRef {
   const exact = ctx.object(ref);
   if (exact !== null) return exact.ref;
+  // A result from a zone-changing instruction is the same card in its new
+  // incarnation. Only accept one unambiguous current object with the same
+  // printed identity; a reused id cannot inherit the originating result.
+  const prior = ctx.lastKnown(ref);
   const current = ctx.query({ objectId: ref.id });
-  return current[0]?.ref ?? ref;
+  return current.length === 1 && current[0]?.cardId === prior.cardId
+    ? current[0].ref
+    : ref;
 }
 
 function candidateSnapshot(ctx: ResolveContext, ref: ObjectRef): ObjectSnapshot {
@@ -250,7 +256,10 @@ const triggerReflexive: InstructionDef<ParsedReflexiveArgs> = {
 
     const candidateRefs: ObjectRef[] = [];
     collectRefs(objects, candidateRefs);
-    const candidates = candidateRefs.map(ref => currentIncarnation(ctx, ref));
+    // Resolve the prior instruction's zone-change result to its immediate
+    // successor without ever rebinding an unrelated object that reuses the id
+    // (CR 124, 359.3.f.3).
+    const candidates = candidateRefs.map(ref => resultIncarnation(ctx, ref));
     const matched = candidates.filter(ref => matchesCandidate(ctx, candidateSnapshot(ctx, ref), filter));
     if (objects !== undefined && matched.length === 0) {
       return { status: 'executed', events: [], linkedValues: { created: 0, reflexiveItemIds: [] } };
