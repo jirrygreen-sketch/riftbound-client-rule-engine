@@ -1,13 +1,23 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { GameServer, GameServerOptions } from "@riftbound/game-server-src";
 import {
   catalogFixture,
+  loadCreateGameServer,
   startCatalogServer,
   type FixtureCatalogCard,
   type PublicCardCatalog
 } from "./test-support/card-catalog-fixture.js";
 
 const servers: GameServer[] = [];
+let bootstrapMs = 0;
+
+beforeAll(async () => {
+  // Dynamic import transforms the real server and its workspace dependencies.
+  // This is one-time fixture/bootstrap work, not an HTTP or protocol operation.
+  const started = performance.now();
+  await loadCreateGameServer();
+  bootstrapMs = performance.now() - started;
+}, 60_000);
 
 afterEach(async () => {
   for (const server of servers.splice(0)) await server.stop();
@@ -46,6 +56,7 @@ function validateDeck(baseUrl: string, body: unknown): Promise<Response> {
 
 describe("real game-server card catalog HTTP integration", () => {
   it("serves a derived public catalog without implementation fields", async () => {
+    const operationStarted = performance.now();
     const baseUrl = await startServer({
       catalog: {
         ...catalogFixture,
@@ -93,6 +104,9 @@ describe("real game-server card catalog HTTP integration", () => {
     expect(rawBody.endsWith("\n")).toBe(true);
     expect(rawBody).not.toContain("internalNotes");
     expect(rawBody).not.toContain("privateNotes");
+    const operationMs = performance.now() - operationStarted;
+    console.info(`[RIFT-350 timing] catalog bootstrap=${bootstrapMs.toFixed(1)}ms operation=${operationMs.toFixed(1)}ms`);
+    expect(operationMs).toBeLessThan(10_000);
   });
 
   it("accepts a valid injected deck and returns authoritative counts", async () => {
