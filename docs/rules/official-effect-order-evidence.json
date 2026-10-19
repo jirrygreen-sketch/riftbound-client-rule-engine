@@ -1,0 +1,3518 @@
+{
+  "schemaVersion": "riftbound.official-effect-order-evidence.v1",
+  "taskId": "RIFT-858",
+  "auditDate": "2026-10-19",
+  "timezone": "UTC",
+  "branch": "task/RIFT-858-official-effect-order-audit",
+  "head": "f036b0e5026aba1668ae88be2d74a05abeb55670",
+  "rulesTarget": {
+    "version": "1.5",
+    "lastUpdated": "2026-10-09",
+    "effectiveAt": "2026-10-16",
+    "source": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf"
+  },
+  "sourceSnapshot": {
+    "path": "/root/swarm-rift/shared/rules/official-order/source-snapshots.json",
+    "sha256": "0883794853dbbee21282ce7e417699016d97c1fa3c385b57295a5832c2e8321e",
+    "officialUrlsChecked": true
+  },
+  "m1Inputs": {
+    "manifest": "docs/plans/m1-decks.json",
+    "manifestSha256": "17227200ed8b5db2f09cd5e7e05949b72c7c13bdab50ac1e954739c76b14ff04",
+    "manifestDeclaredCatalogDigest": "sha256:53b974c8472d82053bf61f6836842c8f0d62c2fafb4411fa502256912a504d10",
+    "deckCatalog": "packages/card-data/data/deck-catalog.json",
+    "deckCatalogSha256": "06d99a589fed6046bff8072847946d5304a8ca43ef1e4e2c680c4a7a0f1df766",
+    "deckCatalogDeclaredDigest": "sha256:53b974c8472d82053bf61f6836842c8f0d62c2fafb4411fa502256912a504d10",
+    "dataVersion": "2026-10-12-official-gallery",
+    "effectCoverage": "packages/card-data/data/effect-coverage.json",
+    "effectCoverageSha256": "66b75125ab38cdd4523bc5e4b80570e8161d74648f120c363485ef60ce9c4eae",
+    "effectCoverageIsDatedSnapshot": true
+  },
+  "statusCounts": {
+    "verified": 8,
+    "pending": 4,
+    "blocked": 3
+  },
+  "commandLog": [
+    {
+      "command": "git status --short --branch",
+      "exitCode": 0,
+      "result": "clean worktree at audit start"
+    },
+    {
+      "command": "pnpm --filter @riftbound/engine-core build",
+      "exitCode": 0,
+      "result": "passed"
+    },
+    {
+      "command": "node --test focused engine rule files",
+      "exitCode": 0,
+      "result": "all selected engine tests passed; explicit TODO tests remained TODO"
+    },
+    {
+      "command": "pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/duel/authoritative-spell-p4.test.ts",
+      "exitCode": 0,
+      "result": "1 passed"
+    },
+    {
+      "command": "pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/duel/public-chain-card-p4.test.ts",
+      "exitCode": 0,
+      "result": "4 passed"
+    },
+    {
+      "command": "pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/duel/pending-spell-resource-ack-p4.test.ts",
+      "exitCode": 0,
+      "result": "5 passed, 1 skipped"
+    },
+    {
+      "command": "pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/duel/gear-normal-production-chain.test.ts",
+      "exitCode": 0,
+      "result": "3 passed"
+    },
+    {
+      "command": "pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/duel/optional-unit-room-p4.test.ts",
+      "exitCode": 1,
+      "result": "1 failed due archive.duelRuntimeProfile undefined; 1 skipped"
+    },
+    {
+      "command": "node --test Rumble/Strike Down/Wages of Pain/Riposte focused files",
+      "exitCode": 1,
+      "result": "31 passed, 7 failed, 2 todo"
+    },
+    {
+      "command": "curl -L -sS -o /dev/null -w \"%{http_code}\" official URLs",
+      "exitCode": 0,
+      "result": "HTTP 200 for Core Rules PDF, Rules Hub, Radiance, SFD errata and SFD patch notes"
+    }
+  ],
+  "conclusions": {
+    "generalRuleEvidence": "Official rule procedure is sufficiently identified for the requested interactions.",
+    "m1Implementation": "Not complete. Several M1 card paths remain judge-required or fail current assertions.",
+    "engineComplete": false,
+    "m1Complete": false,
+    "phaseTwoAuthorized": false
+  },
+  "evidence": [
+    {
+      "id": "E-001-source-authority-and-version",
+      "status": "verified",
+      "category": "source-applicability",
+      "canonicalCardId": "general",
+      "canonicalCardIds": [
+        "general"
+      ],
+      "officialSources": [
+        {
+          "id": "cr15",
+          "sourceType": "official-core-rules",
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules",
+          "publishedAt": "2026-10-09",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "1.5",
+          "cachedText": "/root/swarm-rift/shared/rules/CR-v1.5.txt",
+          "cachedSha256": "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2",
+          "officialLocator": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf"
+        },
+        {
+          "id": "rules-hub",
+          "sourceType": "official-rules-index",
+          "url": "https://playriftbound.com/en-us/rules-hub/",
+          "title": "Rules Hub",
+          "publishedAt": "2026-07-17T00:30:00.000Z",
+          "effectiveAt": "not-applicable",
+          "ruleVersion": "current index; Core Rules last updated 2026-10-09",
+          "cachedSha256": "ee9edae6913fa16cf7de822049b3f6a42f4b0688e7362f112d09dae710d7e78b",
+          "officialLocator": "https://playriftbound.com/en-us/rules-hub/"
+        },
+        {
+          "id": "radiance-rulings",
+          "sourceType": "official-rulings-and-patch-notes",
+          "url": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+          "title": "Core Rules: Radiance Patch Notes (Effective October 16, 2026)",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "Core Rules 1.5",
+          "cachedSha256": "dfba4f3ecf6956c32c19327330eaca96d317bedbf2c211c80a8fe1f1dccb569f",
+          "officialLocator": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+        },
+        {
+          "id": "spiritforged-errata",
+          "sourceType": "official-card-errata",
+          "url": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/",
+          "title": "Riftbound Spiritforged Errata",
+          "publishedAt": "2026-01-14T02:00:00.000Z",
+          "effectiveAt": "not-stated-in-cached-article",
+          "ruleVersion": "card errata reviewed against Core Rules 1.5",
+          "cachedSha256": "dca55c2d013473ffca82fb649a70d16d4b4356c22f74bd5a71b3aa3a9a4c94af",
+          "officialLocator": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/"
+        },
+        {
+          "id": "spiritforged-patch-notes",
+          "sourceType": "official-patch-notes",
+          "url": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-core-rules-spiritforged-patch-notes/",
+          "title": "Riftbound Core Rules: Spiritforged Patch Notes",
+          "publishedAt": "2025-12-05T02:00:00.000Z",
+          "effectiveAt": "2025-12-12",
+          "ruleVersion": "Spiritforged-era patch notes; differing rule points superseded by Core Rules 1.5",
+          "cachedSha256": "c085e3a1b89df98df6c4458d195b276430eb49e601533d80a247786598bb3111",
+          "officialLocator": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-core-rules-spiritforged-patch-notes/"
+        }
+      ],
+      "ruleCitations": [
+        {
+          "rule": "CR002",
+          "location": "/root/swarm-rift/shared/rules/CR-v1.5.txt:5",
+          "shortQuote": "Card text supersedes rules text when it fundamentally contradicts the rules."
+        },
+        {
+          "rule": "CR051",
+          "location": "/root/swarm-rift/shared/rules/CR-v1.5.txt:8",
+          "shortQuote": "Card text is interpreted according to the rules."
+        },
+        {
+          "rule": "CR054.1",
+          "location": "/root/swarm-rift/shared/rules/CR-v1.5.txt:19",
+          "shortQuote": "Forbidding cards supersede permitting cards for the same action or effect."
+        },
+        {
+          "rule": "Radiance ruling precedence paragraph",
+          "location": "radiance-rulings.html, paragraph after Unique Radiance Interactions introduction",
+          "shortQuote": "A newer Core Rules version takes precedence over differing points in the rulings article."
+        }
+      ],
+      "conclusion": "Core Rules 1.5 is the current procedure and terminology authority. Card text is authoritative for card-specific outcomes when it fundamentally contradicts a rule under CR002; CR051 governs interpretation, and CR054.1 is a conditional action/effect comparison. Official rulings are dated evidence and yield to a later Core Rules version only where the points differ. No source is a universal numeric priority.",
+      "timeline": [
+        {
+          "step": 1,
+          "state": "Select the applicable rules date and version.",
+          "detail": "Audit date 2026-10-19; Core Rules 1.5 updated 2026-10-09 and effective 2026-10-16."
+        },
+        {
+          "step": 2,
+          "state": "Resolve card wording first.",
+          "detail": "Use current official errata for the canonical card, then apply CR051 interpretation."
+        },
+        {
+          "step": 3,
+          "state": "Compare sources only on the disputed proposition.",
+          "detail": "Apply CR002 for fundamental card contradiction and CR054.1 only to the same prohibited/permitted action or effect."
+        },
+        {
+          "step": 4,
+          "state": "Record unmatched propositions as judge-required.",
+          "detail": "Community FAQ and video material are discovery leads, not rulings."
+        }
+      ],
+      "playerWindows": [
+        "No player window is created by source selection itself."
+      ],
+      "codeEntries": [],
+      "assertions": [
+        {
+          "path": "/root/swarm-rift/shared/rules/official-order/source-snapshots.json",
+          "line": 1,
+          "testName": "official source snapshot set",
+          "command": "sha256sum /root/swarm-rift/shared/rules/official-order/*.html",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "Four cached HTML hashes exactly match the registered snapshot hashes."
+        },
+        {
+          "path": "/root/swarm-rift/shared/rules/CR-v1.5.txt",
+          "line": 1,
+          "testName": "Core Rules version header",
+          "command": "curl -L -sS -o /dev/null -w \"%{http_code}\" https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "HTTP 200; cached header states Last Updated: 2026-10-09."
+        }
+      ],
+      "sourceConflictAndSupersession": [
+        "The Radiance article explicitly states that a newer Core Rules document takes precedence over differing points in that rulings article.",
+        "Spiritforged patch-note points remain useful only where not changed by Core Rules 1.5.",
+        "SFD errata changes card text; it does not create a blanket card-text-over-CR priority."
+      ],
+      "missingEvidence": [],
+      "owner": {
+        "primaryOwner": "RIFT-858",
+        "dependencies": [],
+        "reason": "Evidence-only audit owns source classification; engine enforcement remains with implementation owners.",
+        "requestedInterface": "No code interface requested from this audit."
+      }
+    },
+    {
+      "id": "E-002-m1-canonical-scope",
+      "status": "verified",
+      "category": "m1-mapping",
+      "canonicalCardId": "general",
+      "canonicalCardIds": [
+        "card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c",
+        "card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3",
+        "card.hash-0ba141b975db96cac65aab56bfd7dbb63904c538cc3d9c32bdfb3b2d98e486de",
+        "card.hash-0c36f22df8ffa7bed49f59fd138d24b9b0a52a7b8ad4c720afcaa12ec816eee4",
+        "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b",
+        "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+        "card.hash-1504d8f14af5ce1b9f7a3663c23e6ef7cb57d59a6274dc921cd9296ee8e2494b",
+        "card.hash-153eb4df721b70662a63652ba1602985ceed08d81a0b23fc0d6b10349ee15ca9",
+        "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+        "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
+        "card.hash-2ebf1fe6e5ed7bb875f1c112b3e0ed1635b557c0c0ad550d752b8dd376243007",
+        "card.hash-30497c69657abd1d3abf17f9b3766e7d064817473a88828ca2ef4ab9b51f7902",
+        "card.hash-34880fcae16bd9461e4c318dfb455365ff9e353db357f948b4a15dea7e01b389",
+        "card.hash-3c1c01b405853556e3e1c12bbd758e94d73f5ed474a5643bb068eaa7cb549c6e",
+        "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
+        "card.hash-44e95dd0a87b7dfcd7565b73a33e204f85c97ac82e004a6127ff7ed649fb41ad",
+        "card.hash-569dc9079a6d404c0d850d27b510585b856ab3def5e1e0bbafa30a3bf9d48e82",
+        "card.hash-5a86b358540e9ab2512400c77f3291739c2aa6ccb7b537449298a640b02b0e82",
+        "card.hash-5b08b5b8648e8c5c057d15279d1b4e677457eb0b43fcf2810e2ec4f4c4d1b7cf",
+        "card.hash-600e0796e82099284b213e87b112b1c5df42777ef72b70a3b4cd49a84d27dd10",
+        "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+        "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
+        "card.hash-77763eae5320de558954776a37677e8638b6d4af73399e5a7c4f5d5321a2b564",
+        "card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7",
+        "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f",
+        "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6",
+        "card.hash-8d49727ab9ae782b8a21802c9ae0b51e5d712a37a072d991629bfbf3645535b3",
+        "card.hash-902c6a1366a1a0e653ccb65102ff621b109af3b0b40f5bbeb7d8d3a5aeae2322",
+        "card.hash-959c19d68f06f8f929625bfde93a1132701da5a5d0b49e91583db341384f0bfe",
+        "card.hash-9daf60cdf4c82e4fba1f685af1c9b0d748003f7e9ad9c68f02f429bdd0cf85e5",
+        "card.hash-a1ee07f71d453092ab7d54f9491684e972b735b22bb1f3fda73f2641bcedbfe1",
+        "card.hash-a2227b03e9e13c8e2ddae7a973c746cc4243ff631dfaf462dc9823e687bbbf17",
+        "card.hash-a8a4cb783649a0339782e2d3808d6144661c621634da7c9f79b4f87981fac97b",
+        "card.hash-afc40c373a9fb4e48492323d7af26d3a58b824c385707dd3c269e97fee236103",
+        "card.hash-c225141f743b61c67ddf269932c6bbdef739f37888f62163906faa7fa1e6dc2b",
+        "card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef",
+        "card.hash-cab923a670e4baa826aa3de381c8b992bf33987fcb0d65feb75ca538a8681010",
+        "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab",
+        "card.hash-ccfc067dad8a1bf92c6ae1aa5f7110e9d211a1842a9254bb9320705c2f96c6c4",
+        "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40",
+        "card.hash-cf0b322a78010676e3d8b287830194a3bdc8970e65a141578ae8a3074ebd956f",
+        "card.hash-d3579e6825470471f5ce05c53533806a5244c5e84364fe57b2aab0b7cc0f14e0",
+        "card.hash-d490b51d08bdd7f97b1708aabfa6309995106f10de815b6fd927368e4a630569",
+        "card.hash-d4e849d845765608b07bf4af4aa19877f6303dfff539b541d0d070320dd05d91",
+        "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+        "card.hash-e0efe08be77e60ed68f2e43ba425b763efd364eb44b0c760d26ef1fcc1b6df67",
+        "card.hash-e2638655ff5ed3a1e60a501be3c23d74e46ef7f1900bed31b436f1a579b316ed",
+        "card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9",
+        "card.hash-f67321dac096b3ad1e49b55231663e26f3f9d96efafe79d75719a6eb72fc5caa",
+        "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+        "card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7"
+      ],
+      "officialSources": [
+        {
+          "id": "rules-hub",
+          "sourceType": "official-rules-index",
+          "url": "https://playriftbound.com/en-us/rules-hub/",
+          "title": "Rules Hub",
+          "publishedAt": "2026-07-17T00:30:00.000Z",
+          "effectiveAt": "not-applicable",
+          "ruleVersion": "current index; Core Rules last updated 2026-10-09",
+          "cachedSha256": "ee9edae6913fa16cf7de822049b3f6a42f4b0688e7362f112d09dae710d7e78b",
+          "officialLocator": "https://playriftbound.com/en-us/rules-hub/"
+        },
+        {
+          "id": "cr15",
+          "sourceType": "official-core-rules",
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules",
+          "publishedAt": "2026-10-09",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "1.5",
+          "cachedText": "/root/swarm-rift/shared/rules/CR-v1.5.txt",
+          "cachedSha256": "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2",
+          "officialLocator": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf"
+        }
+      ],
+      "ruleCitations": [
+        {
+          "rule": "M1 manifest ruleset",
+          "location": "docs/plans/m1-decks.json:ruleset",
+          "shortQuote": "Core Rules v1.5."
+        },
+        {
+          "rule": "Catalog identity",
+          "location": "packages/card-data/data/deck-catalog.json",
+          "shortQuote": "Every M1 canonicalCardId resolves in the 2026-10-12 official-gallery deck catalog."
+        }
+      ],
+      "conclusion": "The audit scope is limited to the 25 canonical identities in rumble-sfd and 26 in fiora-sfd, 51 distinct identities total. All 51 canonical IDs exist in the local catalog. The manifest identityCount fields exclude the two Basic Rune identities per deck, explaining 23 and 24 versus the 25 and 26 canonical IDs observed in officialCardList.",
+      "timeline": [
+        {
+          "step": 1,
+          "state": "Read M1 manifest and actual deck catalog.",
+          "detail": "manifest digest is sha256:53b974c8472d82053bf61f6836842c8f0d62c2fafb4411fa502256912a504d10."
+        },
+        {
+          "step": 2,
+          "state": "Expand official and recommended card lists.",
+          "detail": "Rumble has 27 list entries / 25 canonical IDs; Fiora has 28 / 26."
+        },
+        {
+          "step": 3,
+          "state": "Cross-check canonical identities.",
+          "detail": "No missing canonical IDs; duplicate identities arise from champion/main-deck placement."
+        },
+        {
+          "step": 4,
+          "state": "Treat generated coverage as a dated snapshot.",
+          "detail": "The persisted coverage file still reports the older compiler run and must not override current card-program source or test evidence."
+        }
+      ],
+      "playerWindows": [],
+      "m1Scope": {
+        "rumble-sfd": {
+          "canonicalIdentityCount": 25,
+          "officialListEntryCount": 27,
+          "zones": {
+            "legend": 1,
+            "champion": 2,
+            "mainDeck": 19,
+            "battlefields": 3,
+            "runes": 2
+          },
+          "canonicalCards": [
+            {
+              "canonicalCardId": "card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c",
+              "name": "Rumble, Scrapper"
+            },
+            {
+              "canonicalCardId": "card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3",
+              "name": "Ferrous Forerunner"
+            },
+            {
+              "canonicalCardId": "card.hash-0c36f22df8ffa7bed49f59fd138d24b9b0a52a7b8ad4c720afcaa12ec816eee4",
+              "name": "Minefield"
+            },
+            {
+              "canonicalCardId": "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b",
+              "name": "Singularity"
+            },
+            {
+              "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+              "name": "Rumble, Hotheaded"
+            },
+            {
+              "canonicalCardId": "card.hash-1504d8f14af5ce1b9f7a3663c23e6ef7cb57d59a6274dc921cd9296ee8e2494b",
+              "name": "Production Surge"
+            },
+            {
+              "canonicalCardId": "card.hash-153eb4df721b70662a63652ba1602985ceed08d81a0b23fc0d6b10349ee15ca9",
+              "name": "Frigid Touch"
+            },
+            {
+              "canonicalCardId": "card.hash-2ebf1fe6e5ed7bb875f1c112b3e0ed1635b557c0c0ad550d752b8dd376243007",
+              "name": "Consult the Past"
+            },
+            {
+              "canonicalCardId": "card.hash-30497c69657abd1d3abf17f9b3766e7d064817473a88828ca2ef4ab9b51f7902",
+              "name": "Fury Rune"
+            },
+            {
+              "canonicalCardId": "card.hash-34880fcae16bd9461e4c318dfb455365ff9e353db357f948b4a15dea7e01b389",
+              "name": "Bubble Bot"
+            },
+            {
+              "canonicalCardId": "card.hash-3c1c01b405853556e3e1c12bbd758e94d73f5ed474a5643bb068eaa7cb549c6e",
+              "name": "Danger Zone"
+            },
+            {
+              "canonicalCardId": "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
+              "name": "Wages of Pain"
+            },
+            {
+              "canonicalCardId": "card.hash-569dc9079a6d404c0d850d27b510585b856ab3def5e1e0bbafa30a3bf9d48e82",
+              "name": "Plundering Poro"
+            },
+            {
+              "canonicalCardId": "card.hash-5a86b358540e9ab2512400c77f3291739c2aa6ccb7b537449298a640b02b0e82",
+              "name": "Ravenbloom Conservatory"
+            },
+            {
+              "canonicalCardId": "card.hash-5b08b5b8648e8c5c057d15279d1b4e677457eb0b43fcf2810e2ec4f4c4d1b7cf",
+              "name": "Stupefy"
+            },
+            {
+              "canonicalCardId": "card.hash-600e0796e82099284b213e87b112b1c5df42777ef72b70a3b4cd49a84d27dd10",
+              "name": "Void Seeker"
+            },
+            {
+              "canonicalCardId": "card.hash-77763eae5320de558954776a37677e8638b6d4af73399e5a7c4f5d5321a2b564",
+              "name": "Treasure Hoard"
+            },
+            {
+              "canonicalCardId": "card.hash-a8a4cb783649a0339782e2d3808d6144661c621634da7c9f79b4f87981fac97b",
+              "name": "Mind Rune"
+            },
+            {
+              "canonicalCardId": "card.hash-cab923a670e4baa826aa3de381c8b992bf33987fcb0d65feb75ca538a8681010",
+              "name": "Long Sword"
+            },
+            {
+              "canonicalCardId": "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab",
+              "name": "Breakneck Mech"
+            },
+            {
+              "canonicalCardId": "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40",
+              "name": "Forecaster"
+            },
+            {
+              "canonicalCardId": "card.hash-d490b51d08bdd7f97b1708aabfa6309995106f10de815b6fd927368e4a630569",
+              "name": "Assembly Rig"
+            },
+            {
+              "canonicalCardId": "card.hash-d4e849d845765608b07bf4af4aa19877f6303dfff539b541d0d070320dd05d91",
+              "name": "Dangerous Duo"
+            },
+            {
+              "canonicalCardId": "card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9",
+              "name": "Gem Jammer"
+            },
+            {
+              "canonicalCardId": "card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7",
+              "name": "Mechanized Menace"
+            }
+          ]
+        },
+        "fiora-sfd": {
+          "canonicalIdentityCount": 26,
+          "officialListEntryCount": 28,
+          "zones": {
+            "legend": 1,
+            "champion": 2,
+            "mainDeck": 20,
+            "battlefields": 3,
+            "runes": 2
+          },
+          "canonicalCards": [
+            {
+              "canonicalCardId": "card.hash-0ba141b975db96cac65aab56bfd7dbb63904c538cc3d9c32bdfb3b2d98e486de",
+              "name": "Royal Guard"
+            },
+            {
+              "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+              "name": "Fiora, Worthy"
+            },
+            {
+              "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
+              "name": "Yone, Blademaster"
+            },
+            {
+              "canonicalCardId": "card.hash-44e95dd0a87b7dfcd7565b73a33e204f85c97ac82e004a6127ff7ed649fb41ad",
+              "name": "Ornn's Forge"
+            },
+            {
+              "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+              "name": "Fiora, Peerless"
+            },
+            {
+              "canonicalCardId": "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
+              "name": "Riposte"
+            },
+            {
+              "canonicalCardId": "card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7",
+              "name": "Veteran Poro"
+            },
+            {
+              "canonicalCardId": "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f",
+              "name": "Show of Strength"
+            },
+            {
+              "canonicalCardId": "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6",
+              "name": "Laurent Duelist"
+            },
+            {
+              "canonicalCardId": "card.hash-8d49727ab9ae782b8a21802c9ae0b51e5d712a37a072d991629bfbf3645535b3",
+              "name": "Punch First"
+            },
+            {
+              "canonicalCardId": "card.hash-902c6a1366a1a0e653ccb65102ff621b109af3b0b40f5bbeb7d8d3a5aeae2322",
+              "name": "Warmog's Armor"
+            },
+            {
+              "canonicalCardId": "card.hash-959c19d68f06f8f929625bfde93a1132701da5a5d0b49e91583db341384f0bfe",
+              "name": "B.F. Sword"
+            },
+            {
+              "canonicalCardId": "card.hash-9daf60cdf4c82e4fba1f685af1c9b0d748003f7e9ad9c68f02f429bdd0cf85e5",
+              "name": "Veiled Temple"
+            },
+            {
+              "canonicalCardId": "card.hash-a1ee07f71d453092ab7d54f9491684e972b735b22bb1f3fda73f2641bcedbfe1",
+              "name": "Doran's Blade"
+            },
+            {
+              "canonicalCardId": "card.hash-a2227b03e9e13c8e2ddae7a973c746cc4243ff631dfaf462dc9823e687bbbf17",
+              "name": "Body Rune"
+            },
+            {
+              "canonicalCardId": "card.hash-afc40c373a9fb4e48492323d7af26d3a58b824c385707dd3c269e97fee236103",
+              "name": "Unsung Hero"
+            },
+            {
+              "canonicalCardId": "card.hash-c225141f743b61c67ddf269932c6bbdef739f37888f62163906faa7fa1e6dc2b",
+              "name": "Sunken Temple"
+            },
+            {
+              "canonicalCardId": "card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef",
+              "name": "Lucian, Merciless"
+            },
+            {
+              "canonicalCardId": "card.hash-ccfc067dad8a1bf92c6ae1aa5f7110e9d211a1842a9254bb9320705c2f96c6c4",
+              "name": "Grand Duelist"
+            },
+            {
+              "canonicalCardId": "card.hash-cf0b322a78010676e3d8b287830194a3bdc8970e65a141578ae8a3074ebd956f",
+              "name": "Dauntless Vanguard"
+            },
+            {
+              "canonicalCardId": "card.hash-d3579e6825470471f5ce05c53533806a5244c5e84364fe57b2aab0b7cc0f14e0",
+              "name": "Sacred Shears"
+            },
+            {
+              "canonicalCardId": "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+              "name": "Jaull-Fish"
+            },
+            {
+              "canonicalCardId": "card.hash-e0efe08be77e60ed68f2e43ba425b763efd364eb44b0c760d26ef1fcc1b6df67",
+              "name": "Order Rune"
+            },
+            {
+              "canonicalCardId": "card.hash-e2638655ff5ed3a1e60a501be3c23d74e46ef7f1900bed31b436f1a579b316ed",
+              "name": "Pit Rookie"
+            },
+            {
+              "canonicalCardId": "card.hash-f67321dac096b3ad1e49b55231663e26f3f9d96efafe79d75719a6eb72fc5caa",
+              "name": "Vengeance"
+            },
+            {
+              "canonicalCardId": "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+              "name": "Strike Down"
+            }
+          ]
+        },
+        "distinctCanonicalIdentityCount": 51
+      },
+      "codeEntries": [
+        {
+          "path": "docs/plans/m1-decks.json",
+          "line": 1,
+          "symbol": "schema riftbound.m1-precon-decks.v1",
+          "role": "M1 source list",
+          "headSha256": "17227200ed8b5db2f09cd5e7e05949b72c7c13bdab50ac1e954739c76b14ff04"
+        },
+        {
+          "path": "packages/card-data/data/deck-catalog.json",
+          "line": 1,
+          "symbol": "schemaVersion 1",
+          "role": "canonical mapping source",
+          "headSha256": "06d99a589fed6046bff8072847946d5304a8ca43ef1e4e2c680c4a7a0f1df766"
+        }
+      ],
+      "assertions": [
+        {
+          "path": "docs/plans/m1-decks.json",
+          "line": 1,
+          "testName": "M1 canonical membership",
+          "command": "python3 canonical membership script",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "rumble-sfd True; fiora-sfd True; 51 distinct canonical IDs."
+        },
+        {
+          "path": "packages/card-data/data/effect-coverage.json",
+          "line": 1,
+          "testName": "dated coverage snapshot",
+          "command": "python3 -m json.tool packages/card-data/data/effect-coverage.json",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1,381 entries parsed; file remains a dated 2026-10-12 snapshot."
+        }
+      ],
+      "sourceConflictAndSupersession": [
+        "m1-decks.json identityCount excludes Basic Runes while canonicalCardId sets include them.",
+        "The persisted effect-coverage file predates current card-program edits and reports zero executable identities; current DSL source and focused tests supersede it only as implementation evidence, not as a new generated catalog."
+      ],
+      "missingEvidence": [
+        "RIFT-857 acceptance manifest is not merged into this worktree, so printing-level M1 mapping remains a read-only reconstruction from the original card list plus deck catalog."
+      ],
+      "owner": {
+        "primaryOwner": "RIFT-857",
+        "dependencies": [],
+        "reason": "RIFT-857 owns two-precon acceptance and manifest consistency.",
+        "requestedInterface": "Publish a versioned M1 manifest that pins canonicalCardId, selected printingId, zone, program status and acceptance assertion without changing generated catalog data."
+      }
+    },
+    {
+      "id": "E-003-priority-focus-and-response-window",
+      "status": "verified",
+      "category": "priority-focus-response",
+      "canonicalCardId": "general",
+      "canonicalCardIds": [
+        "general"
+      ],
+      "officialSources": [
+        {
+          "id": "cr15",
+          "sourceType": "official-core-rules",
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules",
+          "publishedAt": "2026-10-09",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "1.5",
+          "cachedText": "/root/swarm-rift/shared/rules/CR-v1.5.txt",
+          "cachedSha256": "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2",
+          "officialLocator": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf"
+        },
+        {
+          "id": "radiance-rulings",
+          "sourceType": "official-rulings-and-patch-notes",
+          "url": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+          "title": "Core Rules: Radiance Patch Notes (Effective October 16, 2026)",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "Core Rules 1.5",
+          "cachedSha256": "dfba4f3ecf6956c32c19327330eaca96d317bedbf2c211c80a8fe1f1dccb569f",
+          "officialLocator": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+        }
+      ],
+      "ruleCitations": [
+        {
+          "rule": "CR312",
+          "location": "CR-v1.5.txt:1296",
+          "shortQuote": "At most one player has Priority."
+        },
+        {
+          "rule": "CR313",
+          "location": "CR-v1.5.txt:1314",
+          "shortQuote": "Focus permits timed discretionary actions in Showdown Open."
+        },
+        {
+          "rule": "CR346",
+          "location": "CR-v1.5.txt:1621",
+          "shortQuote": "Focus normally passes when a Showdown chain closes."
+        },
+        {
+          "rule": "CR346.1",
+          "location": "CR-v1.5.txt:1623",
+          "shortQuote": "A trigger-opened or Add-opened chain does not pass Focus on close."
+        }
+      ],
+      "conclusion": "Priority is the exclusive permission to act; Focus additionally governs Showdown Open and always implies Priority when gained. Opponents may respond only when the state and their Priority/Focus permit the action. Focus does not pass after trigger-opened or Add-opened chains.",
+      "timeline": [
+        {
+          "step": 1,
+          "state": "Turn Player has Priority in Main Phase Neutral Open.",
+          "detail": "The player may act or pass."
+        },
+        {
+          "step": 2,
+          "state": "A legal play creates a closed Chain.",
+          "detail": "Only legally timed Reaction or other rule-granted actions can be added while the Chain exists."
+        },
+        {
+          "step": 3,
+          "state": "Priority is passed in turn order.",
+          "detail": "Each pass moves to the next player; an added item resets the pass sequence."
+        },
+        {
+          "step": 4,
+          "state": "A Showdown closes its chain.",
+          "detail": "Focus normally advances to the next player, except CR346.1."
+        }
+      ],
+      "playerWindows": [
+        "The Priority holder may take a legal discretionary action.",
+        "After a finalized Chain item, only legally timed actions may be added by the player with Priority.",
+        "The Focus holder must also have Priority to act in Showdown Open."
+      ],
+      "codeEntries": [
+        {
+          "path": "packages/engine-core/src/chain/engine.ts",
+          "line": 63,
+          "symbol": "ChainEngine",
+          "role": "owns priority, focus, chain state and pass transitions",
+          "headSha256": "c16e96447db2d4cb93025df081d7e1edc9cc8acde562cb2b745fcd738c230ba8",
+          "lineRange": [
+            63,
+            515
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/chain/engine.ts",
+          "line": 472,
+          "symbol": "closeChain",
+          "role": "implements CR340.2.a and CR346.1 focus behavior",
+          "headSha256": "c16e96447db2d4cb93025df081d7e1edc9cc8acde562cb2b745fcd738c230ba8",
+          "lineRange": [
+            472,
+            476
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/turn/flow.ts",
+          "line": 32,
+          "symbol": "TurnFlow",
+          "role": "phase and turn driver",
+          "headSha256": "8d108d862879b7ce82570b19fafecbb9c6a75b2a39c57ce692b3d165f4988a16",
+          "lineRange": [
+            32,
+            334
+          ]
+        },
+        {
+          "path": "apps/game-server/src/duel/authoritative-runtime-p4.ts",
+          "line": 1302,
+          "symbol": "pass-priority command branch",
+          "role": "production server priority command path",
+          "headSha256": "ea274fc3553b509332ea1c0fd74d14ad82d071f2b1a5e3d8338967845f00b457",
+          "lineRange": [
+            1302,
+            1319
+          ]
+        }
+      ],
+      "assertions": [
+        {
+          "path": "packages/engine-core/test/rules/chain/346-340.2.a-focus-passes-after-showdown-chain.test.mjs",
+          "line": 9,
+          "testName": "chain-focus-passes-after-showdown-chain",
+          "command": "node --test packages/engine-core/test/rules/chain/346-340.2.a-focus-passes-after-showdown-chain.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed; Focus moved from A to B with Priority."
+        },
+        {
+          "path": "packages/engine-core/test/rules/chain/346.1-focus-not-passed-after-trigger-opened-chain.test.mjs",
+          "line": 9,
+          "testName": "chain-focus-not-passed-after-trigger-opened-chain",
+          "command": "node --test packages/engine-core/test/rules/chain/346.1-focus-not-passed-after-trigger-opened-chain.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed; trigger-opened chain kept Focus with A."
+        },
+        {
+          "path": "apps/game-server/tests/duel/authoritative-spell-p4.test.ts",
+          "line": 37,
+          "testName": "P4 authoritative Spell owner",
+          "command": "pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/duel/authoritative-spell-p4.test.ts",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed; payment, both priority passes, resolution and retirement succeeded."
+        }
+      ],
+      "sourceConflictAndSupersession": [
+        "No conflict between Core Rules 1.5 and the Radiance rulings on Priority/Focus.",
+        "The official Chronobreak answer cites CR303.2.a and does not override CR346.1."
+      ],
+      "missingEvidence": [],
+      "owner": {
+        "primaryOwner": "RIFT-835",
+        "dependencies": [
+          "RIFT-810"
+        ],
+        "reason": "Chain Finalize/Priority owner.",
+        "requestedInterface": "Keep default ChainEngine context and pass transitions aligned with CR312, CR313, CR339-346.1; do not infer response legality from card name or iteration order."
+      }
+    },
+    {
+      "id": "E-004-pending-finalize-execute-pass-resolve",
+      "status": "verified",
+      "category": "chain-lifecycle",
+      "canonicalCardId": "general",
+      "canonicalCardIds": [
+        "general"
+      ],
+      "officialSources": [
+        {
+          "id": "cr15",
+          "sourceType": "official-core-rules",
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules",
+          "publishedAt": "2026-10-09",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "1.5",
+          "cachedText": "/root/swarm-rift/shared/rules/CR-v1.5.txt",
+          "cachedSha256": "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2",
+          "officialLocator": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf"
+        },
+        {
+          "id": "radiance-rulings",
+          "sourceType": "official-rulings-and-patch-notes",
+          "url": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+          "title": "Core Rules: Radiance Patch Notes (Effective October 16, 2026)",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "Core Rules 1.5",
+          "cachedSha256": "dfba4f3ecf6956c32c19327330eaca96d317bedbf2c211c80a8fe1f1dccb569f",
+          "officialLocator": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+        }
+      ],
+      "ruleCitations": [
+        {
+          "rule": "CR329",
+          "location": "CR-v1.5.txt:1506",
+          "shortQuote": "Cards and abilities become Pending, then Finalized Chain Items."
+        },
+        {
+          "rule": "CR334",
+          "location": "CR-v1.5.txt:1534",
+          "shortQuote": "Use HOT FEPR."
+        },
+        {
+          "rule": "CR337.1",
+          "location": "CR-v1.5.txt:1554",
+          "shortQuote": "The oldest Pending item finalizes first."
+        },
+        {
+          "rule": "CR337.2",
+          "location": "CR-v1.5.txt:1559",
+          "shortQuote": "Units, Gear and Add abilities resolve immediately after Finalize."
+        },
+        {
+          "rule": "CR340.1",
+          "location": "CR-v1.5.txt:1593",
+          "shortQuote": "The newest Finalized item resolves."
+        }
+      ],
+      "conclusion": "The engine sequence is Pending, oldest-first Finalize, Execute/Pass response cycle, then newest-first Resolve. Units, Gear and resource-adding abilities resolve immediately after Finalize. This is not a universal FIFO or LIFO rule for every step; Finalize and Resolve use different ends of the ordered Chain.",
+      "timeline": [
+        {
+          "step": 1,
+          "state": "Pending item appended.",
+          "detail": "Append order establishes the Chain order."
+        },
+        {
+          "step": 2,
+          "state": "Oldest Pending item Finalizes.",
+          "detail": "Finalize does not pass Priority."
+        },
+        {
+          "step": 3,
+          "state": "Immediate permanent/Add item resolves.",
+          "detail": "CR337.2 applies before returning to newer Pending items."
+        },
+        {
+          "step": 4,
+          "state": "Finalized spells and abilities enter Execute.",
+          "detail": "Players receive legal response windows and may pass."
+        },
+        {
+          "step": 5,
+          "state": "After all pass, newest Finalized item resolves.",
+          "detail": "The Chain then re-enters Finalize or Execute as required."
+        }
+      ],
+      "playerWindows": [
+        "After all Pending items finalize and before resolution, the player with Priority may play a legal Reaction.",
+        "Passing Priority advances in turn order; an added item restarts the sequence.",
+        "No action can finalize or resolve while a required Cleanup is outstanding."
+      ],
+      "codeEntries": [
+        {
+          "path": "packages/engine-core/src/chain/engine.ts",
+          "line": 310,
+          "symbol": "finalize",
+          "role": "oldest pending selection, target/cost finalization",
+          "headSha256": "c16e96447db2d4cb93025df081d7e1edc9cc8acde562cb2b745fcd738c230ba8",
+          "lineRange": [
+            310,
+            362
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/chain/engine.ts",
+          "line": 407,
+          "symbol": "advance",
+          "role": "HOT FEPR driver",
+          "headSha256": "c16e96447db2d4cb93025df081d7e1edc9cc8acde562cb2b745fcd738c230ba8",
+          "lineRange": [
+            407,
+            428
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/chain/engine.ts",
+          "line": 430,
+          "symbol": "resolve",
+          "role": "newest finalized item resolution",
+          "headSha256": "c16e96447db2d4cb93025df081d7e1edc9cc8acde562cb2b745fcd738c230ba8",
+          "lineRange": [
+            430,
+            469
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/duel/chain-v2.ts",
+          "line": 601,
+          "symbol": "finalizeDuelChainItemV2",
+          "role": "production-chain state machine Finalize",
+          "headSha256": "b1f739bde0af32dcab8d6e5531f708c1f81c2dca2e167270d869505ac1a2ab76",
+          "lineRange": [
+            601,
+            627
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/duel/chain-v2.ts",
+          "line": 631,
+          "symbol": "passDuelChainPriorityV2",
+          "role": "response/pass sequence",
+          "headSha256": "b1f739bde0af32dcab8d6e5531f708c1f81c2dca2e167270d869505ac1a2ab76",
+          "lineRange": [
+            631,
+            645
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/duel/chain-v2.ts",
+          "line": 652,
+          "symbol": "requestDuelChainResolutionV2",
+          "role": "newest finalized resolution selection",
+          "headSha256": "b1f739bde0af32dcab8d6e5531f708c1f81c2dca2e167270d869505ac1a2ab76",
+          "lineRange": [
+            652,
+            693
+          ]
+        }
+      ],
+      "assertions": [
+        {
+          "path": "packages/engine-core/test/rules/chain/337.1-multiple-pending-finalized-oldest-first.test.mjs",
+          "line": 9,
+          "testName": "chain-multiple-pending-finalized-oldest-first",
+          "command": "node --test packages/engine-core/test/rules/chain/337.1-multiple-pending-finalized-oldest-first.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed; oldest-first Finalize and newest-first Resolve."
+        },
+        {
+          "path": "packages/engine-core/test/rules/chain/340.1-lifo-resolution-order.test.mjs",
+          "line": 9,
+          "testName": "chain-lifo-resolution-order",
+          "command": "node --test packages/engine-core/test/rules/chain/340.1-lifo-resolution-order.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed; newest finalized item resolved first."
+        },
+        {
+          "path": "packages/engine-core/test/duel-chain-v2.test.mjs",
+          "line": 202,
+          "testName": "Finalize is oldest-first and controller-bound; it does not pass priority",
+          "command": "node --test packages/engine-core/test/duel-chain-v2.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "28 tests passed, including oldest-first Finalize and newest resolution."
+        },
+        {
+          "path": "apps/game-server/tests/duel/public-chain-card-p4.test.ts",
+          "line": 84,
+          "testName": "projects real pending and finalized Spells through a two-card Reaction Chain and LIFO exit",
+          "command": "pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/duel/public-chain-card-p4.test.ts",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "4 tests passed; production projection exposed pending/finalized state and LIFO exit."
+        }
+      ],
+      "sourceConflictAndSupersession": [
+        "The Radiance Chronobreak answer confirms the general ordering only within the described mixed immediate/permanent chain; it must not be restated as an all-chain FIFO or LIFO rule."
+      ],
+      "missingEvidence": [],
+      "owner": {
+        "primaryOwner": "RIFT-835",
+        "dependencies": [],
+        "reason": "Default Chain Finalize/Resolve owner.",
+        "requestedInterface": "Keep default and production-chain sequencing tied to CR337 and CR340 rather than array order or card-kind priority."
+      }
+    },
+    {
+      "id": "E-005-radiance-303-2-a-chronobreak-example",
+      "status": "blocked",
+      "category": "official-example-and-card-specific-chain-order",
+      "canonicalCardId": "card.hash-2875b065844462e761acfeb152cf2feea180924a496740b05903caac24a3d795",
+      "canonicalCardIds": [
+        "card.hash-2875b065844462e761acfeb152cf2feea180924a496740b05903caac24a3d795"
+      ],
+      "m1Scope": "explanatory-only; Chronobreak is outside rumble-sfd/fiora-sfd and does not expand the M1 card pool",
+      "officialSources": [
+        {
+          "id": "radiance-rulings",
+          "sourceType": "official-rulings-and-patch-notes",
+          "url": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+          "title": "Core Rules: Radiance Patch Notes (Effective October 16, 2026)",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "Core Rules 1.5",
+          "cachedSha256": "dfba4f3ecf6956c32c19327330eaca96d317bedbf2c211c80a8fe1f1dccb569f",
+          "officialLocator": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+        },
+        {
+          "id": "cr15",
+          "sourceType": "official-core-rules",
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules",
+          "publishedAt": "2026-10-09",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "1.5",
+          "cachedText": "/root/swarm-rift/shared/rules/CR-v1.5.txt",
+          "cachedSha256": "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2",
+          "officialLocator": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf"
+        }
+      ],
+      "ruleCitations": [
+        {
+          "rule": "CR303.2.a",
+          "location": "CR-v1.5.txt:1267",
+          "shortQuote": "Simultaneous actions are organized by Turn Order starting with the Turn Player."
+        },
+        {
+          "rule": "Radiance Chronobreak answer",
+          "location": "radiance-rulings.html, What is up with the reminder text on Chronobreak",
+          "shortQuote": "Each owner orders its own units; players add their items in Turn Order."
+        },
+        {
+          "rule": "Radiance Chronobreak example",
+          "location": "radiance-rulings.html, Example paragraph",
+          "shortQuote": "Pending items finalize oldest-to-newest, units resolve immediately, then their play effects finalize."
+        }
+      ],
+      "conclusion": "The official answer establishes a mixed procedure. If one controller owns all banished units, that player chooses their order. If multiple owners are involved, each owner chooses the order of its own units, but owner groups are placed on the Chain in Turn Order from the current Turn Player. Pending items finalize oldest-first; units resolve immediately; play effects finalize in trigger order; reactions then occur against the newest item.",
+      "timeline": [
+        {
+          "step": 1,
+          "state": "Chronobreak resolves and banishes chosen units.",
+          "detail": "Each resulting play belongs to the unit owner."
+        },
+        {
+          "step": 2,
+          "state": "Turn Player owner chooses order for its units.",
+          "detail": "Those items are appended first."
+        },
+        {
+          "step": 3,
+          "state": "Each later owner chooses order for its own units.",
+          "detail": "Owner groups append in Turn Order."
+        },
+        {
+          "step": 4,
+          "state": "Pending items finalize oldest-to-newest.",
+          "detail": "Each unit resolves immediately after Finalize."
+        },
+        {
+          "step": 5,
+          "state": "Unit play effects finalize in the order they triggered.",
+          "detail": "This is after the unit entries, not a uniform LIFO treatment of every item."
+        },
+        {
+          "step": 6,
+          "state": "Players may react to the newest finalized item.",
+          "detail": "No reaction means that item resolves; repeat until empty."
+        }
+      ],
+      "playerWindows": [
+        "Each owner chooses the relative order of its own units when those units are played back.",
+        "Turn Order, not card name or controller iteration order, orders owner groups.",
+        "Reaction windows occur after the unit play/play-effect finalization wave, against the newest finalized item."
+      ],
+      "codeEntries": [
+        {
+          "path": "packages/engine-core/src/chain/engine.ts",
+          "line": 407,
+          "symbol": "advance",
+          "role": "default HOT FEPR and immediate permanent/Add sequencing",
+          "headSha256": "c16e96447db2d4cb93025df081d7e1edc9cc8acde562cb2b745fcd738c230ba8",
+          "lineRange": [
+            407,
+            428
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/duel/chain-v2.ts",
+          "line": 601,
+          "symbol": "finalizeDuelChainItemV2",
+          "role": "production-chain oldest Pending Finalize and immediate resolution",
+          "headSha256": "b1f739bde0af32dcab8d6e5531f708c1f81c2dca2e167270d869505ac1a2ab76",
+          "lineRange": [
+            601,
+            627
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/effects/instructions/effect.play-back.ts",
+          "line": 137,
+          "symbol": "run",
+          "role": "per-object owner/order play-back; same-location fails closed",
+          "headSha256": "f0c152f9543d59f35ef0e86d91db079f65361500f0f6f6e9df45da8191c7c89a",
+          "lineRange": [
+            137,
+            266
+          ]
+        },
+        {
+          "path": "packages/card-dsl/src/cards/rad/chronobreak.ts",
+          "line": 1,
+          "symbol": "Chronobreak CardProgram",
+          "role": "judge-required explanatory non-M1 card",
+          "headSha256": "1d01a4fcfad75928c8817b600fbff4bf488a3962961fadf6cca21888316fcaa5",
+          "lineRange": [
+            1,
+            60
+          ]
+        }
+      ],
+      "assertions": [
+        {
+          "path": "packages/engine-core/test/rules/chain/303.2.a-chronobreak-multiplayer-turn-order.test.mjs",
+          "line": 21,
+          "testName": "chain-chronobreak-multiplayer-turn-order",
+          "command": "node --test packages/engine-core/test/rules/chain/303.2.a-chronobreak-multiplayer-turn-order.test.mjs",
+          "exitCode": 0,
+          "result": "todo",
+          "observed": "Test is explicitly TODO; no execution claim."
+        },
+        {
+          "path": "packages/card-dsl/test/cards/rad/chronobreak.test.mjs",
+          "line": 21,
+          "testName": "rad-140-167 Chronobreak: program validates and has expected identity",
+          "command": "node --test packages/card-dsl/test/cards/rad/chronobreak.test.mjs",
+          "exitCode": 0,
+          "result": "todo-present",
+          "observed": "Program validation passes, but three TODO tests preserve variable-cost, pre-Banish location and per-owner play-back gaps."
+        },
+        {
+          "path": "packages/engine-core/test/rules/chain/303.2.a-simultaneous-triggers-turn-order.test.mjs",
+          "line": 10,
+          "testName": "chain-simultaneous-triggers-turn-order",
+          "command": "node --test packages/engine-core/test/rules/chain/303.2.a-simultaneous-triggers-turn-order.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "Generic Turn Order trigger ordering passed; this does not prove Chronobreak."
+        }
+      ],
+      "sourceConflictAndSupersession": [
+        "No newer CR point found that contradicts the Radiance example; Core Rules 1.5 supplies the procedure.",
+        "The answer is an official explanatory ruling, not a general FIFO/LIFO rule for all Chains."
+      ],
+      "missingEvidence": [
+        "No production execution of the real Chronobreak program.",
+        "Variable any-amount Power must be chosen, bound and paid at Finalize.",
+        "The authoritative pre-Banish location must be retained despite CR124 new object identity.",
+        "Each owner must choose its own play order and per-object destination; same-location play-back remains fail-closed."
+      ],
+      "owner": {
+        "primaryOwner": "RIFT-835",
+        "dependencies": [
+          "RIFT-834",
+          "RIFT-810"
+        ],
+        "reason": "Finalize/variable-cost/event-it owner; non-M1 example.",
+        "requestedInterface": "Provide a Finalize variable-cost binding and per-owner ordered play-back integration without synthesizing Chain items in tests."
+      }
+    },
+    {
+      "id": "E-006-cost-selection-payment-and-response",
+      "status": "verified",
+      "category": "costs-and-additional-costs",
+      "canonicalCardId": "general",
+      "canonicalCardIds": [
+        "card.hash-1504d8f14af5ce1b9f7a3663c23e6ef7cb57d59a6274dc921cd9296ee8e2494b",
+        "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+        "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
+        "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870"
+      ],
+      "m1Cards": [
+        {
+          "canonicalCardId": "card.hash-1504d8f14af5ce1b9f7a3663c23e6ef7cb57d59a6274dc921cd9296ee8e2494b",
+          "name": "Production Surge",
+          "m1Decks": [
+            "rumble-sfd"
+          ],
+          "printings": [
+            "sfd-076-221"
+          ],
+          "zones": [
+            "mainDeck"
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+          "name": "Jaull-Fish",
+          "m1Decks": [
+            "fiora-sfd"
+          ],
+          "printings": [
+            "sfd-103-221"
+          ],
+          "zones": [
+            "mainDeck"
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
+          "name": "Wages of Pain",
+          "m1Decks": [
+            "rumble-sfd"
+          ],
+          "printings": [
+            "sfd-070-221"
+          ],
+          "zones": [
+            "mainDeck"
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+          "name": "Rumble, Hotheaded",
+          "m1Decks": [
+            "rumble-sfd"
+          ],
+          "printings": [
+            "sfd-026-221",
+            "sfd-026a-221"
+          ],
+          "zones": [
+            "champion",
+            "mainDeck"
+          ]
+        }
+      ],
+      "officialSources": [
+        {
+          "id": "cr15",
+          "sourceType": "official-core-rules",
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules",
+          "publishedAt": "2026-10-09",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "1.5",
+          "cachedText": "/root/swarm-rift/shared/rules/CR-v1.5.txt",
+          "cachedSha256": "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2",
+          "officialLocator": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf"
+        },
+        {
+          "id": "radiance-rulings",
+          "sourceType": "official-rulings-and-patch-notes",
+          "url": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+          "title": "Core Rules: Radiance Patch Notes (Effective October 16, 2026)",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "Core Rules 1.5",
+          "cachedSha256": "dfba4f3ecf6956c32c19327330eaca96d317bedbf2c211c80a8fe1f1dccb569f",
+          "officialLocator": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+        }
+      ],
+      "ruleCitations": [
+        {
+          "rule": "CR355.1.a",
+          "location": "CR-v1.5.txt:1672",
+          "shortQuote": "Optional Additional Cost choice is made while playing."
+        },
+        {
+          "rule": "CR356.2.b.1",
+          "location": "CR-v1.5.txt:1940",
+          "shortQuote": "An optional additional cost is paid only if chosen."
+        },
+        {
+          "rule": "CR356.4.f.1",
+          "location": "CR-v1.5.txt:1982",
+          "shortQuote": "The decision to pay counts even when reduced to zero."
+        },
+        {
+          "rule": "CR357.2",
+          "location": "CR-v1.5.txt:2009",
+          "shortQuote": "Non-standard costs are paid in the chosen order."
+        },
+        {
+          "rule": "CR358.5",
+          "location": "CR-v1.5.txt:2055",
+          "shortQuote": "A failed legality check undoes the play."
+        }
+      ],
+      "conclusion": "Targets, modes, locations and optional additional-cost decisions are locked before payment. The total cost is computed in rule order, then paid atomically; a failure rolls back the play and does not leave a Pending item. Opponents respond after the item is legally finalized, not during the atomic payment action. Accelerate and Repeat choices are finalization choices; repeat executions happen later on resolution.",
+      "timeline": [
+        {
+          "step": 1,
+          "state": "Move card to Chain as Pending.",
+          "detail": "State becomes closed."
+        },
+        {
+          "step": 2,
+          "state": "Choose targets, modes, destination and optional additional costs.",
+          "detail": "These are locked for Finalize."
+        },
+        {
+          "step": 3,
+          "state": "Compute base, additional, increases, discounts and total.",
+          "detail": "Component and total discount ordering is recorded."
+        },
+        {
+          "step": 4,
+          "state": "Pay all resource and nonstandard components atomically.",
+          "detail": "Reaction Add may interrupt payment under CR357.1.a."
+        },
+        {
+          "step": 5,
+          "state": "Check legality and Finalize.",
+          "detail": "Failure rolls back; success permits legal responses."
+        },
+        {
+          "step": 6,
+          "state": "Resolve once after both players pass.",
+          "detail": "Repeat is not the original card being played again."
+        }
+      ],
+      "playerWindows": [
+        "The card controller makes optional additional-cost and payment-order choices.",
+        "A Reaction Add ability may be used during the payment step.",
+        "Opponents respond only after Finalize, through the Chain response rules."
+      ],
+      "codeEntries": [
+        {
+          "path": "packages/engine-core/src/cost/cost-plan.ts",
+          "line": 60,
+          "symbol": "buildCostPlan",
+          "role": "base/additional/increase/discount/total stages",
+          "headSha256": "9b9e4867c0533761e161ba7a2e785a6876316d409ad22add0ab18a392f67626a",
+          "lineRange": [
+            60,
+            143
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/cost/payment.ts",
+          "line": 114,
+          "symbol": "prepareCostPayment",
+          "role": "lock exact payment actions",
+          "headSha256": "eb6f1995a74a9ac38be6729af846c9fc4bee1b95bc9796f6677a50a54c4575d2",
+          "lineRange": [
+            114,
+            140
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/cost/payment.ts",
+          "line": 209,
+          "symbol": "payCostPlan",
+          "role": "atomic receipt path",
+          "headSha256": "eb6f1995a74a9ac38be6729af846c9fc4bee1b95bc9796f6677a50a54c4575d2",
+          "lineRange": [
+            209,
+            215
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/chain/engine.ts",
+          "line": 310,
+          "symbol": "finalize",
+          "role": "targets, tax, payment and legality in one transaction",
+          "headSha256": "c16e96447db2d4cb93025df081d7e1edc9cc8acde562cb2b745fcd738c230ba8",
+          "lineRange": [
+            310,
+            362
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/effects/instructions/effect.repeat.ts",
+          "line": 1,
+          "symbol": "effect.repeat",
+          "role": "resolution-time repeated execution",
+          "headSha256": "b258f3801eff7a2127c334d7c299fe108980833a9832e38c2f027457c229ccf6",
+          "lineRange": [
+            1,
+            80
+          ]
+        }
+      ],
+      "assertions": [
+        {
+          "path": "packages/engine-core/test/rules/costs/805.1.b-accelerate-optional-pay.test.mjs",
+          "line": 6,
+          "testName": "costs-accelerate-optional-pay",
+          "command": "node --test packages/engine-core/test/rules/costs/805.1.b-accelerate-optional-pay.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "3 tests passed; paid and declined Accelerate choices and Power allocation."
+        },
+        {
+          "path": "packages/engine-core/test/rules/costs/357.2-nonstandard-costs-any-order.test.mjs",
+          "line": 6,
+          "testName": "costs-nonstandard-costs-any-order",
+          "command": "node --test packages/engine-core/test/rules/costs/357.2-nonstandard-costs-any-order.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed; controller-selected nonstandard payment order."
+        },
+        {
+          "path": "packages/engine-core/test/rules/costs/356.3-increase-then-discount-order.test.mjs",
+          "line": 1,
+          "testName": "costs-increase-then-discount-order: [2] + [1] - [1] = [2]",
+          "command": "node --test packages/engine-core/test/rules/costs/356.3-increase-then-discount-order.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed."
+        },
+        {
+          "path": "packages/engine-core/test/rules/costs/358.2-basic-energy-insufficient.test.mjs",
+          "line": 6,
+          "testName": "costs-basic-energy-insufficient",
+          "command": "node --test packages/engine-core/test/rules/costs/358.2-basic-energy-insufficient.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed; failed Finalize rolled back."
+        },
+        {
+          "path": "apps/game-server/tests/duel/pending-spell-resource-ack-p4.test.ts",
+          "line": 113,
+          "testName": "keeps unpaid Chain priority closed against pass, response and foreign payment",
+          "command": "pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/duel/pending-spell-resource-ack-p4.test.ts",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "5 passed, 1 skipped; pending payment blocked illegal pass/response."
+        },
+        {
+          "path": "packages/card-dsl/test/cards/sfd/production-surge.test.mjs",
+          "line": 16,
+          "testName": "Production Surge program is valid EffectIR v2 data",
+          "command": "node --test packages/card-dsl/test/cards/sfd/production-surge.test.mjs",
+          "exitCode": 0,
+          "result": "partial",
+          "observed": "6 passed, 2 todo; token play and conditional cost bridge remain incomplete."
+        },
+        {
+          "path": "packages/card-dsl/test/cards/sfd/jaull-fish.test.mjs",
+          "line": 37,
+          "testName": "program passes validateCardProgram",
+          "command": "node --test packages/card-dsl/test/cards/sfd/jaull-fish.test.mjs",
+          "exitCode": 0,
+          "result": "partial",
+          "observed": "6 passed, 1 todo; Accelerate expansion executes, Mighty discount binding does not."
+        }
+      ],
+      "sourceConflictAndSupersession": [
+        "No conflict in the general cost procedure.",
+        "Card-specific omissions remain: Production Surge token-play and discount bridge, Jaull-Fish Mighty discount, Rumble nested effect.play plan-shape conversion, Wages of Pain Gold/Hidden."
+      ],
+      "missingEvidence": [
+        "General procedure is implemented; the listed M1 card-specific production regressions are not complete."
+      ],
+      "owner": {
+        "primaryOwner": "RIFT-835",
+        "dependencies": [
+          "RIFT-857"
+        ],
+        "reason": "Finalize/payment consumer.",
+        "requestedInterface": "Preserve one atomic Finalize transaction for target lock, choices, cost computation, payment and legality; expose no response window before Finalize."
+      }
+    },
+    {
+      "id": "E-007-fiora-worthy-becomes-mighty",
+      "status": "blocked",
+      "category": "m1-card-transition-cost-and-event-it",
+      "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+      "canonicalCardIds": [
+        "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f"
+      ],
+      "m1Cards": [
+        {
+          "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+          "name": "Fiora, Worthy",
+          "m1Decks": [
+            "fiora-sfd"
+          ],
+          "printings": [
+            "sfd-180-221",
+            "sfd-180a-221"
+          ],
+          "zones": [
+            "champion",
+            "mainDeck"
+          ]
+        }
+      ],
+      "officialSources": [
+        {
+          "id": "cr15",
+          "sourceType": "official-core-rules",
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules",
+          "publishedAt": "2026-10-09",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "1.5",
+          "cachedText": "/root/swarm-rift/shared/rules/CR-v1.5.txt",
+          "cachedSha256": "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2",
+          "officialLocator": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf"
+        },
+        {
+          "id": "rules-hub",
+          "sourceType": "official-rules-index",
+          "url": "https://playriftbound.com/en-us/rules-hub/",
+          "title": "Rules Hub",
+          "publishedAt": "2026-07-17T00:30:00.000Z",
+          "effectiveAt": "not-applicable",
+          "ruleVersion": "current index; Core Rules last updated 2026-10-09",
+          "cachedSha256": "ee9edae6913fa16cf7de822049b3f6a42f4b0688e7362f112d09dae710d7e78b",
+          "officialLocator": "https://playriftbound.com/en-us/rules-hub/"
+        },
+        {
+          "id": "spiritforged-errata",
+          "sourceType": "official-card-errata",
+          "url": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/",
+          "title": "Riftbound Spiritforged Errata",
+          "publishedAt": "2026-01-14T02:00:00.000Z",
+          "effectiveAt": "not-stated-in-cached-article",
+          "ruleVersion": "card errata reviewed against Core Rules 1.5",
+          "cachedSha256": "dca55c2d013473ffca82fb649a70d16d4b4356c22f74bd5a71b3aa3a9a4c94af",
+          "officialLocator": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/"
+        }
+      ],
+      "ruleCitations": [
+        {
+          "rule": "CR383.3.a",
+          "location": "CR-v1.5.txt:2698",
+          "shortQuote": "A leading may is decided during Finalize."
+        },
+        {
+          "rule": "CR383.3.b.1",
+          "location": "CR-v1.5.txt:2728",
+          "shortQuote": "A leading triggered cost must be paid to Finalize."
+        },
+        {
+          "rule": "CR404.1.b.1",
+          "location": "CR-v1.5.txt:3016",
+          "shortQuote": "A leading cost within instructions is the triggered ability base cost."
+        },
+        {
+          "rule": "CR709",
+          "location": "CR-v1.5.txt:4704",
+          "shortQuote": "A unit becomes Mighty only when Might crosses from below 5 to 5 or greater."
+        },
+        {
+          "rule": "CR710",
+          "location": "CR-v1.5.txt:4708",
+          "shortQuote": "Units on the board are evaluated by current Might."
+        },
+        {
+          "rule": "CR711",
+          "location": "CR-v1.5.txt:4712",
+          "shortQuote": "Units in non-board zones use printed Might."
+        }
+      ],
+      "conclusion": "Official semantics are complete enough to implement. When a friendly unit on the board changes from Might below 5 to 5 or greater, the ability triggers once. At Finalize the controller may decline; if accepted, exactly one Order Power is paid atomically, then the trigger Finalizes. At Resolve it readies the event object captured by the trigger, never a player-selected target and never a current lookup by card id. A static check for Might >= 5 is insufficient because 5 to 6 and 5 to 4 do not satisfy becomes Mighty.",
+      "timeline": [
+        {
+          "step": 1,
+          "state": "Layer evaluation changes a friendly board unit from Might below 5 to 5 or greater.",
+          "detail": "Emit might-changed with previousMight and currentMight and capture the exact incarnation as event.it."
+        },
+        {
+          "step": 2,
+          "state": "Fiora, Worthy trigger is placed Pending.",
+          "detail": "Its controller is the Fiora source controller; the affected object is event.it."
+        },
+        {
+          "step": 3,
+          "state": "At Finalize, controller chooses whether to perform the leading may.",
+          "detail": "Decline removes the item without resolving."
+        },
+        {
+          "step": 4,
+          "state": "If accepted, lock and pay one Order Power.",
+          "detail": "Payment failure removes or rolls back the trigger; opponents do not receive a mid-payment response."
+        },
+        {
+          "step": 5,
+          "state": "Trigger becomes Finalized and legal Reactions may be played.",
+          "detail": "event.it remains the captured unit incarnation."
+        },
+        {
+          "step": 6,
+          "state": "On Resolve, ready event.it if it is still a legal ready action.",
+          "detail": "No target prompt and no became-target event."
+        }
+      ],
+      "playerWindows": [
+        "Fiora controller chooses at Finalize whether to perform and pay.",
+        "Opponent responses occur after the trigger Finalizes, not during the atomic Order Power payment.",
+        "If event.it has left the board, the ready instruction is ignored rather than rebound to a new object with the same id."
+      ],
+      "codeEntries": [
+        {
+          "path": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+          "line": 29,
+          "symbol": "Fiora, Worthy triggered ability",
+          "role": "currently uses unsupported becomesMighty filter and omits leading cost",
+          "headSha256": "1a1cc1e25845c56e853d1d22e0db1eae727060d97771ab0b14fb1f5fc37064f6",
+          "lineRange": [
+            29,
+            52
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/events/producers/might-change.ts",
+          "line": 24,
+          "symbol": "deriveMightChangedEmissions",
+          "role": "produces previousMight/currentMight",
+          "headSha256": "f35ab6c4f2f3f79f6c83664b5454badce49555143b195d2e8342cc4205109656",
+          "lineRange": [
+            24,
+            66
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/events/action-adapter.ts",
+          "line": 559,
+          "symbol": "deriveMightChangedEmissions call",
+          "role": "emits might-changed after state action",
+          "headSha256": "535cda5409e1ff779db4c2e193271ad7c296ed2c13a8a789687dc4de5f37f771",
+          "lineRange": [
+            559,
+            567
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/programs/filters.ts",
+          "line": 68,
+          "symbol": "translateObjectFilter",
+          "role": "fails closed on becomesMighty",
+          "headSha256": "77ad0aec220db00b8122e50f07218098dbf2b087942f2efac54536f2a9907197",
+          "lineRange": [
+            68,
+            127
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/programs/trigger-adapters/event-it.ts",
+          "line": 17,
+          "symbol": "eventItBinding",
+          "role": "freezes event role snapshot",
+          "headSha256": "622d825a7bb74989687f9b2b1700ca3b34693ac3c347b4bd0a3fece255def713",
+          "lineRange": [
+            17,
+            27
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/programs/trigger-adapters/leading-choice.ts",
+          "line": 60,
+          "symbol": "adaptLeadingChoice",
+          "role": "moves leading may/cost into Finalize",
+          "headSha256": "0e67dc598609fe0c951c4d96fc265474517961d7eea6753c9302c0401795a8b0",
+          "lineRange": [
+            60,
+            106
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/chain/engine.ts",
+          "line": 310,
+          "symbol": "finalize",
+          "role": "current HEAD lacks default eventObject bridge and full leading cost support",
+          "headSha256": "c16e96447db2d4cb93025df081d7e1edc9cc8acde562cb2b745fcd738c230ba8",
+          "lineRange": [
+            310,
+            362
+          ]
+        }
+      ],
+      "assertions": [
+        {
+          "path": "/root/swarm-rift/shared/parent-reviews/integration-f036b0e5-20261019-0745/full-seed-probe.json",
+          "line": 1,
+          "testName": "parent M1 probe",
+          "command": "read-only parent probe inspection",
+          "exitCode": 0,
+          "result": "blocked",
+          "observed": "ProgramBindingError judge-required: Unsupported filter field becomesMighty."
+        },
+        {
+          "path": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+          "line": 22,
+          "testName": "sfd-180-221 Fiora, Worthy: might-changed trigger filtered to friendly units becoming Mighty",
+          "command": "node --test packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+          "exitCode": 0,
+          "result": "partial",
+          "observed": "4 passed, 1 todo; assertions inspect shape and standalone effect.ready only, not production binding/payment."
+        },
+        {
+          "path": "packages/engine-core/test/effects/keywords/Mighty.test.mjs",
+          "line": 100,
+          "testName": "numeric boundary: rule 708 threshold is exactly 5",
+          "command": "node --test packages/engine-core/test/effects/keywords/Mighty.test.mjs packages/engine-core/test/events/producers/might-change.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "12 Mighty tests plus 2 might-change producer tests passed."
+        },
+        {
+          "path": "packages/engine-core/test/engine-gaps/triggers.test.mjs",
+          "line": 274,
+          "testName": "EG-TRIGGERS: Mistfall event-it ready fails closed until the 835 bridge",
+          "command": "read-only test inventory",
+          "exitCode": 0,
+          "result": "pending",
+          "observed": "Current HEAD test documents event:it ready blocked until RIFT-835 bridge."
+        },
+        {
+          "path": "packages/engine-core/test/effects/interpreter-contract-capabilities.test.mjs",
+          "line": 398,
+          "testName": "event-it from a real trigger keeps the frozen incarnation across a later re-entry and never chooses a target",
+          "command": "read-only test inventory",
+          "exitCode": 0,
+          "result": "pending",
+          "observed": "Test exists on RIFT-835 branch but not current HEAD."
+        }
+      ],
+      "sourceConflictAndSupersession": [
+        "No Fiora, Worthy entry appears in the cached SFD errata article; the printed text remains the card text.",
+        "No official ruling found that replaces CR709/710/711 for this interaction.",
+        "The current executable status conflicts with the parent production probe and must not be treated as accepted."
+      ],
+      "missingEvidence": [
+        "Production EventPattern/condition binding for the below-5 to 5-or-greater transition.",
+        "Leading may plus one Order Power encoded in the trigger registration and paid at Finalize.",
+        "Default ChainEngine eventObject(\"it\") bridge on current HEAD.",
+        "A real production assertion that pays/declines, readies event.it, avoids became-target, and fails closed after departure."
+      ],
+      "contractChangeRequest": {
+        "needed": false,
+        "preferredShape": "Use existing TriggerRegistration.cost, mayAtFinalize, frozen TriggerSnapshot.event and ResolveContext.eventObject(\"it\"). Add only a typed source-backed becomes-Mighty event predicate or event-detail matcher; do not accept arbitrary filter fields.",
+        "ownerTasks": [
+          "RIFT-810",
+          "RIFT-835"
+        ]
+      },
+      "owner": {
+        "primaryOwner": "RIFT-835",
+        "dependencies": [
+          "RIFT-810",
+          "RIFT-857"
+        ],
+        "reason": "Finalize/event-it/cost integration is the primary production blocker.",
+        "requestedInterface": "Consume the frozen trigger event as event.it; bind leading may and Order Power to Finalize; preserve the same snapshot through Resolve."
+      }
+    },
+    {
+      "id": "E-008-yone-errata-and-catalog-conflict",
+      "status": "pending",
+      "category": "m1-errata-mapping",
+      "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
+      "canonicalCardIds": [
+        "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56"
+      ],
+      "m1Cards": [
+        {
+          "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
+          "name": "Yone, Blademaster",
+          "m1Decks": [
+            "fiora-sfd"
+          ],
+          "printings": [
+            "rad-181-167",
+            "sfd-116-221",
+            "sfd-233-221",
+            "sfd-233-star-221"
+          ],
+          "zones": [
+            "mainDeck"
+          ]
+        }
+      ],
+      "officialSources": [
+        {
+          "id": "spiritforged-errata",
+          "sourceType": "official-card-errata",
+          "url": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/",
+          "title": "Riftbound Spiritforged Errata",
+          "publishedAt": "2026-01-14T02:00:00.000Z",
+          "effectiveAt": "not-stated-in-cached-article",
+          "ruleVersion": "card errata reviewed against Core Rules 1.5",
+          "cachedSha256": "dca55c2d013473ffca82fb649a70d16d4b4356c22f74bd5a71b3aa3a9a4c94af",
+          "officialLocator": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/"
+        },
+        {
+          "id": "cr15",
+          "sourceType": "official-core-rules",
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules",
+          "publishedAt": "2026-10-09",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "1.5",
+          "cachedText": "/root/swarm-rift/shared/rules/CR-v1.5.txt",
+          "cachedSha256": "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2",
+          "officialLocator": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf"
+        }
+      ],
+      "ruleCitations": [
+        {
+          "rule": "Spiritforged Errata - Yone, Blademaster",
+          "location": "spiritforged-errata.html, Yone NEW TEXT",
+          "shortQuote": "When I conquer a battlefield that was uncontrolled..."
+        },
+        {
+          "rule": "CR002",
+          "location": "CR-v1.5.txt:5",
+          "shortQuote": "Fundamental card-specific contradiction follows card text."
+        },
+        {
+          "rule": "CR051",
+          "location": "CR-v1.5.txt:8",
+          "shortQuote": "Card terminology is interpreted according to the rules."
+        }
+      ],
+      "conclusion": "The official SFD errata replaces open battlefield with uncontrolled battlefield for the Yone canonical identity. The current DSL program uses uncontrolled, but the local official-gallery catalog retains the older open battlefield wording. The M1 manifest also lists Yone as an unresolved printing-difference review. Keep this mapping pending until the versioned manifest pins the SFD printing and the acceptance path proves the corrected canonical behavior.",
+      "timeline": [
+        {
+          "step": 1,
+          "state": "Read official Spiritforged errata.",
+          "detail": "Published 2026-01-14; no separate effective date is stated in the cached article."
+        },
+        {
+          "step": 2,
+          "state": "Compare canonical printings.",
+          "detail": "Catalog SFD printings retain open battlefield; Radiance printing and current DSL use uncontrolled."
+        },
+        {
+          "step": 3,
+          "state": "Apply source relationship.",
+          "detail": "Erraria changes card text; CR051 still interprets terms, and CR002 applies only if a fundamental contradiction exists."
+        },
+        {
+          "step": 4,
+          "state": "Map M1 deck entry.",
+          "detail": "The M1 JSON stores canonical ID but no selected printing ID; RIFT-857 manifest remains the authoritative integration gate."
+        }
+      ],
+      "playerWindows": [
+        "No additional player window is created by the errata. The normal Yone conquer trigger window is unchanged."
+      ],
+      "codeEntries": [
+        {
+          "path": "packages/card-dsl/src/cards/rad/yone-blademaster.ts",
+          "line": 79,
+          "symbol": "canonicalCardId",
+          "role": "current program identity",
+          "headSha256": "97063d125ee3e03f28fe325a15f548e3bcf882c0388ac5829a4dc491e0bee125",
+          "lineRange": [
+            79,
+            84
+          ]
+        },
+        {
+          "path": "packages/card-dsl/src/cards/rad/yone-blademaster.ts",
+          "line": 83,
+          "symbol": "sourceText",
+          "role": "uses uncontrolled text",
+          "headSha256": "97063d125ee3e03f28fe325a15f548e3bcf882c0388ac5829a4dc491e0bee125",
+          "lineRange": [
+            83,
+            84
+          ]
+        },
+        {
+          "path": "packages/card-data/data/deck-catalog.json",
+          "line": 1,
+          "symbol": "Yone printings",
+          "role": "catalog retains printed open battlefield text",
+          "headSha256": "06d99a589fed6046bff8072847946d5304a8ca43ef1e4e2c680c4a7a0f1df766"
+        },
+        {
+          "path": "docs/plans/m1-decks.json",
+          "line": 1,
+          "symbol": "fiora-sfd officialCardList",
+          "role": "canonical-only Yone mapping",
+          "headSha256": "17227200ed8b5db2f09cd5e7e05949b72c7c13bdab50ac1e954739c76b14ff04"
+        }
+      ],
+      "assertions": [
+        {
+          "path": "packages/card-dsl/test/cards/rad/yone-blademaster.test.mjs",
+          "line": 12,
+          "testName": "rad-181-167 Yone, Blademaster: program validates and has expected shape",
+          "command": "node --test packages/card-dsl/test/cards/rad/yone-blademaster.test.mjs",
+          "exitCode": 0,
+          "result": "partial",
+          "observed": "4 passed, 1 todo; no production conquer/battlefieldWas binding."
+        },
+        {
+          "path": "docs/plans/m1-decks.json",
+          "line": 1,
+          "testName": "fiora-sfd gaps",
+          "command": "python3 M1 gap inspection",
+          "exitCode": 0,
+          "result": "pending",
+          "observed": "Yone is listed under non-reminder-printing-difference and unclassifiedCards."
+        },
+        {
+          "path": "packages/card-data/data/deck-catalog.json",
+          "line": 1,
+          "testName": "Yone printing texts",
+          "command": "python3 deck-catalog inspection",
+          "exitCode": 0,
+          "result": "conflict",
+          "observed": "rad-181-167 and current DSL say uncontrolled; sfd-116-221, sfd-233-221 and sfd-233-star-221 still say open battlefield."
+        }
+      ],
+      "sourceConflictAndSupersession": [
+        "Official errata supersedes older printed Yone wording.",
+        "Local catalog is a printed-gallery snapshot and is not an errata merge.",
+        "The M1 manifest has not yet resolved the printing difference."
+      ],
+      "missingEvidence": [
+        "Cached errata page does not state a separate effective date.",
+        "No production Yone acceptance assertion for the corrected conquer condition.",
+        "No RIFT-857 manifest pinning the SFD printing."
+      ],
+      "owner": {
+        "primaryOwner": "RIFT-857",
+        "dependencies": [
+          "RIFT-810"
+        ],
+        "reason": "Two-precon acceptance owns printing/errata mapping.",
+        "requestedInterface": "Pin the SFD printing and canonical corrected text, then require a real conquer assertion; do not rewrite the generated gallery snapshot."
+      }
+    },
+    {
+      "id": "E-009-replacement-prevention-and-controller-order",
+      "status": "verified",
+      "category": "replacement-effects",
+      "canonicalCardId": "general",
+      "canonicalCardIds": [
+        "general"
+      ],
+      "officialSources": [
+        {
+          "id": "cr15",
+          "sourceType": "official-core-rules",
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules",
+          "publishedAt": "2026-10-09",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "1.5",
+          "cachedText": "/root/swarm-rift/shared/rules/CR-v1.5.txt",
+          "cachedSha256": "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2",
+          "officialLocator": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf"
+        },
+        {
+          "id": "radiance-rulings",
+          "sourceType": "official-rulings-and-patch-notes",
+          "url": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+          "title": "Core Rules: Radiance Patch Notes (Effective October 16, 2026)",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "Core Rules 1.5",
+          "cachedSha256": "dfba4f3ecf6956c32c19327330eaca96d317bedbf2c211c80a8fe1f1dccb569f",
+          "officialLocator": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+        }
+      ],
+      "ruleCitations": [
+        {
+          "rule": "CR367",
+          "location": "CR-v1.5.txt:2386",
+          "shortQuote": "Replacement effects alter another effect or rule."
+        },
+        {
+          "rule": "CR369",
+          "location": "CR-v1.5.txt:2389",
+          "shortQuote": "Replacement intercedes before the qualifying event."
+        },
+        {
+          "rule": "CR370.1",
+          "location": "CR-v1.5.txt:2413",
+          "shortQuote": "A replacement applies to a qualifying event or instruction."
+        },
+        {
+          "rule": "CR372",
+          "location": "CR-v1.5.txt:2510",
+          "shortQuote": "Controller of the affected object chooses replacement order."
+        },
+        {
+          "rule": "CR373.1",
+          "location": "CR-v1.5.txt:2522",
+          "shortQuote": "Differently controlled simultaneous replacements execute in Turn Order."
+        }
+      ],
+      "conclusion": "Replacement effects apply before the qualifying event. The controller of the affected object chooses the order among multiple applicable replacements; simultaneous events are treated separately, and simultaneous replacement execution across controllers follows Turn Order. A fully prevented action emits no resulting timing. A replaced cost action still counts as paid where CR357.2.a says so.",
+      "timeline": [
+        {
+          "step": 1,
+          "state": "Qualifying action or event is proposed.",
+          "detail": "Replacement matching occurs before execution."
+        },
+        {
+          "step": 2,
+          "state": "Affected controller chooses among applicable replacements.",
+          "detail": "Optional replacement choices are resolved here."
+        },
+        {
+          "step": 3,
+          "state": "Apply replacement actions or prevent the event.",
+          "detail": "A replacement applies once to the original event and replacements."
+        },
+        {
+          "step": 4,
+          "state": "Publish only the events that actually occurred.",
+          "detail": "A replaced death does not emit object-killed."
+        }
+      ],
+      "playerWindows": [
+        "The affected object controller chooses replacement order.",
+        "For an affected player, that player chooses.",
+        "For an uncontrolled battlefield, the Turn Player chooses."
+      ],
+      "codeEntries": [
+        {
+          "path": "packages/engine-core/src/events/pipeline.ts",
+          "line": 373,
+          "symbol": "apply",
+          "role": "replacement candidates, affected controller choice, rewrite/prevent/replace",
+          "headSha256": "563ba9ec2dc1cc4a4564f3cb9bcb1f91c6769be555104aa2a4a0025fc873ee6d",
+          "lineRange": [
+            373,
+            410
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/replacement/bind.ts",
+          "line": 49,
+          "symbol": "bindReplacement",
+          "role": "card-program replacement binding",
+          "headSha256": "73837cc67399cd7bb9d8a833cd711b8b319078638e3f019c8c629fe1443657f6",
+          "lineRange": [
+            49,
+            540
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/replacement/planner.ts",
+          "line": 921,
+          "symbol": "planReplacementBody",
+          "role": "ordered replacement action planning",
+          "headSha256": "1eb82fe7a6a22da80137e9457daeb8b30493c6ce99da241d95f0d59b549c0c4f",
+          "lineRange": [
+            921,
+            950
+          ]
+        }
+      ],
+      "assertions": [
+        {
+          "path": "packages/engine-core/test/events/replacement-scenarios.test.mjs",
+          "line": 25,
+          "testName": "triggers-replacement-order-by-controller",
+          "command": "node --test packages/engine-core/test/events/replacement-scenarios.test.mjs packages/engine-core/test/replacement/interaction.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "12 + 5 tests passed across the two files."
+        },
+        {
+          "path": "packages/engine-core/test/rules/costs/203.2-replaced-cost-action-still-paid.test.mjs",
+          "line": 6,
+          "testName": "costs-replaced-cost-action-still-paid",
+          "command": "node --test packages/engine-core/test/rules/costs/203.2-replaced-cost-action-still-paid.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed; replaced kill receipt remained paid."
+        },
+        {
+          "path": "packages/engine-core/test/replacement/enter.test.mjs",
+          "line": 12,
+          "testName": "enter-exhausted rewrites the chain entry state and keeps the orientation",
+          "command": "node --test packages/engine-core/test/replacement/enter.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "5 tests passed."
+        },
+        {
+          "path": "packages/engine-core/test/replacement/binding.test.mjs",
+          "line": 10,
+          "testName": "binds to a hand-zone host and stops matching after cancel",
+          "command": "node --test packages/engine-core/test/replacement/binding.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "5 tests passed."
+        }
+      ],
+      "sourceConflictAndSupersession": [
+        "No conflict found with Core Rules 1.5.",
+        "The replacement order is not inferred from card name, source controller, or array order."
+      ],
+      "missingEvidence": [],
+      "owner": {
+        "primaryOwner": "RIFT-826",
+        "dependencies": [
+          "RIFT-833"
+        ],
+        "reason": "Replacement planner/binding owner.",
+        "requestedInterface": "Preserve affected-controller ordering and once-per-original-event behavior; publish only actually occurring events."
+      }
+    },
+    {
+      "id": "E-010-continuous-layers-and-object-dependencies",
+      "status": "pending",
+      "category": "continuous-effects-layers",
+      "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+      "canonicalCardIds": [
+        "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+        "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+        "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870"
+      ],
+      "m1Cards": [
+        {
+          "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+          "name": "Fiora, Peerless",
+          "m1Decks": [
+            "fiora-sfd"
+          ],
+          "printings": [
+            "sfd-110-221",
+            "sfd-110a-221"
+          ],
+          "zones": [
+            "champion",
+            "mainDeck"
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+          "name": "Jaull-Fish",
+          "m1Decks": [
+            "fiora-sfd"
+          ],
+          "printings": [
+            "sfd-103-221"
+          ],
+          "zones": [
+            "mainDeck"
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+          "name": "Rumble, Hotheaded",
+          "m1Decks": [
+            "rumble-sfd"
+          ],
+          "printings": [
+            "sfd-026-221",
+            "sfd-026a-221"
+          ],
+          "zones": [
+            "champion",
+            "mainDeck"
+          ]
+        }
+      ],
+      "officialSources": [
+        {
+          "id": "cr15",
+          "sourceType": "official-core-rules",
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules",
+          "publishedAt": "2026-10-09",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "1.5",
+          "cachedText": "/root/swarm-rift/shared/rules/CR-v1.5.txt",
+          "cachedSha256": "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2",
+          "officialLocator": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf"
+        },
+        {
+          "id": "radiance-rulings",
+          "sourceType": "official-rulings-and-patch-notes",
+          "url": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+          "title": "Core Rules: Radiance Patch Notes (Effective October 16, 2026)",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "Core Rules 1.5",
+          "cachedSha256": "dfba4f3ecf6956c32c19327330eaca96d317bedbf2c211c80a8fe1f1dccb569f",
+          "officialLocator": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+        }
+      ],
+      "ruleCitations": [
+        {
+          "rule": "CR478",
+          "location": "CR-v1.5.txt:4283",
+          "shortQuote": "Layers repeat until applicable effects have been applied."
+        },
+        {
+          "rule": "CR478.1",
+          "location": "CR-v1.5.txt:4285",
+          "shortQuote": "Object-level dependencies are evaluated before the dependent object."
+        },
+        {
+          "rule": "CR479",
+          "location": "CR-v1.5.txt:4335",
+          "shortQuote": "Layer order: copy, trait, ability, arithmetic."
+        },
+        {
+          "rule": "CR480",
+          "location": "CR-v1.5.txt:4430",
+          "shortQuote": "Dependency can override same-layer order."
+        },
+        {
+          "rule": "CR482",
+          "location": "CR-v1.5.txt:4463",
+          "shortQuote": "Timestamp order applies when no dependency exists."
+        }
+      ],
+      "conclusion": "The layer order and several object dependency paths are implemented: copy before trait, trait before ability, ability rechecked after arithmetic, dependency chains and mutual cycles. Remaining same-layer per-effect dependency versus timestamp ordering and inactive-text timestamp loss are still TODO. Fiora doubling, Assault and Mighty discounts must consume this recomputed layered state rather than static snapshots.",
+      "timeline": [
+        {
+          "step": 1,
+          "state": "Collect active continuous effects.",
+          "detail": "Apply copy, trait, ability, then arithmetic layers."
+        },
+        {
+          "step": 2,
+          "state": "Pause dependent object evaluation.",
+          "detail": "Evaluate referenced objects first."
+        },
+        {
+          "step": 3,
+          "state": "Repeat layers until fixed.",
+          "detail": "A Might increase may enable an ability layer in a later pass."
+        },
+        {
+          "step": 4,
+          "state": "Resolve same-layer ties.",
+          "detail": "Use dependency first, then timestamp only when no dependency exists."
+        }
+      ],
+      "playerWindows": [
+        "No separate Priority window is created by layer evaluation; continuous effects update at state changes."
+      ],
+      "codeEntries": [
+        {
+          "path": "packages/engine-core/src/layers/engine.ts",
+          "line": 327,
+          "symbol": "LayerEngine",
+          "role": "copy/trait/ability/arithmetic evaluation",
+          "headSha256": "f4f658520396ac2381c1d9523c1a10eb7f00d5f9e23788c883d8b0196f77d88e",
+          "lineRange": [
+            327,
+            921
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/layers/engine.ts",
+          "line": 653,
+          "symbol": "depends",
+          "role": "same-layer dependency comparison",
+          "headSha256": "f4f658520396ac2381c1d9523c1a10eb7f00d5f9e23788c883d8b0196f77d88e",
+          "lineRange": [
+            653,
+            661
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/layers/engine.ts",
+          "line": 682,
+          "symbol": "evaluateGroup",
+          "role": "dependency group and loop evaluation",
+          "headSha256": "f4f658520396ac2381c1d9523c1a10eb7f00d5f9e23788c883d8b0196f77d88e",
+          "lineRange": [
+            682,
+            780
+          ]
+        },
+        {
+          "path": "packages/card-dsl/src/cards/sfd/fiora-peerless.ts",
+          "line": 71,
+          "symbol": "Fiora, Peerless CardProgram",
+          "role": "doubling body and one-on-one trigger",
+          "headSha256": "ec4bed2d530da5ab5c14b0f343c78edad5174b8c6988a892ad1e5c2184b82808",
+          "lineRange": [
+            71,
+            115
+          ]
+        }
+      ],
+      "assertions": [
+        {
+          "path": "packages/engine-core/test/rules/layers/478.3-fiora-buff-then-recheck-ability.test.mjs",
+          "line": 19,
+          "testName": "layers-fiora-buff-then-recheck-ability",
+          "command": "node --test packages/engine-core/test/rules/layers/478.3-fiora-buff-then-recheck-ability.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed."
+        },
+        {
+          "path": "packages/engine-core/test/rules/layers/478.1.b-dependency-chain-evaluate-from-endpoint.test.mjs",
+          "line": 18,
+          "testName": "layers-dependency-chain-evaluate-from-endpoint",
+          "command": "node --test packages/engine-core/test/rules/layers/478.1.b-dependency-chain-evaluate-from-endpoint.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed."
+        },
+        {
+          "path": "packages/engine-core/test/rules/layers/478.1.c-siphon-power-mutual-dependency.test.mjs",
+          "line": 32,
+          "testName": "layers-siphon-power-mutual-dependency",
+          "command": "node --test packages/engine-core/test/rules/layers/478.1.c-siphon-power-mutual-dependency.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed; mutual dependency ended at 4/4."
+        },
+        {
+          "path": "packages/engine-core/test/rules/layers/480-dependency-vs-timestamp-within-layer.test.mjs",
+          "line": 12,
+          "testName": "layers-dependency-vs-timestamp-within-layer",
+          "command": "read-only test inventory",
+          "exitCode": 0,
+          "result": "todo",
+          "observed": "Same-layer per-effect dependency ordering remains TODO."
+        },
+        {
+          "path": "packages/engine-core/test/rules/layers/481.1-no-dependency-falls-back-to-timestamp.test.mjs",
+          "line": 11,
+          "testName": "layers-no-dependency-falls-back-to-timestamp",
+          "command": "read-only test inventory",
+          "exitCode": 0,
+          "result": "todo",
+          "observed": "No-dependency timestamp application remains TODO."
+        },
+        {
+          "path": "packages/engine-core/test/rules/layers/482.2-inactive-text-loses-timestamp.test.mjs",
+          "line": 15,
+          "testName": "layers-inactive-text-loses-timestamp",
+          "command": "read-only test inventory",
+          "exitCode": 0,
+          "result": "todo",
+          "observed": "Inactive text timestamp lifecycle remains TODO."
+        }
+      ],
+      "sourceConflictAndSupersession": [
+        "CR478.1 dependency procedures are new relative to older layer text and must not be implemented with a batch sum plus timestamp fallback."
+      ],
+      "missingEvidence": [
+        "Same-layer dependency graph applied effect-by-effect rather than batch aggregation.",
+        "Timestamp fallback after proving no dependency.",
+        "Inactive text removal/restoration and new timestamp assignment.",
+        "Production M1 assertion for Jaull-Fish Mighty discount and Rumble keyword re-expansion."
+      ],
+      "owner": {
+        "primaryOwner": "RIFT-798",
+        "dependencies": [
+          "RIFT-846",
+          "RIFT-857"
+        ],
+        "reason": "Layer dependency ordering owner identified in source history.",
+        "requestedInterface": "Provide per-effect dependency ordering and timestamp fallback in the layer engine; preserve object cycles and fail closed on unresolved numeric cycles."
+      }
+    },
+    {
+      "id": "E-011-simultaneous-trigger-controller-and-turn-order",
+      "status": "verified",
+      "category": "trigger-order",
+      "canonicalCardId": "general",
+      "canonicalCardIds": [
+        "general"
+      ],
+      "officialSources": [
+        {
+          "id": "cr15",
+          "sourceType": "official-core-rules",
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules",
+          "publishedAt": "2026-10-09",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "1.5",
+          "cachedText": "/root/swarm-rift/shared/rules/CR-v1.5.txt",
+          "cachedSha256": "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2",
+          "officialLocator": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf"
+        },
+        {
+          "id": "radiance-rulings",
+          "sourceType": "official-rulings-and-patch-notes",
+          "url": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+          "title": "Core Rules: Radiance Patch Notes (Effective October 16, 2026)",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "Core Rules 1.5",
+          "cachedSha256": "dfba4f3ecf6956c32c19327330eaca96d317bedbf2c211c80a8fe1f1dccb569f",
+          "officialLocator": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+        }
+      ],
+      "ruleCitations": [
+        {
+          "rule": "CR303.2.a",
+          "location": "CR-v1.5.txt:1267",
+          "shortQuote": "Simultaneous effects are organized by Turn Order."
+        },
+        {
+          "rule": "CR383.3.d",
+          "location": "CR-v1.5.txt:2731",
+          "shortQuote": "A player chooses order for its own simultaneous triggers."
+        },
+        {
+          "rule": "CR383.3.d.1",
+          "location": "CR-v1.5.txt:2733",
+          "shortQuote": "Multiple players order starting with Turn Player and continuing in Turn Order."
+        }
+      ],
+      "conclusion": "Each controller chooses the order of its own simultaneously triggered abilities. Controller groups are appended in Turn Order from the current Turn Player. Finalization then follows append order and resolution follows the finalized Chain rules.",
+      "timeline": [
+        {
+          "step": 1,
+          "state": "One action triggers abilities from multiple controllers.",
+          "detail": "All hits belong to one trigger collection wave."
+        },
+        {
+          "step": 2,
+          "state": "Current Turn Player orders its own hits.",
+          "detail": "Then each next player in Turn Order orders its own hits."
+        },
+        {
+          "step": 3,
+          "state": "Items append in those controller groups.",
+          "detail": "No items are placed simultaneously."
+        },
+        {
+          "step": 4,
+          "state": "Finalize and resolve through FEPR.",
+          "detail": "Do not infer order from card names or source iteration."
+        }
+      ],
+      "playerWindows": [
+        "Each controller chooses order among its own simultaneous triggers.",
+        "Turn Order selects which controller group appends first."
+      ],
+      "codeEntries": [
+        {
+          "path": "packages/engine-core/src/events/pipeline.ts",
+          "line": 245,
+          "symbol": "scan",
+          "role": "collects trigger wave",
+          "headSha256": "563ba9ec2dc1cc4a4564f3cb9bcb1f91c6769be555104aa2a4a0025fc873ee6d",
+          "lineRange": [
+            245,
+            314
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/events/pipeline.ts",
+          "line": 284,
+          "symbol": "scan controller order",
+          "role": "Turn Order grouping and own-order choice",
+          "headSha256": "563ba9ec2dc1cc4a4564f3cb9bcb1f91c6769be555104aa2a4a0025fc873ee6d",
+          "lineRange": [
+            284,
+            313
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/chain/engine.ts",
+          "line": 407,
+          "symbol": "advance",
+          "role": "subsequent FEPR sequencing",
+          "headSha256": "c16e96447db2d4cb93025df081d7e1edc9cc8acde562cb2b745fcd738c230ba8",
+          "lineRange": [
+            407,
+            428
+          ]
+        }
+      ],
+      "assertions": [
+        {
+          "path": "packages/engine-core/test/rules/chain/303.2.a-simultaneous-triggers-turn-order.test.mjs",
+          "line": 10,
+          "testName": "chain-simultaneous-triggers-turn-order",
+          "command": "node --test packages/engine-core/test/rules/chain/303.2.a-simultaneous-triggers-turn-order.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed; A appended first, B resolved first."
+        },
+        {
+          "path": "packages/engine-core/test/rules/chain/383.3.d-simultaneous-triggers-same-player-orders.test.mjs",
+          "line": 10,
+          "testName": "chain-simultaneous-triggers-same-player-orders",
+          "command": "node --test packages/engine-core/test/rules/chain/383.3.d-simultaneous-triggers-same-player-orders.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed; controller chose append order."
+        },
+        {
+          "path": "packages/engine-core/test/events/pipeline-scenarios.test.mjs",
+          "line": 68,
+          "testName": "triggers-simultaneous-own-choice-order",
+          "command": "node --test packages/engine-core/test/events/pipeline-scenarios.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "43 pipeline tests passed, including own-order and Turn Order."
+        },
+        {
+          "path": "packages/engine-core/test/rules/triggers/383.4.c.2.a-conquer-unit-present.test.mjs",
+          "line": 28,
+          "testName": "triggers-conquer-unit-present (383.4.c.2.a)",
+          "command": "node --test packages/engine-core/test/rules/triggers/383.4.c.2.a-conquer-unit-present.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed; conquer trigger became Pending in the scoring wave."
+        }
+      ],
+      "sourceConflictAndSupersession": [
+        "The Chronobreak answer is an application of CR303.2.a to mixed owners; it does not create a different general trigger-order rule."
+      ],
+      "missingEvidence": [],
+      "owner": {
+        "primaryOwner": "RIFT-810",
+        "dependencies": [],
+        "reason": "Trigger pipeline collection/order owner.",
+        "requestedInterface": "Keep immutable event snapshots and per-controller order prompts; preserve Turn Order grouping across nested trigger waves."
+      }
+    },
+    {
+      "id": "E-012-target-loss-ignored-negated-linked-and-lki",
+      "status": "pending",
+      "category": "targeting-resolution-lki",
+      "canonicalCardId": "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+      "canonicalCardIds": [
+        "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+        "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
+        "card.hash-600e0796e82099284b213e87b112b1c5df42777ef72b70a3b4cd49a84d27dd10",
+        "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b"
+      ],
+      "m1Cards": [
+        {
+          "canonicalCardId": "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+          "name": "Strike Down",
+          "m1Decks": [
+            "fiora-sfd"
+          ],
+          "printings": [
+            "sfd-107-221"
+          ],
+          "zones": [
+            "mainDeck"
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
+          "name": "Wages of Pain",
+          "m1Decks": [
+            "rumble-sfd"
+          ],
+          "printings": [
+            "sfd-070-221"
+          ],
+          "zones": [
+            "mainDeck"
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-600e0796e82099284b213e87b112b1c5df42777ef72b70a3b4cd49a84d27dd10",
+          "name": "Void Seeker",
+          "m1Decks": [
+            "rumble-sfd"
+          ],
+          "printings": [
+            "ogn-024-298"
+          ],
+          "zones": [
+            "mainDeck"
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b",
+          "name": "Singularity",
+          "m1Decks": [
+            "rumble-sfd"
+          ],
+          "printings": [
+            "ogn-105-298"
+          ],
+          "zones": [
+            "mainDeck"
+          ]
+        }
+      ],
+      "officialSources": [
+        {
+          "id": "cr15",
+          "sourceType": "official-core-rules",
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules",
+          "publishedAt": "2026-10-09",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "1.5",
+          "cachedText": "/root/swarm-rift/shared/rules/CR-v1.5.txt",
+          "cachedSha256": "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2",
+          "officialLocator": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf"
+        },
+        {
+          "id": "radiance-rulings",
+          "sourceType": "official-rulings-and-patch-notes",
+          "url": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+          "title": "Core Rules: Radiance Patch Notes (Effective October 16, 2026)",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "Core Rules 1.5",
+          "cachedSha256": "dfba4f3ecf6956c32c19327330eaca96d317bedbf2c211c80a8fe1f1dccb569f",
+          "officialLocator": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+        }
+      ],
+      "ruleCitations": [
+        {
+          "rule": "CR355.8",
+          "location": "CR-v1.5.txt:1703",
+          "shortQuote": "Valid choices are required to put a spell or ability on the Chain."
+        },
+        {
+          "rule": "CR359.3.e.5",
+          "location": "CR-v1.5.txt:2106",
+          "shortQuote": "Illegal targets are unaffected; unrelated instructions may still execute."
+        },
+        {
+          "rule": "CR359.3.e.6",
+          "location": "CR-v1.5.txt:2127",
+          "shortQuote": "Unavailable/illegal target instructions are Ignored; other impossible instructions are Negated."
+        },
+        {
+          "rule": "CR359.3.e.12",
+          "location": "CR-v1.5.txt:2186",
+          "shortQuote": "Unavailable target information returns null and dependent instructions are ignored."
+        },
+        {
+          "rule": "CR359.3.e.13",
+          "location": "CR-v1.5.txt:2213",
+          "shortQuote": "A move may look back at characteristics before the zone change."
+        },
+        {
+          "rule": "CR359.3.e.14.a",
+          "location": "CR-v1.5.txt:2223",
+          "shortQuote": "An ignored earlier linked instruction ignores the later linked instruction."
+        },
+        {
+          "rule": "CR359.3.e.14.b",
+          "location": "CR-v1.5.txt:2234",
+          "shortQuote": "A negated earlier action does not suppress a later instruction unless it directly references the action."
+        }
+      ],
+      "conclusion": "Targets lock at Finalize and are retested at Resolve. A target that leaves the relevant board location makes related instructions Ignored; unrelated instructions still execute. Ignored earlier links suppress dependent later links, while Negated earlier actions suppress only instructions that directly reference that action. LKI is available only through an authoritative captured snapshot and cannot revive a stale reference. Partial prevention remains unresolved.",
+      "timeline": [
+        {
+          "step": 1,
+          "state": "Choose and lock legal targets at Finalize.",
+          "detail": "Target relations and group constraints are frozen."
+        },
+        {
+          "step": 2,
+          "state": "Opponents may react after Finalize.",
+          "detail": "They can move, remove, control-change, or otherwise change targets."
+        },
+        {
+          "step": 3,
+          "state": "Resolve retests each locked target.",
+          "detail": "Zone identity and current requirements matter."
+        },
+        {
+          "step": 4,
+          "state": "Classify instructions.",
+          "detail": "Target/information failure becomes Ignored; other impossibility becomes Negated."
+        },
+        {
+          "step": 5,
+          "state": "Apply linked instructions.",
+          "detail": "Ignored upstream suppresses dependent links; Negated upstream only suppresses direct action references."
+        },
+        {
+          "step": 6,
+          "state": "Use only captured LKI.",
+          "detail": "No current lookup by card id or name."
+        }
+      ],
+      "playerWindows": [
+        "Target choice occurs at Finalize; players cannot retarget a locked item unless an explicit effect grants new choices.",
+        "Opponents may react after Finalize and before Resolve.",
+        "Resolution-time choices not specified for Finalize occur on Resolve."
+      ],
+      "codeEntries": [
+        {
+          "path": "packages/engine-core/src/target/target-plan.ts",
+          "line": 545,
+          "symbol": "finalizeTargetPlan",
+          "role": "locks target choices",
+          "headSha256": "4399eef93f6d9199a6795e967bce7682d9ddc058bc04cb6a369cf00b5f760970",
+          "lineRange": [
+            545,
+            579
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/target/target-plan.ts",
+          "line": 581,
+          "symbol": "resolveTargetPlan",
+          "role": "retests locked targets",
+          "headSha256": "4399eef93f6d9199a6795e967bce7682d9ddc058bc04cb6a369cf00b5f760970",
+          "lineRange": [
+            581,
+            619
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/effects/interpreter.ts",
+          "line": 205,
+          "symbol": "instruction outcome propagation",
+          "role": "ignored/negated/linked handling",
+          "headSha256": "5996069c7e81697d5ccb3d56863f80b0d2715f881539f990c8cacbe03cc817d8",
+          "lineRange": [
+            205,
+            235
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/chain/engine.ts",
+          "line": 260,
+          "symbol": "context",
+          "role": "Finalize and Resolve context construction",
+          "headSha256": "c16e96447db2d4cb93025df081d7e1edc9cc8acde562cb2b745fcd738c230ba8",
+          "lineRange": [
+            260,
+            290
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/events/pipeline.ts",
+          "line": 245,
+          "symbol": "scan",
+          "role": "captures pre-leave source snapshot",
+          "headSha256": "563ba9ec2dc1cc4a4564f3cb9bcb1f91c6769be555104aa2a4a0025fc873ee6d",
+          "lineRange": [
+            245,
+            314
+          ]
+        }
+      ],
+      "assertions": [
+        {
+          "path": "packages/engine-core/test/rules/targeting/355.5-355.7-355.15-lock-at-finalize.test.mjs",
+          "line": 9,
+          "testName": "targeting-choose-locks-at-finalize",
+          "command": "node --test packages/engine-core/test/rules/targeting/355.5-355.7-355.15-lock-at-finalize.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed."
+        },
+        {
+          "path": "packages/engine-core/test/rules/targeting/359.3.e.12-null-referent.test.mjs",
+          "line": 10,
+          "testName": "targeting-null-referent-ignores-linked",
+          "command": "node --test packages/engine-core/test/rules/targeting/359.3.e.12-null-referent.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed."
+        },
+        {
+          "path": "packages/engine-core/test/rules/targeting/359.3.e.13-lookback-after-zone-change.test.mjs",
+          "line": 10,
+          "testName": "targeting-lookback-after-zone-change",
+          "command": "node --test packages/engine-core/test/rules/targeting/359.3.e.13-lookback-after-zone-change.test.mjs",
+          "exitCode": 0,
+          "result": "partial",
+          "observed": "1 passed, 1 todo; Show Off snapshot remains blocked."
+        },
+        {
+          "path": "packages/engine-core/test/rules/targeting/359.3.e.14.a-linked-ignored.test.mjs",
+          "line": 10,
+          "testName": "targeting-ignored-earlier-ignores-linked",
+          "command": "node --test packages/engine-core/test/rules/targeting/359.3.e.14.a-linked-ignored.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed."
+        },
+        {
+          "path": "packages/engine-core/test/rules/targeting/359.3.e.14.b-negated-linked-still-executes.test.mjs",
+          "line": 11,
+          "testName": "targeting-negated-linked-still-executes",
+          "command": "node --test packages/engine-core/test/rules/targeting/359.3.e.14.b-negated-linked-still-executes.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed."
+        },
+        {
+          "path": "packages/engine-core/test/rules/targeting/359.3.e.14.b-replaced-linked-if-not-execute.test.mjs",
+          "line": 10,
+          "testName": "targeting-replaced-linked-if-not-execute",
+          "command": "node --test packages/engine-core/test/rules/targeting/359.3.e.14.b-replaced-linked-if-not-execute.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed."
+        },
+        {
+          "path": "packages/engine-core/test/rules/targeting/359.3.e.14.c-partial-prevent-linked.test.mjs",
+          "line": 15,
+          "testName": "targeting-partial-prevent-linked-runs",
+          "command": "read-only test inventory",
+          "exitCode": 0,
+          "result": "todo",
+          "observed": "Partial prevention link result and same-location referent remain blocked."
+        },
+        {
+          "path": "packages/engine-core/test/rules/combat/808.2-deathknell-instances-and-order.test.mjs",
+          "line": 64,
+          "testName": "combat-deathknell-pending-before-trash (808.2.a): the opposite order choice produces the opposite chain order",
+          "command": "node --test packages/engine-core/test/rules/combat/808.2-deathknell-instances-and-order.test.mjs",
+          "exitCode": 0,
+          "result": "partial",
+          "observed": "2 passed, 1 todo; pre-Trash trigger snapshot retained, but Pending-before-Trash ordering remains TODO."
+        },
+        {
+          "path": "packages/engine-core/test/rules/targeting/359.3.e.10-still-played.test.mjs",
+          "line": 9,
+          "testName": "targeting-still-played-when-all-ignored",
+          "command": "node --test packages/engine-core/test/rules/targeting/359.3.e.10-still-played.test.mjs",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed."
+        }
+      ],
+      "sourceConflictAndSupersession": [
+        "CR359.3.e.14.c preserves a later linked instruction after partial prevention; the current effect.damage result surface cannot yet express that distinction."
+      ],
+      "missingEvidence": [
+        "Partial-prevention outcome carried into linked-instruction execution.",
+        "Deathknell Pending item observable before the source moves to Trash.",
+        "Show Off locked characteristic snapshots.",
+        "Strike Down production non-target pick lifecycle and equipped predicate."
+      ],
+      "owner": {
+        "primaryOwner": "RIFT-831",
+        "dependencies": [
+          "RIFT-826",
+          "RIFT-835"
+        ],
+        "reason": "Lifecycle/LKI and pre-exit timing owner.",
+        "requestedInterface": "Publish pre-exit trigger snapshots and preserve event.it across zone change; keep stale objects ignored and never revive by id."
+      }
+    },
+    {
+      "id": "E-013-m1-high-risk-card-regressions",
+      "status": "blocked",
+      "category": "m1-production-regressions",
+      "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+      "canonicalCardIds": [
+        "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+        "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+        "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
+        "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d"
+      ],
+      "m1Cards": [
+        {
+          "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+          "name": "Rumble, Hotheaded",
+          "m1Decks": [
+            "rumble-sfd"
+          ],
+          "printings": [
+            "sfd-026-221",
+            "sfd-026a-221"
+          ],
+          "zones": [
+            "champion",
+            "mainDeck"
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+          "name": "Strike Down",
+          "m1Decks": [
+            "fiora-sfd"
+          ],
+          "printings": [
+            "sfd-107-221"
+          ],
+          "zones": [
+            "mainDeck"
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
+          "name": "Wages of Pain",
+          "m1Decks": [
+            "rumble-sfd"
+          ],
+          "printings": [
+            "sfd-070-221"
+          ],
+          "zones": [
+            "mainDeck"
+          ]
+        },
+        {
+          "canonicalCardId": "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
+          "name": "Riposte",
+          "m1Decks": [
+            "fiora-sfd"
+          ],
+          "printings": [
+            "sfd-206-221"
+          ],
+          "zones": [
+            "mainDeck"
+          ]
+        }
+      ],
+      "officialSources": [
+        {
+          "id": "cr15",
+          "sourceType": "official-core-rules",
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules",
+          "publishedAt": "2026-10-09",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "1.5",
+          "cachedText": "/root/swarm-rift/shared/rules/CR-v1.5.txt",
+          "cachedSha256": "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2",
+          "officialLocator": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf"
+        },
+        {
+          "id": "radiance-rulings",
+          "sourceType": "official-rulings-and-patch-notes",
+          "url": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+          "title": "Core Rules: Radiance Patch Notes (Effective October 16, 2026)",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "Core Rules 1.5",
+          "cachedSha256": "dfba4f3ecf6956c32c19327330eaca96d317bedbf2c211c80a8fe1f1dccb569f",
+          "officialLocator": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+        }
+      ],
+      "ruleCitations": [
+        {
+          "rule": "CR054.1",
+          "location": "CR-v1.5.txt:19",
+          "shortQuote": "Conditional prohibition comparison."
+        },
+        {
+          "rule": "CR355.10.c.1",
+          "location": "CR-v1.5.txt:1744",
+          "shortQuote": "A cost within instructions is not a target."
+        },
+        {
+          "rule": "CR359.3.e",
+          "location": "CR-v1.5.txt:2075",
+          "shortQuote": "Illegal/impossible instruction handling."
+        },
+        {
+          "rule": "CR420.4",
+          "location": "CR-v1.5.txt:3277",
+          "shortQuote": "Play effects and played-card checks occur at the specified completion points."
+        }
+      ],
+      "conclusion": "Focused current-HEAD tests contain real regressions. Rumble has three failed assertions, Strike Down one, Wages of Pain two, and Riposte one. These failures remain implementation blockers and cannot be converted into accepted behavior or weakened assertions.",
+      "timeline": [
+        {
+          "step": 1,
+          "state": "Run focused current-card tests.",
+          "detail": "40 tests total: 31 pass, 7 fail, 2 todo."
+        },
+        {
+          "step": 2,
+          "state": "Capture exact assertion mismatch.",
+          "detail": "Failures include ProgramBindingError, partial-vs-executed, stale expected filter, and extra token receipt fields."
+        },
+        {
+          "step": 3,
+          "state": "Preserve fail-closed status.",
+          "detail": "No card is promoted based on structural-only tests."
+        }
+      ],
+      "playerWindows": [
+        "No new player window; these failures block the relevant card-specific production flows."
+      ],
+      "codeEntries": [
+        {
+          "path": "packages/card-dsl/src/cards/sfd/rumble-hotheaded.ts",
+          "line": 45,
+          "symbol": "Rumble, Hotheaded",
+          "role": "judge-required card program",
+          "headSha256": "576b20ed7e3fdcb9fb8bc8ef06b20dbe04fb67096887af96f4a3d10c7f4dd926",
+          "lineRange": [
+            45,
+            127
+          ]
+        },
+        {
+          "path": "packages/card-dsl/src/cards/sfd/strike-down.ts",
+          "line": 37,
+          "symbol": "Strike Down",
+          "role": "judge-required pick lifecycle",
+          "headSha256": "ca5dcd2d06c20c539cd52b8a1961e45173309e706665c28a84f912844be47712",
+          "lineRange": [
+            37,
+            119
+          ]
+        },
+        {
+          "path": "packages/card-dsl/src/cards/sfd/wages-of-pain.ts",
+          "line": 30,
+          "symbol": "Wages of Pain",
+          "role": "judge-required Gold/Hidden",
+          "headSha256": "655a2039bbdd7ccecdcf402ed3ea91a461b431816307869b0d1ffacd54012716",
+          "lineRange": [
+            30,
+            87
+          ]
+        },
+        {
+          "path": "packages/card-dsl/src/cards/sfd/riposte.ts",
+          "line": 49,
+          "symbol": "Riposte",
+          "role": "executable program with failing controller assertion",
+          "headSha256": "e4929d70d85b171864ba554b9e16a51247101f746aad0c5ddf5f5a5b0f325f7b",
+          "lineRange": [
+            49,
+            102
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/programs/filters.ts",
+          "line": 68,
+          "symbol": "translateObjectFilter",
+          "role": "filter translation failures",
+          "headSha256": "77ad0aec220db00b8122e50f07218098dbf2b087942f2efac54536f2a9907197",
+          "lineRange": [
+            68,
+            127
+          ]
+        }
+      ],
+      "assertions": [
+        {
+          "path": "packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs",
+          "line": 259,
+          "testName": "Rumble, Hotheaded: the rewritten conquer trigger registers but cannot match a real conquer wave",
+          "command": "node --test packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs",
+          "exitCode": 1,
+          "result": "failed",
+          "observed": "Missing expected exception."
+        },
+        {
+          "path": "packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs",
+          "line": 294,
+          "testName": "Rumble, Hotheaded: the default static binder registers the original friendly-Mech Assault aura",
+          "command": "node --test packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs",
+          "exitCode": 1,
+          "result": "failed",
+          "observed": "Actual filter retained controller: controller and tags: Mech instead of controller: A and tags: [Mech]."
+        },
+        {
+          "path": "packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs",
+          "line": 340,
+          "testName": "Rumble, Hotheaded: the real trigger body computes the discount and records the CostPlan shape blocker",
+          "command": "node --test packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs",
+          "exitCode": 1,
+          "result": "failed",
+          "observed": "Actual partial; expected executed."
+        },
+        {
+          "path": "packages/card-dsl/test/cards/sfd/strike-down.test.mjs",
+          "line": 244,
+          "testName": "Strike Down: the printed equipped restriction has no supported filter field",
+          "command": "node --test packages/card-dsl/test/cards/sfd/strike-down.test.mjs",
+          "exitCode": 1,
+          "result": "failed",
+          "observed": "ProgramBindingError judge-required: Unsupported filter field equipped."
+        },
+        {
+          "path": "packages/card-dsl/test/cards/sfd/wages-of-pain.test.mjs",
+          "line": 111,
+          "testName": "Wages of Pain: the Gold token really is unavailable in the frozen table, and the entry stipulation is rejected",
+          "command": "node --test packages/card-dsl/test/cards/sfd/wages-of-pain.test.mjs",
+          "exitCode": 1,
+          "result": "failed",
+          "observed": "Receipt gained blockedReason, createdAmount and createdObjects."
+        },
+        {
+          "path": "packages/card-dsl/test/cards/sfd/wages-of-pain.test.mjs",
+          "line": 139,
+          "testName": "sfd-070-221 Wages of Pain: Hidden's cost.hidden declaration has no production consumer (811.1.b)",
+          "command": "node --test packages/card-dsl/test/cards/sfd/wages-of-pain.test.mjs",
+          "exitCode": 1,
+          "result": "failed",
+          "observed": "Missing expected exception."
+        },
+        {
+          "path": "packages/card-dsl/test/cards/sfd/riposte.test.mjs",
+          "line": 255,
+          "testName": "Riposte golden: the grant follows the ability controller, not a fixed seat",
+          "command": "node --test packages/card-dsl/test/cards/sfd/riposte.test.mjs",
+          "exitCode": 1,
+          "result": "failed",
+          "observed": "Actual partial; expected executed."
+        }
+      ],
+      "sourceConflictAndSupersession": [
+        "These are code/test regressions, not source conflicts.",
+        "The persisted coverage file cannot override failing focused tests."
+      ],
+      "missingEvidence": [
+        "A passing current-HEAD production assertion for each failed card path."
+      ],
+      "owner": {
+        "primaryOwner": "RIFT-857",
+        "dependencies": [
+          "RIFT-810",
+          "RIFT-833",
+          "RIFT-835",
+          "RIFT-856"
+        ],
+        "reason": "M1 two-precon acceptance owns the consolidated card gate.",
+        "requestedInterface": "Keep each card blocked until the exact failing assertion is repaired by its core owner and the unchanged assertion passes."
+      }
+    },
+    {
+      "id": "E-014-production-runtime-and-chain-integration",
+      "status": "pending",
+      "category": "production-integration",
+      "canonicalCardId": "general",
+      "canonicalCardIds": [
+        "general"
+      ],
+      "officialSources": [
+        {
+          "id": "cr15",
+          "sourceType": "official-core-rules",
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules",
+          "publishedAt": "2026-10-09",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "1.5",
+          "cachedText": "/root/swarm-rift/shared/rules/CR-v1.5.txt",
+          "cachedSha256": "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2",
+          "officialLocator": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf"
+        },
+        {
+          "id": "radiance-rulings",
+          "sourceType": "official-rulings-and-patch-notes",
+          "url": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+          "title": "Core Rules: Radiance Patch Notes (Effective October 16, 2026)",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "Core Rules 1.5",
+          "cachedSha256": "dfba4f3ecf6956c32c19327330eaca96d317bedbf2c211c80a8fe1f1dccb569f",
+          "officialLocator": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+        }
+      ],
+      "ruleCitations": [
+        {
+          "rule": "CR312.2.c",
+          "location": "CR-v1.5.txt:1305",
+          "shortQuote": "Priority after all Pending items finalize."
+        },
+        {
+          "rule": "CR337",
+          "location": "CR-v1.5.txt:1551",
+          "shortQuote": "Finalize step."
+        },
+        {
+          "rule": "CR340",
+          "location": "CR-v1.5.txt:1590",
+          "shortQuote": "Resolve step."
+        }
+      ],
+      "conclusion": "Current room production uses CurrentDuelRuntime and a P4 authoritative owner. It has real Spell, pending-payment, public-chain and Gear Chain tests, but the current HEAD has not integrated all rule-layer features or M1 card programs. A failing optional-unit-room test also conflicts with the current deprecated-profile archive behavior. Rule-layer passing tests and production P4 tests must be reported separately.",
+      "timeline": [
+        {
+          "step": 1,
+          "state": "Room creates CurrentDuelRuntime.",
+          "detail": "Deprecated profile selector does not select the current executor."
+        },
+        {
+          "step": 2,
+          "state": "Production command enters authoritative P4 owner.",
+          "detail": "Spell, Gear and optional-unit services branch by trusted server capability."
+        },
+        {
+          "step": 3,
+          "state": "P4 owner projects pending/finalized Chain state.",
+          "detail": "Public and private views remain separate."
+        },
+        {
+          "step": 4,
+          "state": "Full M1 path still blocks.",
+          "detail": "Parent 100-seed run had 0 natural winners and 100 blocked runs."
+        }
+      ],
+      "playerWindows": [
+        "Production pending Spell payment blocks pass/response until payment completes.",
+        "Production priority and focus commands must use current projected windows."
+      ],
+      "codeEntries": [
+        {
+          "path": "apps/game-server/src/duel/runtime/current.ts",
+          "line": 16,
+          "symbol": "CurrentDuelRuntime",
+          "role": "room production facade",
+          "headSha256": "7d98a995219f99250d3805af54fbd6a6cf0c2005c333c2b017fdb65827af3c41",
+          "lineRange": [
+            16,
+            111
+          ]
+        },
+        {
+          "path": "apps/game-server/src/duel/runtime/current-recording.ts",
+          "line": 27,
+          "symbol": "createCurrentRecording",
+          "role": "fixed current recording factory",
+          "headSha256": "ae667fb1f1d46b7d56ec20fdb0ee8abaf8a8ea934c58d2d58591bf7f8f839e60",
+          "lineRange": [
+            27,
+            135
+          ]
+        },
+        {
+          "path": "apps/game-server/src/duel/authoritative-runtime-p4.ts",
+          "line": 373,
+          "symbol": "createAuthoritativeDuelRuntimeP4",
+          "role": "server-owned production owner",
+          "headSha256": "ea274fc3553b509332ea1c0fd74d14ad82d071f2b1a5e3d8338967845f00b457",
+          "lineRange": [
+            373,
+            1575
+          ]
+        },
+        {
+          "path": "apps/game-server/src/room.ts",
+          "line": 612,
+          "symbol": "duelRuntime creation",
+          "role": "room integration point",
+          "headSha256": "5634085abe7fb5038a762ac70d750bdc45094ac5a28983e59492ad5bc6a601c3",
+          "lineRange": [
+            612,
+            614
+          ]
+        },
+        {
+          "path": "packages/engine-core/src/duel/chain-v2.ts",
+          "line": 506,
+          "symbol": "createDuelChainV2",
+          "role": "production-chain state machine",
+          "headSha256": "b1f739bde0af32dcab8d6e5531f708c1f81c2dca2e167270d869505ac1a2ab76",
+          "lineRange": [
+            506,
+            537
+          ]
+        }
+      ],
+      "assertions": [
+        {
+          "path": "apps/game-server/tests/duel/authoritative-spell-p4.test.ts",
+          "line": 37,
+          "testName": "plays a genuine Draw Spell through payment, both priority passes, Chain resolution and retirement",
+          "command": "pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/duel/authoritative-spell-p4.test.ts",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "1 test passed."
+        },
+        {
+          "path": "apps/game-server/tests/duel/public-chain-card-p4.test.ts",
+          "line": 84,
+          "testName": "projects real pending and finalized Spells through a two-card Reaction Chain and LIFO exit",
+          "command": "pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/duel/public-chain-card-p4.test.ts",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "4 tests passed."
+        },
+        {
+          "path": "apps/game-server/tests/duel/pending-spell-resource-ack-p4.test.ts",
+          "line": 113,
+          "testName": "keeps unpaid Chain priority closed against pass, response and foreign payment",
+          "command": "pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/duel/pending-spell-resource-ack-p4.test.ts",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "5 passed, 1 skipped."
+        },
+        {
+          "path": "apps/game-server/tests/duel/gear-normal-production-chain.test.ts",
+          "line": 185,
+          "testName": "identifies a real Gear, separates printed and Equip costs, pays, and enters the Base",
+          "command": "pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/duel/gear-normal-production-chain.test.ts",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "3 tests passed in 38.46s on rerun; first parallel probe did not return a process exit before the tool yield and was not counted as pass."
+        },
+        {
+          "path": "apps/game-server/tests/duel/optional-unit-room-p4.test.ts",
+          "line": 121,
+          "testName": "optional-unit-choice-clock-v4 retains choice and payment across fresh room restores",
+          "command": "pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/duel/optional-unit-room-p4.test.ts",
+          "exitCode": 1,
+          "result": "failed",
+          "observed": "Expected archive.duelRuntimeProfile to be optional-unit-choice-clock-v4; actual undefined."
+        },
+        {
+          "path": "packages/integration-tests/src/headless/README.md",
+          "line": 86,
+          "testName": "M1 natural victory audit",
+          "command": "read-only RIFT-857 README evidence",
+          "exitCode": 0,
+          "result": "blocked",
+          "observed": "100 seeds produced 0 natural winners, 100 blocked, no combat/conquer/score."
+        }
+      ],
+      "sourceConflictAndSupersession": [
+        "The old optional-unit-room test expects a deprecated archive field no longer emitted by CurrentDuelRuntime.",
+        "A passing ChainEngine rule test is not production proof; a passing production test does not prove the whole M1 ruleset."
+      ],
+      "missingEvidence": [
+        "One integrated M1 production path spanning both precons from setup through natural victory.",
+        "Agreement between current room archive shape and the optional-unit-room regression test.",
+        "Production wiring for Fiora, Worthy and other current card blockers."
+      ],
+      "owner": {
+        "primaryOwner": "RIFT-350",
+        "dependencies": [
+          "RIFT-835",
+          "RIFT-857"
+        ],
+        "reason": "Current server runtime cutover owns the production facade and archive boundary.",
+        "requestedInterface": "Align room runtime profiles, projections and acceptance tests around the sole current executor; preserve legacy replay gates without selecting them for new rooms."
+      }
+    },
+    {
+      "id": "E-015-validation-and-command-evidence",
+      "status": "verified",
+      "category": "audit-verification",
+      "canonicalCardId": "general",
+      "canonicalCardIds": [
+        "general"
+      ],
+      "officialSources": [
+        {
+          "id": "cr15",
+          "sourceType": "official-core-rules",
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "title": "Riftbound Core Rules",
+          "publishedAt": "2026-10-09",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "1.5",
+          "cachedText": "/root/swarm-rift/shared/rules/CR-v1.5.txt",
+          "cachedSha256": "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2",
+          "officialLocator": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf"
+        },
+        {
+          "id": "rules-hub",
+          "sourceType": "official-rules-index",
+          "url": "https://playriftbound.com/en-us/rules-hub/",
+          "title": "Rules Hub",
+          "publishedAt": "2026-07-17T00:30:00.000Z",
+          "effectiveAt": "not-applicable",
+          "ruleVersion": "current index; Core Rules last updated 2026-10-09",
+          "cachedSha256": "ee9edae6913fa16cf7de822049b3f6a42f4b0688e7362f112d09dae710d7e78b",
+          "officialLocator": "https://playriftbound.com/en-us/rules-hub/"
+        },
+        {
+          "id": "radiance-rulings",
+          "sourceType": "official-rulings-and-patch-notes",
+          "url": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+          "title": "Core Rules: Radiance Patch Notes (Effective October 16, 2026)",
+          "publishedAt": "2026-10-09T16:00:00.000Z",
+          "effectiveAt": "2026-10-16",
+          "ruleVersion": "Core Rules 1.5",
+          "cachedSha256": "dfba4f3ecf6956c32c19327330eaca96d317bedbf2c211c80a8fe1f1dccb569f",
+          "officialLocator": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+        },
+        {
+          "id": "spiritforged-errata",
+          "sourceType": "official-card-errata",
+          "url": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/",
+          "title": "Riftbound Spiritforged Errata",
+          "publishedAt": "2026-01-14T02:00:00.000Z",
+          "effectiveAt": "not-stated-in-cached-article",
+          "ruleVersion": "card errata reviewed against Core Rules 1.5",
+          "cachedSha256": "dca55c2d013473ffca82fb649a70d16d4b4356c22f74bd5a71b3aa3a9a4c94af",
+          "officialLocator": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/"
+        },
+        {
+          "id": "spiritforged-patch-notes",
+          "sourceType": "official-patch-notes",
+          "url": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-core-rules-spiritforged-patch-notes/",
+          "title": "Riftbound Core Rules: Spiritforged Patch Notes",
+          "publishedAt": "2025-12-05T02:00:00.000Z",
+          "effectiveAt": "2025-12-12",
+          "ruleVersion": "Spiritforged-era patch notes; differing rule points superseded by Core Rules 1.5",
+          "cachedSha256": "c085e3a1b89df98df6c4458d195b276430eb49e601533d80a247786598bb3111",
+          "officialLocator": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-core-rules-spiritforged-patch-notes/"
+        }
+      ],
+      "ruleCitations": [
+        {
+          "rule": "Audit task acceptance",
+          "location": "/root/swarm-rift/prompts/RIFT-858-official-effect-order-audit.md",
+          "shortQuote": "Validate JSON, canonical IDs, official URLs, real code/test names and actual exit codes."
+        }
+      ],
+      "conclusion": "All cited official URLs returned HTTP 200 on the audit date. Cached HTML hashes match source-snapshots.json. The JSON is machine-validated after generation. Actual command results are recorded, including failures and TODO tests.",
+      "timeline": [
+        {
+          "step": 1,
+          "state": "Read task card and Git state.",
+          "detail": "Branch and HEAD recorded before work."
+        },
+        {
+          "step": 2,
+          "state": "Build engine-core.",
+          "detail": "Required before running source-level engine tests."
+        },
+        {
+          "step": 3,
+          "state": "Run focused engine, card and server tests.",
+          "detail": "Exit codes and TAP summaries captured."
+        },
+        {
+          "step": 4,
+          "state": "Validate this evidence file.",
+          "detail": "Parse JSON, field presence, canonical membership, path existence and official URL allowlist."
+        }
+      ],
+      "playerWindows": [],
+      "codeEntries": [],
+      "assertions": [
+        {
+          "path": "packages/engine-core",
+          "line": 1,
+          "testName": "engine build",
+          "command": "pnpm --filter @riftbound/engine-core build",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "gen-registries and tsc exited 0."
+        },
+        {
+          "path": "docs/rules/official-effect-order-evidence.json",
+          "line": 1,
+          "testName": "evidence JSON parse",
+          "command": "python3 -m json.tool docs/rules/official-effect-order-evidence.json",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "JSON parsed successfully."
+        },
+        {
+          "path": "docs/rules/official-effect-order-evidence.json",
+          "line": 1,
+          "testName": "canonical and field validation",
+          "command": "python3 /tmp/RIFT-858-official-effect-order-audit/validate_evidence.py",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "15 evidence records; 51 distinct M1 IDs covered; required fields, source URLs, paths and source hashes validated."
+        },
+        {
+          "path": "docs/rules/official-effect-order-audit.md",
+          "line": 1,
+          "testName": "markdown local-link validation",
+          "command": "python3 local-link validation",
+          "exitCode": 0,
+          "result": "passed",
+          "observed": "All 22 local file links exist after removing clickable line suffixes."
+        }
+      ],
+      "sourceConflictAndSupersession": [],
+      "missingEvidence": [],
+      "owner": {
+        "primaryOwner": "RIFT-858",
+        "dependencies": [],
+        "reason": "Audit owns evidence validation only.",
+        "requestedInterface": "Keep this record synchronized if implementation owners merge later changes; parent performs independent acceptance."
+      }
+    }
+  ]
+}
