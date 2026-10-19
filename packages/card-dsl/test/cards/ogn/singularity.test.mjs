@@ -712,6 +712,7 @@ function fundFromBasicRunes(kernel, match, energy, power, player = "A") {
     });
     return executeBasicRuneResourcePlan(plan);
   };
+  const spentRefs = new Set();
   let powerAdded = 0;
   for (const [index, domain] of power.entries()) {
     const rune = kernel.objectsInZone(player, "rune-zone")
@@ -719,11 +720,12 @@ function fundFromBasicRunes(kernel, match, energy, power, player = "A") {
       .find(candidate => catalogByCanonical.get(candidate.cardId).domains[0] === domain);
     if (!rune) break;
     assert.equal(spend(rune, "rune-power", `${player}-singularity-power-${index}`).powerAdded[0], domain);
+    spentRefs.add(rune.ref.id);
     powerAdded++;
   }
   const energyRunes = kernel.objectsInZone(player, "rune-zone")
     .map(ref => kernel.getObject(ref.id))
-    .filter(rune => !rune.exhausted);
+    .filter(rune => !rune.exhausted && !spentRefs.has(rune.ref.id));
   const energyAdded = Math.min(energy, energyRunes.length);
   for (const [index, rune] of energyRunes.slice(0, energyAdded).entries()) {
     assert.equal(spend(rune, "rune-energy", `${player}-singularity-energy-${index}`).energyAdded, 1);
@@ -1082,10 +1084,10 @@ test("Singularity public Match: a real B-owned Retreat removes one locked target
   fundFromBasicRunes(kernel, match, 8, ["Mind", "Mind"], "A");
   send("A", { type: "play", commandId: "response-singularity", cardObjectId: singularity.ref.id });
   send("A", { type: "pass", commandId: "response-play-pass-a" });
-  // B's opening-phase Runes are real, but B cannot spend them as a generic
-  // fixture while Singularity owns Priority. The current public resource
-  // command is payment-only for this state. Give B its one Energy for the
-  // focused Reaction step; Retreat's public Finalize still pays that Energy.
+  // TEST SETUP ONLY: B has the real three Rune objects, but the current public
+  // Closed-State resource interface is payment-oriented and would add a Chain
+  // item before Retreat can be selected. Seed its one Energy; Retreat's public
+  // Finalize still validates and deducts it.
   kernel.perform({ type: "gain-energy", player: "B", amount: 1 });
   send("B", {
     type: "play",
