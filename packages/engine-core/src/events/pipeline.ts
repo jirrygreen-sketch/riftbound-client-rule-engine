@@ -105,6 +105,8 @@ export class EventPipeline {
     this.triggers.set(registration.id, structuredClone(registration));
   }
   unregisterTrigger(id: string): void { this.triggers.delete(id); }
+  /** O(1) lifecycle probe; never snapshots or exposes the mutable registry. */
+  hasTriggerRegistration(id: string): boolean { return this.triggers.has(id); }
   registerTriggerRule(rule: TriggerRule): void {
     if (!rule.id || rule.id.trim().length === 0) throw new TypeError('Trigger rule id must be non-empty');
     if (rule.mode !== 'additional' && rule.mode !== 'multiply' && rule.mode !== 'suppress') {
@@ -131,6 +133,8 @@ export class EventPipeline {
     if (this.replacements.has(registration.id)) throw new Error(`Duplicate replacement ${registration.id}`);
     this.replacements.set(registration.id, registration);
   }
+  /** O(1) lifecycle probe; never snapshots or exposes the mutable registry. */
+  hasReplacementRegistration(id: string): boolean { return this.replacements.has(id); }
   private frequencyKey(registration: TriggerRegistration, source: ObjectSnapshot, event: PipelineEvent): string | null {
     const scope = registration.spec.once;
     if (!scope) return null;
