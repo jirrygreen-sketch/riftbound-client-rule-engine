@@ -558,6 +558,9 @@ test('EG-PIPELINE: registration probes are O(1) reads and follow checkpoint rest
   };
   const beforeEvents = pipeline.events;
   const beforeClock = structuredClone(pipeline.clock);
+  const checkpoint = pipeline.checkpoint.bind(pipeline);
+  let checkpointCalls = 0;
+  pipeline.checkpoint = () => { checkpointCalls += 1; return checkpoint(); };
   const empty = pipeline.checkpoint();
 
   assert.equal(pipeline.hasTriggerRegistration(trigger.id), false);
@@ -582,4 +585,5 @@ test('EG-PIPELINE: registration probes are O(1) reads and follow checkpoint rest
   assert.deepEqual(pipeline.clock, beforeClock);
   assert.equal(pipeline.hasTriggerRegistration(trigger.id), true);
   assert.equal(pipeline.hasReplacementRegistration(replacement.id), true);
+  assert.equal(checkpointCalls, 2, 'probes must not snapshot the pipeline');
 });
