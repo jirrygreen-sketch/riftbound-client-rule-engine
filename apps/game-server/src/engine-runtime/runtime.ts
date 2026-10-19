@@ -2,8 +2,20 @@ import type { CardProgram } from "../../../../packages/card-dsl/dist/ir/index.js
 import { createMatch, concede, type Match, type MatchDeck } from "../../../../packages/engine-core/dist/game/lifecycle.js";
 import { createActionPipelineHost } from "../../../../packages/engine-core/dist/events/action-adapter.js";
 import { createProgramBinding, type ProgramBinding } from "../../../../packages/engine-core/dist/programs/index.js";
+import { inspectStandardMove } from "../../../../packages/engine-core/dist/game/commands/movement.js";
 import type { ChoiceRequest, Domain, GameAction, ObjectRef, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
-import { isV2Command, type V2ChoiceAnswer, type V2Command, type V2Projection } from "../../../../packages/protocol/dist/v2/index.js";
+import {
+  executeBasicRuneResourcePlan,
+  planBasicRuneResourceActivation,
+  type BasicRuneResourceReceipt,
+} from "../../../../packages/engine-core/dist/runes/index.js";
+import {
+  isV2Command,
+  type V2ChoiceAnswer,
+  type V2Command,
+  type V2Projection,
+  type V2RuneResourceCommand,
+} from "../../../../packages/protocol/dist/v2/index.js";
 import { assertRuntimeJournal, ENGINE_RUNTIME_RULESET_VERSION, RuntimeJournalWriter, canonicalJson, type RuntimeJournal, type RuntimeJournalEntry, digest } from "./journal.js";
 import { EngineRuntimeHost, type RuntimeCard } from "./host.js";
 import { projectRuntime, projectionDigest } from "./projection.js";
@@ -29,6 +41,8 @@ export interface EngineRuntimeOptions {
   readonly programs?: readonly CardProgram[] | ReadonlyMap<string, CardProgram>;
   readonly engineVersion?: string;
   readonly createdAt?: string;
+  /** Non-wire lifecycle seam for asserting post-execution transaction failure. */
+  readonly afterCommandExecution?: (command: V2Command, clock: { readonly stateVersion: number; readonly eventSeq: number }) => void;
 }
 
 export interface RuntimeReceipt {
@@ -174,9 +188,14 @@ class MatchRuntime implements EngineRuntime {
     }
     if (command.stateVersion !== this.stateVersion) return this.rejected(command, playerId, `stateVersion mismatch: expected ${this.stateVersion}, received ${command.stateVersion}`);
     if (command.type === "choose") return this.choose(playerId, command);
+    const beforeCommand = this.journal();
     try {
       const result = this.execute(playerId, command);
       this.stateVersion += 1;
+      this.runtimeOptions.afterCommandExecution?.(command, {
+        stateVersion: this.stateVersion,
+        eventSeq: this.match!.events().length,
+      });
       const receipt: RuntimeReceipt = { commandId: command.commandId, status: "accepted", stateVersion: this.stateVersion, eventSeq: this.match!.events().length, result };
       this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
       this.appendJournal(playerId, command, receipt, result);
@@ -193,6 +212,10 @@ class MatchRuntime implements EngineRuntime {
         });
         return { receipt, projection: this.projectFor(playerId) };
       }
+      // If the command has already mutated state, restore from the last
+      // committed journal rather than retaining a consumed resource plan,
+      // uncommitted receipt or partial event sequence.
+      this.restore(beforeCommand);
       return this.rejected(command, playerId, error instanceof Error ? error.message : String(error));
     }
   }
@@ -301,18 +324,20 @@ class MatchRuntime implements EngineRuntime {
     if (command.type === "move") {
       const ref = this.resolveObjectRef(command.objectId, command.stateVersion);
       this.assertCanControl(playerId, ref);
-      let outcome;
-      if (command.to.zone === "deck" || command.to.zone === "rune-deck") {
-        outcome = this.host!.perform({ type: "move-zone", object: ref, to: command.to.zone === "deck" ? command.to.position === "top" ? "deck-top" : "deck-bottom" : "rune-deck" });
-      } else {
-        const destination = command.to as { readonly zone: string; readonly locationId?: string; readonly playerId?: string };
-        outcome = this.host!.perform({ type: "move-zone", object: ref, to: destination.zone as never, location: destination.locationId ? destination.zone === "battlefield" ? { type: "battlefield", id: destination.locationId } : destination.zone === "base" ? { type: "base", player: destination.playerId ?? playerId } : undefined : undefined });
-      }
-      if (outcome.status !== "done") throw new Error(`Move could not be applied: ${outcome.status}`);
-      return { accepted: true, objectId: command.objectId };
+      // Core owns Standard Move legality. Validation is complete today; the
+      // atomic Exhaust + Move transaction remains explicitly blocked there.
+      inspectStandardMove({ match, stateVersion: this.stateVersion }, playerId,
+        [command.objectId], command.to);
+      // Core has validated the full Standard Move formation. The transaction
+      // remains intentionally blocked until the core owner exposes its atomic
+      // Exhaust + Move operation.
+      throw new Error("Movement transaction is unavailable: standard-move-transaction");
     }
     if (command.type === "play") {
       if (!this.binding) throw new Error("No trusted card-program registry is bound");
+      if (command.cost !== undefined || command.targets !== undefined || command.picks !== undefined) {
+        throw new Error("Wire cost, target and pick selections require the authoritative Finalize choice adapter");
+      }
       const source = this.resolveObject(command.cardObjectId);
       this.assertCanControl(playerId, source.ref);
       const draft = this.binding.describePlay({ type: "play", object: source.ref, player: playerId }, source);
@@ -323,12 +348,16 @@ class MatchRuntime implements EngineRuntime {
       if (!this.binding) throw new Error("No trusted card-program registry is bound");
       const source = this.resolveObject(command.sourceObjectId);
       this.assertCanControl(playerId, source.ref);
-      const abilityIndex = /^\d+$/u.test(command.abilityId) ? Number(command.abilityId) : 0;
+      if (!/^(?:0|[1-9]\d*)$/u.test(command.abilityId)) throw new Error(`Unknown ability ${command.abilityId}`);
+      const abilityIndex = Number(command.abilityId);
       if (!Number.isSafeInteger(abilityIndex) || abilityIndex < 0 || !this.binding.activationAbilities(source)[abilityIndex]) {
         throw new Error(`Unknown ability ${command.abilityId}`);
       }
       match.flow.execute(this.binding.describeActivate(source, playerId, abilityIndex));
       return { accepted: true, objectId: command.sourceObjectId, abilityId: command.abilityId };
+    }
+    if (command.type === "rune-energy" || command.type === "rune-power") {
+      return this.executeRuneResource(playerId, command);
     }
     if (command.type === "declare-attack" || command.type === "declare-defense") throw new Error(`${command.type} is not available until the combat transaction adapter is installed`);
     throw new Error(`Unhandled runtime command: ${(command as { readonly type?: unknown }).type ?? "unknown"}`);
@@ -343,7 +372,51 @@ class MatchRuntime implements EngineRuntime {
   private assertCanControl(playerId: string, ref: ObjectRef): void {
     const object = this.host!.object(ref);
     if (!object) throw new Error(`Unknown object ${ref.id}`);
-    if (object.owner !== playerId && object.controller !== playerId) throw new Error("Player does not control object");
+    if (object.controller !== playerId) throw new Error("Player does not control object");
+  }
+
+  private executeRuneResource(playerId: string, command: V2RuneResourceCommand): Record<string, unknown> {
+    const match = this.match!;
+    const source = this.resolveObject(command.runeObjectId);
+    if (source.ref.zoneEntryId !== command.zoneEntryId) {
+      throw new Error(`Rune ${command.runeObjectId}:${command.zoneEntryId} is no longer current`);
+    }
+    const priorityLegal = match.flow.chain.canAct(playerId, "reaction", source.ref, source);
+    const request = {
+      actor: playerId,
+      activationId: `rune-command:${command.commandId}`,
+      intent: {
+        type: command.type,
+        runeObjectId: command.runeObjectId,
+        zoneEntryId: command.zoneEntryId,
+      },
+      window: priorityLegal ? { kind: "priority" as const } : { kind: "payment" as const },
+    };
+    const plan = planBasicRuneResourceActivation({
+      chain: match.flow.chain,
+      state: this.host!,
+      resolveIdentity: cardId => {
+        const domains = this.host!.runeDomains(source.ref);
+        if (domains.length !== 1) return null;
+        return { cardId, canonicalCardId: cardId, domain: domains[0]! };
+      },
+      request,
+    });
+    const receipt = executeBasicRuneResourcePlan(plan);
+    return this.runeReceiptResult(receipt);
+  }
+
+  private runeReceiptResult(receipt: BasicRuneResourceReceipt): Record<string, unknown> {
+    return {
+      accepted: true,
+      activationId: receipt.activationId,
+      resource: receipt.resource,
+      energyAdded: receipt.energyAdded,
+      powerAdded: [...receipt.powerAdded],
+      runeBefore: { ...receipt.runeBefore },
+      runeAfter: { ...receipt.runeAfter },
+      runeZoneAfter: receipt.runeZoneAfter,
+    };
   }
 
   private rejected(command: V2Command | { readonly commandId?: unknown }, playerId: string, error: string): RuntimeSubmitResult {

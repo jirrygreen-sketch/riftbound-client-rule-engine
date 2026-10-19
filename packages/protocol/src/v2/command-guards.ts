@@ -193,11 +193,7 @@ export function isV2ConcedeCommand(value: unknown): value is V2ConcedeCommand {
   return data(value) && base(value, "concede", []) && exact(value, ["type", "commandId", "stateVersion"]);
 }
 
-/**
- * Strict guard for the staged rune intents. There is deliberately no branch
- * for these types in `isV2Command`: old V2 consumers must continue rejecting
- * them until the matching authoritative runtime handler is enabled.
- */
+/** Strict guard for the Basic Rune resource intents. */
 export function isV2RuneResourceCommand(value: unknown): value is V2RuneResourceCommand {
   return data(value) &&
     (value.type === "rune-energy" || value.type === "rune-power") &&
@@ -218,6 +214,8 @@ export function isV2Command(value: unknown): value is V2Command {
     case "declare-attack": return isV2DeclareAttackCommand(value);
     case "declare-defense": return isV2DeclareDefenseCommand(value);
     case "concede": return isV2ConcedeCommand(value);
+    case "rune-energy": return isV2RuneResourceCommand(value);
+    case "rune-power": return isV2RuneResourceCommand(value);
     default: return false;
   }
 }

@@ -113,13 +113,11 @@ export interface V2ConcedeCommand extends V2CommandBase {
 }
 
 /**
- * Staged V2 intent for one rule-granted Basic Rune resource ability.
+ * V2 intent for one rule-granted Basic Rune resource ability.
  *
- * This type is intentionally absent from `V2Command` until the server has a
- * real handler. Keeping it separate prevents an unknown command from being
- * accepted by the current runtime merely because it is now typed in the
- * protocol package. The authenticated session supplies the actor; the client
- * names only the exact rune incarnation.
+ * The authenticated session supplies the actor; the client names only the
+ * exact Rune incarnation. The server resolves its trusted catalog identity,
+ * Domain, and current legality before accepting the command.
  */
 export type V2RuneResourceCommand =
   | (V2CommandBase & {
@@ -142,7 +140,8 @@ export type V2Command =
   | V2MoveCommand
   | V2DeclareAttackCommand
   | V2DeclareDefenseCommand
-  | V2ConcedeCommand;
+  | V2ConcedeCommand
+  | V2RuneResourceCommand;
 
 export type V2CommandType = V2Command["type"];
 export type V2ClientCommand = V2Command;
