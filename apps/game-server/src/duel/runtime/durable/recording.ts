@@ -12,6 +12,28 @@ export type DurableRuntimeOptions = RecordingOptions & {
 };
 export type RecordedRuntime = ReturnType<typeof createRecordedRuntime>;
 export type DurableRuntimeResult = ReturnType<RecordedRuntime['runtime']['dispatch']>;
+/** Owner-held reads used by the runtime bridge. Values are immutable and never
+ * take the place of a detached public archive or journal export. */
+export interface RecordedRuntimeReadAccess {
+  readonly journal: () => Journal;
+  readonly currentJournal: () => Journal;
+}
+const readAccess = new WeakMap<RecordedRuntime, RecordedRuntimeReadAccess>();
+
+/** Append-only attachment point for a recorder implementation. */
+export function registerRecordedRuntimeReadAccess(recorded: RecordedRuntime,
+  access: RecordedRuntimeReadAccess): void { readAccess.set(recorded, access); }
+
+export function recordedRuntimeReadAccess(recorded: RecordedRuntime): RecordedRuntimeReadAccess | undefined {
+  return readAccess.get(recorded);
+}
+
+/** Exact owner-held journal for duplicate/entry-count reads. */
+export function currentJournalOf(recorded: RecordedRuntime): Journal {
+  const journal = recordedRuntimeReadAccess(recorded)?.currentJournal() ?? recorded.archive().journal;
+  check(journal, 'the recorder must provide journal v1');
+  return journal;
+}
 
 /** Accepted commands can also be dispatch operations before a Core clock commit. */
 export function findRecordedDuelCommand(journal: Journal, commandId: string) {
@@ -131,11 +153,18 @@ export function restoreRecording(options: DurableRuntimeOptions, journal: Journa
 
 /** Continue the confirmed digest chain, rather than the recorder's fresh fork. */
 export function appendRecording(confirmed: Journal, before: number, recorded: RecordedRuntime): Journal {
-  const fresh = journalOf(recorded);
+  const access = recordedRuntimeReadAccess(recorded);
+  const fresh = currentJournalOf(recorded);
   const appended = fresh.entries.slice(before);
   check(appended.length === 1, 'one publication must contain exactly one command or operation');
-  const writer = new JournalWriter(confirmed);
+  // A registered recorder builds on its immutable confirmed journal. The root
+  // digest of the prior journal is the exact parent of this one-record update.
+  if (access) check(fresh.integrity.parentDigest === confirmed.integrity.currentDigest,
+    'recorder publication did not extend the confirmed journal');
   const record = appended[0]!;
+  check(record.kind === 'entry' || record.kind === 'operation', 'unsupported journal record');
+  if (access) return fresh;
+  const writer = new JournalWriter(confirmed);
   if (record.kind === 'entry') writer.recordCommand({ ...record, state: fresh.head });
   else writer.recordOperation({ ...record, state: fresh.head });
   return writer.snapshot();

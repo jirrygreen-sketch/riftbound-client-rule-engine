@@ -2,7 +2,7 @@ import { canonicalJournalJson, isDuelCommandMessageV3Actions1, isJournal, type J
 import { PrivateJournalCasConflictError } from '../private-journal-cas-store.js';
 import { createCurrentRecording } from './current-recording.js';
 import { createDurableDuelRuntime, openDurableDuelRuntime, type DurableDuelRuntime } from './durable/index.js';
-import { appendRecording, createRecording, findRecordedDuelCommand, journalOf, restoreRecording,
+import { appendRecording, createRecording, currentJournalOf, findRecordedDuelCommand, journalOf, restoreRecording,
   type DurableRuntimeOptions, type DurableRuntimeResult, type RecordedRuntime } from './durable/recording.js';
 
 export type CurrentDuelRuntimeOptions = Omit<DurableRuntimeOptions, 'recordingFactory'>;
@@ -40,7 +40,8 @@ export class CurrentDuelRuntime {
   dispatch = (actor: string, packet: unknown): DurableRuntimeResult | Promise<DurableRuntimeResult> => {
     if (this.durable) return this.durable.dispatch(actor, packet);
     if (!isDuelCommandMessageV3Actions1(packet)) throw new TypeError('Current command packet required');
-    const journal = this.exportJournal();
+    const journal = currentJournalOf(this.recorded!);
+    const before = journal.entries.length;
     const prior = findRecordedDuelCommand(journal, packet.commandId);
     if (prior) {
       const original = prior.packet;
@@ -57,7 +58,6 @@ export class CurrentDuelRuntime {
     // need reconstruction: their private receipts must not become sticky state
     // that is absent from the accepted-command journal.
     try {
-      const before = journalOf(this.recorded!).entries.length;
       const result = this.recorded!.runtime.dispatch(actor, packet);
       if (result.ack.type === 'error') this.recorded = restoreRecording(this.options, journal).recorded;
       else if (!result.ack.duplicate) this.journal = appendRecording(journal, before, this.recorded!);

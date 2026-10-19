@@ -148,4 +148,19 @@ describe('one authoritative room runtime', () => {
     expect(() => CurrentDuelRuntime.restore({ ...options,
       constructedRegion: bindConstructedRegion({ regionCode: 'ROW', eventDate: '2026-10-15' }) }, journal)).toThrow(/trusted.*mismatch/);
   });
+
+  it('keeps the internal journal immutable and every public export detached', async () => {
+    const h = await readyRoom(), initial = project(h.room);
+    if (initial.match.stage !== 'setup') throw Error('Setup required');
+    const actor = h.sessions.findIndex(s => s.playerId === initial.match.setup.currentMulliganOwner);
+    await h.room.submitDuel(h.sessions[actor]!, h.connections[actor]!.connectionId,
+      packet('detached-journal', initial.match.stateVersion, { type: 'mulligan', selectedUIDs: [] }), h.send[actor]!);
+    const archive = h.room.exportArchive(), journal = archive.journal!;
+    const exported = h.room.exportArchive().journal!;
+    expect(exported).toEqual(journal);
+    expect(exported).not.toBe(journal);
+    (exported.entries as unknown as { pop: () => unknown }).pop();
+    expect(h.room.exportArchive().journal).toEqual(journal);
+    expect(project(h.room)).toEqual(project(GameRoom.restore(archive, h.catalog)));
+  });
 });
