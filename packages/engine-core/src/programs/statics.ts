@@ -93,9 +93,10 @@ function bridgeLifecycleOnEvent(engine: ChainEngine): void {
   };
 }
 
-const LAYER_BY_KIND: Readonly<Record<string, LayerName>> = {
-  // Contract 3.4 order: copy → trait → ability → arithmetic. Only kinds with
-  // an actual layer or rule-query consumer are executable here.
+const LAYER_BY_KIND: Readonly<Record<string, LayerName>> = Object.freeze({
+  // Contract 3.4 order: copy → trait → ability → arithmetic. This table names
+  // every known ContinuousEffect family, including declarations whose runtime
+  // consumer is still blocked in bindStatic below. Unknown kinds fail closed.
   'copy': 'copy',
   'copy-object': 'copy',
   'copy-text': 'copy',
@@ -106,25 +107,48 @@ const LAYER_BY_KIND: Readonly<Record<string, LayerName>> = {
   'continuous.add-type': 'trait',
   'continuous.add-tag': 'trait',
   'continuous.remove-tag': 'trait',
+  'continuous.facedown-capacity': 'trait',
   'set-property': 'trait',
   'set-trait': 'trait',
   'trait': 'trait',
   'continuous.might': 'arithmetic',
+  'continuous.bonus-damage': 'arithmetic',
+  'continuous.lethal-threshold': 'arithmetic',
+  'continuous.modify-might-reduction': 'arithmetic',
   'set-might': 'arithmetic',
   'might': 'arithmetic',
   'buff': 'arithmetic',
+  'continuous.grant-abilities': 'ability',
+  'continuous.grant-ability': 'ability',
   'continuous.grant-keyword': 'ability',
   'grant-keyword': 'ability',
+  'continuous.ignore-abilities': 'ability',
+  'continuous.ignore-ability': 'ability',
+  'continuous.ignore-target-tax': 'ability',
   'continuous.keyword': 'ability',
+  'continuous.location': 'ability',
   'continuous.movement': 'ability',
+  'continuous.play-permission': 'ability',
   'continuous.restrict': 'ability',
+  'continuous.require': 'ability',
+  'continuous.applied-cost': 'ability',
+  'continuous.target-restriction': 'ability',
   'continuous.timing': 'ability',
-  // The merged rule-query layer reads this declaration directly. Other
-  // ContinuousEffect kinds remain blocked until their production path is
-  // connected end to end; standalone collectors are not enough evidence.
+  'continuous.trigger-multiplicity': 'ability',
+  'continuous.trigger-suppression': 'ability',
+  'continuous.cost-modification': 'ability',
   'continuous.combat': 'ability',
+  'requirement': 'ability',
   'restriction': 'ability',
-};
+  'applied-cost': 'ability',
+  'target.tax': 'ability',
+  'play-location-permission': 'ability',
+  'accelerate.cost': 'ability',
+  'repeat.cost': 'ability',
+  'cost.additional': 'ability',
+  'cost.hidden': 'ability',
+  'cost.modify': 'ability',
+});
 
 export function layerFor(effect: AnyRecord): LayerName {
   const declared = effect.layer;
@@ -483,6 +507,13 @@ function registerCost(engine: ChainEngine, ability: StaticAbility, source: Objec
 function bindStatic(engine: ChainEngine, ability: StaticAbility, source: ObjectSnapshot, ordinal: number): StaticBindingHandle {
   const kind = String(record(ability.effect).kind ?? '').toLowerCase();
   const id = `program-static:${source.ref.id}:${source.ref.zoneEntryId}:${ordinal}`;
+  // These authored families have a contract layer but no production consumer.
+  // Keep them fail-closed even though layerFor can classify the declaration.
+  if (kind === 'continuous.grant-abilities' || kind === 'continuous.ignore-abilities' ||
+      kind === 'continuous.facedown-capacity' || kind === 'continuous.play-permission' ||
+      kind === 'continuous.target-restriction') {
+    throw new ProgramBindingError('judge-required', `Static ability kind ${kind} has no layer consumer`);
+  }
   if (kind === 'continuous.grant-ability' || kind === 'continuous.ignore-ability') {
     return registerAbilityGrantRoute(engine, ability, source, id);
   }

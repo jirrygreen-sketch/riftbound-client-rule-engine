@@ -4,6 +4,8 @@ import { fixture, createProgramBinding, cardProgramsById } from '../helpers.mjs'
 import { staticFilter, layerFor, createEngineStaticBinder } from '../../../dist/programs/statics.js';
 import { ProgramBindingError } from '../../../dist/programs/errors.js';
 import { combatRules, restrictions } from '../../../dist/layers/rules/query.js';
+import { createDuelBoard, placeDuelUnit, selectDuelBattlefields } from '../../../dist/duel/battlefields.js';
+import { moveDuelUnitsStandard } from '../../../dist/zones/movement.js';
 
 const BF1 = { type: 'battlefield', id: 'battlefield-1' };
 const BF2 = { type: 'battlefield', id: 'battlefield-2' };
@@ -188,14 +190,39 @@ test('rule-query here follows the current host location and applies to both play
   assert.equal(applies('new-neighbor'), 1);
 });
 
-test('string movement permissions reach the merged movement query', () => {
+test('string movement permissions reach the real Standard Move consumer', () => {
   const f = fixture({ cards: [{ id: 'mover', types: ['unit'], might: 2 }] });
   board(f, 'mover');
   createEngineStaticBinder(f.engine).bindStatic({ kind: 'static', effect: {
-    kind: 'continuous.movement', permission: 'battlefield-to-battlefield', addsPermission: true,
+    kind: 'continuous.movement', permission: 'battlefield-to-battlefield',
+    source: 'battlefield', destination: 'battlefield', move: 'standard',
   } }, f.kernel.getObject('mover'));
   const entry = f.engine.layers.registry.list()[0];
-  assert.deepEqual(entry.effect.effect.permission, { routes: ['battlefield-to-battlefield'] });
+  assert.equal(entry.effect.effect.permission, 'battlefield-to-battlefield');
+  const duelBoard = createDuelBoard(selectDuelBattlefields([
+    { playerId: 'A', battlefields: [
+      { instanceId: 'a1', cardId: 'print-a1' }, { instanceId: 'a2', cardId: 'print-a2' },
+      { instanceId: 'a3', cardId: 'print-a3' }] },
+    { playerId: 'B', battlefields: [
+      { instanceId: 'b1', cardId: 'print-b1' }, { instanceId: 'b2', cardId: 'print-b2' },
+      { instanceId: 'b3', cardId: 'print-b3' }] },
+  ], () => 0));
+  const placed = placeDuelUnit(duelBoard, {
+    objectId: 'mover', controllerPlayerId: 'A',
+    locationId: JSON.stringify(['duel-battlefield', 'a1']),
+  });
+  const destination = JSON.stringify(['duel-battlefield', placed.battlefields[1].instanceId]);
+  const result = moveDuelUnitsStandard(placed,
+    [{ objectId: 'mover', readied: true, hasGanking: false }], {
+      actor: 'A', unitUIDs: ['mover'], destinationLocationId: destination,
+      timing: { phase: 'main', stateOpen: true, turnPlayerId: 'A', priorityPlayerId: 'A' },
+    }, {
+      registry: f.engine.layers.registry,
+      refForUnit: unit => f.kernel.ref(unit.objectId),
+      objectForUnit: unit => f.engine.layers.snapshot(f.kernel.ref(unit.objectId)),
+    });
+  assert.deepEqual(result.group.objectIds, ['mover']);
+  assert.equal(result.group.exhaustedCount, 1);
 });
 
 test('trait mappings transform characteristics through real layer consumers', () => {
