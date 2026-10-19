@@ -6,7 +6,7 @@ import swap from "../../dist/effects/instructions/effect.swap-location.js";
 import { resolveChainBody } from "../../dist/chain/interpreter-adapter.js";
 import { queryMoveDestinations } from "../../dist/target/location/candidates.js";
 import { createLayerEngine } from "../../dist/layers/engine.js";
-import { cardProgram, fixture as programFixture } from "../rules/keywords/support.mjs";
+import { cardProgram, fixture as programFixture, settle } from "../rules/keywords/support.mjs";
 import { runInstruction, world } from "../../dist/effects/testing/index.js";
 import { bindResolveContext } from "../../dist/events/action-adapter.js";
 import { createContractActionCapability } from "../../dist/events/contract-actions/bridge.js";
@@ -379,28 +379,37 @@ test("EG-RECALL swap invalid destination in production rejects the whole instruc
 });
 
 
-test("EG-RECALL runs the original Conscription recall instruction through the default production assembly", () => {
+test("EG-RECALL keeps the complete original Conscription body fail-closed at the default Recall bridge", () => {
   const ability = conscription.abilities.find(item => item.kind === "play");
   const recall = ability.body[2];
   assert.equal(recall.op, "effect.move");
   assert.equal(recall.args.mode.value, "recall");
   assert.deepEqual(recall.args.to, c("controller-base"));
-  // Keep the complete printed body and target/link relationships. The default
-  // adapter must reject the unsupported mightLte filter before any Recall.
+  // Keep the complete printed body and target/link relationships. The legal
+  // enemy target reaches Finalize, control and exhaust execute, and the default
+  // Chain boundary then refuses the Recall rather than substituting a Move.
   const program = cardProgram("test:recall-conscription", ability.body);
   const f = programFixture({
     programs: [program], energy: { A: 5 }, power: { A: [] },
     setup(builder) {
       builder.hand("spell", { cardId: program.canonicalCardId, types: ["spell"], energy: 0, power: [] });
-      builder.unit("owner", {});
+      builder.unit("enemy", { owner: "B", controller: "B", might: 2 });
     },
   });
-  assert.throws(() => f.play("spell"), {
-    name: "TargetSelectionError",
-    message: "The required target count is not available",
-  });
+  f.play("spell");
+  assert.deepEqual(f.asked.map(request => request.id), ["target:conscription.enemy-unit"]);
+  assert.deepEqual(f.asked[0].options, [f.ref("enemy")]);
+  settle(f.engine);
+  assert.deepEqual(f.get("enemy").ref, { id: "enemy", zoneEntryId: 1 });
+  assert.equal(f.get("enemy").controller, "A");
+  assert.equal(f.get("enemy").exhausted, true);
+  assert.deepEqual(f.get("enemy").location, battlefield);
+  assert.match(
+    String(f.kernel.linked("conscription.recall.recalled")?.blockedReason ?? ""),
+    /RecallAction consumer unavailable/,
+  );
   assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-moved").length, 0);
-  assert.deepEqual(f.get("owner").location, battlefield);
+  assert.equal(f.kernel.history({ action: "move-location" }), 0);
   assert.equal(f.kernel.history({ action: "recall" }), 0);
 });
 
@@ -422,17 +431,19 @@ test("EG-RECALL runs the original Glowstone recall instruction through the defau
   assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-moved").length, 0);
 });
 
-test("EG-RECALL runs the original Smoke and Mirrors swap instruction through the default production assembly", () => {
+test("EG-RECALL keeps the complete original Smoke and Mirrors body fail-closed before a partial swap", () => {
   const ability = smokeAndMirrors.abilities.find(item => item.kind === "play");
   const swap = ability.body[0];
   assert.equal(swap.op, "effect.swap-location");
   assert.deepEqual(swap.args.objects.value, [{ target: "smoke-and-mirrors.unit-a" }, { target: "smoke-and-mirrors.unit-b" }]);
   // Keep the complete printed body and its exclude/locationRelation targets.
-  // The default adapter must reject that unsupported relationship before any
-  // swap action is submitted.
+  // RIFT-853 normalizes the relation, so this full-body admission reaches the
+  // default TargetPlan. That plan still lacks the prior selected-target binding
+  // required to evaluate the cross-target relationship and fails closed.
   const program = cardProgram("test:swap-smoke-and-mirrors", ability.body);
   const f = programFixture({
     programs: [program], energy: { A: 5 }, power: { A: [] },
+    answers: { "target:smoke-and-mirrors.unit-a": ["one"] },
     setup(builder) {
       builder.hand("spell", { cardId: program.canonicalCardId, types: ["spell"], energy: 0, power: [] });
       builder.unit("one");
@@ -440,12 +451,14 @@ test("EG-RECALL runs the original Smoke and Mirrors swap instruction through the
       builder.object("destination", { types: ["battlefield"], energy: null, power: null });
     },
   });
-  assert.throws(() => f.play("spell"), {
-    name: "ProgramBindingError",
-    message: "Unsupported filter field locationRelation",
-  });
+  assert.throws(() => f.play("spell"), error =>
+    error?.name === "TargetSelectionError" && error.code === "no-legal-targets" &&
+    error.message === "The required target count is not available");
+  assert.deepEqual(f.asked.map(request => request.id), ["target:smoke-and-mirrors.unit-a"]);
+  assert.deepEqual(f.asked[0].options, [f.ref("one"), f.ref("two")]);
   assert.deepEqual(f.get("one").location, battlefield);
   assert.deepEqual(f.get("two").location, second);
+  assert.equal(f.kernel.history({ action: "move-location" }), 0);
   assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-moved").length, 0);
 });
 
