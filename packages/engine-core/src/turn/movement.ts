@@ -49,7 +49,7 @@ export interface StandardMovePipelinePort {
   readonly testTrigger?: Parameters<typeof createActionPipelineHost>[0]['testTrigger'];
   readonly turnOrder: readonly [string, string];
   readonly turnPlayer: string;
-  /** Additive hooks consumed by createActionPipelineHost for stable action/batch identity. */
+  /** Optional hooks consumed by createActionPipelineHost for stable action/batch identity. */
   readonly actionId?: (action: GameAction) => string | undefined;
   readonly batchId?: (action: GameAction, actionId: string) => string | undefined;
   readonly cause?: (action: GameAction) => string | undefined;
