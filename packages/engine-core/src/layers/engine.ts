@@ -43,12 +43,39 @@ const EMPTY_MOVEMENT: MovementPermissions = Object.freeze({
 });
 
 const DEFAULT_TIMINGS: readonly ActionTiming[] = Object.freeze([]);
+const EMPTY_ARRAY: readonly never[] = Object.freeze([]);
+const EMPTY_SNAPSHOT_FIELDS = Object.freeze({
+  types: EMPTY_ARRAY,
+  tags: EMPTY_ARRAY,
+  keywords: EMPTY_ARRAY,
+  power: EMPTY_ARRAY,
+  actionTimings: EMPTY_ARRAY,
+  availableTimings: EMPTY_ARRAY,
+  movement: EMPTY_MOVEMENT,
+});
 
 function record(value: unknown): AnyRecord {
   return typeof value === "object" && value !== null ? value as AnyRecord : {};
 }
 function array<T>(value: readonly T[] | undefined): readonly T[] {
+  if (value === undefined) return EMPTY_ARRAY as readonly T[];
+  if (Object.isFrozen(value)) return value;
   return Object.freeze([...(value ?? [])]);
+}
+
+function keywords(value: ObjectSnapshot["keywords"]): ObjectSnapshot["keywords"] {
+  if (Object.isFrozen(value) && value.every(keyword => Object.isFrozen(keyword))) return value;
+  return Object.freeze(value.map(keyword => Object.freeze({ ...keyword })));
+}
+
+function movement(value: MovementPermissions): MovementPermissions {
+  if (Object.isFrozen(value) && Object.isFrozen(value.restrictions)) return value;
+  return Object.freeze({
+    allowed: value.allowed !== false,
+    canMove: value.canMove !== false,
+    canGank: value.canGank === true,
+    restrictions: array(value.restrictions),
+  });
 }
 
 function unique<T>(values: readonly T[]): readonly T[] {
@@ -58,27 +85,41 @@ function unique<T>(values: readonly T[]): readonly T[] {
 function cloneSnapshot(source: ObjectSnapshot): LayeredObjectSnapshot {
   const input = source as ObjectSnapshot & Partial<LayeredObjectSnapshot> & AnyRecord;
   const cardId = input.cardId === null ? null : input.cardId ?? input.ref.id;
-  const movement = input.movement ?? EMPTY_MOVEMENT;
+  const permissions = input.movement ?? EMPTY_MOVEMENT;
   const actionTimings = array(input.actionTimings ?? input.availableTimings ?? DEFAULT_TIMINGS);
-  const printed = input.printed ?? source;
+  const printed = input.printed === undefined ? snapshotFields(source) : snapshotFields(input.printed);
+  const empty = source.types.length === 0 && source.tags.length === 0 && source.keywords.length === 0 &&
+    source.power !== null && source.power.length === 0 && actionTimings.length === 0 &&
+    permissions === EMPTY_MOVEMENT;
   return Object.freeze({
     ...source,
     cardId,
-    types: array(source.types),
-    tags: array(source.tags),
-    keywords: array(source.keywords.map(keyword => Object.freeze({ ...keyword }))),
-    power: source.power === null ? null : array(source.power),
+    types: empty ? EMPTY_SNAPSHOT_FIELDS.types : array(source.types),
+    tags: empty ? EMPTY_SNAPSHOT_FIELDS.tags : array(source.tags),
+    keywords: empty ? EMPTY_SNAPSHOT_FIELDS.keywords : keywords(source.keywords),
+    power: source.power === null ? null : empty ? EMPTY_SNAPSHOT_FIELDS.power : array(source.power),
     printed,
     actionTimings,
     availableTimings: actionTimings,
-    movement: Object.freeze({
-      allowed: movement.allowed !== false,
-      canMove: movement.canMove !== false,
-      canGank: movement.canGank === true,
-      restrictions: array(movement.restrictions),
-    }),
+    movement: empty ? EMPTY_SNAPSHOT_FIELDS.movement : movement(permissions),
     text: input.text === undefined ? null : input.text as string | null,
     effectText: input.effectText === undefined ? (input.text as string | null | undefined) ?? null : input.effectText as string | null,
+  });
+}
+
+/** Freeze nested fields reused by cached and detached snapshot wrappers. */
+function snapshotFields(source: ObjectSnapshot): ObjectSnapshot {
+  const input = source as ObjectSnapshot & Partial<LayeredObjectSnapshot> & AnyRecord;
+  const actionTimings = array(input.actionTimings ?? input.availableTimings ?? DEFAULT_TIMINGS);
+  return Object.freeze({
+    ...source,
+    types: array(source.types),
+    tags: array(source.tags),
+    keywords: keywords(source.keywords),
+    power: source.power === null ? null : array(source.power),
+    actionTimings,
+    availableTimings: actionTimings,
+    movement: movement(input.movement ?? EMPTY_MOVEMENT),
   });
 }
 
@@ -344,6 +385,11 @@ export class LayerEngine {
   private groupView = new Map<string, LayeredObjectSnapshot>();
   private currentObject?: string;
   private restartRequested = false;
+  private activeEffectsCache?: {
+    readonly revision: number;
+    readonly objectCount: number;
+    readonly entries: readonly RegisteredContinuousEffect[];
+  };
   /**
    * Non-passive reductions remember their total only for the arithmetic entry
    * being applied. The same modifier remains available to other eligible
@@ -393,6 +439,7 @@ export class LayerEngine {
   private invalidate(): void {
     this.cache.clear();
     this.copyCache.clear();
+    this.activeEffectsCache = undefined;
     if (this.depth === 0) {
       this.partial.clear();
       this.copyPartial.clear();
@@ -569,7 +616,7 @@ export class LayerEngine {
         const mutable = { ...this.copyPartial.get(member)! } as MutableSnapshot;
         const done = new Set<string>();
         let entry: RegisteredContinuousEffect | undefined;
-        while ((entry = this.nextEffect(effects.filter(item => !done.has(item.effect.id)), mutable))) {
+        while (effects.length > 0 && (entry = this.nextEffect(effects.filter(item => !done.has(item.effect.id)), mutable))) {
           this.apply(mutable, "copy", this.materialize(entry, mutable));
           done.add(entry.effect.id);
         }
@@ -586,7 +633,15 @@ export class LayerEngine {
   }
 
   private activeEffects(): readonly RegisteredContinuousEffect[] {
-    return this.registry.active(undefined, ref => ref === undefined ? null : this.raw(ref));
+    const revision = this.registry.revision;
+    if (this.activeEffectsCache?.revision === revision && this.activeEffectsCache.objectCount === this.objects.size) {
+      const active = this.activeEffectsCache.entries;
+      const allLive = active.every(entry => entry.duration.type !== "while-source-in-zone" || this.raw(entry.duration.source) !== null);
+      if (allLive) return active;
+    }
+    const entries = this.registry.active(undefined, ref => ref === undefined ? null : this.raw(ref));
+    this.activeEffectsCache = { revision, objectCount: this.objects.size, entries };
+    return entries;
   }
 
   private apply(target: MutableSnapshot, layer: typeof LAYER_ORDER[number], effect: AnyRecord): void {
@@ -679,6 +734,31 @@ export class LayerEngine {
     return cloneSnapshot(target);
   }
 
+  private publishGroupView(keys: readonly string[], current: ReadonlyMap<string, MutableSnapshot>): void {
+    // A singleton's only nested self-read is served by `partial` while that
+    // object is current. Copying it into groupView at every layer/pass is
+    // therefore redundant; multi-object SCCs still need the start-of-layer view.
+    if (keys.length === 1) return;
+    for (const key of keys) this.groupView.set(key, cloneSnapshot(current.get(key)!));
+  }
+
+  private finishGroup(key: string, source: MutableSnapshot): void {
+    let result = cloneSnapshot(source);
+    if (result.might !== null && result.might < 0) result = cloneSnapshot({ ...result, might: 0 });
+    if (this.derivedMight !== undefined) {
+      const derived = this.derivedMight(result);
+      if (derived !== undefined && derived !== null && Number.isFinite(derived)) {
+        result = cloneSnapshot({ ...result, might: Math.max(0, derived) });
+      }
+    }
+    this.cache.set(key, result);
+  }
+
+  /** Keep cached layer state internal and detach every public read from it. */
+  private publicSnapshot(snapshot: LayeredObjectSnapshot): LayeredObjectSnapshot {
+    return cloneSnapshot(snapshot);
+  }
+
   private evaluateGroup(keys: readonly string[]): void {
     const effects = this.activeEffects();
     const current = new Map<string, MutableSnapshot>();
@@ -695,16 +775,17 @@ export class LayerEngine {
     this.frames.push([...keys]);
     const previousObject = this.currentObject;
     try {
-      let changed = true;
-      let passes = 0;
-      const seen = new Set<string>();
-      while (changed) {
+      if (effects.length > 0) {
+        let changed = true;
+        let passes = 0;
+        const seen = new Set<string>();
+        while (changed) {
         if (++passes > effects.length * 2 + 2) throw new MissingInformation("Continuous numeric dependencies require an explicit cycle ruling");
         changed = false;
         for (const layer of LAYER_ORDER) {
           // Objects in a dependency loop read the same start-of-layer view,
           // irrespective of object enumeration or which snapshot was requested.
-          for (const key of keys) this.groupView.set(key, cloneSnapshot(current.get(key)!));
+          this.publishGroupView(keys, current);
           for (const key of keys) {
             this.currentObject = key;
             const target = current.get(key)!;
@@ -713,7 +794,7 @@ export class LayerEngine {
             let entry: RegisteredContinuousEffect | undefined;
             const candidates = effects.filter(item => item.effect.layer === layer &&
               !done.has(item.effect.id) && !disqualified.has(item.effect.id));
-            while ((entry = this.nextEffect(candidates, target))) {
+            while (candidates.length > 0 && (entry = this.nextEffect(candidates, target))) {
               candidates.splice(candidates.indexOf(entry), 1);
               const appliedEntry = entry.effect.layer === "arithmetic" ? this.appliedArithmetic(entry, target) : { effect: this.materialize(entry, target) };
               const { effect } = appliedEntry;
@@ -726,7 +807,7 @@ export class LayerEngine {
         // Disqualification is separate from application and also occurs once.
         // Rebuild from the raw object, rather than trying to invert copy/set/
         // multiply effects or adding arithmetic again (CR 478.2–478.4).
-        for (const key of keys) this.groupView.set(key, cloneSnapshot(current.get(key)!));
+        this.publishGroupView(keys, current);
         for (const key of keys) {
           this.currentObject = key;
           const done = applied.get(key)!;
@@ -768,15 +849,10 @@ export class LayerEngine {
           if (seen.has(signature)) throw new MissingInformation("Continuous numeric dependencies did not converge");
           seen.add(signature);
         }
+        }
       }
       for (const key of keys) {
-        let result = cloneSnapshot(current.get(key)!);
-        if (result.might !== null && result.might < 0) result = cloneSnapshot({ ...result, might: 0 });
-        if (this.derivedMight !== undefined) {
-          const derived = this.derivedMight(result);
-          if (derived !== undefined && derived !== null && Number.isFinite(derived)) result = cloneSnapshot({ ...result, might: Math.max(0, derived) });
-        }
-        this.cache.set(key, result);
+        this.finishGroup(key, current.get(key)!);
       }
     } finally {
       this.currentObject = previousObject;
@@ -801,10 +877,11 @@ export class LayerEngine {
       throw new LayerDependencyRestart();
     }
     const cached = this.cache.get(key);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) return this.depth === 0 ? this.publicSnapshot(cached) : cached;
     if (this.raw(ref) === null) return null;
     this.evaluateGroup([...(this.groups.get(key) ?? [key])]);
-    return this.cache.get(key) ?? null;
+    const result = this.cache.get(key) ?? null;
+    return result === null || this.depth > 0 ? result : this.publicSnapshot(result);
   }
 
   evaluate(ref: ObjectRef): LayeredObjectSnapshot | null {
@@ -822,7 +899,7 @@ export class LayerEngine {
           // Production binders catch condition errors. A discovered dependency
           // must still restart even if that wrapper swallowed the sentinel.
           if (this.restartRequested) throw new LayerDependencyRestart();
-          return result;
+          return result === null ? null : this.publicSnapshot(result);
         }
         catch (error) {
           if (!(error instanceof LayerDependencyRestart)) throw error;
@@ -840,7 +917,11 @@ export class LayerEngine {
   }
 
   evaluateAll(): readonly LayeredObjectSnapshot[] {
-    const snapshots = [...this.objects.values()].map(object => this.evaluate(object.ref)).filter((object): object is LayeredObjectSnapshot => object !== null);
+    const snapshots: LayeredObjectSnapshot[] = [];
+    for (const object of this.objects.values()) {
+      const snapshot = this.evaluate(object.ref);
+      if (snapshot !== null) snapshots.push(snapshot);
+    }
     return Object.freeze(snapshots);
   }
 
