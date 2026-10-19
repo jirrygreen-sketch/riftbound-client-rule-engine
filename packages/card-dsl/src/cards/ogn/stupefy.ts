@@ -15,26 +15,30 @@ import type { CardProgram } from "../../ir/index.js";
  * - "a unit" is a target: the named Board unit is in a public zone (355.7 /
  *   355.9.a.1 / 355.10).
  * - "-1 Might this turn, to a minimum of 1 Might" is an arithmetic-layer Might
- *   modification with a per-turn duration (143.2.a: "Might" means Effective
- *   Might; 478/479 layers) executed by the merged continuous.might primitive
+ *   modification with a per-turn duration (143.2.a.1: "Might" means Effective
+ *   Might; 479.4 layers) executed by the merged continuous.might primitive
  *   (RIFT-258). The primitive registers one arithmetic-layer effect through
- *   ResolveContext.addContinuous with the end-of-turn duration
- *   (317.1.a / 468.7.c).
+ *   ResolveContext.addContinuous with the end-of-turn duration (317.2.c).
  * - The floor is the printed minimum, not the generic 143.2.c "below 0 is
  *   treated as 0" rule: 479.4.b snapshots the limitation when the effect is
- *   applied, so the primitive carries it as effect.minimum and snaps the delta
+ *   applied, so the primitive carries it as effect.minimum and snapshots the delta
  *   against the target's current Might (a 4-Might unit given -1 receives -1; a
  *   1-Might unit snapshots to a 0-Might modification and stays at 1).
  * - "Draw 1." is a separate, unlinked instruction: the draw is not conditioned
- *   on the debuff, so it still resolves when the debuff cannot (359.2.c "as
+ *   on the debuff, so it still resolves when the debuff cannot (359.3.e.11 "as
  *   much as possible"; 359.3.e.14 linked instructions only cover anaphoric
  *   references, which this sentence has none of).
  *
  * Status: executable — the whole printed ability executes on merged paths and
- * the golden test drives the card's own body through the production chain
- * adapter, asserting the arithmetic-layer registration, the end-of-turn
- * duration, the printed minimum boundary, the independent draw and the
- * mistargeted edge.
+ * the independent golden drives the unchanged program through the default
+ * createProgramBinding -> ChainEngine -> ActionPipelineHost path. It asserts
+ * full 1-Energy payment, Finalize-time target locking (355.5 / 355.8),
+ * arithmetic-layer registration and end-of-turn duration, the printed minimum,
+ * the independent draw, the Reaction response window, and fail-closed Resource,
+ * target, actor and rollback boundaries. The shared scenario host itself lacks
+ * the outer game-command controller check; the real createMatch +
+ * executeGameCommand path covers that shared boundary without duplicating it in
+ * this card.
  */
 const stupefy = {
   canonicalCardId: "card.hash-5b08b5b8648e8c5c057d15279d1b4e677457eb0b43fcf2810e2ec4f4c4d1b7cf",
@@ -67,7 +71,8 @@ const stupefy = {
         },
         {
           // "Draw 1." — independent instruction (not linkedTo the debuff), so the
-          // 359.2.c "as much as possible" case still draws.
+          // 359.3.e.11 "as much as possible" case still draws; 359.3.e.14 applies
+          // only when a later instruction references the earlier result.
           id: "draw",
           op: "effect.draw",
           args: { amount: { kind: "literal", value: 1 } }
