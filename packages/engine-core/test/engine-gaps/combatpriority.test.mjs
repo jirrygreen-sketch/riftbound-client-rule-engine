@@ -14,6 +14,7 @@ import pykeReturned from '../../../card-dsl/dist/cards/unl/pyke-returned.js';
 import { createProgramBinding, fixture } from '../rules/keywords/support.mjs';
 import { world } from '../../dist/effects/testing/index.js';
 import { createLayerEngine } from '../../dist/layers/index.js';
+import { hiddenAbilitiesFor, hiddenPermissionFor } from '../../dist/programs/statics.js';
 
 const amount = (uid, value) => ({ uid, amount: value });
 const blocked = (fn, code) => assert.throws(fn,
@@ -162,10 +163,16 @@ test('representative original card IR expands and binds into the rules consumed 
   for (const id of ['tank', 'back']) {
     enter(id);
   }
-  // Pyke's independently blocked Hidden binder must fail closed without
-  // suppressing its following original Backline declaration.
-  assert.equal(lifecycleErrors.length, 1);
-  assert.match(lifecycleErrors[0].message, /cost\.hidden.*no layer mapping/);
+  // The production binder now consumes Hidden's original cost.hidden expansion
+  // as a source-qualified capability, without suppressing Backline.  Registration
+  // proves the declaration reached the real adapter; it does not prove the full
+  // Hide/facedown/free-play lifecycle, so the card itself must remain blocked.
+  assert.deepEqual(lifecycleErrors, []);
+  assert.deepEqual(hiddenAbilitiesFor(f.engine, f.ref('back'))
+    .map(ability => ability.effect.kind), ['cost.hidden']);
+  assert.equal(hiddenPermissionFor(f.engine, f.ref('back')), 'present');
+  assert.equal(pykeReturned.status, 'judge-required');
+  assert.match(pykeReturned.judgeReason, /Hidden/);
   const records = f.engine.layers.registry.list();
   assert.deepEqual(records.filter(entry => entry.effect.effect.kind === 'continuous.combat')
     .map(entry => [entry.effect.effect.kind, entry.effect.effect.priority]), [
@@ -192,6 +199,8 @@ test('representative original card IR expands and binds into the rules consumed 
   }
   assert.deepEqual(f.engine.layers.registry.list()
     .filter(entry => entry.effect.effect.kind === 'continuous.combat'), []);
+  assert.deepEqual(hiddenAbilitiesFor(f.engine, f.ref('back')), []);
+  assert.equal(hiddenPermissionFor(f.engine, f.ref('back')), 'absent');
   const expired = deriveDuelCombatAssignmentRulesFromIR(
     f.engine.layers.registry.list().map(entry => entry.effect), ['a', 'tank', 'plain', 'back']);
   const expiredPlan = planDuelBaseCombatDamage(scene.state, scene.fieldId, bind(scene, expired));
