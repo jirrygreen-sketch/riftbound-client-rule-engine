@@ -9,6 +9,10 @@ function copyList<T>(value: readonly T[]): readonly T[] {
   return Object.freeze([...value]);
 }
 
+function copyKeywords(value: ObjectSnapshot["keywords"]): ObjectSnapshot["keywords"] {
+  return Object.freeze(value.map(keyword => Object.freeze({ ...keyword })));
+}
+
 /**
  * Applies the printed characteristics of a source to a target. The target's
  * identity, controller, zone, damage, attachment and state remain its own.
@@ -54,12 +58,20 @@ export function createCopiedObjectSnapshot(
     zone: options.zone ?? source.zone,
     location: options.location === undefined ? source.location : options.location,
     name: options.name ?? source.name,
+    types: copyList(source.types),
+    tags: copyList(source.tags),
+    keywords: copyKeywords(source.keywords),
+    power: source.power === null ? null : copyList(source.power),
+    combatRole: null,
     exhausted: false,
     damage: 0,
     stunned: false,
     buffs: 0,
+    empowered: 0,
+    empoweredCount: 0,
     attachedTo: null,
     faceDown: false,
+    facedownLocation: null,
     isToken: options.isToken ?? true,
     printed: source,
     actionTimings: [],
