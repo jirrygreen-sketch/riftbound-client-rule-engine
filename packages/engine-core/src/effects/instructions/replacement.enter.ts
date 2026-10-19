@@ -181,6 +181,7 @@ function wrappedDependencies(
       target,
       hostRef: host.ref,
       controller: host.controller,
+      hostSnapshot: host,
       snapshotFor
     });
   };

@@ -11,6 +11,7 @@ import type {
   ZoneDestination
 } from "../effects/contract.js";
 import { BlockedReplacementError, REPLACED_EVENT_LINK, type ReplacementHostAdapter, type ReplacementPlanInput } from "./types.js";
+import { queryObjects } from "../effects/interpreter/selectors.js";
 
 /** The bound context this planner plans against (no pipeline execution). */
 export interface PlannerContext {
@@ -23,6 +24,10 @@ export interface PlannerContext {
 
 interface RefSelection {
   readonly allowEmpty?: boolean;
+  /** Set false for primitives whose own selector parser does not accept choose. */
+  readonly allowChoose?: boolean;
+  /** Only primitives that explicitly accept a direct ObjectRef array use this. */
+  readonly allowRefArray?: boolean;
   readonly defaultMin?: number;
   readonly defaultMax?: number;
 }
@@ -32,8 +37,27 @@ const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
 
 const refKey = (ref: ObjectRef): string => JSON.stringify([ref.id, ref.zoneEntryId]);
 
+/** Query vocabulary that queryObjects can evaluate without silently widening it. */
+const REPLACEMENT_QUERY_KEYS: ReadonlySet<string> = new Set([
+  "object", "source", "target", "it", "host", "attachedTo", "sameLocationAs",
+  "differentLocationFrom", "exclude", "objectId", "id", "cardId",
+  "canonicalCardId", "zoneEntryId", "type", "types", "tag", "tags", "zone",
+  "location", "locationType", "controller", "owner", "states", "state",
+  "ready", "exhausted", "characteristics", "damaged", "buffed", "empowered",
+  "keyword", "keywords", "hasKeyword", "relation", "mightLt", "mightLessThan",
+  "mightLessThanTarget", "mightLte", "mightAtMost", "mightGte", "mightAtLeast",
+  "mightGt", "mightGreaterThan", "mightEq", "energyMax", "printedEnergyMax",
+  "energyAtMost", "powerMax", "printedPowerMax", "powerAtMost",
+  "printedCostNoMoreThanKilledUnit", "killedUnit", "killed", "costReference"
+]);
+
 const isSetSelector = (value: unknown): boolean =>
   isRecord(value) && (value.kind === "query" || value.kind === "choose");
+
+const ZONE_DESTINATIONS: ReadonlySet<string> = new Set([
+  "hand", "deck-top", "deck-bottom", "trash", "banishment", "base",
+  "battlefield", "rune-deck", "rune-zone", "chain"
+]);
 
 const asObjectRef = (value: unknown): ObjectRef | null => {
   if (!isRecord(value) || typeof value.id !== "string" || value.id.length === 0 ||
@@ -55,17 +79,18 @@ function currentRef(planner: PlannerContext, ref: ObjectRef): ObjectRef | null {
 }
 
 function refsFromLinked(value: Value | undefined): ObjectRef[] {
-  if (value === undefined) return [];
-  const refs: ObjectRef[] = [];
-  const visit = (entry: unknown): void => {
-    const direct = asObjectRef(entry);
-    if (direct !== null) { refs.push(direct); return; }
-    if (Array.isArray(entry)) { entry.forEach(visit); return; }
-    if (!isRecord(entry)) return;
-    if (Array.isArray(entry.objects)) { entry.objects.forEach(visit); return; }
-    for (const candidate of Object.values(entry)) visit(candidate);
-  };
-  visit(value);
+  // Mirror the replacement-facing primitives' linked collection shapes: one
+  // ObjectRef, an ObjectRef array, or a receipt with an `objects` array. A
+  // recursive search would discover refs inside unrelated receipt fields and
+  // silently widen a replacement's visible object set.
+  const direct = asObjectRef(value);
+  const refs = direct !== null
+    ? [direct]
+    : Array.isArray(value)
+      ? value.map(asObjectRef).filter((ref): ref is ObjectRef => ref !== null)
+      : isRecord(value) && Array.isArray(value.objects)
+        ? value.objects.map(asObjectRef).filter((ref): ref is ObjectRef => ref !== null)
+        : [];
   const seen = new Set<string>();
   return refs.filter(ref => {
     const key = refKey(ref);
@@ -99,6 +124,23 @@ function resolveObjectRefs(
       throw new BlockedReplacementError("replacement body selected a stale object incarnation");
     }
     return live === null ? [] : [live];
+  }
+
+  if (Array.isArray(value)) {
+    if (!selection.allowRefArray || !value.every(candidate => asObjectRef(candidate) !== null)) {
+      throw new BlockedReplacementError("Unsupported object reference array in replacement body");
+    }
+    const refs = value.map(candidate => currentRef(planner, candidate as ObjectRef))
+      .filter((ref): ref is ObjectRef => ref !== null);
+    if (refs.length === 0 && !selection.allowEmpty) {
+      throw new BlockedReplacementError("replacement body reference array contains no current object");
+    }
+    return refs;
+  }
+
+  if (selection.allowRefArray && isRecord(value) && Object.keys(value).length === 1 &&
+      Array.isArray(value.objects)) {
+    return resolveObjectRefs(value.objects, input, planner, selection);
   }
 
   if (value === "self" || value === "source") {
@@ -189,9 +231,26 @@ function resolveObjectRefs(
     }
     return normalized;
   };
+  const query = (filter: ObjectFilter) => queryObjects(normalizeQuery(filter), {
+    context,
+    host: input.hostRef,
+    linked: key => context.linked(key),
+    canLookBack: () => true,
+    isIgnored: () => false
+  });
+  const validateQuery = (filter: ObjectFilter): void => {
+    // queryObjects filters extension predicates after obtaining the visible set;
+    // it deliberately does not reject unknown scalar keys. A replacement must
+    // not silently broaden an unsupported official predicate, so validate the
+    // selector vocabulary before querying.
+    if (Object.keys(filter).some(key => !REPLACEMENT_QUERY_KEYS.has(key))) {
+      throw new BlockedReplacementError("replacement query selector contains an unsupported filter key");
+    }
+  };
   if (kind === "query") {
     if (!isRecord(value.filter)) throw new BlockedReplacementError("replacement query selector requires an object filter");
-    const refs = sortRefs(context.query(normalizeQuery(value.filter as ObjectFilter)).map(object => object.ref)
+    validateQuery(value.filter as ObjectFilter);
+    const refs = sortRefs(query(value.filter as ObjectFilter).map(object => object.ref)
       .map(ref => currentRef(planner, ref)).filter((ref): ref is ObjectRef => ref !== null));
     if (refs.length === 0 && !selection.allowEmpty) {
       throw new BlockedReplacementError("replacement query selected no current objects");
@@ -200,9 +259,13 @@ function resolveObjectRefs(
   }
 
   if (kind === "choose") {
+    if (selection.allowChoose === false) {
+      throw new BlockedReplacementError("replacement body choose selector is not accepted by this primitive");
+    }
     if (typeof value.id !== "string" || value.id.length === 0) throw new BlockedReplacementError("replacement choose selector requires a non-empty id");
     if (!isRecord(value.filter)) throw new BlockedReplacementError("replacement choose selector requires an object filter");
-    const options = sortRefs(context.query(normalizeQuery(value.filter as ObjectFilter)).map(object => object.ref)
+    validateQuery(value.filter as ObjectFilter);
+    const options = sortRefs(query(value.filter as ObjectFilter).map(object => object.ref)
       .map(ref => currentRef(planner, ref)).filter((ref): ref is ObjectRef => ref !== null));
     const requestedMin = value.min === undefined ? selection.defaultMin ?? 0 : value.min;
     const requestedMax = value.max === undefined ? selection.defaultMax ?? options.length : value.max;
@@ -375,6 +438,15 @@ function planCostPay(args: Readonly<Record<string, Expr>>, planner: PlannerConte
   return [{ type: "pay", player: planner.controller, plan: paymentPlan(normalized as Value) }];
 }
 
+/** Exact mirror of effect.token's frozen, ability-free definitions. */
+const TOKEN_DEFINITIONS: Readonly<Record<string, TokenSpec>> = Object.freeze({
+  recruit: { cardId: null, name: "Recruit", types: ["unit"], tags: ["Recruit"], might: 1, energy: null, power: null },
+  "sand-soldier": { cardId: null, name: "Sand Soldier", types: ["unit"], tags: ["Shurima"], might: 2, energy: null, power: null },
+  mech: { cardId: null, name: "Mech", types: ["unit"], tags: ["Mech"], might: 3, energy: null, power: null },
+  reflection: { cardId: null, name: "Reflection", types: ["unit"], tags: [], might: 0, energy: null, power: null },
+  tentacle: { cardId: null, name: "Tentacle", types: ["unit"], tags: ["Bilgewater"], might: 1, energy: null, power: null }
+});
+
 /** Plan one instruction as closed GameActions without executing it. */
 export function planInstruction(
   instruction: Instruction,
@@ -390,14 +462,68 @@ export function planInstruction(
   }
   const evaluate = (expr: Expr | undefined, fallback: Value): Value => expr === undefined ? fallback : planner.evaluate(expr);
   switch (instruction.op) {
-    case "effect.ready":
-    case "effect.exhaust": {
-      const selector = args.objects ?? args.target ?? args.choose ?? "source";
+    case "effect.ready": {
+      if (args.objects === undefined) throw new BlockedReplacementError("effect.ready requires objects");
+      const selector = args.objects;
       const selected = typeof selector === "string" ? selector : evaluate(selector, null);
-      return objectRefs(selected, input, planner, { allowEmpty: isSetSelector(selected) }).map(object => ({
-        type: instruction.op === "effect.ready" ? "ready" : "exhaust",
-        object
-      }));
+      const amount = evaluate(args.amount, Number.MAX_SAFE_INTEGER);
+      if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount < 0) {
+        throw new BlockedReplacementError("effect.ready amount must be a nonnegative integer");
+      }
+      if (amount === 0) return [];
+      return objectRefs(selected, input, planner, {
+        allowEmpty: isSetSelector(selected),
+        allowRefArray: true,
+        defaultMin: 1,
+        defaultMax: 1
+      }).slice(0, amount)
+        .map(object => ({ type: "ready", object }));
+    }
+    case "effect.exhaust": {
+      const forms = [args.target, args.pick, args.choose].filter(value => value !== undefined);
+      if (forms.length !== 1) {
+        throw new BlockedReplacementError("effect.exhaust requires exactly one of target, pick, or choose");
+      }
+      const amount = evaluate(args.amount, 1);
+      if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount < 0) {
+        throw new BlockedReplacementError("effect.exhaust amount must be a nonnegative integer");
+      }
+      if (amount === 0) return [];
+      let selector: Value;
+      if (args.target !== undefined) {
+        selector = { target: String(evaluate(args.target, null)) };
+      } else if (args.pick !== undefined) {
+        selector = { pick: String(evaluate(args.pick, null)) };
+      } else {
+        const choice = evaluate(args.choose, null);
+        if (!isRecord(choice) || typeof choice.id !== "string" || choice.id.length === 0 ||
+            (choice.filter !== undefined && !isRecord(choice.filter))) {
+          throw new BlockedReplacementError("effect.exhaust choose requires id and an object filter");
+        }
+        selector = {
+          kind: "choose",
+          id: choice.id,
+          filter: choice.filter ?? {},
+          min: amount,
+          max: amount,
+          ...(typeof choice.chooser === "string" ? { chooser: choice.chooser } : {}),
+          ...(choice.visibility === "public" || choice.visibility === "chooser-only" || Array.isArray(choice.visibility)
+            ? { visibility: choice.visibility }
+            : {}),
+          ...(typeof choice.prompt === "string" ? { prompt: choice.prompt } : {})
+        } as unknown as Value;
+      }
+      return objectRefs(selector, input, planner, {
+        allowEmpty: args.choose !== undefined,
+        defaultMin: 1,
+        defaultMax: amount
+      }).filter(object => {
+        const snapshot = planner.host.object(object);
+        return snapshot !== null && snapshot.zone !== "hand" && snapshot.zone !== "deck" &&
+          snapshot.zone !== "rune-deck" && snapshot.zone !== "trash" &&
+          snapshot.zone !== "banishment" && snapshot.zone !== "chain" &&
+          !snapshot.types.includes("spell") && snapshot.exhausted === false;
+      }).slice(0, amount).map(object => ({ type: "exhaust", object }));
     }
     case "effect.move": {
       const mode = evaluate(args.mode, "move");
@@ -432,11 +558,32 @@ export function planInstruction(
       });
     }
     case "effect.zone": {
-      const selector = args.objects ?? args.target ?? args.pick;
-      if (selector === undefined) throw new BlockedReplacementError("effect.zone requires an object selector");
-      if (args.to === undefined) throw new BlockedReplacementError("effect.zone requires a to argument");
+      const forms = [args.objects, args.target, args.pick].filter(value => value !== undefined);
+      if (forms.length !== 1) throw new BlockedReplacementError("effect.zone requires exactly one object selector");
+      if ((args.to === undefined) === (args.choice === undefined)) {
+        throw new BlockedReplacementError("effect.zone requires exactly one of to or choice");
+      }
+      const selector = forms[0]!;
       const selected = evaluate(selector, null);
-      const refs = objectRefs(selected, input, planner, { allowEmpty: isSetSelector(selected) });
+      if (args.objects !== undefined) {
+        const validSelector = selected === "self" || selected === "source" ||
+          (isRecord(selected) && (
+            (Object.keys(selected).length === 1 &&
+              ["target", "pick", "linked"].some(key => typeof selected[key] === "string")) ||
+            (selected.kind === "source" && Object.keys(selected).length === 1) ||
+            ((selected.kind === "target" || selected.kind === "pick" || selected.kind === "linked") &&
+              typeof selected.id === "string" && Object.keys(selected).length === 2) ||
+            (selected.kind === "query" && isRecord(selected.filter))
+          ));
+        if (!validSelector) {
+          throw new BlockedReplacementError("effect.zone objects has an unsupported selector shape");
+        }
+      }
+      const refs = objectRefs(selected, input, planner, {
+        allowEmpty: isSetSelector(selected),
+        // effect.zone's own selector parser supports query but not choose.
+        allowChoose: false
+      });
       const amountValue = args.amount === undefined ? refs.length : planner.evaluate(args.amount);
       if (typeof amountValue !== "number" || !Number.isSafeInteger(amountValue) || amountValue < 0) {
         throw new BlockedReplacementError("effect.zone amount must be a nonnegative integer");
@@ -444,10 +591,15 @@ export function planInstruction(
       let destination: ZoneDestination;
       if (args.to !== undefined) {
         destination = destinationOf(planner.evaluate(args.to));
+        if (!ZONE_DESTINATIONS.has(destination)) {
+          throw new BlockedReplacementError("effect.zone has an unsupported destination");
+        }
       } else {
         const choice = args.choice === undefined ? undefined : planner.evaluate(args.choice);
         if (!isRecord(choice) || typeof choice.id !== "string" || !Array.isArray(choice.options) ||
-            choice.options.length === 0 || !choice.options.every(option => typeof option === "string")) {
+            choice.options.length === 0 || !choice.options.every(option => typeof option === "string" && ZONE_DESTINATIONS.has(option)) ||
+            (choice.chooser !== undefined && typeof choice.chooser !== "string") ||
+            (choice.prompt !== undefined && typeof choice.prompt !== "string")) {
           throw new BlockedReplacementError("effect.zone destination choice requires id and options");
         }
         if (planner.context === undefined) deferred("effect.zone destination choice");
@@ -465,6 +617,9 @@ export function planInstruction(
         if (!options.includes(destination)) throw new BlockedReplacementError("effect.zone destination choice returned an unavailable option");
       }
       const location = args.location === undefined ? undefined : locationOf(planner.evaluate(args.location), planner);
+      if (args.location !== undefined && location === undefined) {
+        throw new BlockedReplacementError("effect.zone location must evaluate to a Base or Battlefield");
+      }
       return refs.slice(0, amountValue).map(object => zoneAction(object, destination, location, planner));
     }
     case "effect.damage": {
@@ -514,18 +669,39 @@ export function planInstruction(
       return [{ type: "gain-energy", player: planner.controller, amount: energy }];
     }
     case "effect.buff": {
-      const mode = evaluate(args.mode, "buff");
+      if (args.mode === undefined) throw new BlockedReplacementError("effect.buff requires mode");
+      const mode = evaluate(args.mode, null);
       if (mode !== "buff" && mode !== "spend") throw new BlockedReplacementError("effect.buff mode must be buff or spend");
-      const selector = args.objects ?? args.target ?? args.pick;
-      if (selector === undefined) throw new BlockedReplacementError("effect.buff requires an object selector");
+      const forms = [args.objects, args.target, args.pick].filter(value => value !== undefined);
+      if (forms.length !== 1) throw new BlockedReplacementError("effect.buff requires exactly one of objects, target, or pick");
+      if (evaluate(args.chooseUpTo, false) === true) {
+        throw new BlockedReplacementError("effect.buff chooseUpTo needs an atomic selection receipt");
+      }
+      const selector = forms[0]!;
       const amount = evaluate(args.amount, 1);
       if (amount === null || typeof amount !== "number" || !Number.isSafeInteger(amount) || amount < 0) {
         throw new BlockedReplacementError("effect.buff amount must be a nonnegative integer");
       }
+      if (amount === 0) return [];
       const selected = evaluate(selector, null);
-      return objectRefs(selected, input, planner, { allowEmpty: isSetSelector(selected) }).map(object => mode === "spend"
-        ? { type: "spend-buff", object, amount }
-        : { type: "buff", object, amount });
+      const chooser = typeof args.chooser === "string" ? args.chooser : planner.controller;
+      const withChooser = isRecord(selected) && selected.kind === "choose"
+        ? { ...selected, ...(args.chooser === undefined ? {} : { chooser }) }
+        : selected;
+      return objectRefs(withChooser, input, planner, {
+        allowEmpty: isSetSelector(withChooser),
+        allowRefArray: true,
+        ...(isRecord(withChooser) && withChooser.kind === "choose"
+          ? { defaultMin: 0 }
+          : { defaultMin: 1, defaultMax: 1 })
+      }).flatMap((object): GameAction[] => {
+        const snapshot = planner.host.object(object);
+        if (snapshot === null) return [];
+        if (mode === "buff") return snapshot.buffs > 0 ? [] : [{ type: "buff", object, amount: 1 }];
+        if (snapshot.controller !== chooser) return [];
+        const spendable = Math.min(amount, snapshot.buffs);
+        return spendable === 0 ? [] : [{ type: "spend-buff", object, amount: spendable }];
+      });
     }
     case "effect.counter": {
       if (args.target === undefined || args.counter === undefined) {
@@ -539,16 +715,43 @@ export function planInstruction(
       return [{ type: "add-counter", object: objectRef(planner.evaluate(args.target), input, planner), counter, amount }];
     }
     case "effect.kill": {
-      const selector = args.objects ?? args.picks ?? args.target;
       const self = evaluate(args.self, false);
-      if (selector === undefined && self !== true) throw new BlockedReplacementError("effect.kill requires an object selector");
-      const refs = self === true
-        ? objectRefs("source", input, planner, { defaultMin: 1, defaultMax: 1 })
-        : objectRefs(evaluate(selector!, null), input, planner, {
-          allowEmpty: isSetSelector(evaluate(selector!, null)),
+      const forms = [self === true ? "self" : undefined, args.objects, args.picks, args.target, args.pick]
+        .filter(value => value !== undefined);
+      if (forms.length !== 1) {
+        throw new BlockedReplacementError("effect.kill requires an object selector");
+      }
+      let refs: ObjectRef[];
+      if (self === true) {
+        refs = objectRefs("source", input, planner, { defaultMin: 1, defaultMax: 1 });
+      } else if (args.picks !== undefined) {
+        const pickId = planner.evaluate(args.picks);
+        if (typeof pickId !== "string" || pickId.length === 0) {
+          throw new BlockedReplacementError("effect.kill picks must evaluate to a PickSpec id");
+        }
+        refs = objectRefs({ pick: pickId }, input, planner, {
           defaultMin: 1,
           defaultMax: 1
         });
+      } else if (args.pick !== undefined) {
+        const pickId = planner.evaluate(args.pick);
+        if (typeof pickId !== "string" || pickId.length === 0) {
+          throw new BlockedReplacementError("effect.kill pick must evaluate to a PickSpec id");
+        }
+        refs = objectRefs({ pick: pickId }, input, planner, {
+          defaultMin: 1,
+          defaultMax: 1
+        });
+      } else {
+        const selected = evaluate(args.objects ?? args.target!, null);
+        refs = objectRefs(selected, input, planner, {
+          allowEmpty: isSetSelector(selected),
+          // effect.kill objects accepts query/linked/ref, never choose.
+          allowChoose: false,
+          defaultMin: 1,
+          defaultMax: 1
+        });
+      }
       const count = args.count === undefined ? refs.length : planner.evaluate(args.count);
       if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) {
         throw new BlockedReplacementError("effect.kill count must be a nonnegative integer");
@@ -585,7 +788,7 @@ export function planInstruction(
       if (typeof amountValue !== "number" || !Number.isSafeInteger(amountValue) || amountValue < 0) {
         throw new BlockedReplacementError("effect.banish amount must be a nonnegative integer");
       }
-      return refs.slice(0, amountValue).map(object => ({ type: "banish", object }));
+      return refs.slice(0, Math.min(amountValue, refs.length)).map(object => ({ type: "banish", object }));
     }
     case "effect.discard": {
       const selector = args.objects ?? args.target ?? args.pick;
@@ -628,22 +831,77 @@ export function planInstruction(
       const mode = evaluate(args.mode, "create");
       if (mode !== "create") throw new BlockedReplacementError("effect.token mode play needs a generated Chain reference and is not lowered by the replacement planner");
       if (args.token === undefined) throw new BlockedReplacementError("effect.token requires a token argument");
-      const tokenValue = planner.evaluate(args.token);
-      if (!isRecord(tokenValue) || typeof tokenValue.name !== "string" || !Array.isArray(tokenValue.types) ||
-          !("might" in tokenValue) || !("energy" in tokenValue) || !("power" in tokenValue)) {
-        throw new BlockedReplacementError("effect.token definition ids require a shared TokenSpec resolver before replacement planning");
+      const tokenId = planner.evaluate(args.token);
+      const definition = typeof tokenId === "string" ? TOKEN_DEFINITIONS[tokenId] : undefined;
+      if (definition === undefined) {
+        throw new BlockedReplacementError("effect.token definition is judge-required or unsupported");
       }
-      const locationValue = evaluate(args.location, null);
-      const location = locationOf(locationValue, planner);
-      if (location === undefined) throw new BlockedReplacementError("effect.token replacement requires a concrete Base or Battlefield location");
+      let location: Extract<GameAction, { type: "create-token"; to: "board" }>["location"] | undefined;
+      if (args.target !== undefined || args.pick !== undefined) {
+        const specId = planner.evaluate((args.target ?? args.pick)!);
+        if (typeof specId !== "string" || specId.length === 0) {
+          throw new BlockedReplacementError("effect.token target/pick must evaluate to a selection id");
+        }
+        const refs = args.target === undefined
+          ? planner.context?.picks(specId).map(asObjectRef).filter((ref): ref is ObjectRef => ref !== null) ?? []
+          : planner.context?.targets(specId) ?? [];
+        const locations = new Map<string, Extract<GameAction, { type: "create-token"; to: "board" }>["location"]>();
+        for (const ref of refs) {
+          const current = currentRef(planner, ref);
+          const snapshot = current === null ? null : planner.host.object(current);
+          if (snapshot?.zone === "board" && snapshot.location !== null) {
+            locations.set(JSON.stringify(snapshot.location), snapshot.location);
+          }
+        }
+        if (locations.size !== 1) {
+          throw new BlockedReplacementError("effect.token target/pick must resolve to exactly one current Board location");
+        }
+        location = [...locations.values()][0];
+      } else if (args.locations !== undefined) {
+        const options = planner.evaluate(args.locations);
+        if (!Array.isArray(options) || options.length === 0) {
+          throw new BlockedReplacementError("effect.token locations must be a non-empty location list");
+        }
+        const normalized = options.map(option => locationOf(option, planner));
+        if (normalized.some(option => option === undefined)) {
+          throw new BlockedReplacementError("effect.token locations contains an invalid location");
+        }
+        if (normalized.length === 1) location = normalized[0];
+        else {
+          if (planner.context === undefined) deferred("effect.token location choice");
+          const choiceId = planner.evaluate(args.choiceId ?? { kind: "constant", value: "effect.token:location" });
+          if (typeof choiceId !== "string" || choiceId.length === 0) {
+            throw new BlockedReplacementError("effect.token location choice requires a stable choice id");
+          }
+          location = planner.context.choose({
+            id: choiceId,
+            type: "mode",
+            options: normalized as NonNullable<typeof location>[],
+            chooser: planner.controller,
+            visibility: "public"
+          });
+          if (!normalized.some(option => JSON.stringify(option) === JSON.stringify(location))) {
+            throw new BlockedReplacementError("effect.token location choice returned an unavailable option");
+          }
+        }
+      } else if (args.location !== undefined) {
+        location = locationOf(planner.evaluate(args.location), planner);
+      }
+      if (location === undefined) {
+        throw new BlockedReplacementError("effect.token replacement requires a concrete Base or Battlefield location");
+      }
       const amount = evaluate(args.amount, 1);
       if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount < 0) {
         throw new BlockedReplacementError("effect.token amount must be a nonnegative integer");
       }
+      if (amount === 0) return [];
+      if (location.type === "base" && location.player !== planner.controller) {
+        throw new BlockedReplacementError("effect.token Base location must belong to the ability controller");
+      }
       return Array.from({ length: amount }, () => ({
         type: "create-token" as const,
         player: planner.controller,
-        token: tokenValue as unknown as TokenSpec,
+        token: definition,
         to: "board" as const,
         location
       }));
@@ -666,7 +924,24 @@ export function planReplacementBody(
   input: ReplacementPlanInput,
   planner: PlannerContext
 ): readonly GameAction[] {
+  if (body.length > 1) {
+    // The pipeline has no rollback boundary around the action list produced by
+    // one replacement. A later impossible action would otherwise leave all
+    // earlier actions committed while the enclosing outcome is reported as
+    // replaced. Keep every multi-action alternative judge-required until the
+    // shared pipeline exposes one atomic action batch.
+    throw new BlockedReplacementError(
+      "replacement body with multiple actions requires an atomic replacement-action batch"
+    );
+  }
   const actions: GameAction[] = [];
   for (const instruction of body) actions.push(...planInstruction(instruction, input, planner));
+  if (body.length === 1 && actions.length > 1) {
+    // A single primitive can expand to several actions (for example effect.banish
+    // over a selected set). The same rollback requirement applies.
+    throw new BlockedReplacementError(
+      "replacement body expanding to multiple actions requires an atomic replacement-action batch"
+    );
+  }
   return actions;
 }

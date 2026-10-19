@@ -131,19 +131,39 @@ export function bindReplacement(
     };
     return visit(value) as Value;
   };
-  const testCondition = (condition: Condition | undefined, snapshot: ObjectSnapshot, host?: ObjectRef): boolean => {
+  const testCondition = (
+    condition: Condition | undefined,
+    snapshot: ObjectSnapshot,
+    host?: ObjectRef,
+    replacedObject?: ObjectRef | null
+  ): boolean => {
     if (!condition) return true;
     try {
       // The source anchor must be the exact incarnation being evaluated. For
       // an entering object this is the chain-zone/new Board incarnation, not
       // the registration-time ref. The host adapter can still resolve the
       // registration source independently when needed.
-      const context = host === undefined
+      const base = host === undefined
         ? ctxFor(snapshot)
         : bindResolveContext(ctxFor(snapshot), { source: snapshot });
+      const context = replacedObject === undefined || replacedObject === null
+        ? base
+        : bindResolveContext(base, {
+          eventObject: role => role === "it"
+            ? {
+              eventId: 1,
+              role: "it",
+              ref: replacedObject,
+              snapshot: lastKnownOf(replacedObject) ?? snapshot
+            }
+            : null
+        });
       return evaluateCondition(condition, {
         context,
         host: host ?? hostRef,
+        ...(replacedObject === undefined || replacedObject === null ? {} : {
+          event: { it: lastKnownOf(replacedObject) ?? snapshot }
+        }),
         linked: key => context.linked(key),
         canLookBack: () => true,
         isIgnored: () => false,
@@ -364,6 +384,7 @@ export function bindReplacement(
     target,
     hostRef: hostRefNow() ?? hostRef,
     controller: controller(),
+    hostSnapshot: hostSnapshot() ?? undefined,
     snapshotFor: (ref, post) => host.object(ref) ?? ((post ?? after) ? lastKnownOf(ref) : null)
   });
 
@@ -427,10 +448,11 @@ export function bindReplacement(
         snapshot,
         action.object,
         crossObject ? hostRefNow() ?? hostRef : action.object,
-        controller()
+        controller(),
+        hostSnapshot() ?? undefined
       );
     })) return false;
-    if (!testCondition(ability.condition, snapshot, action.object)) return false;
+    if (!testCondition(ability.condition, snapshot, action.object, action.object)) return false;
     // A host following its newest incarnation rebinds at the chain entry;
     // it then intercepts the move itself and carries the orientation.
     // Entry declarations also cover a host already bound from the Board (for
@@ -461,7 +483,7 @@ export function bindReplacement(
       if (matchesEnterAction(action)) return true;
       const match = matchFor(action);
       if (!match) return false;
-      return testCondition(ability.condition, snapshot);
+      return testCondition(ability.condition, snapshot, undefined, match.replacedObject);
     },
     apply: (action: GameAction, _original: GameAction): ReplacementResult => {
       const snapshot = hostSnapshot();
@@ -515,6 +537,15 @@ export function bindReplacement(
       } catch (error) {
         if (checkpoint !== undefined && !(error instanceof AwaitChoice)) pipeline.restore?.(checkpoint);
         throw error;
+      }
+      const suppressesEntry = match.declaration !== null &&
+        (match.declaration.pattern.event ?? match.declaration.pattern.type ?? match.declaration.pattern.kind) === "object-enters-board" &&
+        action.type === "move-zone";
+      if (!suppressesEntry && match.body.length > 0 && actions.length === 0) {
+        if (checkpoint !== undefined) pipeline.restore?.(checkpoint);
+        throw new BlockedReplacementError(
+          "replacement body planned no action; refusing to report prevention for a non-empty alternative"
+        );
       }
       if (window) window.used = true;
       if (match.declaration) {

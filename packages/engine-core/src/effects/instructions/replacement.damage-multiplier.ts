@@ -139,6 +139,7 @@ const replacementDamageMultiplier = {
           target: { object: action.target },
           hostRef: source.ref,
           controller: source.controller,
+          hostSnapshot: source,
           snapshotFor
         });
       },

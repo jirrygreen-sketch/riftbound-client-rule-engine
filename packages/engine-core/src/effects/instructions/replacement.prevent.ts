@@ -172,6 +172,7 @@ function installPrevent(
         target,
         hostRef: source.ref,
         controller: source.controller,
+        hostSnapshot: source,
         snapshotFor
       });
     },
