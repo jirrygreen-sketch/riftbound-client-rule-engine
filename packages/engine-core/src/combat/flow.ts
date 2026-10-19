@@ -96,8 +96,16 @@ export class CombatFlow {
     options: { readonly events?: boolean; readonly lifecycle?: boolean } = {},
   ) {
     this.fields = fields.map(field => ({ ...field, contestedBy: null, staged: 'none' }));
-    this.eventsEnabled = options.events === true;
-    this.lifecycleEnabled = options.lifecycle === true;
+    // Full Combat needs the same contract capability that atomically commits
+    // simultaneous damage. Production hosts install it by default; reduced or
+    // legacy hosts without it keep the explicit fail-closed boundary.
+    const contractCapable = typeof host.executeContract === 'function';
+    // TurnFlow installs its own checkpointing host over the contract-capable
+    // production host. A direct ChainEngine host remains the lower-level seam
+    // and keeps its historical explicit-opt-in behavior.
+    const productionAssembly = contractCapable && host !== chain.pipeline.host;
+    this.eventsEnabled = options.events ?? productionAssembly;
+    this.lifecycleEnabled = options.lifecycle ?? productionAssembly;
   }
   get battlefields(): readonly BattlefieldState[] { return structuredClone(this.fields); }
   get active(): boolean { return this.engagement !== null; }

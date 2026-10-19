@@ -7,6 +7,7 @@ import { bindResolveContext, createActionPipelineHost } from '../../dist/events/
 import { ChainEngine } from '../../dist/chain/engine.js';
 import { CombatFlow } from '../../dist/combat/flow.js';
 import { createProgramBinding } from '../../dist/programs/index.js';
+import { TurnFlow } from '../../dist/turn/flow.js';
 import ahriInquisitive from '../../../card-dsl/dist/cards/ogn/ahri-inquisitive.js';
 import duneDrake from '../../../card-dsl/dist/cards/ogn/dune-drake.js';
 import sunlitGuardian from '../../../card-dsl/dist/cards/ogn/sunlit-guardian.js';
@@ -154,6 +155,44 @@ test('EG-COMBAT opens a real Combat Showdown, preserves Focus, designates both s
       combatId: 'combat:bf1:1', battlefieldId: 'bf1', attackerId: 'A', defenderId: 'B',
     });
   }
+});
+
+test('EG-COMBAT default TurnFlow production assembly opens staged Combat without explicit feature flags', () => {
+  const builder = world().player('A').player('B')
+    .unit('attacker', { owner: 'A', controller: 'A', might: 4, location: field('bf1') })
+    .unit('defender', { owner: 'B', controller: 'B', might: 3, location: field('bf2') });
+  for (const player of ['A', 'B']) {
+    builder.deck([`${player}:deck:0`, `${player}:deck:1`], { owner: player });
+    builder.rune([`${player}:rune:0`, `${player}:rune:1`], { owner: player });
+  }
+  const kernel = builder.build();
+  const choose = request => request.type === 'mode' && request.id.startsWith('engagement:')
+    ? request.options[0] : (() => { throw new AwaitChoice(request); })();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, {
+      source, controller, timingPoint, choose,
+    }),
+    testTrigger: registration => kernel.test(registration.spec.condition),
+  });
+  const turn = new TurnFlow({ host, player: id => kernel.player(id), turnOrder: ['A', 'B'],
+    battlefields: [{ id: 'bf1', controller: 'B' }, { id: 'bf2', controller: null }] });
+  turn.start();
+  assert.equal(turn.chain.commit({ type: 'move-location', object: kernel.ref('defender'),
+    to: field('bf1') }).status, 'done');
+  turn.advance();
+  assert.equal(turn.combat.lifecycle?.attacker, 'A');
+  assert.equal(turn.combat.lifecycle?.defender, 'B');
+  assert.equal(turn.chain.focus, 'A');
+  assert.equal(turn.chain.pipeline.events.filter(event => event.timingPoint === 'combat-start').length, 1);
+  assert.equal(turn.chain.pipeline.events.filter(event => event.timingPoint === 'attack-declared').length, 1);
+  assert.equal(turn.chain.pipeline.events.filter(event => event.timingPoint === 'defense-declared').length, 1);
 });
 
 test('EG-COMBAT converts an open Non-Combat Showdown into Combat without changing its Focus holder', () => {
@@ -324,12 +363,12 @@ test('EG-COMBAT original Ahri IR registers both attack and defense subscriptions
   assert.equal(ahriInquisitive.status, 'judge-required');
   const ids = f.binding.registerProgramTriggers(f.chain, f.kernel.getObject('ahri'));
   assert.deepEqual(ids, ['program:ahri:1:0', 'program:ahri:1:1']);
-  const checkpoint = f.chain.pipeline.checkpoint();
-  assert.throws(() => f.started(), AwaitChoice);
+  f.started();
   assert.equal(f.events('attack-declared').length, 1);
   assert.equal(f.chain.items.length, 1);
+  assert.equal(f.chain.items[0].trigger.event.object.ref.id, 'ahri');
   assert.equal(f.flow.lifecycle?.phase, 'showdown');
-  f.chain.pipeline.restore(checkpoint);
+  assert.equal(ahriInquisitive.status, 'judge-required');
 });
 
 test('EG-COMBAT original Sunlit Guardian Tank IR enforces assignment order through the live combat transaction', () => {
