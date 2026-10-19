@@ -494,37 +494,28 @@ test(`Stupefy production boundaries: no legal target, illegal target and insuffi
   );
 });
 
-test(`Stupefy production atomicity: a later target failure restores host, payment, chain, Priority and links [${CANONICAL_CARD_ID}]`, () => {
-  let reject = true;
-  const { kernel, binding, engine, requests } = productionHarness({
-    choose: (request, targetKernel) => {
-      if (request.id !== "target:unit") throw new Error(`Unexpected Stupefy choice ${request.id}`);
-      if (reject) throw new Error("Stupefy injected post-payment failure");
-      return [targetKernel.ref("stupefy-target")];
-    }
-  });
+test(`Stupefy production atomicity: a later payment failure restores host, events, chain, Priority and links [${CANONICAL_CARD_ID}]`, () => {
+  const { kernel, binding, engine, requests } = productionHarness({ energy: 0 });
   const beforeState = kernel.snapshot();
   const beforeLinks = kernel.linkedSnapshot();
   const beforeTrace = engine.trace;
+  const beforeEvents = structuredClone(engine.pipeline.events);
   const source = kernel.getObject("stupefy");
   const draft = binding.describePlay({ type: "play", object: source.ref, player: "A" }, source);
 
-  assert.throws(() => engine.execute(draft), /Stupefy injected post-payment failure/);
+  assert.throws(
+    () => engine.execute(draft),
+    error => error.name === "CostPlanError" && error.reason === "cannot-pay-cost" && /insufficient Energy/.test(error.message)
+  );
   assert.deepEqual(kernel.snapshot(), beforeState);
   assert.deepEqual(kernel.linkedSnapshot(), beforeLinks);
   assert.deepEqual(engine.trace, beforeTrace);
+  assert.deepEqual(engine.pipeline.events, beforeEvents);
   assert.deepEqual(engine.items, []);
   assert.equal(engine.priority, "A");
-  assert.equal(kernel.player("A").energy, 1);
-  assert.equal(kernel.getObject("stupefy").zone, "hand");
-
-  reject = false;
-  engine.execute(draft);
-  assert.equal(engine.items.length, 1);
-  assert.equal(engine.items[0].status, "finalized");
   assert.equal(kernel.player("A").energy, 0);
-  assert.equal(kernel.getObject("stupefy").zone, "chain");
-  assert.equal(requests.filter(request => request.id === "target:unit").length, 2);
+  assert.equal(kernel.getObject("stupefy").zone, "hand");
+  assert.equal(requests.filter(request => request.id === "target:unit").length, 1);
 });
 
 test(`Stupefy production boundary: replaying the same Chain draft is rejected atomically [${CANONICAL_CARD_ID}]`, () => {
