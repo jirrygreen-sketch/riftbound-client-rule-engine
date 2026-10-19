@@ -5,7 +5,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDuelCommandSessionV2 as create, applyDuelResourceCommandV2 as command,
   issueDuelRequiredCostTaskV2 as issue, prepareDuelRequiredCostPaymentV2 as prepare,
-  commitDuelPriorityPaymentV2 as priority, commitDuelCommandMutationV2 as mutate } from '../dist/duel/canonical-session-v2.js';
+  commitDuelPriorityPaymentV2 as priority, commitDuelCommandMutationV2 as mutate,
+  inspectDuelNativeCommandSessionPathV2 as sessionPath } from '../dist/duel/canonical-session-v2.js';
 import { createDuelPhaseSourceRegistryV2 as registry } from '../dist/duel/phase-source-authority-v2.js';
 import { runDuelStartOfTurnV2 as start, resumeDuelStartOfTurnV2 as resumeStart,
   runDuelEndOfTurnV2 as end, resumeDuelEndOfTurnV2 as resumeEnd } from '../dist/duel/turn-executor-v2.js';
@@ -235,6 +236,9 @@ test('pending Begin cannot be run directly or End-ed; only exact retry consumes 
   const r = start(s, services(s, request => request.event === 'begin' ? { status: 'unknown' } : {}));
   assert.equal(r.status, 'pending'); assert.equal(r.pending.step, 'begin');
   const pending = r.session, id = r.pending.taskId;
+  const pendingPath = sessionPath(s, pending);
+  assert.equal(pendingPath.filter(item => item.before.match === item.after.match).length, 3);
+  assert.strictEqual(pendingPath.at(-1).after, pending);
   noTick(start(pending, services(s)), pending);
   noTick(end(pending, 'alice', services(s)), pending);
   noTick(resumeStart(pending, 'foreign', { status: 'retry', matchId: s.match.matchId,
@@ -244,6 +248,8 @@ test('pending Begin cannot be run directly or End-ed; only exact retry consumes 
   noTick(resumeStart(pending, id, { status: 'retry', matchId: 'foreign',
     turn: 1, taskId: id }, services(s)), pending);
   noTick(resumeStart(pending, id, undefined, services(s)), pending);
+  assert.strictEqual(pending.turnCursorV2.pendingTaskID, id);
+  assert.strictEqual(pending.match.frame.phase, 'awaken');
   const resumed = resumeStart(pending, id, { status: 'retry', matchId: s.match.matchId,
     turn: 1, taskId: id }, services(s));
   assert.equal(resumed.status, 'main', resumed.reason);
