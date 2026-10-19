@@ -125,6 +125,7 @@ test('original Clockwork Keeper IR binds the optional Calm cost and keeps paid w
     isIgnored: () => false,
   }), true);
 });
+
 test('original Cruel Patron IR becomes a mandatory non-target kill component', () => {
   const program = executable(cruelPatron);
   const kernel = world()
