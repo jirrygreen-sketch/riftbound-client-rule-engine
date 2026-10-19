@@ -10,12 +10,14 @@ import supernova from '../../../card-dsl/dist/cards/rad/supernova.js';
 import smokeAndMirrors from '../../../card-dsl/dist/cards/unl/smoke-and-mirrors.js';
 import bedevilingStranger from '../../../card-dsl/dist/cards/rad/bedeviling-stranger.js';
 import overtOperation from '../../../card-dsl/dist/cards/ogn/overt-operation.js';
+import fioraWorthy from '../../../card-dsl/dist/cards/sfd/fiora-worthy.js';
 import { ChainEngine } from '../../dist/chain/engine.js';
 import { activateReactionAddDuringPayment } from '../../dist/chain/finalize/add-window.js';
 import { AwaitChoice } from '../../dist/effects/contract.js';
 import { world } from '../../dist/effects/testing/index.js';
 import { bindResolveContext, createActionPipelineHost } from '../../dist/events/action-adapter.js';
 import { createProgramBinding } from '../../dist/programs/index.js';
+import { translateTriggerFilter } from '../../dist/programs/filters.js';
 import { triggerRegistrations } from '../../dist/programs/triggers.js';
 import {
   planBasicRuneResourceActivation,
@@ -708,7 +710,7 @@ test('external parent payment continuation accepts one authoritative Rune Add, p
       .base('parent', { types: ['unit'], energy: 0, power: [] })
       .object('fury-rune', trustedFuryRune()),
     [], {}, {},
-    { suspendPayment: point => { restorePoint = point; return true; } },
+    { paymentContinuation: { persist: notice => { restorePoint = notice; return true; } } },
   );
   const source = f.kernel.getObject('parent');
   assert.throws(
@@ -719,10 +721,13 @@ test('external parent payment continuation accepts one authoritative Rune Add, p
     error => error.name === 'PaymentContinuationSuspendedError',
   );
   assert.ok(restorePoint);
-  const paymentSource = restorePoint.handle.source;
+  const paymentSource = restorePoint.source;
   assert.equal(f.kernel.player('A').energy, 0, 'suspension occurs after freezing but before Pay Costs');
   assert.equal(f.kernel.getObject('fury-rune').exhausted, false);
-  assert.equal(f.engine.items.length, 0, 'the host owns the detached checkpoint; the live chain exposes no half-finalized item');
+  assert.equal(f.engine.items.length, 1, 'the committed suspension exposes exactly the frozen parent');
+  assert.equal(f.engine.items[0].id, 'external-parent');
+  assert.equal(f.engine.items[0].status, 'finalized');
+  assert.equal(f.engine.items[0].payment, undefined);
 
   const add = planBasicRuneResourceActivation({
     chain: f.engine,
@@ -734,19 +739,26 @@ test('external parent payment continuation accepts one authoritative Rune Add, p
       window: { kind: 'payment' },
     },
   });
-  const handle = f.engine.restorePaymentContinuationHandle(restorePoint);
+  const handle = f.engine.restorePaymentContinuationHandle();
+  assert.equal(handle.snapshot.payer, 'A');
+  assert.deepEqual(handle.snapshot.source, source.ref);
   const result = f.engine.resumePaymentContinuation(handle, {
     payer: 'A', source: paymentSource,
     add: add.draft,
-    restore: () => {}, parent: resume => resume(), payParent: true,
   });
   assert.equal(result.payment.paid, true);
+  assert.deepEqual(result.add.resources, { energy: 1, power: [] });
+  assert.deepEqual(result.add.receipt, {
+    instructionId: 'external-fury-add:add',
+    value: { energy: 1, power: [] },
+  });
+  assert.equal(result.payment.actions.filter(action => action.action.type === 'pay').length, 1);
   assert.equal(f.kernel.player('A').energy, 0, 'the Add funded and the parent consumed exactly one Energy');
   assert.equal(f.kernel.getObject('fury-rune').exhausted, true);
   assert.equal(f.engine.trace.some(event => event.item === 'external-fury-add' && event.step === 'priority-granted'), false);
 
   assert.throws(() => f.engine.resumePaymentContinuation(handle, {
-    payer: 'A', source: paymentSource, add: add.draft, restore: () => {}, parent: resume => resume(), payParent: true,
+    payer: 'A', source: paymentSource, add: add.draft,
   }), /stale or not authoritative/);
   assert.equal(f.kernel.player('A').energy, 0);
 });
@@ -754,12 +766,12 @@ test('external parent payment continuation accepts one authoritative Rune Add, p
 test('payment continuation rejects cloned handles, wrong payer/source, targets and late failure atomically', () => {
   let restorePoint;
   const f = scene(
-    world().player('A').player('B')
+    world().player('A', { energy: 1 }).player('B')
       .unit('parent', { location: field('one') })
       .unit('target', { owner: 'B', location: field('one') })
       .object('fury-rune', trustedFuryRune()),
     [], { 'target:parent.target': [{ id: 'target', zoneEntryId: 1 }] }, {},
-    { suspendPayment: point => { restorePoint = point; return true; } },
+    { paymentContinuation: { persist: notice => { restorePoint = notice; return true; } } },
   );
   const source = f.kernel.getObject('parent');
   assert.throws(() => f.engine.execute({
@@ -769,12 +781,8 @@ test('payment continuation rejects cloned handles, wrong payer/source, targets a
     ] }],
     cost: { id: 'cost:guarded-parent', cost: { energy: constant(1), power: constant([]) } },
   }), error => error.name === 'PaymentContinuationSuspendedError');
-  const paymentSource = restorePoint.handle.source;
-  const cloned = { snapshot: structuredClone(restorePoint.handle) };
-  assert.throws(() => f.engine.resumePaymentContinuation(cloned, {
-    payer: 'A', source: paymentSource, add: {}, restore: () => {}, parent: value => value,
-  }), /stale or not authoritative/);
-  const handle = f.engine.restorePaymentContinuationHandle(restorePoint);
+  const paymentSource = restorePoint.source;
+  const handle = f.engine.restorePaymentContinuationHandle();
   const add = planBasicRuneResourceActivation({
     chain: f.engine,
     state: { objects: () => f.kernel.objects, player: id => f.kernel.player(id) },
@@ -783,7 +791,382 @@ test('payment continuation rejects cloned handles, wrong payer/source, targets a
   });
   const wrongPayer = { ...add.draft, controller: 'B' };
   assert.throws(() => f.engine.resumePaymentContinuation(handle, {
-    payer: 'A', source: paymentSource, add: wrongPayer, restore: () => {}, parent: value => value,
+    payer: 'A', source: paymentSource, add: wrongPayer,
+  }), /Add actor mismatch/);
+  assert.equal(f.kernel.player('A').energy, 1);
+  assert.equal(f.kernel.getObject('fury-rune').exhausted, false);
+});
+
+test('payment continuation binds the exact parent actor and source incarnation', () => {
+  let notice;
+  const f = scene(
+    world().player('A').player('B').unit('parent').object('fury-rune', trustedFuryRune()),
+    [], {}, {}, { paymentContinuation: { persist: value => { notice = value; return true; } } },
+  );
+  const source = f.kernel.getObject('parent');
+  assert.throws(() => f.engine.execute({
+    id: 'identity-parent', controller: 'A', source, kind: 'activated', speed: 'normal', body: [],
+    cost: { id: 'cost:identity-parent', cost: { energy: constant(1) } },
+  }), error => error.name === 'PaymentContinuationSuspendedError');
+  const before = f.kernel.stateForTest();
+  const add = planBasicRuneResourceActivation({
+    chain: f.engine,
+    state: { objects: () => f.kernel.objects, player: id => f.kernel.player(id) },
+    resolveIdentity: cardId => cardId === FURY_RUNE.cardId ? FURY_RUNE : null,
+    request: { actor: 'A', activationId: 'identity-add', intent: { type: 'rune-energy', runeObjectId: 'fury-rune', zoneEntryId: 1 }, window: { kind: 'payment' } },
+  });
+
+  const handle = f.engine.restorePaymentContinuationHandle();
+  assert.throws(() => f.engine.resumePaymentContinuation(handle, {
+    payer: 'B', source: notice.source, add: { ...add.draft, controller: 'B' },
   }), /actor or source incarnation mismatch/);
+  assert.throws(() => f.engine.resumePaymentContinuation(handle, {
+    payer: 'A', source: { ...notice.source, zoneEntryId: notice.source.zoneEntryId + 1 }, add: add.draft,
+  }), /actor or source incarnation mismatch/);
+  assert.throws(() => f.engine.resumePaymentContinuation(handle, {
+    payer: 'A', source: notice.source,
+    add: { ...add.draft, source: { ...add.draft.source, ref: { ...add.draft.source.ref, zoneEntryId: 99 } } },
+  }), /Add source is not this payer/);
+  assert.deepEqual(f.kernel.stateForTest(), before);
+  assert.equal(f.engine.items.length, 1);
+  assert.equal(f.engine.items[0].id, 'identity-parent');
+  assert.equal(f.engine.trace.some(event => event.item === 'identity-add'), false);
+});
+
+test('payment continuation revalidates a target after the real Rune Add and rolls back both legs', () => {
+  let notice;
+  const f = scene(
+    world().player('A').player('B').unit('parent').unit('target', { owner: 'B' })
+      .object('fury-rune', trustedFuryRune()),
+    [], { 'target:target-only': [{ id: 'target', zoneEntryId: 1 }] }, {},
+    { paymentContinuation: { persist: value => { notice = value; return true; } } },
+  );
+  const source = f.kernel.getObject('parent');
+  assert.throws(() => f.engine.execute({
+    id: 'targeted-parent', controller: 'A', source, kind: 'activated', speed: 'normal',
+    body: [], targets: [{ requirement: { id: 'target-only', filter: { zone: 'board', type: 'unit', controller: 'opponent' }, min: 1, max: 1 } }],
+    cost: { id: 'cost:targeted-parent', cost: { energy: constant(1) } },
+  }), error => error.name === 'PaymentContinuationSuspendedError');
+  const before = f.kernel.stateForTest();
+  const handle = f.engine.restorePaymentContinuationHandle();
+  assert.equal(handle.snapshot.source.zoneEntryId, 1);
+  const add = planBasicRuneResourceActivation({
+    chain: f.engine,
+    state: { objects: () => f.kernel.objects, player: id => f.kernel.player(id) },
+    resolveIdentity: cardId => cardId === FURY_RUNE.cardId ? FURY_RUNE : null,
+    request: { actor: 'A', activationId: 'targeted-add', intent: { type: 'rune-energy', runeObjectId: 'fury-rune', zoneEntryId: 1 }, window: { kind: 'payment' } },
+  });
+  // The Add is legal; the parent payment must still fail if its locked target changed incarnation.
+  assert.equal(f.kernel.perform({ type: 'kill', object: f.kernel.ref('target') }).status, 'done');
+  assert.throws(() => f.engine.resumePaymentContinuation(handle, {
+    payer: 'A', source: notice.source, add: add.draft,
+  }), /target is no longer legal/i);
+  assert.deepEqual(f.kernel.player('A').energy, 0);
+  assert.equal(f.kernel.getObject('fury-rune').exhausted, false);
+  assert.equal(f.engine.trace.some(event => event.item === 'targeted-add'), false);
+});
+
+test('default Chain publishes one real layer-derived Mighty transition on the affected Unit incarnation', () => {
+  const fiora = admitted(fioraWorthy);
+  const f = scene(
+    world().player('A').player('B')
+      .unit('source', { cardId: fiora.canonicalCardId, might: 3 })
+      .unit('affected', { might: 4 })
+      .unit('enemy', { owner: 'B', controller: 'B', might: 4 }),
+    [fiora], {}, {},
+  );
+  // RIFT-810 owns the card-IR-to-pattern adapter. Its merged helper currently
+  // accepts the typed nested form, while the checked-in Fiora trigger is flat;
+  // that adapter mismatch remains 810/872's blocker. Chain production consumes
+  // the typed form so the real layer producer and scan can still be verified.
+  const filter = translateTriggerFilter({
+    event: 'might-changed',
+    object: { type: 'unit', controller: 'self', becomesMighty: true },
+  }, 'source', 'might-changed');
+  f.engine.pipeline.registerTrigger({ id: 'mighty-watch', source: f.kernel.getObject('source'), controller: 'A',
+    spec: { at: 'might-changed', filter }, body: [] });
+  const source = f.kernel.getObject('source');
+  f.engine.execute({
+    id: 'mighty-change', controller: 'A', source, kind: 'activated', speed: 'action',
+    body: [{ id: 'mighty-instruction', op: 'continuous.might', args: {
+      amount: constant(1), objects: constant({ kind: 'query', filter: { objectId: 'affected', zone: 'board' } }),
+      duration: constant('this-turn'),
+    } }],
+  });
+  settle(f.engine);
+  const changed = f.engine.pipeline.events.filter(event => event.timingPoint === 'might-changed');
+  assert.equal(changed.length, 1, 'the real 4-to-5 transition is emitted exactly once');
+  assert.deepEqual(changed[0].it?.ref, f.kernel.ref('affected'));
+  assert.ok(changed.every(event => event.object?.ref.id === 'affected'));
+  assert.ok(changed.every(event => event.source?.ref.id === 'source'));
+  assert.equal(f.engine.items.length, 0);
+});
+
+for (const [label, might, owner, expectedBefore] of [
+  ['3-to-4', 3, 'A', 3], ['5-to-6', 5, 'A', 5], ['enemy-4-to-5', 4, 'B', 4],
+]) {
+  test(`default Mighty producer does not select ${label}`, () => {
+    const f = scene(
+      world().player('A').player('B').unit('source', { might: 3 }).unit('affected', { might, owner, controller: owner }),
+      [], {}, {},
+    );
+    const filter = translateTriggerFilter({
+      event: 'might-changed', object: { type: 'unit', controller: 'self', becomesMighty: true },
+    }, 'source', 'might-changed');
+    f.engine.pipeline.registerTrigger({ id: `mighty-negative-${label}`, source: f.kernel.getObject('source'), controller: 'A',
+      spec: { at: 'might-changed', filter }, body: [] });
+    const source = f.kernel.getObject('source');
+    f.engine.execute({
+      id: `non-crossing-${label}`, controller: 'A', source, kind: 'activated', speed: 'action',
+      body: [{ id: `change-${label}`, op: 'continuous.might', args: { amount: constant(1), duration: constant('this-turn'),
+        objects: constant({ kind: 'query', filter: { objectId: 'affected', zone: 'board' } }) } }],
+    });
+    settle(f.engine);
+    const raw = f.engine.pipeline.events.filter(event => event.timingPoint === 'might-changed' && event.kind === 'might-changed');
+    assert.deepEqual(raw.map(event => [event.object?.ref.id, event.details?.before?.might, event.details?.after?.might]),
+      [['affected', expectedBefore, expectedBefore + 1]]);
+    assert.equal(f.engine.trace.some(event => event.item?.startsWith('trigger:')),
+      false, label);
+    assert.equal(f.engine.items.length, 0);
+  });
+}
+
+test('payment continuation rejects wrong payer, wrong parent source, rival Chain notice, and cloned handle before a legal retry', () => {
+  let notice;
+  const f = scene(
+    world().player('A').player('B').unit('parent').object('fury-rune', trustedFuryRune()),
+    [], {}, {}, { paymentContinuation: { persist: value => { notice = value; return true; } } },
+  );
+  const source = f.kernel.getObject('parent');
+  assert.throws(() => f.engine.execute({
+    id: 'identity-negative-parent', controller: 'A', source, kind: 'activated', speed: 'normal', body: [],
+    cost: { id: 'cost:identity-negative-parent', cost: { energy: constant(1) } },
+  }), error => error.name === 'PaymentContinuationSuspendedError');
+  const add = planBasicRuneResourceActivation({
+    chain: f.engine,
+    state: { objects: () => f.kernel.objects, player: id => f.kernel.player(id) },
+    resolveIdentity: cardId => cardId === FURY_RUNE.cardId ? FURY_RUNE : null,
+    request: { actor: 'A', activationId: 'identity-negative-add', intent: { type: 'rune-energy', runeObjectId: 'fury-rune', zoneEntryId: 1 }, window: { kind: 'payment' } },
+  });
+  const handle = f.engine.restorePaymentContinuationHandle();
+  const before = f.kernel.stateForTest();
+  assert.throws(() => f.engine.resumePaymentContinuation(handle, {
+    payer: 'B', source: notice.source, add: { ...add.draft, controller: 'B' },
+  }), /actor or source incarnation mismatch/);
+  assert.throws(() => f.engine.resumePaymentContinuation(handle, {
+    payer: 'A', source: { ...notice.source, zoneEntryId: notice.source.zoneEntryId + 1 }, add: add.draft,
+  }), /actor or source incarnation mismatch/);
+  const rival = scene(world().player('A').player('B').unit('parent'), [], {}, {});
+  assert.throws(() => rival.engine.restorePaymentContinuationHandle(), /not rebuilt/);
+  assert.deepEqual(f.kernel.stateForTest(), before);
+  const result = f.engine.resumePaymentContinuation(handle, {
+    payer: 'A', source: notice.source, add: add.draft,
+  });
+  assert.equal(result.payment.paid, true);
+  assert.deepEqual(result.add.resources, { energy: 1, power: [] });
   assert.equal(f.kernel.player('A').energy, 0);
+  assert.equal(f.kernel.getObject('fury-rune').exhausted, true);
+});
+
+test('a legal Rune Add followed by parent failure rolls back Add, parent charge and receipts', () => {
+  let notice;
+  const f = scene(
+    world().player('A').player('B').unit('parent').object('fury-rune', trustedFuryRune()),
+    [], {}, {}, { paymentContinuation: { persist: value => { notice = value; return true; } } },
+  );
+  const source = f.kernel.getObject('parent');
+  assert.throws(() => f.engine.execute({
+    id: 'late-negative-parent', controller: 'A', source, kind: 'activated', speed: 'normal', body: [],
+    cost: { id: 'cost:late-negative-parent', cost: { energy: constant(2) } },
+  }), error => error.name === 'PaymentContinuationSuspendedError');
+  const before = f.kernel.stateForTest();
+  const handle = f.engine.restorePaymentContinuationHandle();
+  const add = planBasicRuneResourceActivation({
+    chain: f.engine,
+    state: { objects: () => f.kernel.objects, player: id => f.kernel.player(id) },
+    resolveIdentity: cardId => cardId === FURY_RUNE.cardId ? FURY_RUNE : null,
+    request: { actor: 'A', activationId: 'late-negative-add', intent: { type: 'rune-energy', runeObjectId: 'fury-rune', zoneEntryId: 1 }, window: { kind: 'payment' } },
+  });
+  assert.throws(() => f.engine.resumePaymentContinuation(handle, {
+    payer: 'A', source: notice.source, add: add.draft,
+  }), /Parent cost remains unpayable after the Reaction Add/);
+  assert.deepEqual(f.kernel.stateForTest(), before);
+  assert.equal(f.engine.items.length, 1, 'only the exact frozen parent remains for a legal retry');
+  assert.equal(f.engine.items[0].id, 'late-negative-parent');
+  assert.equal(f.engine.items[0].status, 'finalized');
+  assert.equal(f.engine.items[0].payment, undefined);
+  assert.equal(f.engine.trace.some(event => event.item === 'late-negative-add'), false);
+});
+
+test('only journal replay creates a resumable suspension for a new authoritative Chain', () => {
+  const create = () => scene(
+    world().player('A').player('B').unit('parent').object('fury-rune', trustedFuryRune()),
+    [], {}, {}, { paymentContinuation: { persist: () => true } },
+  );
+  const first = create();
+  const draft = {
+    id: 'replayed-parent', controller: 'A', source: first.kernel.getObject('parent'), kind: 'activated', speed: 'normal', body: [],
+    cost: { id: 'cost:replayed-parent', cost: { energy: constant(1) } },
+  };
+  assert.throws(() => first.engine.execute(draft), error => error.name === 'PaymentContinuationSuspendedError');
+  const firstHandle = first.engine.restorePaymentContinuationHandle();
+
+  const rival = create();
+  assert.throws(() => rival.engine.restorePaymentContinuationHandle(), /not rebuilt/);
+  const replay = create();
+  assert.throws(() => replay.engine.execute({ ...draft, source: replay.kernel.getObject('parent') }), error => error.name === 'PaymentContinuationSuspendedError');
+  const replayHandle = replay.engine.restorePaymentContinuationHandle();
+  assert.equal(replayHandle.snapshot.continuationId, firstHandle.snapshot.continuationId);
+  assert.equal(replayHandle.snapshot.epoch, firstHandle.snapshot.epoch);
+
+  const add = planBasicRuneResourceActivation({
+    chain: replay.engine,
+    state: { objects: () => replay.kernel.objects, player: id => replay.kernel.player(id) },
+    resolveIdentity: cardId => cardId === FURY_RUNE.cardId ? FURY_RUNE : null,
+    request: { actor: 'A', activationId: 'replayed-add', intent: { type: 'rune-energy', runeObjectId: 'fury-rune', zoneEntryId: 1 }, window: { kind: 'payment' } },
+  });
+  const result = replay.engine.resumePaymentContinuation(replayHandle, {
+    payer: 'A', source: replayHandle.snapshot.source, add: add.draft,
+  });
+  assert.equal(result.continuationId, firstHandle.snapshot.continuationId);
+  assert.equal(result.payment.paid, true);
+  assert.equal(replay.kernel.player('A').energy, 0);
+});
+
+test('payment continuation rejects a forged journal notice and persistence rejection without residue', () => {
+  let notice;
+  const restore = scene(
+    world().player('A').player('B').unit('parent').object('fury-rune', trustedFuryRune()),
+    [], {}, {}, { paymentContinuation: { persist: value => { notice = value; return true; } } },
+  );
+  const draft = {
+    id: 'journal-identity-parent', controller: 'A', source: restore.kernel.getObject('parent'),
+    kind: 'activated', speed: 'normal', body: [], cost: { id: 'cost:journal-identity-parent', cost: { energy: constant(1) } },
+  };
+  assert.throws(() => restore.engine.execute(draft), error => error.name === 'PaymentContinuationSuspendedError');
+  assert.match(notice.digest, /^sha256:[a-f0-9]{64}$/);
+  const forgedNotice = structuredClone({ ...notice, digest: `sha256:${'0'.repeat(64)}` });
+  assert.throws(() => restore.engine.restorePaymentContinuationHandle(forgedNotice), /journal notice does not match/);
+  const journaled = structuredClone(notice);
+  assert.equal(restore.engine.restorePaymentContinuationHandle(journaled).snapshot.digest, notice.digest);
+  assert.throws(() => restore.engine.restorePaymentContinuationHandle(journaled), /already restored/);
+  const forged = scene(world().player('A').player('B').unit('parent'), [], {}, {});
+  assert.throws(() => forged.engine.restorePaymentContinuationHandle(notice), /not rebuilt/);
+  assert.equal(restore.engine.items.length, 1);
+  assert.equal(restore.engine.items[0].id, 'journal-identity-parent');
+
+  const rejected = scene(
+    world().player('A').player('B').unit('parent').object('fury-rune', trustedFuryRune()),
+    [], {}, {}, { paymentContinuation: { persist: () => false } },
+  );
+  const before = rejected.kernel.stateForTest();
+  assert.throws(() => rejected.engine.execute({ ...draft, source: rejected.kernel.getObject('parent') }), /not durably accepted/);
+  assert.deepEqual(rejected.kernel.stateForTest(), before);
+  assert.equal(rejected.engine.items.length, 0);
+  assert.throws(() => rejected.engine.restorePaymentContinuationHandle(), /not rebuilt/);
+});
+
+test('a suspended payer blocks another player from starting a second Chain action before resume', () => {
+  let notice;
+  const f = scene(
+    world().player('A').player('B').unit('parent').object('fury-rune', trustedFuryRune()),
+    [], {}, {}, { paymentContinuation: { persist: value => { notice = value; return true; } } },
+  );
+  assert.throws(() => f.engine.execute({
+    id: 'payer-only-parent', controller: 'A', source: f.kernel.getObject('parent'),
+    kind: 'activated', speed: 'normal', body: [],
+    cost: { id: 'cost:payer-only-parent', cost: { energy: constant(1) } },
+  }), error => error.name === 'PaymentContinuationSuspendedError');
+  const before = f.kernel.stateForTest();
+  assert.throws(() => f.engine.execute({
+    id: 'rival-chain-action', controller: 'B', source: f.kernel.getObject('parent'),
+    kind: 'activated', speed: 'reaction', body: [], cost: { id: 'cost:rival', cost: { energy: constant(0) } },
+  }), /suspended Pay Costs continuation must be resumed/);
+  assert.deepEqual(f.kernel.stateForTest(), before);
+  assert.deepEqual(f.engine.items.map(item => item.id), ['payer-only-parent']);
+
+  const handle = f.engine.restorePaymentContinuationHandle(notice);
+  const add = planBasicRuneResourceActivation({
+    chain: f.engine,
+    state: { objects: () => f.kernel.objects, player: id => f.kernel.player(id) },
+    resolveIdentity: cardId => cardId === FURY_RUNE.cardId ? FURY_RUNE : null,
+    request: { actor: 'A', activationId: 'payer-only-add', intent: { type: 'rune-energy', runeObjectId: 'fury-rune', zoneEntryId: 1 }, window: { kind: 'payment' } },
+  });
+  assert.equal(f.engine.resumePaymentContinuation(handle, { payer: 'A', source: notice.source, add: add.draft }).payment.paid, true);
+});
+
+test('a parent source re-entering with the same id is rejected before the Reaction Add executes', () => {
+  let notice;
+  const f = scene(
+    world().player('A').player('B').unit('parent').object('fury-rune', trustedFuryRune()),
+    [], {}, {}, { paymentContinuation: { persist: value => { notice = value; return true; } } },
+  );
+  const source = f.kernel.getObject('parent');
+  assert.throws(() => f.engine.execute({
+    id: 'reentry-parent', controller: 'A', source, kind: 'activated', speed: 'normal', body: [],
+    cost: { id: 'cost:reentry-parent', cost: { energy: constant(1) } },
+  }), error => error.name === 'PaymentContinuationSuspendedError');
+  assert.equal(f.engine.items.length, 1);
+  assert.equal(f.engine.items[0].id, 'reentry-parent');
+  const before = f.kernel.stateForTest();
+  assert.equal(f.kernel.perform({ type: 'move-zone', object: source.ref, to: 'trash' }).status, 'done');
+  const current = f.kernel.getObject('parent');
+  f.kernel.addObject({ ...source, ref: { id: 'parent', zoneEntryId: current.ref.zoneEntryId + 1 } }, 'board');
+  const afterReentry = f.kernel.stateForTest();
+  const add = planBasicRuneResourceActivation({
+    chain: f.engine,
+    state: { objects: () => f.kernel.objects, player: id => f.kernel.player(id) },
+    resolveIdentity: cardId => cardId === FURY_RUNE.cardId ? FURY_RUNE : null,
+    request: { actor: 'A', activationId: 'reentry-add', intent: { type: 'rune-energy', runeObjectId: 'fury-rune', zoneEntryId: 1 }, window: { kind: 'payment' } },
+  });
+  const handle = f.engine.restorePaymentContinuationHandle(notice);
+  assert.throws(() => f.engine.resumePaymentContinuation(handle, {
+    payer: 'A', source: notice.source, add: add.draft,
+  }), /parent, actor, source or cost plan|replaced by another incarnation/);
+  assert.deepEqual(f.kernel.stateForTest(), afterReentry);
+  assert.equal(f.engine.trace.some(event => event.item === 'reentry-add'), false);
+  assert.deepEqual(before.objects.find(object => object.ref.id === 'parent').ref, source.ref);
+});
+
+test('Add succeeds, then a real host replacement blocks the parent additional payment and rolls back both receipts', () => {
+  let notice;
+  const f = scene(
+    world().player('A').player('B').unit('parent').unit('cost-gear').object('fury-rune', trustedFuryRune()),
+    [], {}, {}, { paymentContinuation: { persist: value => { notice = value; return true; } } },
+  );
+  const source = f.kernel.getObject('parent');
+  assert.throws(() => f.engine.execute({
+    id: 'replacement-late-parent', controller: 'A', source, kind: 'activated', speed: 'normal', body: [],
+    cost: { id: 'cost:replacement-late-parent', cost: {
+      energy: constant(1),
+      payments: [{ kind: 'exhaust', object: f.kernel.ref('cost-gear') }],
+    } },
+  }), error => error.name === 'PaymentContinuationSuspendedError');
+  const before = f.kernel.stateForTest();
+  assert.equal(f.engine.items.length, 1);
+  assert.equal(f.engine.items[0].id, 'replacement-late-parent');
+  let exhausts = 0;
+  f.kernel.addReplacement(action => {
+    if (action.type !== 'exhaust' || action.object.id !== 'cost-gear') return null;
+    exhausts++;
+    return 'prevented';
+  });
+  const handle = f.engine.restorePaymentContinuationHandle(notice);
+  const add = planBasicRuneResourceActivation({
+    chain: f.engine,
+    state: { objects: () => f.kernel.objects, player: id => f.kernel.player(id) },
+    resolveIdentity: cardId => cardId === FURY_RUNE.cardId ? FURY_RUNE : null,
+    request: { actor: 'A', activationId: 'replacement-late-add', intent: { type: 'rune-energy', runeObjectId: 'fury-rune', zoneEntryId: 1 }, window: { kind: 'payment' } },
+  });
+  const playerBefore = f.kernel.player('A');
+  assert.throws(() => f.engine.resumePaymentContinuation(handle, {
+    payer: 'A', source: notice.source, add: add.draft,
+  }), error => error?.reason === 'cannot-pay-cost' && error.failedAction?.action.type === 'exhaust');
+  assert.equal(exhausts, 1, 'the replacement was reached after the standard Energy payment was attempted');
+  assert.deepEqual(f.kernel.player('A'), playerBefore, 'both the Rune gain and prior parent Energy payment were rolled back');
+  assert.equal(f.kernel.getObject('cost-gear').exhausted, false);
+  assert.equal(f.kernel.getObject('fury-rune').exhausted, false);
+  assert.equal(f.engine.trace.some(event => event.item === 'replacement-late-add'), false);
+  assert.equal(f.engine.items.length, 1, 'the frozen parent remains available for a legal retry');
+  assert.equal(f.engine.items[0].payment, undefined);
 });
