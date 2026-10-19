@@ -10,7 +10,7 @@ import { bindResolveContext, createActionPipelineHost } from "../../../../engine
 import { deriveMightChangedEmissions } from "../../../../engine-core/dist/events/producers/might-change.js";
 import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
 import { triggerEventObjectBinding } from "../../../../engine-core/dist/events/pipeline-types.js";
-import { matchesMightyTransition } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { matchesMightyTransition, matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { createProgramBinding, translateTriggerFilter } from "../../../../engine-core/dist/programs/index.js";
@@ -31,6 +31,10 @@ const READY_ID = "fiora-worthy.ready-event-it";
 const [ability] = program.abilities;
 const [optional] = ability.body;
 const [payOrder, readyEventIt] = optional.args.body.value;
+
+function translatedFioraFilter() {
+  return translateTriggerFilter(ability.trigger.filter, "fiora", "might-changed");
+}
 
 function productionFixture() {
   const kernel = world()
@@ -76,6 +80,62 @@ function productionFixture() {
   const errors = [];
   binding.attachLifecycle(engine, error => errors.push(error));
   return { kernel, binding, engine, errors, questions };
+}
+
+const admitted = { ...program, status: "executable", judgeReason: undefined };
+
+function directPipelineFixture({ power = ["Order", "Order"] } = {}) {
+  const kernel = world()
+    .player("A", { power })
+    .player("B")
+    .unit("fiora", {
+      cardId: CANONICAL_ID,
+      might: 3,
+      exhausted: true,
+      zone: "board",
+      location: { type: "battlefield", id: "battlefield-1" }
+    })
+    .unit("event-unit", {
+      cardId: "card:event-unit",
+      might: 4,
+      exhausted: true,
+      zone: "board",
+      location: { type: "battlefield", id: "battlefield-1" }
+    })
+    .build();
+  const questions = [];
+  const choose = request => {
+    questions.push(request);
+    if (request.type === "optional") return true;
+    throw new Error(`Unexpected production choice ${request.id}`);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => {
+      kernel.restore(saved.state);
+      kernel.copyLinkedFrom(saved.links);
+    },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host,
+    cleanup: () => false
+  });
+  // Only metadata is admitted here. The registry receives the card's original
+  // trigger and body unchanged.
+  const binding = createProgramBinding({ cardPrograms: [admitted] });
+  const registered = binding.registerProgramTriggers(engine, kernel.getObject("fiora"));
+  return { kernel, engine, host, binding, registered, questions };
 }
 
 test("sfd-180-221 Fiora, Worthy: program validates and has expected shape", () => {
@@ -192,18 +252,30 @@ test("sfd-180-221 Fiora, Worthy: effect.ready body readies an exhausted unit via
   assert.equal(run.events[0].action, "ready");
 });
 
-test("sfd-180-221 Fiora, Worthy: the default trigger translator rejects becomesMighty on the unmodified program", () => {
-  const { binding, engine, kernel } = productionFixture();
-  assert.throws(
-    () => translateTriggerFilter(ability.trigger.filter, "fiora", "might-changed"),
-    error => error?.code === "judge-required" && /Unsupported filter field becomesMighty/.test(error.message)
-  );
-  assert.throws(
-    () => binding.registerProgramTriggers(engine, kernel.getObject("fiora")),
-    error => error?.code === "judge-required" && /default production path is incomplete/.test(error.message)
-  );
-  assert.equal(binding.registry.inspect(CANONICAL_ID), program);
-  assert.equal(kernel.getObject("fiora").zone, "board");
+test("sfd-180-221 Fiora, Worthy: the original unmodified trigger IR registers", () => {
+  const { engine, kernel } = productionFixture();
+  const binding = createProgramBinding({ cardPrograms: [admitted] });
+  assert.deepEqual(binding.registry.get(CANONICAL_ID).abilities, program.abilities);
+  assert.deepEqual(binding.registry.get(CANONICAL_ID).abilities[0].trigger.filter, ability.trigger.filter);
+
+  const translated = translateTriggerFilter(ability.trigger.filter, "fiora", "might-changed");
+  assert.deepEqual(translated, {
+    event: "might-changed",
+    object: { type: "unit", controller: "self" },
+    details: { becomesMighty: true }
+  });
+  const ids = binding.registerProgramTriggers(engine, kernel.getObject("fiora"));
+  assert.equal(ids.length, 1);
+  const [registration] = [...engine.pipeline.triggers.values()];
+  assert.equal(registration.id, ids[0]);
+  assert.deepEqual(registration.spec.filter, translated);
+  assert.deepEqual(registration.body.map(instruction => instruction.id), [READY_ID]);
+  assert.equal(registration.mayAtFinalize, true);
+  assert.deepEqual(registration.cost.cost.payments, [{
+    kind: "power",
+    amount: { kind: "constant", value: 1 },
+    allowedDomains: ["Order"]
+  }]);
 });
 
 test("sfd-180-221 Fiora, Worthy: a real layer action currently emits no scanned might-changed production event", () => {
@@ -250,7 +322,7 @@ test("sfd-180-221 Fiora, Worthy: the Mighty matcher implements the exact transit
   assert.equal(matchesMightyTransition(true, { ...before, might: null }, after), false);
 });
 
-test("sfd-180-221 Fiora, Worthy: raw might-changed events have before/after but no event:it", () => {
+test("sfd-180-221 Fiora, Worthy: the real Might producer freezes before, after and event:it", () => {
   const kernel = world()
     .unit("fiora", {
       cardId: CANONICAL_ID,
@@ -271,6 +343,11 @@ test("sfd-180-221 Fiora, Worthy: raw might-changed events have before/after but 
     cause: "layer-recompute"
   })[0];
   assert.ok(derived);
+  assert.deepEqual(derived.details.before.ref, before.ref);
+  assert.deepEqual(derived.details.after.ref, after.ref);
+  assert.deepEqual(derived.it.ref, after.ref);
+  assert.equal(derived.details.previousMight, 4);
+  assert.equal(derived.details.currentMight, 5);
   const pipeline = new EventPipeline(createActionPipelineHost({
     checkpoint: () => null,
     restore: () => {},
@@ -293,12 +370,18 @@ test("sfd-180-221 Fiora, Worthy: raw might-changed events have before/after but 
   assert.equal(event.details.currentMight, 5);
   assert.deepEqual(event.details.before.ref, before.ref);
   assert.deepEqual(event.details.after.ref, after.ref);
-  assert.equal(event.it, undefined);
+  assert.deepEqual(event.it.ref, after.ref);
+  assert.equal(event.it.ref.zoneEntryId, before.ref.zoneEntryId);
   assert.equal(captures.length, 1);
-  assert.equal(triggerEventObjectBinding(captures[0], "it"), null);
+  assert.equal(matchesTriggerEvent(translatedFioraFilter(), event, "A"), true);
+  assert.equal(matchesTriggerEvent(translatedFioraFilter(), event, "B"), false);
+  const binding = triggerEventObjectBinding(captures[0], "it");
+  assert.ok(binding);
+  assert.deepEqual(binding.ref, after.ref);
+  assert.equal(binding.snapshot.might, 5);
 });
 
-test("sfd-180-221 Fiora, Worthy: a real producer without event:it cannot arm Fiora's ready", () => {
+test("sfd-180-221 Fiora, Worthy: the original trigger resolves payment and readies only event:it", () => {
   const before = {
     ref: { id: "target", zoneEntryId: 1 },
     cardId: "target",
@@ -322,52 +405,41 @@ test("sfd-180-221 Fiora, Worthy: a real producer without event:it cannot arm Fio
     isToken: false
   };
   const after = { ...before, might: 5 };
-  const kernel = world()
-    .unit("fiora", {
-      cardId: CANONICAL_ID,
-      controller: "A",
-      zone: "board",
-      location: { type: "base", player: "A" }
-    })
-    .unit("target", {
-      owner: "A",
-      controller: "A",
-      might: 4,
-      exhausted: true,
-      zone: "board",
-      location: { type: "battlefield", id: "battlefield-1" }
-    })
-    .build();
+  const f = directPipelineFixture();
+  const { kernel, engine, registered } = f;
   const derived = deriveMightChangedEmissions([before], [after], {
     batchId: "raw-mighty",
-    cause: "layer-recompute"
+    cause: "layer-recompute",
+    source: kernel.getObject("fiora")
   })[0];
   assert.ok(derived);
-  assert.equal(derived.it, undefined);
-  const eventPipeline = new EventPipeline(createActionPipelineHost({
-    checkpoint: () => null,
-    restore: () => {},
-    objects: () => [kernel.getObject("fiora"), kernel.getObject("target")],
-    perform: () => ({ status: "impossible", events: [] }),
-    choose: () => { throw new Error("unexpected choice"); },
-    context: () => ({})
-  }), ["A", "B"], "A");
-  const seen = [];
-  eventPipeline.onTrigger = snapshot => seen.push(snapshot);
-  eventPipeline.registerTrigger({
-    id: "fiora-raw-observer",
-    source: kernel.getObject("fiora"),
-    controller: "A",
-    spec: { at: "might-changed", filter: {} },
-    body: []
-  });
-  const event = eventPipeline.emitBatch([derived], undefined, "raw-mighty")[0];
-  // The generic event itself is observable, but its raw worker emission has
-  // no pronoun snapshot. This is the producer-side gap, independent of the
-  // trigger filter and ready schema.
-  assert.equal(event.it, undefined);
-  assert.equal(seen.length, 1);
-  assert.equal(triggerEventObjectBinding(seen[0], "it"), null);
+  assert.equal(registered.length, 1);
+  const [event] = engine.pipeline.emitBatch([derived], undefined, "raw-mighty");
+  assert.deepEqual(event.it.ref, kernel.ref("event-unit"));
+  assert.equal(engine.items.length, 1);
+  assert.equal(engine.items[0].status, "pending");
+  assert.deepEqual(engine.items[0].trigger.event, event);
+
+  engine.advance();
+  assert.equal(engine.items[0].status, "finalized");
+  assert.deepEqual(kernel.player("A").power, ["Order"]);
+  assert.equal(engine.items[0].payment.paid, true);
+  assert.deepEqual(engine.items[0].payment.total.power, [{ amount: 1, allowedDomains: ["Order"] }]);
+  assert.equal(kernel.getObject("event-unit").exhausted, true);
+  assert.equal(kernel.getObject("fiora").exhausted, true);
+
+  engine.pass("A");
+  engine.pass("B");
+  assert.equal(engine.items.length, 0);
+  assert.equal(kernel.getObject("event-unit").exhausted, false);
+  assert.equal(kernel.getObject("fiora").exhausted, true);
+  assert.deepEqual(f.questions.map(request => [request.type, request.id]), [
+    ["optional", "finalize:trigger:1:optional"]
+  ]);
+  const readyEvents = engine.pipeline.events.filter(candidate => candidate.timingPoint === "object-readied");
+  assert.equal(readyEvents.length, 1);
+  assert.deepEqual(readyEvents[0].object.ref, kernel.ref("event-unit"));
+  assert.equal(engine.pipeline.events.filter(candidate => candidate.timingPoint === "became-target").length, 0);
 });
 
 test("sfd-180-221 Fiora, Worthy: accepting the leading cost pays exactly one Order Power once", () => {
@@ -555,14 +627,83 @@ test("sfd-180-221 Fiora, Worthy: Universal Power can satisfy the exact Order req
   assert.equal(plan.power[0].requirementIndex, 0);
 });
 
-test("sfd-180-221 Fiora, Worthy: the current effect.ready schema cannot consume event:it (shared bridge required)", () => {
-  // The IR is valid as an Expr at the program layer, but the primitive parses
-  // only the evaluated selection. This is the exact missing selector consumer.
-  assert.equal(ready.argsSchema.safeParse({ objects: { event: "it" } }).success, false);
+test("sfd-180-221 Fiora, Worthy: effect.ready consumes exact event:it and fails closed otherwise", () => {
+  assert.equal(ready.argsSchema.safeParse({ objects: { event: "it" } }).success, true);
+  assert.equal(ready.argsSchema.safeParse({ objects: { event: "it", target: "other" } }).success, false);
+
+  const make = () => world()
+    .unit("fiora", {
+      cardId: CANONICAL_ID,
+      exhausted: true,
+      zone: "board",
+      location: { type: "base", player: "A" }
+    })
+    .unit("event-unit", {
+      exhausted: true,
+      zone: "board",
+      location: { type: "battlefield", id: "battlefield-1" }
+    })
+    .build();
+  const bindingFor = snapshot => Object.freeze({
+    eventId: 11,
+    role: "it",
+    ref: Object.freeze({ ...snapshot.ref }),
+    snapshot: Object.freeze(structuredClone(snapshot))
+  });
+  const contextFor = (kernel, eventObject) => bindResolveContext(kernel, {
+    source: kernel.getObject("fiora"),
+    controller: "A",
+    timingPoint: "chain-item-resolve",
+    eventObject,
+    choose: () => { throw new Error("event:it must not choose"); }
+  });
+
+  const valid = make();
+  const validBinding = bindingFor(valid.getObject("event-unit"));
+  const validOutcome = resolveChainBody([readyEventIt], contextFor(valid, role => role === "it" ? validBinding : null));
+  assert.equal(validOutcome.status, "executed");
+  assert.equal(valid.getObject("event-unit").exhausted, false);
+  assert.equal(valid.getObject("fiora").exhausted, true);
+  assert.deepEqual(validOutcome.linkedValues[`${READY_ID}.readied`], {
+    count: 1,
+    objects: [validBinding.ref]
+  });
+  assert.deepEqual(validOutcome.events.map(event => event.action), ["ready"]);
+
+  for (const eventObject of [
+    undefined,
+    () => null,
+    () => ({ ...validBinding, role: "source" }),
+    () => ({ ...validBinding, eventId: 0 }),
+    () => ({ ...validBinding, ref: { ...validBinding.ref, zoneEntryId: 2 } })
+  ]) {
+    const kernel = make();
+    const before = kernel.stateForTest();
+    const context = contextFor(kernel, eventObject);
+    const outcome = resolveChainBody([readyEventIt], context);
+    assert.equal(outcome.status, "partial");
+    assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+    assert.deepEqual(kernel.stateForTest(), before);
+  }
+
+  const stale = make();
+  const oldBinding = bindingFor(stale.getObject("event-unit"));
+  assert.equal(stale.perform({ type: "return-to-hand", object: oldBinding.ref }).status, "done");
+  assert.equal(stale.perform({
+    type: "move-zone",
+    object: stale.ref("event-unit"),
+    to: "battlefield",
+    location: { type: "battlefield", id: "battlefield-1" }
+  }).status, "done");
+  const staleBefore = stale.stateForTest();
+  const staleOutcome = resolveChainBody([readyEventIt], contextFor(stale, role => role === "it" ? oldBinding : null));
+  assert.deepEqual(staleOutcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(stale.getObject("event-unit").exhausted, true);
+  assert.equal(stale.getObject("fiora").exhausted, true);
+  assert.deepEqual(stale.stateForTest(), staleBefore);
 });
 
 test.todo(
-  "sfd-180-221 Fiora, Worthy: end-to-end 4-to-5 production trigger, Finalize choice/payment, and event-it ready " +
-    "remain blocked by the shared programs/filters.ts transition translation, the default layer-to-event producer, " +
-    "the generic TriggerSnapshot event:it assignment, and effect.ready's event selector schema (CR 383.3.a/.b.1, 709)"
+  "sfd-180-221 Fiora, Worthy: the default layer recompute must publish this 4-to-5 event, and the independent real host " +
+    "must prove exact Order Power debit before the whole card can be accepted; the pipeline and primitive slices above are separate from that production path"
 );
