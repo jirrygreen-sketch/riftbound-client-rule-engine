@@ -75,5 +75,22 @@ export function matchesTriggerEvent(filter: ObjectFilter | EventPattern, event: 
       if (!(matcher.operator === 'eq' ? a === b : matcher.operator === 'neq' ? a !== b : matcher.operator === 'gt' ? a > b : matcher.operator === 'gte' ? a >= b : matcher.operator === 'lt' ? a < b : a <= b)) return false;
     }
   }
-  return !pattern.details || Object.entries(pattern.details).every(([key, expected]) => Array.isArray(expected) ? expected.includes(event.details?.[key] as never) : event.details?.[key] === expected);
+  if (!pattern.details) return true;
+  const details = event.details as Readonly<Record<string, unknown>> | undefined;
+  if (Object.hasOwn(pattern.details, 'battlefieldControllerBefore')) {
+    if (event.timingPoint !== 'conquer' || details === null || details === undefined || !Object.hasOwn(details, 'battlefieldControllerBefore')) return false;
+    const battlefieldId = details.battlefieldId;
+    const objectId = details.objectId;
+    if (typeof battlefieldId !== 'string' || battlefieldId.length === 0 || typeof objectId !== 'string' || objectId.length === 0) return false;
+    if (event.object?.ref.id !== objectId || event.object.zone !== 'board') return false;
+    if (event.source !== undefined && (event.source.ref.id !== objectId || event.source.ref.zoneEntryId !== event.object.ref.zoneEntryId)) return false;
+    if (event.it !== undefined && (event.it.ref.id !== objectId || event.it.ref.zoneEntryId !== event.object.ref.zoneEntryId)) return false;
+    if (event.player !== details.playerId) return false;
+    const before = details.battlefieldControllerBefore;
+    if (before !== null && (typeof before !== 'string' || before.length === 0)) return false;
+    if (pattern.details.battlefieldControllerBefore !== before) return false;
+  }
+  return Object.entries(pattern.details).every(([key, expected]) => key === 'battlefieldControllerBefore'
+    ? true
+    : Array.isArray(expected) ? expected.includes(details?.[key] as never) : details?.[key] === expected);
 }

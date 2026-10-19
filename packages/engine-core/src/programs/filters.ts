@@ -164,14 +164,19 @@ function triggerObject(input: Record<string, unknown>, sourceRefId: string): Rec
 
 export function translateTriggerFilter(input: ObjectFilter | EventPattern | Record<string, unknown>, sourceRefId: string, defaultEvent = 'object-entered-zone'): ObjectFilter | EventPattern {
   const raw = record(input);
+  const rawBattlefieldWas = raw.battlefieldWas;
+  if (rawBattlefieldWas !== undefined && rawBattlefieldWas !== 'uncontrolled') {
+    throw new ProgramBindingError('judge-required', `Unsupported battlefieldWas ${String(rawBattlefieldWas)}`);
+  }
   const hasEventType = isEventType(raw.type);
   const pattern = raw.event !== undefined || raw.kind !== undefined || hasEventType || raw.filter !== undefined ||
-    ['player', 'fromZone', 'toZone', 'amount', 'details', 'relations'].some(key => key in raw) ||
+    ['player', 'fromZone', 'toZone', 'amount', 'details', 'relations', 'battlefieldWas'].some(key => key in raw) ||
     ['object', 'source', 'target', 'it'].some(key => raw[key] !== undefined && !isSelector(raw[key]));
   if (!pattern) return triggerObject(raw, sourceRefId) as ObjectFilter;
 
   const output: Record<string, unknown> = {};
   const object: Record<string, unknown> = {};
+  const battlefieldWas = rawBattlefieldWas === 'uncontrolled' ? 'uncontrolled' : undefined;
   const mergeObject = (filter: Record<string, unknown>) => {
     for (const [key, value] of Object.entries(triggerObject(filter, sourceRefId))) {
       if (key === 'tags' || key === 'states') append(object, key, value);
@@ -199,6 +204,8 @@ export function translateTriggerFilter(input: ObjectFilter | EventPattern | Reco
     else if (key === 'player') {
       const player = normalizePlayer(value);
       put(output, key, typeof player === 'string' && !['self', 'opponent', 'any'].includes(player) ? { playerId: player } : player);
+    } else if (key === 'battlefieldWas') {
+      // Captured above before ordinary object-filter normalization.
     } else if (key !== 'filter') {
       if (eventFields.has(key)) output[key] = value;
       else flat[key] = value;
@@ -207,6 +214,13 @@ export function translateTriggerFilter(input: ObjectFilter | EventPattern | Reco
   if (Object.keys(flat).length) mergeObject(flat);
   if (Object.keys(object).length || raw.object !== undefined) output.object = object;
   if (!['event', 'type', 'kind'].some(key => key in output)) output.event = defaultEvent;
+  if (battlefieldWas !== undefined) {
+    const actual = output.event ?? output.type ?? output.kind;
+    if (canonicalEventPatternType(actual as typeof EVENT_PATTERN_TYPES[number]) !== 'conquer') {
+      throw new ProgramBindingError('judge-required', 'battlefieldWas is supported only for conquer events');
+    }
+    output.details = { ...(record(output.details ?? {})), battlefieldControllerBefore: null };
+  }
   const discriminants = ['event', 'type', 'kind'].filter(key => key in output);
   if (discriminants.every(key => isEventType(output[key])) && new Set(discriminants.map(key => canonicalEventPatternType(output[key] as typeof EVENT_PATTERN_TYPES[number]))).size > 1) {
     throw new ProgramBindingError('invalid-program', 'Conflicting event filter discriminants');
