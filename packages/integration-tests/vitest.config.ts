@@ -12,11 +12,9 @@ export default defineConfig({
     // File-level imports and dynamic game-server imports contend on Windows when
     // several Vitest workers transform the same workspace sources simultaneously.
     fileParallelism: false,
-    // Heavy gate runs share this host with many parallel tasks. The 2026-10-19
-    // rerun observed load1 > 280 on a 180-core host while WebSocket and matrix
-    // flows were still transforming and executing; keep their existing assertions
-    // with enough runner headroom rather than changing test semantics.
-    testTimeout: 240_000,
+    // The default-path config already allows 120s; the multiplayer WebSocket
+    // flows need the same headroom when the shared runner is heavily loaded.
+    testTimeout: 120_000,
     hookTimeout: 10_000
   },
   resolve: {
