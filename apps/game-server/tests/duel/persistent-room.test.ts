@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  DUEL_RULESET_ID, type ClientSession, type DuelCommandMessage,
+  DUEL_RULESET_ID, DUEL_COMMAND_PACKET_PROFILE_V3_ACTIONS_1,
+  type ClientSession, type DuelCommandMessageV3Actions1,
   type ServerToClientMessage
 } from "@riftbound/protocol";
 import { loadCardCatalogRuntime } from "../../src/card-catalog.js";
@@ -24,7 +25,7 @@ async function setup(roomId = "persistent-duel-room") {
   const catalog = await loadCardCatalogRuntime({ catalog: setupAdapterFixtureCatalog, imagesDirectory });
   const loadCatalog = async () => catalog;
   const store = new FileRoomStore(directory, loadCatalog);
-  const room = new GameRoom(roomId, DUEL_RULESET_ID, catalog, () => 0);
+  const room = new GameRoom(roomId, DUEL_RULESET_ID, catalog, () => 0, undefined, undefined, undefined, 'legacy-p4');
   await store.create(room);
   const events: [ServerToClientMessage[], ServerToClientMessage[]] = [[], []];
   const sockets = [room.join("Alice", m => events[0].push(m), "a"),
@@ -50,8 +51,9 @@ function duelProjection(room: GameRoom, seat: ClientSession) {
   if (packet?.type !== "duel-projection") throw new Error("Missing duel projection");
   return packet.projection;
 }
-function mulligan(id: string, expectedVersion: number): DuelCommandMessage {
+function mulligan(id: string, expectedVersion: number): DuelCommandMessageV3Actions1 {
   return { type: "duel-command", requestId: id, commandId: id,
+    commandProfile: DUEL_COMMAND_PACKET_PROFILE_V3_ACTIONS_1,
     expectedVersion, command: { type: "mulligan", selectedUIDs: [] } };
 }
 
@@ -82,7 +84,7 @@ describe("actual FileRoomStore duel archive", () => {
     expect(packets.some(m => m.type === "request-result" && m.appliedVersion === 1)).toBe(true);
     await reload.save(restored!);
     const beforeSecond = restored!.exportArchive();
-    expect(beforeSecond.duelSession?.session.receipts).toHaveLength(2);
+    expect(beforeSecond.journal?.entries).toHaveLength(1);
     await reload.close();
     const last = new FileRoomStore(h.directory, h.loadCatalog);
     const [roundTwo] = await last.list();
@@ -94,20 +96,20 @@ describe("actual FileRoomStore duel archive", () => {
   it("rejects mismatched room-derived ID, roster, catalog stamp, ledger and future clocks", async () => {
     const h = await setup("tampered-duel-room");
     const baseline = h.room.exportArchive();
-    expect(baseline.duelSession).toBeTruthy();
+    expect(baseline.journal).toBeTruthy();
     const edited = (mutation: (archive: ReturnType<GameRoom["exportArchive"]>) => void) => {
       const candidate = structuredClone(baseline);
       mutation(candidate);
       expect(() => GameRoom.restore(candidate, h.catalog)).toThrow();
     };
-    edited(archive => { (archive.duelSession!.session.match as { matchId: string }).matchId = "untrusted"; });
+    edited(archive => { (archive.journal!.head as { journalDigest: string }).journalDigest = "untrusted"; });
     edited(archive => { (archive.seats[0] as { name: string }).name = "Imposter"; });
-    edited(archive => { (archive.duelSession!.session.match as { catalogDigest: string }).catalogDigest = "forged"; });
-    edited(archive => { (archive.duelSession!.session.match as { stateVersion: number }).stateVersion = 99; });
-    edited(archive => { (archive.duelSession!.session as { receipts: unknown[] }).receipts.push({ fake: true }); });
-    edited(archive => { (archive.duelSession!.session as { requiredTasks: unknown[] }).requiredTasks = [{ fake: true }]; });
-    edited(archive => { (archive as { duelSession?: unknown }).duelSession = undefined; });
-    edited(archive => { (archive as { duelSession?: unknown }).duelSession = null; });
+    edited(archive => { (archive.journal!.header as { catalogDigest: string }).catalogDigest = "forged"; });
+    edited(archive => { (archive.journal!.head as { stateVersion: number }).stateVersion = 99; });
+    edited(archive => { (archive.journal!.entries as unknown[]).push({ fake: true }); });
+    edited(archive => { (archive.journal!.integrity as { nonce: string }).nonce = "forged-nonce"; });
+    edited(archive => { (archive as { journal?: unknown }).journal = undefined; });
+    edited(archive => { (archive as { journal?: unknown }).journal = null; });
     edited(archive => { (archive.seats[0] as { deck: unknown }).deck = { mainDeck: [{ cardId: "forged", quantity: 1 }] }; });
     await h.store.close();
   });

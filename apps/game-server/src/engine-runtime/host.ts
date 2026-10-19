@@ -17,6 +17,8 @@ import type {
   ZoneDestination,
   ZoneId,
 } from "../../../../packages/engine-core/dist/effects/contract.js";
+import { disempowerTransition, empoweredState, empowerTransition, readEmpowered }
+  from "../../../../packages/engine-core/dist/zones/empower-state.js";
 
 export interface RuntimeCard {
   readonly id: string;
@@ -28,11 +30,13 @@ export interface RuntimeCard {
   readonly might?: number | null;
   readonly energy?: number | null;
   readonly power?: readonly Domain[] | null;
+  /** Deck-building Domains from the trusted catalog, independent of Power. */
+  readonly domains?: readonly Domain[];
 }
 
 type MutableObject = {
   -readonly [K in keyof ObjectSnapshot]: ObjectSnapshot[K];
-} & { counters: Record<string, number> };
+} & { counters: Record<string, number>; empowered: number };
 
 type RuntimeZone = ZoneId | "base" | "battlefield" | "champion" | "legend";
 
@@ -54,6 +58,7 @@ export interface RuntimeHostCheckpoint {
   readonly lastKnown: readonly [string, ObjectSnapshot][];
   readonly nextToken: number;
   readonly visibility: readonly RuntimeVisibilityGrant[];
+  readonly runeDomains?: readonly [string, readonly Domain[]][];
 }
 
 export interface RuntimeVisibilityGrant {
@@ -71,6 +76,20 @@ const emptyZones = (): Record<RuntimeZone, string[]> => ({
 
 const clone = <T>(value: T): T => structuredClone(value);
 const refKey = (ref: ObjectRef): string => `${ref.id}:${ref.zoneEntryId ?? 0}`;
+const KNOWN_DOMAINS = new Set<Domain>(["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]);
+
+function normalizedDomains(card: RuntimeCard, values: readonly Domain[]): readonly Domain[] {
+  const normalized: Domain[] = [];
+  for (const [index, domain] of values.entries()) {
+    if (!KNOWN_DOMAINS.has(domain)) throw new TypeError(`Runtime card ${card.id} has an invalid Domain at index ${index}`);
+    if (!normalized.includes(domain)) normalized.push(domain);
+  }
+  return normalized;
+}
+
+function sameDomains(left: readonly Domain[], right: readonly Domain[]): boolean {
+  return left.length === right.length && left.every(domain => right.includes(domain));
+}
 
 function objectRef(object: ObjectSnapshot): ObjectRef {
   return { id: object.ref.id, zoneEntryId: object.ref.zoneEntryId };
@@ -99,11 +118,17 @@ export class EngineRuntimeHost {
   private readonly lastKnown = new Map<string, ObjectSnapshot>();
   private nextToken = 1;
   private readonly grants: RuntimeVisibilityGrant[] = [];
+  private readonly runeDomainsByObject = new Map<string, readonly Domain[]>();
+  private readonly catalogDomainsByCardId = new Map<string, readonly Domain[]>();
 
   constructor(
     readonly seatNames: Readonly<Record<PlayerId, string>> = { A: "Player A", B: "Player B" },
     readonly choose: <T>(request: ChoiceRequest<T>) => T,
+    catalogDomains: ReadonlyMap<string, readonly Domain[]> = new Map(),
   ) {
+    for (const [cardId, values] of catalogDomains) {
+      this.catalogDomainsByCardId.set(cardId, normalizedDomains({ id: cardId, domains: values }, values));
+    }
     for (const id of Object.keys(seatNames)) {
       this.players.set(id, { id, name: seatNames[id]!, energy: 0, power: [], xp: 0, score: 0, zones: emptyZones() });
     }
@@ -117,17 +142,26 @@ export class EngineRuntimeHost {
     if (!this.players.has(player)) throw new Error(`Unknown player ${player}`);
     const id = card.id;
     if (this.objectMap.has(id)) throw new Error(`Duplicate card instance ${id}`);
+    const cardId = card.cardId ?? card.id;
+    const catalogDomains = this.catalogDomainsByCardId.get(cardId);
+    const cardDomains = card.domains === undefined
+      ? catalogDomains
+      : normalizedDomains(card, card.domains);
+    if (cardDomains !== undefined && catalogDomains !== undefined && !sameDomains(cardDomains, catalogDomains)) {
+      throw new TypeError(`Runtime card ${id} has Domains inconsistent with trusted catalog metadata`);
+    }
     const object: MutableObject = {
-      ref: { id, zoneEntryId: 1 }, cardId: card.cardId ?? card.id, name: card.name ?? card.id,
+      ref: { id, zoneEntryId: 1 }, cardId, name: card.name ?? card.id,
       types: [...(card.types ?? [zone === "rune-deck" ? "rune" : "unit"])], tags: [...(card.tags ?? [])],
       keywords: [...(card.keywords ?? [])], owner: player, controller: player, zone, location: null,
       combatRole: null, might: card.might === undefined ? 1 : card.might,
       energy: card.energy === undefined ? null : card.energy,
       power: card.power == null ? null : [...card.power], exhausted: false, damage: 0,
       stunned: false, buffs: 0, attachedTo: null, faceDown: zone === "deck" || zone === "rune-deck", isToken: false,
-      counters: {},
+      counters: {}, empowered: 0,
     };
     this.objectMap.set(id, object);
+    if (cardDomains !== undefined) this.runeDomainsByObject.set(id, cardDomains);
     this.players.get(player)!.zones[zone].push(id);
     return objectRef(object);
   }
@@ -136,17 +170,26 @@ export class EngineRuntimeHost {
     return {
       objects: clone([...this.objectMap.values()]), players: clone([...this.players.values()]),
       lastKnown: clone([...this.lastKnown.entries()]), nextToken: this.nextToken, visibility: clone(this.grants),
+      runeDomains: clone([...this.runeDomainsByObject.entries()]),
     };
   }
 
   restore(checkpoint: unknown): void {
     const saved = checkpoint as RuntimeHostCheckpoint;
-    this.objectMap.clear(); this.players.clear(); this.lastKnown.clear(); this.grants.splice(0);
+    this.objectMap.clear(); this.players.clear(); this.lastKnown.clear(); this.grants.splice(0); this.runeDomainsByObject.clear();
     for (const object of clone(saved.objects)) this.objectMap.set(object.ref.id, object);
     for (const player of clone(saved.players)) this.players.set(player.id, player);
     for (const [key, object] of clone(saved.lastKnown)) this.lastKnown.set(key, object);
     this.nextToken = saved.nextToken;
     this.grants.push(...clone(saved.visibility));
+    const savedDomains = clone(saved.runeDomains ?? []);
+    for (const [key, value] of savedDomains) this.runeDomainsByObject.set(key, value);
+    if (saved.runeDomains === undefined) {
+      for (const object of this.objectMap.values()) {
+        const value = object.cardId === null ? undefined : this.catalogDomainsByCardId.get(object.cardId);
+        if (value !== undefined) this.runeDomainsByObject.set(object.ref.id, value);
+      }
+    }
   }
 
   objects(): readonly ObjectSnapshot[] {
@@ -164,6 +207,14 @@ export class EngineRuntimeHost {
       controller: "unknown", zone: "chain", location: null, combatRole: null, might: null, energy: null,
       power: null, exhausted: false, damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: true, isToken: true,
     });
+  }
+
+  /** Catalog Domains for one current incarnation; stale and unknown refs fail closed. */
+  runeDomains(ref: ObjectRef): readonly Domain[] {
+    this.requireObject(ref);
+    const value = this.runeDomainsByObject.get(ref.id);
+    if (value === undefined) throw new Error(`Missing catalog Domains for ${ref.id}`);
+    return [...value];
   }
 
   player(id: PlayerId): PlayerSnapshot {
@@ -230,8 +281,21 @@ export class EngineRuntimeHost {
         case "spend-xp": { const player = this.requirePlayer(action.player); if (player.xp < action.amount) return this.prevented(); player.xp -= action.amount; return this.done(action.amount); }
         case "buff": { const object = this.requireObject(action.object); object.buffs += action.amount; return this.done(object.buffs); }
         case "spend-buff": { const object = this.requireObject(action.object); if (object.buffs < action.amount) return this.prevented(); object.buffs -= action.amount; return this.done(object.buffs); }
-        case "empower": { const object = this.requireObject(action.object); object.buffs += action.amount ?? 1; return this.done(object.buffs); }
-        case "disempower": this.requireObject(action.object).buffs = 0; return this.done();
+        case "empower": {
+          const object = this.requireObject(action.object);
+          const transition = empowerTransition(readEmpowered(object), {
+            amount: action.amount ?? 1, multiple: action.multiple, limit: action.limit });
+          if (!transition.changed) return this.prevented();
+          Object.assign(object, empoweredState(transition.currentCount));
+          return this.done(object.empowered);
+        }
+        case "disempower": {
+          const object = this.requireObject(action.object);
+          const transition = disempowerTransition(readEmpowered(object));
+          if (!transition.changed) return this.prevented();
+          Object.assign(object, empoweredState(transition.currentCount));
+          return this.done();
+        }
         case "add-counter": {
           const object = this.requireObject(action.object); object.counters[action.counter] = (object.counters[action.counter] ?? 0) + action.amount; return this.done(object.counters[action.counter]);
         }
@@ -253,6 +317,74 @@ export class EngineRuntimeHost {
       return this.impossible();
     } catch {
       return this.impossible();
+    }
+  }
+
+  /** Confirmed Kill seam: validate the exact Board incarnation before notifying. */
+  performWithDeathBoundary(
+    action: GameAction,
+    boundary: (before: readonly ObjectSnapshot[]) => void,
+  ): ActionOutcome {
+    if (action.type !== "kill") return this.perform(action);
+    const object = this.object(action.object);
+    if (object === null || object.zone !== "board") return this.impossible();
+    const checkpoint = this.checkpoint();
+    try {
+      boundary([object]);
+      return this.move(action.object, "trash");
+    } catch (error) {
+      this.restore(checkpoint);
+      throw error;
+    }
+  }
+
+  /** Validate every typed leaf, scan once, then commit the complete Kill wave. */
+  performKillBatchWithDeathBoundary(
+    actions: readonly Extract<GameAction, { type: "kill" }>[],
+    batchId: string,
+    boundary: (before: readonly ObjectSnapshot[]) => void,
+  ): import("../../../../packages/engine-core/dist/events/contract-actions/bridge.js").ContractActionExecution {
+    if (typeof batchId !== "string" || batchId.length === 0) {
+      return { outcome: this.impossible(), steps: [] };
+    }
+    const keys = actions.map(action => refKey(action.object));
+    if (actions.length === 0 || new Set(keys).size !== keys.length) {
+      return { outcome: this.impossible(), steps: [] };
+    }
+    const checkpoint = this.checkpoint();
+    const confirmed: ObjectSnapshot[] = [];
+    try {
+      for (const action of actions) {
+        const object = this.object(action.object);
+        if (object === null || object.zone !== "board") {
+          this.restore(checkpoint);
+          return { outcome: this.impossible(), steps: [] };
+        }
+        confirmed.push(object);
+      }
+      boundary(confirmed);
+      const steps = [];
+      for (const action of actions) {
+        const before = this.objects();
+        const outcome = this.move(action.object, "trash");
+        if (outcome.status !== "done") throw new Error(`Confirmed Kill could not enter Trash: ${action.object.id}`);
+        steps.push({ action, before, after: this.objects(), outcome });
+      }
+      return {
+        outcome: {
+          status: "done" as const,
+          events: [],
+          receipt: {
+            transactionId: batchId,
+            status: "committed" as const,
+            actions: actions.map(() => ({ type: "kill" as const, status: "done" as const })),
+          },
+        },
+        steps,
+      };
+    } catch (error) {
+      this.restore(checkpoint);
+      throw error;
     }
   }
 
@@ -364,7 +496,8 @@ function matchesFilter(object: ObjectSnapshot, filter: ObjectFilter): boolean {
   for (const key of ["zone", "type", "owner", "controller"] as const) {
     const value = candidate[key]; if (value === undefined || value === "any") continue;
     const actual = key === "type" ? object.types : object[key];
-    if (Array.isArray(actual) ? !actual.includes(value as never) : actual !== value) return false;
+    const wanted = Array.isArray(value) ? value : [value];
+    if (Array.isArray(actual) ? !wanted.some(entry => actual.includes(entry as never)) : !wanted.includes(actual as never)) return false;
   }
   return true;
 }

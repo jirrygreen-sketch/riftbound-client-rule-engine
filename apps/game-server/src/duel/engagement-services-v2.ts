@@ -3,14 +3,17 @@
 import {
   inspectDuelPhaseSourcesV2, gainDuelPoints,
   type DuelCanonicalPlayingStateV2, type DuelEngagementServicesV2,
-  type DuelPhaseSourceClosureContextV2,
+  type DuelPhaseSourceClosureContextV2, type ContinuousEffectRegistry,
 } from '@riftbound/engine-core/duel';
+import { lethalThresholdFor } from '../../../../packages/engine-core/dist/effects/modifiers/query.js';
 import type { DuelProductionSourceServicesV2 } from './production-source-services-v2.js';
 
 export function createDuelEngagementServicesV2(options: {
   readonly currentHead: () => DuelCanonicalPlayingStateV2 | null;
   readonly sources: DuelProductionSourceServicesV2;
   readonly randomIndex: (upperBound: number) => number;
+  /** Server-owned active continuous effects. Empty means CR 142.4.b current Might. */
+  readonly effects?: ContinuousEffectRegistry;
 }): DuelEngagementServicesV2 {
   const head = () => {
     const value = options.currentHead();
@@ -37,6 +40,20 @@ export function createDuelEngagementServicesV2(options: {
       throw new TypeError('unresolved current Might');
     return value.currentMight;
   };
+  const lethalDamageThreshold = (unit: { readonly objectId: string;
+    readonly damageMarks: readonly { readonly responsiblePlayerId: string }[] }, currentMight: number) => {
+    const effects = options.effects;
+    if (!effects) return currentMight;
+    // 142.4.c thresholds can refer to the controller of the marked Damage.
+    // Evaluate every source that actually marked this Unit, never a guessed
+    // owner/controller from its current board location. The smallest active
+    // threshold is the amount needed for the marked Damage to be lethal.
+    const thresholds = new Set(unit.damageMarks.map(mark => mark.responsiblePlayerId));
+    const grants = [...thresholds].flatMap(controller => lethalThresholdFor(effects,
+      { controller, appliesTo: { damageController: "controller", target: "enemy-units" },
+        anchors: [unit] }, ref => ref.id === unit.objectId ? unit : null));
+    return grants.length ? Math.min(currentMight, ...grants.map(grant => grant.amount)) : currentMight;
+  };
   const drawProof = (request: Parameters<NonNullable<DuelEngagementServicesV2['sourceDraw']>>[0]) => ({
     status: 'ready' as const, matchId: request.match.matchId,
     stateVersion: request.match.stateVersion, eventSeq: request.match.eventSeq,
@@ -52,6 +69,11 @@ export function createDuelEngagementServicesV2(options: {
       if (inspected.status !== 'ready' || inspected.handlers.length ||
           JSON.stringify(inspected.sources.map(source => source.uid)) !== JSON.stringify(request.sourceUIDs))
         return { status: 'pending' as const };
+      // An end-of-combat modifier remains active through the combat's Lethal
+      // Damage check and expires only after the real combat-end boundary has
+      // proved source closure. Permanent entries are unaffected by expireAt().
+      if (request.boundary === 'combat-end') options.effects?.expireAt(
+        { id: 'combat-end' }, () => null);
       return { status: 'none' as const, matchId: request.match.matchId,
         stateVersion: request.match.stateVersion, eventSeq: request.match.eventSeq,
         boundary: request.boundary, taskId: request.taskId, sourceUIDs: request.sourceUIDs };
@@ -66,7 +88,7 @@ export function createDuelEngagementServicesV2(options: {
       },
       currentMight: unit => might(unit.uid),
     },
-    lethalEvaluators: { currentMight: unit => might(unit.objectId), lethalDamageThreshold: (_unit, currentMight) => currentMight },
+    lethalEvaluators: { currentMight: unit => might(unit.objectId), lethalDamageThreshold },
     approveLethal: (plan, match) => {
       const taskId = `duel-v2:${match.matchId}:turn-${match.frame.turnNumber}:engagement-kill:${match.stateVersion}`;
       if (plan.stateVersion !== match.stateVersion || !clear(match, taskId, 'lethal-kill'))

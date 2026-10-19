@@ -71,6 +71,27 @@ export interface TriggerRegistration {
   /** Optional explicit cap for a once scope; omitted means one occurrence. */
   readonly maxPerScope?: number;
 }
+/** A read-only, stable view of a live trigger registration for rules adapters. */
+export type RegisteredTrigger = TriggerRegistration;
+
+/**
+ * A named-trigger activation is a new rules operation, not an occurrence of the
+ * named real event (CR 383.4.g.2). It deliberately has no PipelineEvent,
+ * eventId, timing point, action, or event-it role. The immutable event identity
+ * is assigned only if the consuming Chain creates a real Pending item.
+ */
+export interface NamedTriggerActivation {
+  readonly kind: 'named-trigger-activation';
+  readonly registration: RegisteredTrigger;
+  readonly source: ObjectSnapshot;
+  readonly controller: PlayerId;
+  readonly frequencyKey: string | null;
+  readonly frequencyLimit?: number;
+  /** The caller must install the resulting Pending item in this transaction. */
+  readonly transaction: unknown;
+  /** Consumes frequency once; later calls for the same token return false. */
+  consume(): boolean;
+}
 export interface TriggerSnapshot {
   readonly registration: TriggerRegistration;
   readonly source: ObjectSnapshot;
@@ -122,6 +143,28 @@ export interface ActionExecution {
   readonly outcome: ActionOutcome;
   readonly emissions: readonly TimingEmission[];
 }
+
+/**
+ * Versioned capability for state owners that can pause a confirmed Kill before
+ * the zone transition. The callback runs after the state owner has applied all
+ * replacements and validated the exact source incarnation, but while the
+ * source is still in its authoritative pre-transition zone.
+ */
+export const PIPELINE_DEATH_BOUNDARY_VERSION = 'riftbound.pipeline-death-boundary.v1' as const;
+
+export interface PipelineDeathBoundaryContext {
+  readonly batchId: string;
+  readonly action: GameAction | ContractGameAction;
+  readonly before: readonly ObjectSnapshot[];
+  /** Frozen death timings to publish before the state owner resumes. */
+  readonly emissions: readonly TimingEmission[];
+}
+
+export interface PipelineDeathBoundaryCapability {
+  readonly version: typeof PIPELINE_DEATH_BOUNDARY_VERSION;
+  execute(action: GameAction, boundary: (context: PipelineDeathBoundaryContext) => void): ActionExecution;
+  executeContract(action: ContractGameAction, boundary: (context: PipelineDeathBoundaryContext) => void): ActionExecution;
+}
 /** The state owner implements these operations atomically with pipeline checkpoints. */
 export interface PipelineHost {
   checkpoint(): unknown;
@@ -129,6 +172,8 @@ export interface PipelineHost {
   execute(action: GameAction): ActionExecution;
   /** Optional typed seam for Recall and atomic Batch actions. */
   executeContract?(action: ContractGameAction): ActionExecution;
+  /** Optional pre-zone-change seam for confirmed deaths. */
+  deathBoundary?: PipelineDeathBoundaryCapability;
   context(source: ObjectSnapshot, controller: PlayerId, at: TimingPointId): ResolveContext;
   objects(): readonly ObjectSnapshot[];
   choose<T>(request: ChoiceRequest<T>): T;

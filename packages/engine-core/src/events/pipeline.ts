@@ -2,7 +2,7 @@ import type { ActionOutcome, ContractGameAction, GameAction, ObjectFilter, Objec
 import { getTimingPoint } from './timing-points.js';
 import { matchesTriggerEvent } from './pipeline-match.js';
 import { assertTriggerSpec } from './trigger-spec.js';
-import type { ActionExecution, PipelineClock, PipelineEvent, PipelineHost, ReplacementRegistration, TimingEmission, TriggerRegistration, TriggerRule, TriggerRuleContext, TriggerSnapshot } from './pipeline-types.js';
+import type { ActionExecution, NamedTriggerActivation, PipelineClock, PipelineEvent, PipelineHost, RegisteredTrigger, ReplacementRegistration, TimingEmission, TriggerRegistration, TriggerRule, TriggerRuleContext, TriggerSnapshot } from './pipeline-types.js';
 import { evaluateCondition } from '../effects/interpreter/condition.js';
 import { MissingInformation } from '../effects/interpreter/values.js';
 import { bindEventHistory } from '../effects/interpreter/expr-ext/event-history.js';
@@ -74,6 +74,42 @@ function evaluateTriggerCondition(
   });
 }
 
+function namedEventDependency(value: unknown, seen = new Set<object>()): boolean {
+  if (value === null || typeof value !== 'object' || seen.has(value)) return false;
+  seen.add(value);
+  if (Array.isArray(value)) return value.some(entry => namedEventDependency(entry, seen));
+  const record = value as Record<string, unknown>;
+  if ((record.kind === 'linked' || record.kind === 'linked-value') &&
+      ['eventTimingPoint', 'eventObject', 'eventDetails', 'eventPlayer'].includes(String(record.key ?? record.instructionId))) return true;
+  if (record.event === 'it' || record.kind === 'event-it' ||
+      ['played-from-hand', 'playedFromHand', 'played-from-zone', 'playedFromZone',
+       'event-printed', 'printed-characteristic', 'event-printed-characteristic'].includes(String(record.kind))) return true;
+  if (record.kind === 'relation' && [record.left, record.right].some(role =>
+    role === 'object' || role === 'source' || role === 'target' || role === 'it')) return true;
+  return Object.values(record).some(entry => namedEventDependency(entry, seen));
+}
+
+function namedFilterEventDependency(filter: unknown): boolean {
+  if (filter === null || typeof filter !== 'object' || Array.isArray(filter)) return false;
+  const pattern = filter as Record<string, unknown>;
+  if (pattern.it !== undefined || pattern.fromZone !== undefined || pattern.toZone !== undefined ||
+      pattern.amount !== undefined || pattern.details !== undefined) return true;
+  for (const role of ['object', 'target'] as const) {
+    const nested = pattern[role];
+    if (nested !== null && typeof nested === 'object' && !Array.isArray(nested)) {
+      const value = nested as Record<string, unknown>;
+      if (value.event === 'it' || value.role === 'it' || value.object === 'it' || value.source === 'it') return true;
+    }
+  }
+  return false;
+}
+
+function namedActivationRequiresRealEvent(registration: TriggerRegistration): boolean {
+  return namedFilterEventDependency(registration.spec.filter) ||
+    namedEventDependency(registration.spec.condition) ||
+    registration.body.some(instruction => namedEventDependency(instruction.condition) || namedEventDependency(instruction.args));
+}
+
 export class EventPipeline {
   readonly clock: PipelineClock = { turn: 1, phase: 1, combat: 0, showdown: 0, chain: 0 };
   private log: PipelineEvent[] = [];
@@ -87,6 +123,10 @@ export class EventPipeline {
   private scanQueue: PipelineEvent[] = [];
   private scanning = false;
   private suspended = 0;
+  private namedActivationSequence = 0;
+  /** Monotonic lifetime epoch; restore invalidates every pre-restore token. */
+  private namedActivationEpoch = 0;
+  private namedActivations = new Map<string, { readonly registrationId: string; consumed: boolean }>();
   onTrigger: (snapshot: TriggerSnapshot) => void = () => { throw new Error('Trigger sink is not attached'); };
   onEvent?: (event: PipelineEvent) => void;
   routeAction?: (action: GameAction) => ActionExecution | undefined;
@@ -94,6 +134,77 @@ export class EventPipeline {
     if (turnOrder.length < 2 || new Set(turnOrder).size !== turnOrder.length || !turnOrder.includes(turnPlayer)) throw new TypeError('Invalid turn order');
   }
   get events(): readonly PipelineEvent[] { return structuredClone(this.log); }
+  /** Stable read-only copies of all currently registered trigger candidates. */
+  registeredTriggers(): readonly RegisteredTrigger[] {
+    return deepFreeze(structuredClone([...this.triggers.values()]));
+  }
+  /**
+   * Prepare a named activation without emitting a real event or consuming a
+   * frequency. The returned token is consumed exactly once by the real Chain
+   * transaction that installs its Pending item. Unsupported event-dependent
+   * conditions fail closed because CR 383.4.g.2 says no such event occurred.
+   */
+  activateTrigger(id: string): NamedTriggerActivation | null {
+    const registration = this.triggers.get(id);
+    if (registration === undefined) return null;
+    if (namedActivationRequiresRealEvent(registration)) return null;
+    const current = this.host.objects().find(object => object.ref.id === registration.source.ref.id);
+    const source = registration.delayed ? registration.source : current;
+    if (source === undefined) return null;
+    if (registration.boundToIncarnation && source.ref.zoneEntryId !== registration.source.ref.zoneEntryId) return null;
+    if (!registration.delayed && !(registration.activeZones ?? ['board']).includes(source.zone)) return null;
+    const captured = deepFreeze(structuredClone(source));
+    const controller = registration.delayed ? registration.controller : captured.controller;
+    const hold = (registration.spec.filter as { readonly event?: string; readonly type?: string; readonly kind?: string }).event ??
+      (registration.spec.filter as { readonly type?: string }).type ??
+      (registration.spec.filter as { readonly kind?: string }).kind;
+    if (hold === 'hold' && !registration.delayed && captured.location?.type !== 'battlefield') return null;
+    if (registration.spec.condition !== undefined) {
+      const probe = deepFreeze({
+        reason: 'named-trigger-activation',
+        timingPoint: 'chain-item-finalize', kind: 'named-trigger-activation',
+        source: captured, player: controller,
+        details: { namedTriggerActivation: true, registrationId: id, emitOriginalEvent: false },
+      }) as unknown as PipelineEvent;
+      try {
+        if (!evaluateTriggerCondition(this, this.host, registration, probe, captured, controller)) return null;
+      } catch (error) {
+        if (!(error instanceof MissingInformation) || this.host.testTrigger === undefined) return null;
+        if (!this.host.testTrigger(registration, probe, captured)) return null;
+      }
+    }
+    const frequencyKey = this.frequencyKey(registration, captured, {
+      batchId: `named:${id}:${this.clock.turn}`, eventId: this.sequence + 1,
+    } as PipelineEvent);
+    const frequencyLimit = registration.maxPerScope ?? (registration.spec.once === undefined ? undefined : 1);
+    if (frequencyKey !== null && (this.consumed.get(frequencyKey) ?? 0) >= (frequencyLimit ?? 1)) return null;
+    const epoch = this.namedActivationEpoch;
+    const transactionId = `named-trigger:${epoch}:${++this.namedActivationSequence}`;
+    const transaction = deepFreeze({ version: 'riftbound.named-trigger-activation.v1', id: transactionId, epoch, registrationId: id });
+    const token = deepFreeze({
+      kind: 'named-trigger-activation' as const,
+      registration: structuredClone(registration),
+      source: captured,
+      controller,
+      frequencyKey,
+      ...(frequencyLimit === undefined ? {} : { frequencyLimit }),
+      transaction,
+      consume: () => {
+        const key = (transaction as { readonly id: string }).id;
+        if (epoch !== this.namedActivationEpoch) return false;
+        const state = this.namedActivations.get(key);
+        if (state !== undefined) return false;
+        const snapshot: TriggerSnapshot = {
+          registration: structuredClone(registration), source: structuredClone(captured), controller,
+          event: {} as PipelineEvent, frequencyKey, ...(frequencyLimit === undefined ? {} : { frequencyLimit }),
+        };
+        const consumed = this.consume(snapshot);
+        this.namedActivations.set(key, { registrationId: id, consumed });
+        return consumed;
+      },
+    }) as NamedTriggerActivation;
+    return token;
+  }
   registerTrigger(registration: TriggerRegistration): void {
     getTimingPoint(registration.spec.at);
     assertTriggerSpec(registration.spec);
@@ -133,6 +244,7 @@ export class EventPipeline {
     if (this.replacements.has(registration.id)) throw new Error(`Duplicate replacement ${registration.id}`);
     this.replacements.set(registration.id, registration);
   }
+  unregisterReplacement(id: string): void { this.replacements.delete(id); }
   /** O(1) lifecycle probe; never snapshots or exposes the mutable registry. */
   hasReplacementRegistration(id: string): boolean { return this.replacements.has(id); }
   private frequencyKey(registration: TriggerRegistration, source: ObjectSnapshot, event: PipelineEvent): string | null {
@@ -153,10 +265,16 @@ export class EventPipeline {
     return true;
   }
   checkpoint() {
-    return { log: [...this.log], triggers: new Map(this.triggers), replacements: new Map(this.replacements), rules: new Map(this.rules), consumed: new Map(this.consumed), replacementUses: new Set(this.replacementUses), sequence: this.sequence, batchSequence: this.batchSequence, scanQueue: [...this.scanQueue], clock: { ...this.clock }, turnPlayer: this.turnPlayer };
+    return { log: [...this.log], triggers: new Map(this.triggers), replacements: new Map(this.replacements), rules: new Map(this.rules), consumed: new Map(this.consumed), replacementUses: new Set(this.replacementUses), sequence: this.sequence, batchSequence: this.batchSequence, namedActivationSequence: this.namedActivationSequence, namedActivationEpoch: this.namedActivationEpoch, namedActivations: new Map(this.namedActivations), scanQueue: [...this.scanQueue], clock: { ...this.clock }, turnPlayer: this.turnPlayer };
   }
   restore(state: ReturnType<EventPipeline['checkpoint']>): void {
-    this.log = state.log; this.triggers = state.triggers; this.replacements = state.replacements; this.rules = state.rules; this.consumed = state.consumed; this.replacementUses = state.replacementUses; this.sequence = state.sequence; this.batchSequence = state.batchSequence; this.scanQueue = state.scanQueue;
+    // Advance from both the live and checkpoint epoch. A checkpoint captured in
+    // an earlier restore lifetime can be reused repeatedly without reviving a
+    // handle created after that checkpoint.
+    const nextEpoch = Math.max(this.namedActivationEpoch, state.namedActivationEpoch) + 1;
+    if (!Number.isSafeInteger(nextEpoch)) throw new RangeError('Named activation epoch exhausted');
+    this.namedActivationEpoch = nextEpoch;
+    this.log = [...state.log]; this.triggers = new Map(state.triggers); this.replacements = new Map(state.replacements); this.rules = new Map(state.rules); this.consumed = new Map(state.consumed); this.replacementUses = new Set(state.replacementUses); this.sequence = state.sequence; this.batchSequence = state.batchSequence; this.namedActivationSequence = state.namedActivationSequence; this.namedActivations = new Map(state.namedActivations); this.scanQueue = [...state.scanQueue];
     Object.assign(this.clock, state.clock); this.turnPlayer = state.turnPlayer;
   }
   /** Timings from rules modules and committed actions share exactly one scanner. */
@@ -349,13 +467,22 @@ export class EventPipeline {
       if (this.host.executeContract === undefined) {
         throw new Error('Contract action execution is unavailable');
       }
-      const execution = this.host.executeContract(action);
+      const boundary = this.host.deathBoundary;
+      const isDeath = action.type === 'kill' ||
+        action.type === 'batch' && action.actions.length > 0 && action.actions.every(leaf => leaf.type === 'kill');
+      const execution = boundary === undefined || !isDeath
+        ? this.host.executeContract(action)
+        : boundary.executeContract(action, context => {
+            if (context.batchId.length === 0 || context.emissions.length === 0) return;
+            this.emitBatch(context.emissions, undefined, context.batchId);
+          });
       if (execution.outcome.status !== 'done') {
         if (execution.emissions.length) throw new Error('Unperformed contract actions cannot emit trigger timings');
         return execution.outcome;
       }
       const events = this.publish(execution.emissions);
-      return { ...execution.outcome, events: [...execution.outcome.events, ...events] };
+      const hostEvents = isDeath && boundary !== undefined ? [] : execution.outcome.events;
+      return { ...execution.outcome, events: [...hostEvents, ...events] };
     } catch (error) {
       this.host.restore(checkpoint);
       this.restore(own);
@@ -399,12 +526,19 @@ export class EventPipeline {
       const events = result.actions.flatMap(next => [...this.apply(next, original, applied).events]);
       return { status: 'replaced', events };
     }
-    const execution = this.routeAction?.(current) ?? this.host.execute(current);
+    const boundary = this.host.deathBoundary;
+    const execution = boundary !== undefined && current.type === 'kill'
+      ? boundary.execute(current, context => {
+          if (context.batchId.length === 0 || context.emissions.length === 0) return;
+          this.emitBatch(context.emissions, current, context.batchId);
+        })
+      : this.routeAction?.(current) ?? this.host.execute(current);
     if (execution.outcome.status !== 'done') {
       if (execution.emissions.length) throw new Error('Unperformed actions cannot emit trigger timings');
       return execution.outcome;
     }
     const events = this.publish(execution.emissions, current);
-    return changed ? { status: 'replaced', events: [...execution.outcome.events, ...events] } : { ...execution.outcome, events: [...execution.outcome.events, ...events] };
+    const hostEvents = current.type === 'kill' && boundary !== undefined ? [] : execution.outcome.events;
+    return changed ? { status: 'replaced', events: [...hostEvents, ...events] } : { ...execution.outcome, events: [...hostEvents, ...events] };
   }
 }

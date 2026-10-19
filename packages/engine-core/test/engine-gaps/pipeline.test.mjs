@@ -10,14 +10,37 @@ import {
 } from '../../dist/events/trigger-rules/index.js';
 import { createProgramBinding } from '../../dist/programs/index.js';
 import { matchesTriggerEvent } from '../../dist/events/pipeline-match.js';
+import { matchesMightyTransition } from '../../dist/events/pipeline-match.js';
+import { deriveMightChangedEmissions } from '../../dist/events/producers/might-change.js';
 import { triggerEventObjectBinding } from '../../dist/events/pipeline-types.js';
 import { EventPipeline } from '../../dist/events/pipeline.js';
 import { createActionPipelineHost } from '../../dist/events/action-adapter.js';
 import { bindResolveContext } from '../../dist/events/action-adapter.js';
 import { AwaitChoice } from '../../dist/effects/contract.js';
 import { world } from '../../dist/effects/testing/index.js';
+// Official ordering evidence (checked 2026-10-19): CR v1.5 (2026-10-09)
+// https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// 303.2.a / 383.3.d / 383.3.d.1: simultaneous triggers are placed by turn
+// order from the current turn player; each controller chooses its own order.
+// Radiance patch notes (published 2026-10-09, effective 2026-10-16):
+// https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// Its Chronobreak ruling gives each player control of their own units' order;
+// the players place their groups in turn order. This is not one global FIFO or
+// LIFO order, and no card receives a hard-coded numeric priority.
 import frigidJewel from '../../../card-dsl/dist/cards/unl/frigid-jewel.js';
 import karthusEternal from '../../../card-dsl/dist/cards/ogn/karthus-eternal.js';
+import chronobreak from '../../../card-dsl/dist/cards/rad/chronobreak.js';
+
+function f_event(emission, batchId) {
+  if (emission === undefined) return null;
+  return Object.freeze({
+    type: 'task-resolved', seq: 1, eventId: 1, turnNumber: 1, activePlayerId: 'A',
+    taskId: 'mighty-test', sourceCardId: emission.object.cardId ?? '',
+    reason: 'might-changed', autoResolved: true, timingPoint: emission.timingPoint,
+    kind: emission.kind, object: emission.object, it: emission.object, player: 'A',
+    batchId, details: { ...emission.details, before: emission.before, after: emission.after },
+  });
+}
 
 test('EG-PIPELINE: one per-batch trigger is collected for an atomic multi-object draw, then a new batch is independent', () => {
   const f = fixture({ choose: request => request.type === 'mode' ? request.options[0] : undefined });
@@ -294,6 +317,274 @@ test('EG-PIPELINE: a multiplicity wave gives each independent trigger its own pr
   const orderRequests = requests.filter(request => request.type === 'mode');
   assert.equal(orderRequests.length, 1);
   assert.equal(new Set(orderRequests[0].options).size, 2);
+});
+
+test('EG-PIPELINE: simultaneous controllers are ordered by turn order and choose only their own groups', () => {
+  const f = fixture({ choose: request => {
+    if (request.type !== 'mode') return undefined;
+    // Deliberately reverse the insertion order. The controller decision, not
+    // registration/event array order, must determine each player's group.
+    return request.options.at(-1);
+  } });
+  const ownA = f.kernel.getObject('source');
+  f.kernel.addObject({
+    ...ownA, ref: { id: 'b-source', zoneEntryId: 1 }, cardId: 'card:b-source',
+    controller: 'B', owner: 'B', zone: 'board', location: { type: 'base', player: 'B' },
+  }, 'board');
+  for (const id of ['a-first', 'a-second']) {
+    f.engine.pipeline.registerTrigger({
+      id, source: ownA, controller: 'A',
+      spec: { at: 'turn-end', filter: {} }, body: [],
+    });
+  }
+  for (const id of ['b-first', 'b-second']) {
+    f.engine.pipeline.registerTrigger({
+      id, source: f.kernel.getObject('b-source'), controller: 'B',
+      spec: { at: 'turn-end', filter: {} }, body: [],
+    });
+  }
+
+  f.engine.pipeline.emitBatch([{ timingPoint: 'turn-end', player: 'A', batchId: 'official-order-wave' }]);
+  assert.deepEqual(f.engine.items.map(item => item.trigger.registration.id),
+    ['a-second', 'a-first', 'b-second', 'b-first']);
+  assert.deepEqual(f.engine.items.map(item => item.controller), ['A', 'A', 'B', 'B']);
+  assert.ok(f.engine.items.every(item => item.trigger.event.batchId === 'official-order-wave'));
+  assert.equal(new Set(f.engine.items.map(item => item.trigger.event.eventId)).size, 1);
+});
+
+test('EG-PIPELINE: official Chronobreak ruling anchors player-grouped turn order to its canonical card', () => {
+  assert.equal(chronobreak.canonicalCardId, 'card.hash-2875b065844462e761acfeb152cf2feea180924a496740b05903caac24a3d795');
+  assert.equal(chronobreak.rulesetVersion, 'core-1.5');
+  assert.equal(chronobreak.status, 'judge-required', 'ordering evidence alone does not make the unsupported card executable');
+  assert.match(chronobreak.sourceText, /You choose the order/);
+});
+
+test('EG-PIPELINE: registeredTriggers returns immutable snapshots and named activation is neutral and deferred', () => {
+  // Official evidence (checked 2026-10-19): CR v1.5 383.4.g.1/.g.2 requires
+  // checking the remaining conditions while the named portion is treated as
+  // fulfilled, with no actual named event. Core Rules updated 2026-10-09,
+  // effective 2026-10-16.
+  // https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+  // Timeline: choose legal live trigger -> prepare neutral activation ->
+  // install Pending in the caller transaction -> consume once at Finalize.
+  const f = fixture();
+  const source = f.kernel.getObject('source');
+  f.engine.pipeline.registerTrigger({
+    id: 'named-once', source, controller: 'A',
+    spec: { at: 'conquer', filter: { event: 'conquer', object: { objectId: 'source' } }, once: 'per-turn' },
+    body: [],
+  });
+  const listed = f.engine.pipeline.registeredTriggers();
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].id, 'named-once');
+  assert.equal(Object.isFrozen(listed), true);
+  assert.equal(Object.isFrozen(listed[0]), true);
+  assert.throws(() => { listed[0].spec.once = 'per-game'; }, TypeError);
+
+  const beforeEvents = f.engine.pipeline.events.length;
+  const beforeConsumed = f.engine.pipeline.checkpoint().consumed.size;
+  const activation = f.engine.pipeline.activateTrigger('named-once');
+  assert.ok(activation);
+  assert.equal(activation.kind, 'named-trigger-activation');
+  assert.equal('event' in activation, false);
+  assert.equal('eventId' in activation, false);
+  assert.equal(f.engine.pipeline.events.length, beforeEvents);
+  assert.equal(f.engine.pipeline.checkpoint().consumed.size, beforeConsumed);
+  assert.equal(activation.consume(), true);
+  assert.equal(activation.consume(), false, 'one activation transaction can consume only once');
+  assert.equal(f.engine.pipeline.activateTrigger('named-once'), null, 'frequency is exhausted only after commit');
+});
+
+test('EG-PIPELINE: named activation rejects stale, inactive, condition-false and real-event-dependent registrations without side effects', () => {
+  const f = fixture();
+  const source = f.kernel.getObject('source');
+  f.engine.pipeline.registerTrigger({
+    id: 'named-bound', source, controller: 'A', boundToIncarnation: true, activeZones: ['board'],
+    spec: { at: 'hold', filter: { event: 'hold' } }, body: [],
+  });
+  f.engine.pipeline.registerTrigger({
+    id: 'named-hold-base', source, controller: 'A', activeZones: ['board'],
+    spec: { at: 'hold', filter: { event: 'hold' } }, body: [],
+  });
+  f.engine.pipeline.registerTrigger({
+    id: 'named-false', source, controller: 'A',
+    spec: { at: 'hold', filter: { event: 'hold' }, condition: { kind: 'never' } }, body: [],
+  });
+  f.engine.pipeline.registerTrigger({
+    id: 'named-event-dependent', source, controller: 'A',
+    spec: { at: 'hold', filter: { event: 'hold' } },
+    body: [{ id: 'needs-event-it', op: 'condition.value', args: { value: { kind: 'event-it', object: 'it' } } }],
+  });
+  const before = f.engine.pipeline.checkpoint();
+  assert.equal(f.engine.pipeline.activateTrigger('named-false'), null);
+  assert.equal(f.engine.pipeline.activateTrigger('named-event-dependent'), null);
+  assert.equal(f.engine.pipeline.activateTrigger('named-hold-base'), null, 'a named hold is present only at a battlefield');
+  f.engine.commit({ type: 'move-zone', object: source.ref, to: 'hand' });
+  const afterMove = f.engine.pipeline.checkpoint();
+  assert.equal(f.engine.pipeline.activateTrigger('named-bound'), null);
+  assert.equal(f.engine.pipeline.checkpoint().consumed.size, afterMove.consumed.size);
+  assert.equal(f.engine.pipeline.events.some(event => event.kind === 'named-trigger-activation'), false);
+  assert.ok(before.triggers.has('named-bound'));
+});
+
+test('EG-PIPELINE: named activation rollback restores frequency and sequence', () => {
+  const f = fixture();
+  f.engine.pipeline.registerTrigger({
+    id: 'named-rollback', source: f.kernel.getObject('source'), controller: 'A',
+    spec: { at: 'conquer', filter: { event: 'conquer' }, once: 'per-turn' }, body: [],
+  });
+  const before = f.engine.pipeline.checkpoint();
+  const activation = f.engine.pipeline.activateTrigger('named-rollback');
+  assert.ok(activation);
+  assert.equal(activation.consume(), true);
+  f.engine.pipeline.restore(before);
+  const retry = f.engine.pipeline.activateTrigger('named-rollback');
+  assert.ok(retry);
+  assert.equal(retry.consume(), true);
+});
+
+test('EG-PIPELINE: restore permanently invalidates prepared handles without blocking rebuilt transactions', () => {
+  const f = fixture();
+  const source = f.kernel.getObject('source');
+  for (const id of ['first', 'second']) {
+    f.engine.pipeline.registerTrigger({
+      id, source, controller: 'A',
+      spec: { at: 'conquer', filter: { event: 'conquer' }, once: 'per-turn' }, body: [],
+    });
+  }
+  const checkpoint = f.engine.pipeline.checkpoint();
+  const beforeEvents = f.engine.pipeline.events.length;
+  const staleFirst = f.engine.pipeline.activateTrigger('first');
+  assert.ok(staleFirst);
+  f.engine.pipeline.restore(checkpoint);
+  const liveSecond = f.engine.pipeline.activateTrigger('second');
+  assert.ok(liveSecond);
+  assert.notEqual(staleFirst.transaction.id, liveSecond.transaction.id);
+  assert.equal(staleFirst.consume(), false);
+  assert.deepEqual([...f.engine.pipeline.checkpoint().consumed.entries()], []);
+  assert.equal(liveSecond.consume(), true);
+  assert.equal(liveSecond.consume(), false);
+  const consumed = [...f.engine.pipeline.checkpoint().consumed.entries()];
+  assert.equal(consumed.length, 1);
+  assert.match(consumed[0][0], /"second"/);
+  assert.equal(f.engine.pipeline.events.length, beforeEvents);
+});
+
+test('EG-PIPELINE: repeated restore invalidates handles created between restores and preserves checkpoint reuse', () => {
+  const f = fixture();
+  const source = f.kernel.getObject('source');
+  f.engine.pipeline.registerTrigger({
+    id: 'repeat', source, controller: 'A',
+    spec: { at: 'conquer', filter: { event: 'conquer' }, once: 'per-turn' }, body: [],
+  });
+  const checkpoint = f.engine.pipeline.checkpoint();
+  const first = f.engine.pipeline.activateTrigger('repeat');
+  f.engine.pipeline.restore(checkpoint);
+  const second = f.engine.pipeline.activateTrigger('repeat');
+  f.engine.pipeline.restore(checkpoint);
+  const third = f.engine.pipeline.activateTrigger('repeat');
+  assert.ok(first && second && third);
+  assert.equal(new Set([first.transaction.id, second.transaction.id, third.transaction.id]).size, 3);
+  assert.equal(first.consume(), false);
+  assert.equal(second.consume(), false);
+  assert.equal(third.consume(), true);
+  assert.equal(third.consume(), false);
+  assert.equal(f.engine.pipeline.checkpoint().consumed.size, 1);
+  f.engine.pipeline.restore(checkpoint);
+  assert.equal(f.engine.pipeline.checkpoint().consumed.size, 0, 'the original checkpoint remains reusable');
+  const retry = f.engine.pipeline.activateTrigger('repeat');
+  assert.ok(retry);
+  assert.equal(retry.consume(), true);
+});
+
+test('EG-PIPELINE: independent handles for one registration consume in order and failed retries do not leak frequency', () => {
+  const f = fixture();
+  f.engine.pipeline.registerTrigger({
+    id: 'two-live-tokens', source: f.kernel.getObject('source'), controller: 'A', maxPerScope: 2,
+    spec: { at: 'conquer', filter: { event: 'conquer' }, once: 'per-turn' }, body: [],
+  });
+  const checkpoint = f.engine.pipeline.checkpoint();
+  const first = f.engine.pipeline.activateTrigger('two-live-tokens');
+  const second = f.engine.pipeline.activateTrigger('two-live-tokens');
+  assert.ok(first && second);
+  assert.notEqual(first.transaction.id, second.transaction.id);
+  assert.equal(first.consume(), true);
+  assert.equal(first.consume(), false);
+  f.engine.pipeline.restore(checkpoint);
+  assert.equal(first.consume(), false);
+  assert.equal(second.consume(), false);
+  const retry = f.engine.pipeline.activateTrigger('two-live-tokens');
+  assert.ok(retry);
+  assert.equal(retry.consume(), true);
+  assert.equal(retry.consume(), false);
+  assert.equal(f.engine.pipeline.checkpoint().consumed.size, 1);
+});
+
+test('EG-PIPELINE: post-prepare rejection leaves handles and restored frequency untouched', () => {
+  const f = fixture();
+  f.engine.pipeline.registerTrigger({
+    id: 'post-prepare', source: f.kernel.getObject('source'), controller: 'A',
+    spec: { at: 'conquer', filter: { event: 'conquer' }, once: 'per-turn' }, body: [],
+  });
+  const checkpoint = f.engine.pipeline.checkpoint();
+  const rejected = f.engine.pipeline.activateTrigger('post-prepare');
+  assert.ok(rejected);
+  f.engine.pipeline.restore(checkpoint);
+  assert.equal(rejected.consume(), false);
+  assert.equal(f.engine.pipeline.checkpoint().consumed.size, 0);
+  const accepted = f.engine.pipeline.activateTrigger('post-prepare');
+  assert.ok(accepted);
+  assert.equal(accepted.consume(), true);
+  assert.equal(accepted.consume(), false);
+  assert.equal(f.engine.pipeline.checkpoint().consumed.size, 1);
+  assert.notEqual(rejected.consume(), true, 'rejection cannot revive after a valid transaction');
+});
+
+test('EG-PIPELINE: Mighty transition matcher is typed, frozen to one incarnation, and distinct from static current Might', () => {
+  const kernel = world().unit('fiora-target', { might: 4 }).build();
+  const before = kernel.getObject('fiora-target');
+  const after = { ...before, might: 5 };
+  assert.equal(matchesMightyTransition(true, before, after), true);
+  assert.equal(matchesMightyTransition(true, { ...before, might: 5 }, { ...after, might: 6 }), false);
+  assert.equal(matchesMightyTransition(true, { ...before, might: 5 }, { ...after, might: 4 }), false);
+  assert.equal(matchesMightyTransition(true, before, { ...after, controller: 'B' }), false);
+  assert.equal(matchesMightyTransition(true, { ...before, ref: { id: before.ref.id, zoneEntryId: 2 } }, after), false);
+  assert.equal(matchesMightyTransition(true, { ...before, might: null }, after), false);
+  assert.equal(matchesMightyTransition(false, before, after), false);
+});
+
+test('EG-PIPELINE: Mighty transition matches a real might-changed emission with frozen before/after/it', () => {
+  // Official evidence (checked 2026-10-19): Core Rules v1.5 updated
+  // 2026-10-09, effective 2026-10-16, rules 709/710/711 and E-007.
+  // https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+  // Fiora, Worthy canonical identity:
+  // card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f
+  // Timeline: board current Might crosses <5 to >=5; freeze before/after and
+  // event.it on that incarnation; condition is checked before Pending/Finalize.
+  const kernel = world().unit('target', { might: 4 }).build();
+  const before = kernel.getObject('target');
+  const after = { ...before, might: 5 };
+  const derived = deriveMightChangedEmissions([before], [after], { batchId: 'mighty-wave', cause: 'layer-recompute' })[0];
+  assert.ok(derived);
+  const emission = { ...derived, it: structuredClone(after) };
+  assert.ok(emission);
+  const events = new EventPipeline(createActionPipelineHost({
+    checkpoint: () => null, restore: () => {}, objects: () => [after], perform: () => ({ status: 'impossible', events: [] }),
+    choose: () => { throw new Error('unexpected choice'); }, context: () => ({}),
+  }), ['A', 'B'], 'A');
+  const event = events.emitBatch([emission], undefined, 'mighty-wave')[0];
+  assert.equal(matchesTriggerEvent({
+    event: 'might-changed', object: { type: 'unit', controller: 'self', becomesMighty: true },
+  }, event, 'A'), true);
+  assert.deepEqual(event.details.before.ref, before.ref);
+  assert.deepEqual(event.details.after.ref, after.ref);
+  assert.deepEqual(event.it.ref, after.ref);
+  const repeated = f_event(deriveMightChangedEmissions([after], [{ ...after, might: 6 }], { batchId: 'mighty-repeat' })[0], 'mighty-repeat');
+  assert.equal(matchesTriggerEvent({
+    event: 'might-changed', object: { type: 'unit', controller: 'self', becomesMighty: true },
+  }, repeated, 'A'), false);
+  const illegal = f_event(deriveMightChangedEmissions([before], [{ ...before, might: 4 }], { batchId: 'mighty-noop' })[0], 'mighty-noop');
+  assert.equal(illegal, null);
 });
 
 test('EG-PIPELINE: conflicting explicit batch identities fail before publishing an event', () => {

@@ -29,6 +29,22 @@ deck identities are omitted or replaced with viewer-scoped opaque references;
 the authority object and physical card provenance never cross the projection
 boundary. Choice options are included only for the chooser.
 
+The production host implements the RIFT-810
+`riftbound.pipeline-death-boundary.v1` seam. A Kill is validated against the
+exact current Board incarnation before the callback runs; the source remains on
+the Board while death triggers are collected, and only then moves to Trash.
+Typed all-Kill batches validate the complete wave first, invoke one callback,
+and move every leaf to Trash atomically. A failure after the callback restores
+the host checkpoint, so the same incarnation can be retried. Chain and event
+checkpoints are owned by the pipeline; post-Pending Chain rollback remains a
+separate RIFT-835 transaction concern.
+
+`RuntimeCard.domains` carries trusted catalog Domains separately from printed
+Power. `EngineRuntimeHost.runeDomains(ref)` returns that metadata for the exact
+current incarnation and rejects unknown or stale refs; callers must not infer
+Domains from Power or a Legend. Real room catalog transfer and consumption of
+this metadata belongs to RIFT-861.
+
 `room.ts`/`server.ts` integration is intentionally deferred. The smallest
 follow-up wiring is:
 

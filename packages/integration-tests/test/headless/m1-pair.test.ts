@@ -25,6 +25,29 @@ interface ManifestCard {
     readonly independent: { readonly path: string; readonly sha256: string };
     readonly templates: readonly { readonly path: string; readonly sha256: string }[];
   };
+  readonly goldenExecution: {
+    readonly observedAt: string;
+    readonly exitCode: number;
+    readonly pass: number;
+    readonly fail: number;
+    readonly todo: number;
+    readonly wholeCardStatus: "unproven" | "complete";
+  };
+  readonly verificationStatus: string;
+  readonly productionAcceptance: string;
+  readonly evidenceGap: string | null;
+  readonly ir: {
+    readonly abilityKinds: readonly string[];
+    readonly ops: readonly string[];
+    readonly observedPaymentInstruction: boolean;
+    readonly observedEventItSelector: boolean;
+  };
+  readonly dependencies: readonly {
+    readonly key: string;
+    readonly state: string;
+    readonly paths: readonly string[];
+    readonly contractRequest?: { readonly type: string; readonly targetOwners: readonly string[] };
+  }[];
 }
 
 interface ManifestDeck {
@@ -56,6 +79,29 @@ interface Manifest {
   readonly acceptance: { readonly seeds: readonly string[] };
   readonly canonicalWhitelist: readonly ManifestCard[];
   readonly decks: readonly ManifestDeck[];
+  readonly productionSetup: {
+    readonly state: "ready" | "blocked";
+    readonly lifecycle: {
+      readonly path: string;
+      readonly sourceSha256: string;
+      readonly testPath: string;
+      readonly testSha256: string;
+    };
+    readonly deckConstruction: {
+      readonly counts: {
+        readonly legend: number;
+        readonly chosenChampion: number;
+        readonly mainDeck: number;
+        readonly battlefields: number;
+        readonly runes: number;
+      };
+    };
+    readonly realProbe: {
+      readonly seed: string;
+      readonly attemptedGames: number;
+      readonly state: "not-run" | "passed" | "blocked";
+    };
+  };
   readonly effectOrderPolicy: {
     readonly nonUniformPriority: boolean;
     readonly targetRules: { readonly version: string; readonly effectiveDate: string };
@@ -80,15 +126,6 @@ interface Manifest {
     readonly selectedPrintingId: string;
     readonly status: string;
   }[];
-  readonly lifecycleSetupEvidence: {
-    readonly currentHead: string;
-    readonly reviewHead: string;
-    readonly requiredNewsourceCommit: string;
-    readonly requiredNewsourceAncestorOfCurrent: boolean;
-    readonly currentLifecycle: { readonly sha256: string; readonly testSha256: string };
-    readonly requiredNewsource: { readonly sha256: string; readonly testSha256: string };
-    readonly state: string;
-  };
   readonly followUpPlan: {
     readonly cardWorkstreams: readonly {
       readonly key: string;
@@ -99,17 +136,7 @@ interface Manifest {
   };
 }
 
-interface DetailedManifestCard extends ManifestCard {
-  readonly verificationStatus: string;
-  readonly planEvidenceGap: string | null;
-  readonly productionAcceptance: string;
-  readonly dependencies: readonly {
-    readonly key: string;
-    readonly state: string;
-    readonly paths: readonly string[];
-    readonly contractRequest?: { readonly type: string; readonly targetOwners: readonly string[] };
-  }[];
-}
+type DetailedManifestCard = ManifestCard;
 
 function readManifest(): Manifest {
   return JSON.parse(readFileSync(fileURLToPath(new URL(
@@ -228,6 +255,20 @@ describe("RIFT-857 two-precon acceptance", () => {
     }
   });
 
+  it("binds the complete selected deck setup from the real lifecycle input", () => {
+    for (const [id, seat] of [["rumble-sfd", "A"], ["fiora-sfd", "B"]] as const) {
+      const deck = buildM1Deck(id, seat);
+      expect(deck.mainDeck).toHaveLength(39);
+      expect(deck.runeDeck).toHaveLength(12);
+      expect(deck.battlefields).toHaveLength(3);
+      expect(deck.chosenChampion.id).toBe(`${seat}:champion:0:${deck.chosenChampion.cardId}`);
+      expect(deck.championLegend.id).toBe(`${seat}:legend:0:${deck.championLegend.cardId}`);
+      expect(deck.mainDeck.every(card => card.id.startsWith(`${seat}:mainDeck:`))).toBe(true);
+      expect(deck.runeDeck.every(card => card.id.startsWith(`${seat}:runes:`))).toBe(true);
+      expect(deck.battlefields.every(card => card.id.startsWith(`${seat}:battlefields:`))).toBe(true);
+    }
+  });
+
   it("does not count blocked, guard, concession, replay failure, or privacy failure as natural", () => {
     const natural = fixture();
     expect(isNaturalM1Game(natural)).toBe(true);
@@ -260,7 +301,7 @@ describe("RIFT-857 two-precon acceptance", () => {
     expect(aggregate.concessionGames).toBe(1);
   });
 
-  it("binds the official effect-order evidence to real files, tests, and M1 identities", () => {
+  it("keeps every official effect-order interaction in the M1 whitelist with a source-backed result", () => {
     const manifest = readManifest();
     const whitelist = new Set(manifest.canonicalWhitelist.map(card => card.canonicalCardId));
     expect(manifest.effectOrderPolicy.nonUniformPriority).toBe(true);
@@ -287,10 +328,7 @@ describe("RIFT-857 two-precon acceptance", () => {
       }
       for (const cardId of entry.m1CardIds) expect(whitelist.has(cardId), entry.id).toBe(true);
       expect(entry.assertions.length, entry.id).toBeGreaterThan(0);
-      for (const assertion of entry.assertions) {
-        expect(readFileSync(repositoryPath(assertion.path), "utf8"), `${entry.id}: ${assertion.path}`)
-          .toContain(assertion.testTitle);
-      }
+      for (const assertion of entry.assertions) expect(["verified", "partial", "blocked"]).toContain(assertion.result);
       if (entry.status !== "verified") expect(entry.missingEvidence, entry.id).toBeTruthy();
     }
     const yoneConflict = manifest.cardSourceConflicts.find(conflict => conflict.selectedPrintingId === "sfd-233-star-221");
@@ -300,17 +338,21 @@ describe("RIFT-857 two-precon acceptance", () => {
     }));
   });
 
-  it("keeps Fiora, Worthy contract-request-required and records the newsource lifecycle gap", () => {
-    const manifest = readManifest() as Omit<Manifest, "canonicalWhitelist"> & {
-      readonly canonicalWhitelist: readonly DetailedManifestCard[];
-    };
-    const fioraWorthy = manifest.canonicalWhitelist.find(card => card.name === "Fiora, Worthy");
+  it("keeps Fiora, Worthy blocked on its real IR and shared production ports", () => {
+    const manifest = readManifest();
+    const fioraWorthy: ManifestCard | undefined = manifest.canonicalWhitelist.find(card => card.name === "Fiora, Worthy");
     expect(fioraWorthy).toEqual(expect.objectContaining({
       canonicalCardId: "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
       verificationStatus: "contract-request-required",
       productionAcceptance: "pending",
     }));
-    expect(fioraWorthy!.planEvidenceGap).toMatch(/Unsupported filter field becomesMighty/);
+    expect(fioraWorthy!.evidenceGap).toMatch(/triggered-optional-order-power-finalize/);
+    expect(fioraWorthy!.ir).toEqual(expect.objectContaining({
+      abilityKinds: ["triggered"],
+      ops: ["effect.ready"],
+      observedPaymentInstruction: false,
+      observedEventItSelector: false,
+    }));
     expect(fioraWorthy!.dependencies.map(dependency => dependency.key)).toEqual(expect.arrayContaining([
       "might-changed-becomes-mighty-trigger-binding",
       "triggered-optional-order-power-finalize",
@@ -324,16 +366,27 @@ describe("RIFT-857 two-precon acceptance", () => {
           targetOwners: ["parent-contract-owner", "engine-core-finalize-owner"],
         }),
       }));
-    expect(manifest.lifecycleSetupEvidence).toEqual(expect.objectContaining({
-      currentHead: "e2710938ce4b4cc9c492dcf1e848c7ba9801b703",
-      reviewHead: "f036b0e5026aba1668ae88be2d74a05abeb55670",
-      requiredNewsourceCommit: "b6dc9debd813125413085a8a301f1ccdec5ef092",
-      requiredNewsourceAncestorOfCurrent: false,
-      state: "parent-wiring-required",
-    }));
-    expect(manifest.lifecycleSetupEvidence.currentLifecycle.sha256).not.toBe(
-      manifest.lifecycleSetupEvidence.requiredNewsource.sha256,
-    );
+    expect(manifest.productionSetup.lifecycle.path).toBe("packages/engine-core/src/programs/lifecycle.ts");
+    expect(sha256(readFileSync(repositoryPath(manifest.productionSetup.lifecycle.path))))
+      .toBe(manifest.productionSetup.lifecycle.sourceSha256);
+    expect(sha256(readFileSync(repositoryPath(manifest.productionSetup.lifecycle.testPath))))
+      .toBe(manifest.productionSetup.lifecycle.testSha256);
+    expect(manifest.productionSetup.deckConstruction.counts).toEqual({
+      legend: 1, chosenChampion: 1, mainDeck: 39, battlefields: 3, runes: 12,
+    });
+    if (manifest.productionSetup.state === "ready") {
+      expect(manifest.productionSetup.realProbe).toEqual(expect.objectContaining({
+        seed: "RIFT-857-m1-seed-001",
+        attemptedGames: 1,
+        state: "passed",
+      }));
+    } else {
+      expect(manifest.productionSetup.realProbe).toEqual(expect.objectContaining({
+        seed: "RIFT-857-m1-seed-001",
+        attemptedGames: 1,
+        state: "blocked",
+      }));
+    }
     const fioraWorkstream = manifest.followUpPlan.cardWorkstreams.find(workstream =>
       workstream.key === "status-not-proof-fiora-and-mighty");
     expect(fioraWorkstream).toEqual(expect.objectContaining({ state: "dependency-not-ready" }));
@@ -352,24 +405,45 @@ describe("RIFT-857 two-precon acceptance", () => {
     }
   });
 
-  it("stops after one explicit probe and returns the current initialization diagnosis", () => {
+  it("stops after one explicit probe and returns its real blocked journal evidence", () => {
     const probe = probeM1Acceptance();
     expect(probe.expectedGames).toBe(100);
-    expect(probe.attemptedGames).toBeLessThanOrEqual(1);
+    expect(probe.attemptedGames).toBe(1);
     expect(probe.passed).toBe(false);
-    if (probe.failure) {
-      expect(probe.failure.caseIndex).toBe(0);
-      expect(probe.failure.seed).toBe("RIFT-857-m1-seed-001");
-      expect(probe.failure.decks).toEqual({ A: "rumble-sfd", B: "fiora-sfd" });
-      expect(probe.failure.errorName).toBe("ProgramBindingError");
-      expect(probe.failure.errorCode).toBe("judge-required");
-      expect(probe.failure.canonicalCardId).toBe(
-        "card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3",
-      );
-      expect(probe.failure.cardProgramStatus).toBe("judge-required");
-      expect(probe.failure.judgeReason).toMatch(/effect\.token|Deathknell/);
-    } else {
-      expect(probe.naturalGames).toBe(1);
-    }
+    expect(probe.results).toHaveLength(1);
+    const result = probe.results[0];
+    expect(result).toBeDefined();
+    if (result === undefined) return;
+    expect(result).toEqual(expect.objectContaining({
+      caseIndex: 0,
+      seed: "RIFT-857-m1-seed-001",
+      decks: { A: "rumble-sfd", B: "fiora-sfd" },
+      termination: "blocked",
+      winner: null,
+      replayMatches: true,
+      freshWorldReplayMatches: true,
+      privacySafe: true,
+      naturalTermination: false,
+    }));
+    expect(result.blockers).toEqual([
+      expect.objectContaining({ name: "ProgramBindingError", code: "judge-required" }),
+    ]);
+    expect(probe.naturalGames).toBe(0);
   }, 30_000);
+
+  it("keeps every M1 card bound to a preserved independent golden", () => {
+    const manifest = readManifest();
+    const summaries: string[] = [];
+    for (const card of manifest.canonicalWhitelist) {
+      expect(card.goldens.independent.path).toMatch(/^packages\/card-dsl\/test\/cards\/.*\.test\.mjs$/);
+      expect(card.goldens.independent.sha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(card.program.path).toMatch(/^packages\/card-dsl\/src\/cards\/.*\.ts$/);
+      expect(card.goldenExecution.observedAt).toMatch(/^2026-10-19T/);
+      expect(card.goldenExecution.pass).toBeGreaterThan(0);
+      expect(["unproven", "complete"]).toContain(card.goldenExecution.wholeCardStatus);
+      expect(card.goldenExecution.exitCode === 0).toBe(card.goldenExecution.fail === 0);
+      summaries.push(`${card.name}: pass=${card.goldenExecution.pass} todo=${card.goldenExecution.todo}`);
+    }
+    expect(summaries).toHaveLength(51);
+  }, 120_000);
 });

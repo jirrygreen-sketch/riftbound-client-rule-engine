@@ -85,7 +85,9 @@ describe("server batch E parity: hold -> recruit", () => {
       faceDown: false,
       isToken: false,
     }).program?.status).toBe("judge-required");
-    expect(() => scene.programs.registry.get(ALTAR_TO_UNITY)).toThrow(/controller-relative|LocationRef|base/);
+    // RIFT-558 refreshed this card's judge evidence; the registry must still
+    // refuse execution while the card stays judge-required.
+    expect(() => scene.programs.registry.get(ALTAR_TO_UNITY)).toThrow(/judge-required|held|here/);
     scene.lifecycle.detach();
   });
 

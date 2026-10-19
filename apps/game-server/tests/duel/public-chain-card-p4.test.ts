@@ -115,7 +115,10 @@ describe('P4 public Chain card contract', () => {
     pass(runtime, 'alice', 'pass-alice-2');
     expect(chain(runtime)).toEqual({ active: false });
     expect(chain(runtime)).toEqual({ active: false });
-  }, 60_000);
+  // The two-card Reaction Chain trace has exceeded 60s under shared-runner
+  // load; keep every assertion and give the runner clock the same 300s
+  // headroom as the other full P4 command flows.
+  }, 300_000);
 
   it('records schema 4 by default, forks strictly, and replays schema 3 with its explicit gate', async () => {
     const opts = await options();

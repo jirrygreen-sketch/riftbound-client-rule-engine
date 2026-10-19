@@ -66,7 +66,7 @@ afterEach(async () => {
 });
 async function start(store = new ControlledStore()) {
   const server = createGameServer({ port: 0, catalog: setupAdapterFixtureCatalog,
-    imagesDirectory, roomStore: store, roomIdFactory: () => "duel-socket-test" });
+    imagesDirectory, roomStore: store, roomIdFactory: () => "duel-socket-test", duelRuntimeMode: "legacy-p4" });
   openServers.push(server);
   await server.start();
   const address = server.httpServer.address();
@@ -214,7 +214,7 @@ function mulligan(commandId: string, version: number): DuelCommandMessage {
     expect(store.saves).toBeGreaterThan(0);
     expect(h.server.rooms.get(h.sessionA.roomId)?.roomView().version).toBe(1);
     const archived = h.server.rooms.get(h.sessionA.roomId)?.exportArchive();
-    expect(archived?.duelSession?.session.receipts).toHaveLength(2);
+    expect(archived?.journal?.entries).toHaveLength(1);
   });
 
   it("rolls back failed sticky receipt and socket bindings without acknowledging it", async () => {

@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_RUNTIME_PROFILE, DefaultPathDriver, ProjectionNormalizer, digest } from "../../src/default-path/driver.js";
+import { DefaultPathDriver, ProjectionNormalizer, digest } from "../../src/default-path/driver.js";
 import { DECK_FIXTURE, realDecks } from "../../src/default-path/decks.js";
 import { scenarios } from "../../src/default-path/scenarios.js";
 
@@ -12,10 +12,9 @@ const update = process.env.UPDATE_DEFAULT_PATH_SNAPSHOTS === "1";
 describe("CLI default room path snapshots", () => {
   it("pins the CLI fallback and exact existing real deck submissions", async () => {
     const cli = await readFile(new URL("../../../../apps/game-server/src/index.ts", import.meta.url), "utf8");
-    expect(cli).toContain('process.env.RIFTBOUND_DUEL_PROFILE ?? "p4"');
-    expect(cli).toMatch(/duelRoomProfile === "p4" && requestedRuntimeProfile !== "public-chain-v1"\s*\? DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK : undefined/);
-    const owner = await readFile(new URL("../../../../apps/game-server/src/duel/authoritative-runtime-p4.ts", import.meta.url), "utf8");
-    expect(owner).toMatch(new RegExp(`DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK\\s*=\\s*["']${DEFAULT_RUNTIME_PROFILE}["']`));
+    expect(cli).toContain('const requestedRuntimeMode = process.env.RIFTBOUND_DUEL_RUNTIME_MODE;');
+    expect(cli).toContain('requestedRuntimeMode !== "legacy-p4" && requestedRuntimeMode !== "engine-v2"');
+    expect(cli).toContain('duelRuntimeMode: requestedRuntimeMode as DuelRuntimeMode');
     const fixture = await readFile(new URL(`../../../../${DECK_FIXTURE}`, import.meta.url), "utf8");
     const literal = fixture.match(/export const fury77RealDecks = (\{[\s\S]*\}) as const satisfies/);
     expect(literal, "The selected upstream fixture must still be a plain JSON deck literal").not.toBeNull();

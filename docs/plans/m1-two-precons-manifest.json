@@ -2,13 +2,14 @@
   "schema": "riftbound.m1-two-precons-manifest.v1",
   "generatedAt": "2026-10-19",
   "baseline": {
-    "commit": "fed9528e137b95c52c9642c26dc8034a79e88468",
+    "frozenIntegrationCommit": "3ef041a1e78cc964b2d4c23d3af95f5c7d6302bd",
     "branch": "task/RIFT-857-m1-two-precons-acceptance",
     "authority": {
       "userDecision": "2026-10-19 two-precons first",
       "plan": "/root/swarm-rift/shared/m1-two-precons-plan.json",
       "planSha256": "0b9ad08f0ed30602c43a479007e1584df211363729815b9b8c6e92e2833e308f"
-    }
+    },
+    "note": "Frozen integration snapshot used for this audit; not a pass condition."
   },
   "scope": {
     "pair": {
@@ -1036,7 +1037,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/rumble-scrapper.ts",
         "sha256": "bc3834f01681adbd7e313105a801523fe41686a348c3ea2c2c77031ca71fba77"
@@ -1072,7 +1072,32 @@
             "EG-MOVE"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "static",
+          "triggered"
+        ],
+        "ops": [
+          "condition.value",
+          "effect.token"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 1,
+        "pass": 8,
+        "fail": 1,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: combat-event-payload-location-hold"
     },
     {
       "canonicalCardId": "card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3",
@@ -1103,7 +1128,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/ferrous-forerunner.ts",
         "sha256": "734a7ee8ce22f4352a478fbf7fb71b2063a59dacec524437e4692fb74807dc35"
@@ -1134,7 +1158,30 @@
             "EG-POWER"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "triggered"
+        ],
+        "ops": [
+          "effect.token"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 1,
+        "pass": 4,
+        "fail": 2,
+        "todo": 2,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: token-entry-deathknell"
     },
     {
       "canonicalCardId": "card.hash-0ba141b975db96cac65aab56bfd7dbb63904c538cc3d9c32bdfb3b2d98e486de",
@@ -1163,7 +1210,6 @@
       "programStatus": "executable",
       "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/royal-guard.ts",
         "sha256": "27e8e4b0b334b0f637e74fc2ff106f94405c73e6583d7118955c9654b3e8c73c"
@@ -1175,7 +1221,31 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "triggered"
+        ],
+        "ops": [
+          "effect.play",
+          "effect.token"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 3,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Independent golden exists; whole-card default production acceptance is still pending."
     },
     {
       "canonicalCardId": "card.hash-0c36f22df8ffa7bed49f59fd138d24b9b0a52a7b8ad4c720afcaa12ec816eee4",
@@ -1202,7 +1272,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/minefield.ts",
         "sha256": "7912a643548ea194d0177948014994901a7a92c622bce79a0cb89d9246cce8dd"
@@ -1238,7 +1307,30 @@
             "EG-MOVE"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "triggered"
+        ],
+        "ops": [
+          "effect.mill"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 6,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: combat-event-payload-location-hold"
     },
     {
       "canonicalCardId": "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b",
@@ -1265,7 +1357,6 @@
       "programStatus": "executable",
       "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/ogn/singularity.ts",
         "sha256": "be0d33bed6e786c1dd399acf5cfa4e8ca215e8b25682355fe298bc73bf8f8776"
@@ -1277,7 +1368,30 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "play"
+        ],
+        "ops": [
+          "effect.damage"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 6,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Independent golden exists; whole-card default production acceptance is still pending."
     },
     {
       "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
@@ -1311,7 +1425,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/rumble-hotheaded.ts",
         "sha256": "576b20ed7e3fdcb9fb8bc8ef06b20dbe04fb67096887af96f4a3d10c7f4dd926"
@@ -1391,7 +1504,33 @@
             "EG-STATIC"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "static",
+          "triggered"
+        ],
+        "ops": [
+          "cost.modify",
+          "effect.play",
+          "effect.recycle"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 1,
+        "pass": 10,
+        "fail": 3,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: production-lifecycle-keyword-reexpansion, combat-event-payload-location-hold, cost-repeat-additional-cost"
     },
     {
       "canonicalCardId": "card.hash-1504d8f14af5ce1b9f7a3663c23e6ef7cb57d59a6274dc921cd9296ee8e2494b",
@@ -1418,7 +1557,6 @@
       "programStatus": "executable",
       "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/production-surge.ts",
         "sha256": "8562a2eadf413164f46cb2ad8d532f9792582f3c4f02594c88d65880926b6ece"
@@ -1430,7 +1568,32 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "static",
+          "play"
+        ],
+        "ops": [
+          "effect.draw",
+          "effect.token"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 6,
+        "fail": 0,
+        "todo": 2,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Independent golden exists; whole-card default production acceptance is still pending."
     },
     {
       "canonicalCardId": "card.hash-153eb4df721b70662a63652ba1602985ceed08d81a0b23fc0d6b10349ee15ca9",
@@ -1457,7 +1620,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/frigid-touch.ts",
         "sha256": "2e12282feee826ff10ca687544fc81ed9405d03a148ace9d8a457fd9e115e5c6"
@@ -1493,7 +1655,32 @@
             "EG-STATIC"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "keyword",
+          "play"
+        ],
+        "ops": [
+          "continuous.might",
+          "effect.repeat"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 7,
+        "fail": 0,
+        "todo": 2,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: cost-repeat-additional-cost"
     },
     {
       "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
@@ -1525,7 +1712,6 @@
       "programStatus": "executable",
       "verificationStatus": "contract-request-required",
       "productionAcceptance": "pending",
-      "planEvidenceGap": "status executable is not proof; parent full-seed probe blocks on Unsupported filter field becomesMighty; printed optional Order Power payment has no IR instruction",
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
         "sha256": "1a1cc1e25845c56e853d1d22e0db1eae727060d97771ab0b14fb1f5fc37064f6"
@@ -1541,7 +1727,7 @@
         {
           "key": "might-changed-becomes-mighty-trigger-binding",
           "owner": "engine-core",
-          "state": "dependency-not-ready",
+          "state": "merged-partially",
           "paths": [
             "packages/engine-core/src/programs/filters.ts",
             "packages/engine-core/src/events/pipeline-match.ts",
@@ -1555,7 +1741,7 @@
             "EG-PAYLOAD",
             "EG-EVENTS"
           ],
-          "reason": "translateObjectFilter rejects becomesMighty. The production trigger path must consume the authoritative might-changed previousMight/currentMight payload, match only controller=you and the <5 to >=5 transition, and preserve the event object/it identity.",
+          "reason": "Current production matcher consumes the might-changed before/after snapshots for the typed <5 to >=5 transition and controller scope. End-to-end proof remains blocked by the shared event-it/Finalize and missing card cost IR boundaries.",
           "evidence": {
             "parentProbe": "/root/swarm-rift/shared/parent-reviews/integration-f036b0e5-20261019-0745/full-seed-probe.json",
             "parentProbeSha256": "e366720c974fcda8c18ccd742ef347386c071acc7cbed566be8af966d38c6c23",
@@ -1599,7 +1785,7 @@
             "EG-COSTCHOICE",
             "EG-FINALIZE"
           ],
-          "reason": "TriggeredAbility currently has no cost field. The printed optional one Order Power payment must become real IR, then be asked/paid/rolled back at Finalize before Resolve. This needs a parent-owned additive contract change plus the engine-core Finalize consumer.",
+          "reason": "Current costPayArgsToCostSpec accepts a pure Order Power leading cost.pay shape, but original CardProgram has no choice.optional/cost.pay and TriggeredAbility has no cost field. Parent must approve/add the IR field (or adopt the leading-choice shape) before the engine-core Finalize consumer can execute decline/pay/rollback.",
           "evidence": {
             "programPath": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
             "programSha256": "1a1cc1e25845c56e853d1d22e0db1eae727060d97771ab0b14fb1f5fc37064f6",
@@ -1631,7 +1817,30 @@
             ]
           }
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "triggered"
+        ],
+        "ops": [
+          "effect.ready"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 4,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: might-changed-becomes-mighty-trigger-binding, event-it-authoritative-bridge, triggered-optional-order-power-finalize"
     },
     {
       "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
@@ -1666,7 +1875,6 @@
       "programStatus": "executable",
       "verificationStatus": "blocked-source-conflict",
       "productionAcceptance": "pending",
-      "planEvidenceGap": "rule-review:non-reminder-printing-difference; official-errata-open-vs-uncontrolled",
       "program": {
         "path": "packages/card-dsl/src/cards/rad/yone-blademaster.ts",
         "sha256": "97063d125ee3e03f28fe325a15f548e3bcf882c0388ac5829a4dc491e0bee125"
@@ -1679,7 +1887,31 @@
         "templates": []
       },
       "dependencies": [],
-      "sourceConflict": "blocked:current program uses uncontrolled while selected SFD printing and official errata use open"
+      "sourceConflict": "blocked:current program uses uncontrolled while selected SFD printing and official errata use open",
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "keyword",
+          "triggered"
+        ],
+        "ops": [
+          "effect.damage"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 4,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": null
     },
     {
       "canonicalCardId": "card.hash-2ebf1fe6e5ed7bb875f1c112b3e0ed1635b557c0c0ad550d752b8dd376243007",
@@ -1706,7 +1938,6 @@
       "programStatus": "executable",
       "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/ogn/consult-the-past.ts",
         "sha256": "4501d956499cb001092e35ee87f103d6ffeca3abcf5690401520b4644427a0d0"
@@ -1718,7 +1949,31 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "keyword",
+          "play"
+        ],
+        "ops": [
+          "effect.draw"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 5,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Independent golden exists; whole-card default production acceptance is still pending."
     },
     {
       "canonicalCardId": "card.hash-30497c69657abd1d3abf17f9b3766e7d064817473a88828ca2ef4ab9b51f7902",
@@ -1751,7 +2006,6 @@
       "programStatus": "no-ability",
       "verificationStatus": "verified-no-ability",
       "productionAcceptance": "verified-no-ability",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/ogn/fury-rune.ts",
         "sha256": "d265e3a7dd706e55bd1243317881450fe1b7c51da393e4205d8c91675c30e30e"
@@ -1767,7 +2021,26 @@
       "productionEvidence": {
         "kind": "no-ability",
         "independentGolden": "packages/card-dsl/test/cards/ogn/fury-rune.test.mjs"
-      }
+      },
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "no-ability",
+        "abilityKinds": [],
+        "ops": [],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 3,
+        "fail": 0,
+        "todo": 0,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": null
     },
     {
       "canonicalCardId": "card.hash-34880fcae16bd9461e4c318dfb455365ff9e353db357f948b4a15dea7e01b389",
@@ -1798,7 +2071,6 @@
       "programStatus": "executable",
       "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/bubble-bot.ts",
         "sha256": "05525f675ead88909e25b4b60c486216ace750b545b0937bb47c6b708bde7aca"
@@ -1810,7 +2082,30 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "triggered"
+        ],
+        "ops": [
+          "effect.ready"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 2,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Independent golden exists; whole-card default production acceptance is still pending."
     },
     {
       "canonicalCardId": "card.hash-3c1c01b405853556e3e1c12bbd758e94d73f5ed474a5643bb068eaa7cb549c6e",
@@ -1841,7 +2136,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/danger-zone.ts",
         "sha256": "40d75aeda8ad854d0fd6ff4c7a25955228e00464fb6a09ce5e59b0946d3b0820"
@@ -1882,7 +2176,31 @@
             "EG-STATIC"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "keyword",
+          "play"
+        ],
+        "ops": [
+          "continuous.might"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 6,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: cost-repeat-additional-cost"
     },
     {
       "canonicalCardId": "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
@@ -1909,7 +2227,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/wages-of-pain.ts",
         "sha256": "655a2039bbdd7ccecdcf402ed3ea91a461b431816307869b0d1ffacd54012716"
@@ -1940,7 +2257,32 @@
             "EG-POWER"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "keyword",
+          "play"
+        ],
+        "ops": [
+          "effect.damage",
+          "effect.token"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 1,
+        "pass": 5,
+        "fail": 2,
+        "todo": 0,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: token-entry-deathknell"
     },
     {
       "canonicalCardId": "card.hash-44e95dd0a87b7dfcd7565b73a33e204f85c97ac82e004a6127ff7ed649fb41ad",
@@ -1967,7 +2309,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/ornns-forge.ts",
         "sha256": "e41a10544c26909da0bb576a31f6175860af8b1cd8eca1b9f000efb165343409"
@@ -2008,7 +2349,28 @@
             "EG-STATIC"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "static"
+        ],
+        "ops": [],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 1,
+        "pass": 4,
+        "fail": 1,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: cost-repeat-additional-cost"
     },
     {
       "canonicalCardId": "card.hash-569dc9079a6d404c0d850d27b510585b856ab3def5e1e0bbafa30a3bf9d48e82",
@@ -2040,7 +2402,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/plundering-poro.ts",
         "sha256": "2921b8d691053e8fcae79bb0a09a813b68f8ef254e8062c1d67246b22cec12d8"
@@ -2094,7 +2455,30 @@
             "EG-MOVE"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "triggered"
+        ],
+        "ops": [
+          "effect.token"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 5,
+        "fail": 0,
+        "todo": 2,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: token-entry-deathknell, combat-event-payload-location-hold"
     },
     {
       "canonicalCardId": "card.hash-5a86b358540e9ab2512400c77f3291739c2aa6ccb7b537449298a640b02b0e82",
@@ -2121,7 +2505,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/ravenbloom-conservatory.ts",
         "sha256": "c0da9b579ffe695452c4616c89863a9f2ae0410e2f0ea7f535afc1cf9a8f2e7c"
@@ -2157,7 +2540,32 @@
             "EG-MOVE"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "triggered"
+        ],
+        "ops": [
+          "effect.recycle",
+          "effect.reveal",
+          "effect.zone"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 10,
+        "fail": 0,
+        "todo": 2,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: combat-event-payload-location-hold"
     },
     {
       "canonicalCardId": "card.hash-5b08b5b8648e8c5c057d15279d1b4e677457eb0b43fcf2810e2ec4f4c4d1b7cf",
@@ -2184,7 +2592,6 @@
       "programStatus": "executable",
       "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/ogn/stupefy.ts",
         "sha256": "33c22785deab967ab740ca3ca6ca6bc69f17f8e64488f746b86040c808c63ca7"
@@ -2196,7 +2603,32 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "keyword",
+          "play"
+        ],
+        "ops": [
+          "continuous.might",
+          "effect.draw"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 6,
+        "fail": 0,
+        "todo": 0,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Independent golden exists; whole-card default production acceptance is still pending."
     },
     {
       "canonicalCardId": "card.hash-600e0796e82099284b213e87b112b1c5df42777ef72b70a3b4cd49a84d27dd10",
@@ -2223,7 +2655,6 @@
       "programStatus": "executable",
       "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/ogn/void-seeker.ts",
         "sha256": "a088528d610e8226b96d947159813f5cdf1e29d295905cef8b323c14ebb5752f"
@@ -2235,7 +2666,32 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "keyword",
+          "play"
+        ],
+        "ops": [
+          "effect.damage",
+          "effect.draw"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 4,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Independent golden exists; whole-card default production acceptance is still pending."
     },
     {
       "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
@@ -2267,7 +2723,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/fiora-peerless.ts",
         "sha256": "ec4bed2d530da5ab5c14b0f343c78edad5174b8c6988a892ad1e5c2184b82808"
@@ -2322,7 +2777,31 @@
             "EG-STATIC"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "triggered"
+        ],
+        "ops": [
+          "condition.value",
+          "continuous.might"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 17,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: combat-event-payload-location-hold, mighty-query-consumer"
     },
     {
       "canonicalCardId": "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
@@ -2353,7 +2832,6 @@
       "programStatus": "executable",
       "verificationStatus": "missing-source-evidence",
       "productionAcceptance": "pending",
-      "planEvidenceGap": "rule-review:unmatched-functional-clause",
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/riposte.ts",
         "sha256": "e4929d70d85b171864ba554b9e16a51247101f746aad0c5ddf5f5a5b0f325f7b"
@@ -2365,7 +2843,33 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "keyword",
+          "play"
+        ],
+        "ops": [
+          "condition.value",
+          "continuous.might",
+          "effect.counter"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 1,
+        "pass": 9,
+        "fail": 1,
+        "todo": 0,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": null
     },
     {
       "canonicalCardId": "card.hash-77763eae5320de558954776a37677e8638b6d4af73399e5a7c4f5d5321a2b564",
@@ -2392,7 +2896,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/treasure-hoard.ts",
         "sha256": "6dd5c6a161e1e0959e92a32bc62eacee30dff3e24cdf449f5e1a3d228f000df4"
@@ -2446,7 +2949,32 @@
             "EG-MOVE"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "triggered"
+        ],
+        "ops": [
+          "choice.optional",
+          "cost.pay",
+          "effect.token"
+        ],
+        "observedPaymentInstruction": true,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 5,
+        "fail": 0,
+        "todo": 3,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: token-entry-deathknell, combat-event-payload-location-hold"
     },
     {
       "canonicalCardId": "card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7",
@@ -2477,7 +3005,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/veteran-poro.ts",
         "sha256": "dbc2199a016d613851a17784e54faf5677d4d84a24558138bcd0928f71f0fa3e"
@@ -2509,7 +3036,28 @@
             "EG-FINALIZE"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "keyword"
+        ],
+        "ops": [],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 1,
+        "pass": 5,
+        "fail": 2,
+        "todo": 0,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: nontarget-picks-equipment"
     },
     {
       "canonicalCardId": "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f",
@@ -2536,7 +3084,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/show-of-strength.ts",
         "sha256": "44ceacc1bd4a103ab89795fad34cd18503b1833cf05e5e0c6bf798a5ea7f8524"
@@ -2573,7 +3120,31 @@
             "EG-STATIC"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "keyword",
+          "play"
+        ],
+        "ops": [
+          "effect.draw"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 1,
+        "pass": 5,
+        "fail": 3,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: mighty-query-consumer"
     },
     {
       "canonicalCardId": "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6",
@@ -2602,7 +3173,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/laurent-duelist.ts",
         "sha256": "5f6882d0626746f7ce4cb41c7d823ff6ea9d0b34d37295db5f5ed6aba41df8b2"
@@ -2643,7 +3213,28 @@
             "EG-MOVE"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "keyword"
+        ],
+        "ops": [],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 1,
+        "pass": 4,
+        "fail": 2,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: combat-event-payload-location-hold"
     },
     {
       "canonicalCardId": "card.hash-8d49727ab9ae782b8a21802c9ae0b51e5d712a37a072d991629bfbf3645535b3",
@@ -2670,7 +3261,6 @@
       "programStatus": "executable",
       "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/punch-first.ts",
         "sha256": "bc6f246d8fb83d187b2d6c70143a78f6d90ef1ed9ce051dee4b6e37e170fb8b8"
@@ -2682,7 +3272,31 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "keyword",
+          "play"
+        ],
+        "ops": [
+          "continuous.might"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 9,
+        "fail": 0,
+        "todo": 2,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Independent golden exists; whole-card default production acceptance is still pending."
     },
     {
       "canonicalCardId": "card.hash-902c6a1366a1a0e653ccb65102ff621b109af3b0b40f5bbeb7d8d3a5aeae2322",
@@ -2711,7 +3325,6 @@
       "programStatus": "executable",
       "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/warmogs-armor.ts",
         "sha256": "bb47093ced9dcf8eb82185fc9b0364b862e9605b02f00aaf7e05dd9b285d28fd"
@@ -2723,7 +3336,28 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "keyword"
+        ],
+        "ops": [],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 2,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Independent golden exists; whole-card default production acceptance is still pending."
     },
     {
       "canonicalCardId": "card.hash-959c19d68f06f8f929625bfde93a1132701da5a5d0b49e91583db341384f0bfe",
@@ -2752,7 +3386,6 @@
       "programStatus": "executable",
       "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/bf-sword.ts",
         "sha256": "f3713fb40e1921d2ccd4831e4865bb17b0a09029d671ced97569553bfa814a78"
@@ -2764,7 +3397,28 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "keyword"
+        ],
+        "ops": [],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 2,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Independent golden exists; whole-card default production acceptance is still pending."
     },
     {
       "canonicalCardId": "card.hash-9daf60cdf4c82e4fba1f685af1c9b0d748003f7e9ad9c68f02f429bdd0cf85e5",
@@ -2791,7 +3445,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/veiled-temple.ts",
         "sha256": "6f95ffdaf2dc73f8c66f9153dcca4c8712625382093ecc99b57b63fcc7260013"
@@ -2827,7 +3480,32 @@
             "EG-MOVE"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "triggered"
+        ],
+        "ops": [
+          "choice.optional",
+          "effect.detach",
+          "effect.ready"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 5,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: combat-event-payload-location-hold"
     },
     {
       "canonicalCardId": "card.hash-a1ee07f71d453092ab7d54f9491684e972b735b22bb1f3fda73f2641bcedbfe1",
@@ -2856,7 +3534,6 @@
       "programStatus": "executable",
       "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/dorans-blade.ts",
         "sha256": "4532a442def3eb3d0b1e181f646d5419e0c211c31896fb921d2be15bfbadcb21"
@@ -2868,7 +3545,28 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "keyword"
+        ],
+        "ops": [],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 2,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Independent golden exists; whole-card default production acceptance is still pending."
     },
     {
       "canonicalCardId": "card.hash-a2227b03e9e13c8e2ddae7a973c746cc4243ff631dfaf462dc9823e687bbbf17",
@@ -2901,7 +3599,6 @@
       "programStatus": "no-ability",
       "verificationStatus": "verified-no-ability",
       "productionAcceptance": "verified-no-ability",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/ogn/body-rune.ts",
         "sha256": "4477b7187a9a00441d6653a20010dee9383a16086ad6907ef9c53e5776e57f5c"
@@ -2917,7 +3614,26 @@
       "productionEvidence": {
         "kind": "no-ability",
         "independentGolden": "packages/card-dsl/test/cards/ogn/body-rune.test.mjs"
-      }
+      },
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "no-ability",
+        "abilityKinds": [],
+        "ops": [],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 3,
+        "fail": 0,
+        "todo": 0,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": null
     },
     {
       "canonicalCardId": "card.hash-a8a4cb783649a0339782e2d3808d6144661c621634da7c9f79b4f87981fac97b",
@@ -2950,7 +3666,6 @@
       "programStatus": "no-ability",
       "verificationStatus": "verified-no-ability",
       "productionAcceptance": "verified-no-ability",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/ogn/mind-rune.ts",
         "sha256": "ad2bc327e5d8b1ee9f9f6b92976a21ac2c9f0dfa1fa0feca0259563047f20774"
@@ -2966,7 +3681,26 @@
       "productionEvidence": {
         "kind": "no-ability",
         "independentGolden": "packages/card-dsl/test/cards/ogn/mind-rune.test.mjs"
-      }
+      },
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "no-ability",
+        "abilityKinds": [],
+        "ops": [],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 3,
+        "fail": 0,
+        "todo": 0,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": null
     },
     {
       "canonicalCardId": "card.hash-afc40c373a9fb4e48492323d7af26d3a58b824c385707dd3c269e97fee236103",
@@ -2996,7 +3730,6 @@
       "programStatus": "executable",
       "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/unsung-hero.ts",
         "sha256": "77dd6bcec80b1bd78f1c8cd81584779923bd732814fd448709ac22559260a3ba"
@@ -3008,7 +3741,31 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "keyword",
+          "triggered"
+        ],
+        "ops": [
+          "effect.draw"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 4,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Independent golden exists; whole-card default production acceptance is still pending."
     },
     {
       "canonicalCardId": "card.hash-c225141f743b61c67ddf269932c6bbdef739f37888f62163906faa7fa1e6dc2b",
@@ -3035,7 +3792,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/sunken-temple.ts",
         "sha256": "23bad08e1d932874408a7b5763d3097f5e1c641bd44c9aede4bd2b2321a07c66"
@@ -3090,7 +3846,32 @@
             "EG-STATIC"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "triggered"
+        ],
+        "ops": [
+          "choice.optional",
+          "cost.pay",
+          "effect.draw"
+        ],
+        "observedPaymentInstruction": true,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 1,
+        "pass": 7,
+        "fail": 1,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: combat-event-payload-location-hold, mighty-query-consumer"
     },
     {
       "canonicalCardId": "card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef",
@@ -3123,7 +3904,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/lucian-merciless.ts",
         "sha256": "feb6b8a34f9f05a2df8e5c5c520ad5030bad26f285bae41777e3cf935bbac219"
@@ -3178,7 +3958,31 @@
             "EG-FINALIZE"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "keyword",
+          "triggered"
+        ],
+        "ops": [
+          "effect.ready"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 6,
+        "fail": 0,
+        "todo": 2,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: combat-event-payload-location-hold, nontarget-picks-equipment"
     },
     {
       "canonicalCardId": "card.hash-cab923a670e4baa826aa3de381c8b992bf33987fcb0d65feb75ca538a8681010",
@@ -3207,7 +4011,6 @@
       "programStatus": "executable",
       "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/long-sword.ts",
         "sha256": "b029fba3e0d20001cda3400032640990dc8a9f019ceebaf1e8df1a972979d76e"
@@ -3219,7 +4022,28 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "keyword"
+        ],
+        "ops": [],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 2,
+        "fail": 0,
+        "todo": 2,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Independent golden exists; whole-card default production acceptance is still pending."
     },
     {
       "canonicalCardId": "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab",
@@ -3250,7 +4074,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/breakneck-mech.ts",
         "sha256": "7e04bb30b06eaf0beaba68a04b1b9d4e7a13f6e4159f39e5f93c27402c399fd3"
@@ -3289,7 +4112,31 @@
             "EG-REPLACEMENT"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "static",
+          "replacement"
+        ],
+        "ops": [
+          "effect.ready"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 9,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: production-lifecycle-keyword-reexpansion"
     },
     {
       "canonicalCardId": "card.hash-ccfc067dad8a1bf92c6ae1aa5f7110e9d211a1842a9254bb9320705c2f96c6c4",
@@ -3320,7 +4167,6 @@
       "programStatus": "executable",
       "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/grand-duelist.ts",
         "sha256": "e1355ef70c29930a5768fe2fc843c5def37ae40076de3261512502b64a65d217"
@@ -3332,7 +4178,31 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "triggered"
+        ],
+        "ops": [
+          "effect.channel",
+          "effect.exhaust"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 6,
+        "fail": 0,
+        "todo": 2,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Independent golden exists; whole-card default production acceptance is still pending."
     },
     {
       "canonicalCardId": "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40",
@@ -3363,7 +4233,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/forecaster.ts",
         "sha256": "e814691f5ccca78961cb7552b0734bf117ce45c28f0599a810f8f004ea447830"
@@ -3402,7 +4271,28 @@
             "EG-REPLACEMENT"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "static"
+        ],
+        "ops": [],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 1,
+        "pass": 8,
+        "fail": 1,
+        "todo": 0,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: production-lifecycle-keyword-reexpansion"
     },
     {
       "canonicalCardId": "card.hash-cf0b322a78010676e3d8b287830194a3bdc8970e65a141578ae8a3074ebd956f",
@@ -3432,7 +4322,6 @@
       "programStatus": "executable",
       "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/dauntless-vanguard.ts",
         "sha256": "e938ff109961a2489e711006c97f1c8a9d01fcfc0e59a7dbf181352c3f77798d"
@@ -3444,7 +4333,28 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "static"
+        ],
+        "ops": [],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 2,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Independent golden exists; whole-card default production acceptance is still pending."
     },
     {
       "canonicalCardId": "card.hash-d3579e6825470471f5ce05c53533806a5244c5e84364fe57b2aab0b7cc0f14e0",
@@ -3473,7 +4383,6 @@
       "programStatus": "executable",
       "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/sacred-shears.ts",
         "sha256": "59932783301881e8c5b0e21bebb47ddc536ce1cd6ba291cbb4af243581ba8850"
@@ -3485,7 +4394,28 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "keyword"
+        ],
+        "ops": [],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 2,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Independent golden exists; whole-card default production acceptance is still pending."
     },
     {
       "canonicalCardId": "card.hash-d490b51d08bdd7f97b1708aabfa6309995106f10de815b6fd927368e4a630569",
@@ -3512,7 +4442,6 @@
       "programStatus": "executable",
       "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/assembly-rig.ts",
         "sha256": "6ef5ca322ca3ed80c7fd518ad3eb8a01e9935490b637b953b32e8f0fecd212c6"
@@ -3524,7 +4453,30 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "activated"
+        ],
+        "ops": [
+          "effect.token"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 4,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Independent golden exists; whole-card default production acceptance is still pending."
     },
     {
       "canonicalCardId": "card.hash-d4e849d845765608b07bf4af4aa19877f6303dfff539b541d0d070320dd05d91",
@@ -3554,7 +4506,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/ogn/dangerous-duo.ts",
         "sha256": "7cd3db0f4ca584954411ab2d43c1bc3a4c3db03dee49c23be50de134eb5b3347"
@@ -3585,7 +4536,30 @@
             "EG-EVENTS"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "triggered"
+        ],
+        "ops": [
+          "continuous.might"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 5,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: legion-history-condition"
     },
     {
       "canonicalCardId": "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
@@ -3614,7 +4588,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/jaull-fish.ts",
         "sha256": "f692f701ec5813c1d616901faf17bcbba352223bfe16d39127a3f3c5bccacf6b"
@@ -3674,7 +4647,29 @@
             "EG-STATIC"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "keyword",
+          "static"
+        ],
+        "ops": [],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 6,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: mighty-query-consumer, cost-repeat-additional-cost"
     },
     {
       "canonicalCardId": "card.hash-e0efe08be77e60ed68f2e43ba425b763efd364eb44b0c760d26ef1fcc1b6df67",
@@ -3707,7 +4702,6 @@
       "programStatus": "no-ability",
       "verificationStatus": "verified-no-ability",
       "productionAcceptance": "verified-no-ability",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/ogn/order-rune.ts",
         "sha256": "1408a8e0677f998b659514125ae0f907aeff9f837bea122993d879381de91ea8"
@@ -3723,7 +4717,26 @@
       "productionEvidence": {
         "kind": "no-ability",
         "independentGolden": "packages/card-dsl/test/cards/ogn/order-rune.test.mjs"
-      }
+      },
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "no-ability",
+        "abilityKinds": [],
+        "ops": [],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 3,
+        "fail": 0,
+        "todo": 0,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": null
     },
     {
       "canonicalCardId": "card.hash-e2638655ff5ed3a1e60a501be3c23d74e46ef7f1900bed31b436f1a579b316ed",
@@ -3752,7 +4765,6 @@
       "programStatus": "executable",
       "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/ogn/pit-rookie.ts",
         "sha256": "3d928f49593e6b29411148d1334829c7d3437a3dd214bfd1e9baf44be64bd91d"
@@ -3764,7 +4776,30 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "triggered"
+        ],
+        "ops": [
+          "effect.buff"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 7,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Independent golden exists; whole-card default production acceptance is still pending."
     },
     {
       "canonicalCardId": "card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9",
@@ -3794,7 +4829,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/gem-jammer.ts",
         "sha256": "c414bdbbdc4c38d80de555b019115d6ef5a3b4243f03589371d036d460db16fe"
@@ -3828,7 +4862,30 @@
             "EG-REPLACEMENT"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "triggered"
+        ],
+        "ops": [
+          "continuous.grant-keyword"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 7,
+        "fail": 0,
+        "todo": 0,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: production-lifecycle-keyword-reexpansion"
     },
     {
       "canonicalCardId": "card.hash-f67321dac096b3ad1e49b55231663e26f3f9d96efafe79d75719a6eb72fc5caa",
@@ -3855,7 +4912,6 @@
       "programStatus": "executable",
       "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/ogn/vengeance.ts",
         "sha256": "2184c07573219265b80d273a604dba1bc77a2c3455374973c28fa460081e7476"
@@ -3867,7 +4923,30 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "play"
+        ],
+        "ops": [
+          "effect.kill"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 4,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Independent golden exists; whole-card default production acceptance is still pending."
     },
     {
       "canonicalCardId": "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
@@ -3894,7 +4973,6 @@
       "programStatus": "judge-required",
       "verificationStatus": "dependency-not-ready",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/strike-down.ts",
         "sha256": "ca5dcd2d06c20c539cd52b8a1961e45173309e706665c28a84f912844be47712"
@@ -3926,7 +5004,31 @@
             "EG-FINALIZE"
           ]
         }
-      ]
+      ],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "judge-required",
+        "abilityKinds": [
+          "play"
+        ],
+        "ops": [
+          "effect.damage",
+          "effect.detach"
+        ],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 1,
+        "pass": 7,
+        "fail": 1,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Mapped shared dependency remains executable-unproven: nontarget-picks-equipment"
     },
     {
       "canonicalCardId": "card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7",
@@ -3957,7 +5059,6 @@
       "programStatus": "executable",
       "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
-      "planEvidenceGap": null,
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/mechanized-menace.ts",
         "sha256": "a96c14fbd0a16b2e6e10d02589273f2fbab7c7e884e3c8d423608d1e91659a3f"
@@ -3969,7 +5070,28 @@
         },
         "templates": []
       },
-      "dependencies": []
+      "dependencies": [],
+      "ir": {
+        "inspectedAt": "2026-10-19",
+        "source": "packages/card-dsl/src/cards/registry.generated.ts",
+        "rulesetVersion": "core-1.5",
+        "declaredStatus": "executable",
+        "abilityKinds": [
+          "static"
+        ],
+        "ops": [],
+        "observedPaymentInstruction": false,
+        "observedEventItSelector": false
+      },
+      "goldenExecution": {
+        "observedAt": "2026-10-19T11:17:12.061Z",
+        "exitCode": 0,
+        "pass": 4,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven"
+      },
+      "evidenceGap": "Independent golden exists; whole-card default production acceptance is still pending."
     }
   ],
   "summaries": {
@@ -4004,7 +5126,26 @@
       "legion-history-condition": 1
     },
     "dependencyMappingCount": 35,
-    "contractChangeRequests": 1
+    "contractChangeRequests": 1,
+    "executionVerificationStatus": {
+      "unproven": 47,
+      "verifiedNoAbility": 4,
+      "fullyAccepted": 0
+    },
+    "independentGoldenEvidence": {
+      "observedAt": "2026-10-19T11:17:12.061Z",
+      "passingFiles": 39,
+      "failingFiles": 12,
+      "passCases": 272,
+      "todo": 52,
+      "wholeCardPasses": 0
+    },
+    "acceptanceGate": {
+      "naturalGames": 0,
+      "requiredNaturalGames": 100,
+      "attemptedProbeGames": 1,
+      "status": "not-accepted"
+    }
   },
   "proofPolicy": {
     "programStatusIsNotExecutionProof": true,
@@ -4278,51 +5419,30 @@
     ],
     "currentProbe": {
       "status": "blocked",
-      "attemptedGames": 0,
+      "attemptedGames": 1,
       "caseIndex": 0,
       "seed": "RIFT-857-m1-seed-001",
-      "phase": "initialization",
-      "errorName": "ProgramBindingError",
-      "errorCode": "judge-required",
-      "canonicalCardId": "card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3",
-      "cardName": "Ferrous Forerunner",
-      "cardProgramStatus": "judge-required",
-      "reason": "runHeadlessGame threw during initialization before the first command; no game result was attempted, so attemptedGames remains 0. Seeds 002-100 are not attempted.",
-      "observedAt": "2026-10-19T08:22:33Z",
-      "evidencePath": "/tmp/RIFT-857-m1-two-precons-acceptance/probe-current.json",
-      "evidenceSha256": "d748ff5192d2cd0f1f8ca525cb62fe8e233d22d815a2b596e770b78c7e86999c"
+      "termination": "blocked",
+      "blockers": [
+        {
+          "name": "ProgramBindingError",
+          "code": "judge-required",
+          "message": "Unsupported filter field battlefieldWas"
+        }
+      ],
+      "replayMatches": true,
+      "freshWorldReplayMatches": true,
+      "privacySafe": true,
+      "privacyChecks": 312,
+      "exceptions": [],
+      "observedAt": "2026-10-19T11:19:28.750Z",
+      "evidencePath": "/tmp/RIFT-857-m1-two-precons-acceptance/probe-current.json"
     },
     "existingRegression": {
       "preserved": true,
       "path": "packages/integration-tests/test/headless/dual-bot.test.ts",
       "currentFocusedResult": "10 failed, 10 passed, 1 todo when privacy+dual-bot are run together; failures originate in runHeadlessGame initialization on the current judge-required programs",
       "policy": "No deletion, skip, weakened assertion, or four-deck matrix change was made by this task."
-    }
-  },
-  "lifecycleSetupEvidence": {
-    "currentHead": "e2710938ce4b4cc9c492dcf1e848c7ba9801b703",
-    "reviewHead": "f036b0e5026aba1668ae88be2d74a05abeb55670",
-    "reviewHeadAncestorOfCurrent": false,
-    "requiredNewsourceCommit": "b6dc9debd813125413085a8a301f1ccdec5ef092",
-    "requiredNewsourceAncestorOfCurrent": false,
-    "currentLifecycle": {
-      "path": "packages/engine-core/src/programs/lifecycle.ts",
-      "sha256": "59aa7584e929afef458df2a862e643e0462bebbbc4497eec872ff67fa2f1166e",
-      "test": "packages/engine-core/test/engine-gaps/lifecycle.test.mjs",
-      "testSha256": "4c03026f9610dc9f4ef00c61fc9f254d88770fd23e153d4bd976d7ebc9ce883e"
-    },
-    "requiredNewsource": {
-      "path": "packages/engine-core/src/programs/lifecycle.ts",
-      "sha256": "9172c97c4fcda86998e5ac6d98810ccb56724fdf1d3bd181919270a48512adbd",
-      "test": "packages/engine-core/test/engine-gaps/lifecycle.test.mjs",
-      "testSha256": "1f485460f8dc6921fa331c32a83284e978d72ee3a33575945a3ad689953d2153"
-    },
-    "state": "parent-wiring-required",
-    "owner": "parent",
-    "note": "f6c0ed7d and parent review f036b0e5 do not contain b6dc9deb. The current lifecycle preserves judge-required Board programs and does not include the later secret-zone-only replacement/leave setup fix. Parent must integrate the newsource lifecycle before claiming the refreshed 831 setup boundary.",
-    "focusedLifecycleRegression": {
-      "currentCommand": "pnpm --filter @riftbound/engine-core build && node --test packages/engine-core/test/engine-gaps/lifecycle.test.mjs",
-      "lastResult": "8/8 pass on current source; not evidence for b6dc9deb newsource"
     }
   },
   "followUpPlan": {
@@ -6161,5 +7281,53 @@
       "status": "blocked",
       "owner": "existing-card-dsl-owner"
     }
-  ]
+  ],
+  "productionSetup": {
+    "state": "blocked",
+    "frozenIntegrationCommit": "3ef041a1e78cc964b2d4c23d3af95f5c7d6302bd",
+    "lifecycle": {
+      "path": "packages/engine-core/src/programs/lifecycle.ts",
+      "sourceSha256": "9172c97c4fcda86998e5ac6d98810ccb56724fdf1d3bd181919270a48512adbd",
+      "testPath": "packages/engine-core/test/engine-gaps/lifecycle.test.mjs",
+      "testSha256": "1f485460f8dc6921fa331c32a83284e978d72ee3a33575945a3ad689953d2153"
+    },
+    "deckConstruction": {
+      "counts": {
+        "legend": 1,
+        "chosenChampion": 1,
+        "mainDeck": 39,
+        "battlefields": 3,
+        "runes": 12
+      }
+    },
+    "realProbe": {
+      "seed": "RIFT-857-m1-seed-001",
+      "attemptedGames": 1,
+      "state": "blocked",
+      "deckPair": {
+        "A": "rumble-sfd",
+        "B": "fiora-sfd"
+      },
+      "orientation": "rumble-a",
+      "termination": "blocked",
+      "blockers": [
+        {
+          "name": "ProgramBindingError",
+          "code": "judge-required",
+          "message": "Unsupported filter field battlefieldWas"
+        }
+      ],
+      "replayMatches": true,
+      "freshWorldReplayMatches": true,
+      "privacySafe": true,
+      "privacyChecks": 312,
+      "exceptions": [],
+      "journalDigest": "ed4c6572043d6f72db8c3652efa14d6f7edcdbe4b0302184db32b9322cff57df",
+      "reason": "The one permitted seed reached a real blocked termination at default trigger binding (Unsupported filter field battlefieldWas); it did not reach a natural winner, so seeds 002-100 were not attempted."
+    },
+    "owner": "engine-core",
+    "remainingDependencies": [
+      "token-entry-deathknell"
+    ]
+  }
 }
