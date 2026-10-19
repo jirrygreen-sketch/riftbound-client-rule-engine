@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   FOUNDATION_RULESET_ID,
   PROTOCOL_VERSION,
@@ -13,6 +13,7 @@ import {
 import type { GameServer } from "@riftbound/game-server-src";
 import { ProtocolWebSocketClient } from "../../src/test-support/websocket-client.js";
 import {
+  loadCreateGameServer,
   startCatalogServer,
   type FixtureCatalogCard
 } from "../../src/test-support/card-catalog-fixture.js";
@@ -24,6 +25,16 @@ type ServerError = Extract<ServerToClientMessage, { type: "error" }>;
 
 const clients: ProtocolWebSocketClient[] = [];
 const servers: GameServer[] = [];
+let bootstrapMs = 0;
+
+beforeAll(async () => {
+  // Dynamic import transforms the real server and workspace dependencies. It
+  // is one-time fixture/bootstrap work; gameplay and protocol assertions stay
+  // under the suite's normal 10-second per-test budget.
+  const started = performance.now();
+  await loadCreateGameServer();
+  bootstrapMs = performance.now() - started;
+}, 60_000);
 
 afterEach(async () => {
   for (const client of clients.splice(0)) client.close();
@@ -349,6 +360,7 @@ async function startFoundationGame(
 
 describe("two-client riftbound-foundation vertical slice", () => {
   it("plays a real multi-turn game with private projections, reconnect replay, and command idempotency", async () => {
+    const operationStarted = performance.now();
     const url = await startFoundationServer();
     const alice = await connect(url);
     const bob = await connect(url);
@@ -624,6 +636,9 @@ describe("two-client riftbound-foundation vertical slice", () => {
       "Alice reused commandId with another payload"
     );
     expect(idempotencyConflict.code).toBe("idempotency-conflict");
+    const operationMs = performance.now() - operationStarted;
+    console.info(`[RIFT-350 timing] foundation bootstrap=${bootstrapMs.toFixed(1)}ms operation=${operationMs.toFixed(1)}ms`);
+    expect(operationMs).toBeLessThan(10_000);
   });
 
   it("replays a successful submit-deck request without adding room state", async () => {
