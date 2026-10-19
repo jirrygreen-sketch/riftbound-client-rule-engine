@@ -11,6 +11,7 @@ import type {
 import type { LocationFilter, LocationSelector } from "@riftbound/card-dsl";
 import { restrictions as ruleRestrictions } from "../layers/rules/query.js";
 import type { ContinuousEffectRegistry } from "../layers/duration.js";
+import { matchesObjectPredicates } from "../effects/filters/predicates.js";
 import { isLegalLocation, resolveLocationSelector, sameLocation } from "./location/index.js";
 
 export type TargetSelectionMode = "one" | "any" | "all" | "up-to";
@@ -160,6 +161,104 @@ function sameRef(left: ObjectRef, right: ObjectRef): boolean {
   return left.id === right.id && left.zoneEntryId === right.zoneEntryId;
 }
 
+type SymbolicReference =
+  | "self"
+  | "source"
+  | { readonly target: string }
+  | { readonly pick: string }
+  | { readonly linked: string };
+
+function symbolicReference(value: unknown): SymbolicReference | null {
+  if (value === "self" || value === "source") return value;
+  if (!isRecord(value)) return null;
+  const keys = Object.keys(value);
+  if (keys.length !== 1 || !["target", "pick", "linked"].includes(keys[0]!)) return null;
+  const id = value[keys[0]!];
+  return typeof id === "string" && id.length > 0 ? value as SymbolicReference : null;
+}
+
+function referenceRefs(context: ResolveContext, selector: unknown): readonly ObjectRef[] {
+  const reference = symbolicReference(selector);
+  if (reference === null) return [];
+  if (reference === "self" || reference === "source") return [context.source.ref];
+  if ("target" in reference) return context.targets(reference.target);
+  if ("pick" in reference) return context.picks(reference.pick).filter(isObjectRef);
+  const linked = context.linked(reference.linked);
+  if (Array.isArray(linked)) return linked.filter(isObjectRef);
+  return isObjectRef(linked) ? [linked] : [];
+}
+
+function referenceSnapshots(context: ResolveContext, selector: unknown): readonly ObjectSnapshot[] {
+  return referenceRefs(context, selector).flatMap(ref => {
+    const snapshot = context.object(ref);
+    return snapshot === null ? [] : [snapshot];
+  });
+}
+
+function matchesTargetRelations(context: ResolveContext, snapshot: ObjectSnapshot, filter: ObjectFilter): boolean {
+  const value = filter as Record<string, unknown>;
+  const excluded = referenceRefs(context, value.exclude);
+  if (value.exclude !== undefined && excluded.length > 0 && excluded.some(ref => sameRef(ref, snapshot.ref))) return false;
+
+  if (value.differentLocationFrom !== undefined) {
+    const references = referenceSnapshots(context, value.differentLocationFrom);
+    const refs = referenceRefs(context, value.differentLocationFrom);
+    if (refs.length > 0 && (references.length !== refs.length || snapshot.location === null ||
+      !references.some(reference => reference.location !== null && !sameLocation(snapshot.location, reference.location)))) return false;
+  }
+  if (value.sameLocationAs !== undefined) {
+    const references = referenceSnapshots(context, value.sameLocationAs);
+    const refs = referenceRefs(context, value.sameLocationAs);
+    if (refs.length > 0 && (references.length !== refs.length || snapshot.location === null ||
+      !references.every(reference => reference.location !== null && sameLocation(snapshot.location, reference.location)))) return false;
+  }
+
+  if (value.relation !== undefined) {
+    if (!isRecord(value.relation)) return false;
+    const relation = value.relation.relation;
+    const selector = value.relation.object ?? value.relation.other;
+    const references = referenceSnapshots(context, selector);
+    const refs = referenceRefs(context, selector);
+    if (refs.length > 0 && references.length !== refs.length) return false;
+    const matches = (reference: ObjectSnapshot): boolean => {
+      if (relation === "same-location") return snapshot.location !== null && reference.location !== null && sameLocation(snapshot.location, reference.location);
+      if (relation === "different-location") return snapshot.location !== null && reference.location !== null && !sameLocation(snapshot.location, reference.location);
+      if (relation === "same-controller") return snapshot.controller === reference.controller;
+      if (relation === "different-controller") return snapshot.controller !== reference.controller;
+      if (relation === "same-owner") return snapshot.owner === reference.owner;
+      if (relation === "different-owner") return snapshot.owner !== reference.owner;
+      if (relation === "another" || relation === "other") return !sameRef(snapshot.ref, reference.ref);
+      return false;
+    };
+    const existential = relation === "different-location" || relation === "different-controller" ||
+      relation === "different-owner" || relation === "another" || relation === "other";
+    if (references.length > 0 && (existential ? !references.some(matches) : !references.every(matches))) return false;
+  }
+  return true;
+}
+
+function isRelativePlayer(selector: string, context: ResolveContext, snapshot: ObjectSnapshot, property: "controller" | "owner"): boolean {
+  if (selector === "any") return true;
+  if (selector === "self") return snapshot[property] === context.controller;
+  if (selector === "opponent") return snapshot[property] !== context.controller;
+  return snapshot[property] === selector;
+}
+
+function matchesCandidateFilter(
+  context: ResolveContext,
+  snapshot: ObjectSnapshot,
+  filter: ObjectFilter
+): boolean {
+  // Finalize matches symbolic target references against the plans locked so
+  // far. Resolve rechecks the same relation against the frozen plans supplied
+  // by the chain context, never against a newly chosen target.
+  return matchesObjectPredicates(filter, snapshot, {
+    controller: context.controller,
+    anchor: context.source,
+    references: selector => referenceSnapshots(context, selector)
+  });
+}
+
 function refKey(ref: ObjectRef): string {
   return `${ref.id}\u0000${ref.zoneEntryId}`;
 }
@@ -228,7 +327,14 @@ function knownPlayers(context: ResolveContext): readonly PlayerId[] {
   return [...ids];
 }
 
-function matchesRequirement(context: ResolveContext, snapshot: ObjectSnapshot, requirement: TargetRequirement): boolean {
+function matchesRequirement(
+  context: ResolveContext,
+  snapshot: ObjectSnapshot,
+  requirement: TargetRequirement,
+  phase: TargetPlanPhase
+): boolean {
+  if (!matchesCandidateFilter(context, snapshot, requirement.filter)) return false;
+  if (phase === "finalize" && !matchesTargetRelations(context, snapshot, requirement.filter)) return false;
   if (requirement.location === undefined) return true;
   const location = requirement.location;
   if (location === null) return snapshot.location === null;
@@ -256,12 +362,21 @@ function legalCandidates(
   const refs: ObjectRef[] = [];
   const seen = new Set<string>();
   const pending = options.isPending ?? defaultPending;
-  for (const candidate of context.query(requirement.filter)) {
+  // The host query is the visible-object source. TargetPlan performs the full
+  // selector check below because different hosts implement only partial filter
+  // vocabularies; passing relation or sparse selectors through them can either
+  // fail open or erase every candidate.
+  for (const candidate of context.query({})) {
     const ref = candidate.ref;
     const key = refKey(ref);
     if (seen.has(key)) continue;
     const current = context.object(ref);
-    if (current === null || !matchesRequirement(context, current, requirement)) continue;
+    const controller = requirement.filter.controller;
+    const owner = requirement.filter.owner;
+    if (current === null ||
+      (typeof controller === "string" && !isRelativePlayer(controller, context, current, "controller")) ||
+      (typeof owner === "string" && !isRelativePlayer(owner, context, current, "owner")) ||
+      !matchesRequirement(context, current, requirement, phase)) continue;
     if (pending(ref, current, phase)) continue;
     if (options.isLegal && !options.isLegal(current, phase)) continue;
     if (options.ruleRegistry !== undefined && (
@@ -352,6 +467,27 @@ function makePlan(
     ...(options.mode === undefined ? {} : { mode: options.mode }),
     ...(options.repeatIndex === undefined ? {} : { repeatIndex: options.repeatIndex })
   });
+}
+
+/**
+ * Expose already-finalized plans to later TargetSpec matchers in the same
+ * Finalize pass. The engine owns when this happens; TargetPlan only preserves
+ * the exact locked refs and delegates every other context operation.
+ */
+export function bindFinalizedTargetPlans(
+  context: ResolveContext,
+  plans: readonly TargetPlan[]
+): ResolveContext {
+  const bound = new Map<string, readonly ObjectRef[]>();
+  for (const plan of plans) {
+    const existing = bound.get(plan.requirement.id) ?? [];
+    bound.set(plan.requirement.id, Object.freeze([...existing, ...plan.selected.map(copyRef)]));
+  }
+  return new Proxy(context, { get(target, key) {
+    if (key === "targets") return (id: string) => bound.get(id) ?? target.targets(id);
+    const value = Reflect.get(target, key);
+    return typeof value === "function" ? value.bind(target) : value;
+  } });
 }
 
 function taxSpecs(
