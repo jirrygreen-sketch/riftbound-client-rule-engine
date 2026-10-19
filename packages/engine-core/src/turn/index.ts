@@ -22,5 +22,8 @@ export {
 export * from '../duel/turn-flow.js';
 export * from '../duel/ending.js';
 export * from '../duel/turn-executor-v2.js';
+export * from './tasks/index.js';
+export * from './turn-queue.js';
+export * from './burn-out.js';
 export * from './flow.js';
 export * from './phase-layers.js';
