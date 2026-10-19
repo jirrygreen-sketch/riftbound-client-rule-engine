@@ -194,6 +194,8 @@ function hasRawGankingPermission(
     if (kind !== 'movement' && kind !== 'continuous.movement') return false;
     if (effect.permission !== 'battlefield-to-battlefield') return false;
     const filter = entry.effect.filter as Record<string, unknown>;
+    const zone = filter.zone;
+    if (zone !== undefined && zone !== object.zone) return false;
     const objectId = filter.objectId ?? filter.id;
     if (objectId !== undefined && objectId !== ref.id) return false;
     const zoneEntryId = filter.zoneEntryId;
@@ -366,7 +368,8 @@ function checkedStandardMove(
     } else {
       // 144.4.b/144.4.c: battlefield → own base, or battlefield → battlefield with Ganking.
       check(destinationBase !== undefined || readinessById.get(unitId)!.hasGanking ||
-        ruleView?.canGank === true || hasRawGankingPermission(rules!.registry, unitRef, unitObject, actor),
+        ruleView?.canGank === true ||
+        (rules !== undefined && hasRawGankingPermission(rules.registry, unitRef, unitObject, actor)),
         `unit ${unitId} needs Ganking to move battlefield to battlefield`);
     }
   }

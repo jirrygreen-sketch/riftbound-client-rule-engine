@@ -216,6 +216,58 @@ test('EG-MOVE original Laurent Ganking expansion drives the real leaf to a Battl
   assert.equal(result.group.events[0].fromLocationId, f.battlefieldA);
 });
 
+test('EG-MOVE default static binder publishes raw Ganking permission that the movement consumer normalizes', () => {
+  const admitted = { ...laurentBladekeeper, status: 'executable', judgeReason: undefined };
+  const kernel = world().player('A').player('B')
+    .unit('laurent', { cardId: admitted.canonicalCardId, keywords: [{ id: 'Ganking' }],
+      location: field('a1'), might: 3, energy: null, power: null })
+    .build();
+  const choose = () => { throw new Error('unexpected choice'); };
+  const host = createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(), restore: saved => kernel.restore(saved),
+    objects: () => kernel.objects, perform: action => kernel.perform(action), choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, {
+      source, controller, timingPoint, choose,
+    }),
+  });
+  const engine = new ChainEngine({ host, turnOrder: ['A', 'B'], turnPlayer: 'A', phase: 'main',
+    cleanup: () => false });
+  const lifecycle = createProgramBinding({ cardPrograms: [admitted] });
+  lifecycle.attachLifecycle(engine, error => { throw error; });
+  engine.commit({ type: 'move-zone', object: kernel.ref('laurent'), to: 'base',
+    location: field('a1') });
+  assert.ok(engine.layers.registry.list().some(entry =>
+    entry.effect.filter.objectId === 'laurent' &&
+    entry.effect.effect.kind === 'continuous.movement'),
+  'the default binder attached the expanded Laurent static to the entered unit');
+  const raw = engine.layers.registry.list().find(entry => {
+    const effect = entry.effect.effect;
+    return effect.kind === 'continuous.movement' && effect.permission === 'battlefield-to-battlefield';
+  });
+  assert.ok(raw, 'the default static binder keeps the KeywordDef permission shape');
+  assert.equal(movement(engine.layers.registry, kernel.ref('laurent'),
+    engine.layers.snapshot(kernel.ref('laurent')), 'A').canGank, false,
+  'the normalized query alone does not read the raw scalar');
+  const board = placeDuelUnit(createDuelBoard(selectDuelBattlefields([
+    { playerId: 'A', battlefields: [
+      { instanceId: 'a1', cardId: 'print-a1' }, { instanceId: 'a2', cardId: 'print-a2' },
+      { instanceId: 'a3', cardId: 'print-a3' }] },
+    { playerId: 'B', battlefields: [
+      { instanceId: 'b1', cardId: 'print-b1' }, { instanceId: 'b2', cardId: 'print-b2' },
+      { instanceId: 'b3', cardId: 'print-b3' }] },
+  ], () => 0)), { objectId: 'laurent', controllerPlayerId: 'A', locationId: JSON.stringify(['duel-battlefield', 'a1']) });
+  const destination = JSON.stringify(['duel-battlefield', board.battlefields[1].instanceId]);
+  const result = moveDuelUnitsStandard(board, [{ objectId: 'laurent', readied: true, hasGanking: false }], {
+    actor: 'A', unitUIDs: ['laurent'], destinationLocationId: destination, timing,
+  }, {
+    registry: engine.layers.registry,
+    refForUnit: unit => kernel.ref(unit.objectId),
+    objectForUnit: unit => engine.layers.snapshot(kernel.ref(unit.objectId)),
+  });
+  assert.equal(result.group.objectIds[0], 'laurent');
+  assert.equal(result.group.exhaustedCount, 1);
+});
+
 test('EG-MOVE base-to-battlefield and Battlefield-to-Battlefield Ganking use the same group action', () => {
   const f = lifecycleFixture();
   const readiness = readinessFor(f.state.board).map(entry =>
