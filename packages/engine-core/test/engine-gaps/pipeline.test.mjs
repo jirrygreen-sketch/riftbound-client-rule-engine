@@ -540,3 +540,46 @@ test('EG-PIPELINE: commitContract rolls back host state and pipeline snapshots w
   assert.equal(kernel.getObject('enemy').zone, 'board');
   host.restore(checkpoint);
 });
+
+test('EG-PIPELINE: registration probes are O(1) reads and follow checkpoint restore without side effects', () => {
+  const f = fixture();
+  const pipeline = f.engine.pipeline;
+  const trigger = {
+    id: 'probe-trigger',
+    source: f.kernel.getObject('source'),
+    controller: 'A',
+    spec: { at: 'card-drawn', filter: {} },
+    body: [],
+  };
+  const replacement = {
+    id: 'probe-replacement',
+    matches: action => action.type === 'draw',
+    apply: () => ({ status: 'prevent' }),
+  };
+  const beforeEvents = pipeline.events;
+  const beforeClock = structuredClone(pipeline.clock);
+  const empty = pipeline.checkpoint();
+
+  assert.equal(pipeline.hasTriggerRegistration(trigger.id), false);
+  assert.equal(pipeline.hasReplacementRegistration(replacement.id), false);
+  pipeline.registerTrigger(trigger);
+  pipeline.registerReplacement(replacement);
+  assert.equal(pipeline.hasTriggerRegistration(trigger.id), true);
+  assert.equal(pipeline.hasReplacementRegistration(replacement.id), true);
+
+  const saved = pipeline.checkpoint();
+  pipeline.unregisterTrigger(trigger.id);
+  assert.equal(pipeline.hasTriggerRegistration(trigger.id), false);
+  assert.equal(pipeline.hasReplacementRegistration(replacement.id), true);
+  pipeline.restore(empty);
+  assert.equal(pipeline.hasTriggerRegistration(trigger.id), false);
+  assert.equal(pipeline.hasReplacementRegistration(replacement.id), false);
+  pipeline.restore(saved);
+  assert.equal(pipeline.hasTriggerRegistration(trigger.id), true);
+  assert.equal(pipeline.hasReplacementRegistration(replacement.id), true);
+
+  assert.deepEqual(pipeline.events, beforeEvents);
+  assert.deepEqual(pipeline.clock, beforeClock);
+  assert.equal(pipeline.hasTriggerRegistration(trigger.id), true);
+  assert.equal(pipeline.hasReplacementRegistration(replacement.id), true);
+});
