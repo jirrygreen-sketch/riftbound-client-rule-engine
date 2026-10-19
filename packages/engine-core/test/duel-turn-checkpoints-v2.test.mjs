@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createDuelCommandSessionV2, applyDuelResourceCommandV2 } from '../dist/duel/canonical-session-v2.js';
+import { createDuelCommandSessionV2, applyDuelResourceCommandV2,
+  inspectDuelNativeCommandSessionPathV2 } from '../dist/duel/canonical-session-v2.js';
 import { createDuelPhaseSourceRegistryV2 } from '../dist/duel/phase-source-authority-v2.js';
 import { inspectDuelNativeCommitPathV2 } from '../dist/duel/core-v2.js';
 import { runDuelStartOfTurnV2, resumeDuelStartOfTurnV2, runDuelEndOfTurnV2,
@@ -59,6 +60,13 @@ test('actual intermediate heads reach the source gate before inspection and incl
   assert.equal(f.checkpoints.at(-1).step, 'main');
   assert.equal(f.checkpoints.at(-1).taskId.includes('turn-1:main:'), true);
   const path = inspectDuelNativeCommitPathV2(f.session.match, result.session.match);
+  // Cursor-only executor progress is private continuation state. It must not add
+  // reachable session successors for intrinsic steps that did not commit a match.
+  const sessionPath = inspectDuelNativeCommandSessionPathV2(f.session, result.session);
+  assert.equal(path.length, result.session.match.stateVersion - f.session.match.stateVersion);
+  assert.equal(sessionPath.filter(item => item.before.match === item.after.match).length, 3);
+  assert.equal(path.at(-1).after, result.session.match);
+  assert.equal(f.checkpoints.length, 13);
   assert.equal(path.flatMap(commit => commit.transitions).filter(t => t.from.kind === 'rune-deck').length, 2);
   assert.equal(path.flatMap(commit => commit.transitions).filter(t => t.from.kind === 'main-deck' && t.to.kind === 'hand').length, 1);
   for (const request of f.checks.slice(f.checks.findIndex(r => r.taskId === f.checkpoints[0].taskId))) {
@@ -67,6 +75,12 @@ test('actual intermediate heads reach the source gate before inspection and incl
   }
   const ending = runDuelEndOfTurnV2(result.session, 'alice', f.services);
   assert.equal(ending.status, 'awaiting-turn-start', ending.reason);
+  const endPath = inspectDuelNativeCommitPathV2(result.session.match, ending.session.match);
+  const endSessionPath = inspectDuelNativeCommandSessionPathV2(result.session, ending.session);
+  assert.equal(endSessionPath.filter(item => item.before.match === item.after.match).length, 3);
+  assert.equal(endPath.length, ending.session.match.stateVersion - result.session.match.stateVersion);
+  assert.equal(endPath.length, 3);
+  assert.equal(f.checkpoints.length, 24);
   assert.strictEqual(f.current(), ending.session.match);
   assert.equal(f.checkpoints.at(-1).step, 'awaiting-turn-start');
   assert.equal(f.checkpoints.at(-1).turn, 2);

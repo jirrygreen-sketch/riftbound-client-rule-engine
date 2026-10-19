@@ -196,6 +196,11 @@ const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.str
 /** A private in-process cursor bond; an arbitrary clone/JSON sidecar has no authority.
  * Archive restoration remains unavailable until independent ledger + cursor journal proof. */
 const cursorBonds = new WeakMap<object, DuelTurnCursorV2>();
+/** A cursor may advance through several already-checked intrinsic boundaries inside one
+ * synchronous turn call without publishing a cursor-only session successor for every step.
+ * The override is module-private, follows only a genuine native command successor, and is
+ * checkpointed before any result that can outlive this call. */
+const driveCursors = new WeakMap<object, DuelTurnCursorV2>();
 // Trusted registry handles are private identities. Bind the settled-key to the whole-program
 // registry (not an arbitrary caller-controlled printing string); switching registries during
 // a pending boundary cannot silently reuse earlier handler evidence.
@@ -270,6 +275,25 @@ export function inheritDuelTurnCursorBondV2(before: DuelCommandSessionV2, after:
   }
 }
 function check(ok: unknown, label: string): asserts ok { if (!ok) throw new TypeError(`V2 turn: ${label}`); }
+function cursorFor(session: DuelCommandSessionV2): DuelTurnCursorV2 | undefined {
+  return driveCursors.get(session) ?? session.turnCursorV2;
+}
+function bindDriveCursor(session: DuelCommandSessionV2, cursor: DuelTurnCursorV2): DuelCommandSessionV2 {
+  driveCursors.set(session, cursor);
+  return session;
+}
+function privateCursor(session: DuelCommandSessionV2, cursor: DuelTurnCursorV2): DuelCommandSessionV2 {
+  const m = match(session);
+  driveCursors.set(session, { ...cursor, stateVersion: m.stateVersion, eventSeq: m.eventSeq });
+  return session;
+}
+function withPrivateCursor(session: DuelCommandSessionV2, cursor: DuelTurnCursorV2): DuelCommandSessionV2 {
+  return driveCursors.has(session) ? privateCursor(session, cursor) : session;
+}
+function publishCursor(session: DuelCommandSessionV2): DuelCommandSessionV2 {
+  const cursor = cursorFor(session);
+  return cursor && session.turnCursorV2 !== cursor ? store(session, cursor) : session;
+}
 function match(session: DuelCommandSessionV2): DuelCanonicalPlayingStateV2 {
   check(session?.match?.stage === 'playing' && session.schemaVersion === 2, 'playing V2 session required');
   return session.match;
@@ -297,8 +321,13 @@ function fresh(m: DuelCanonicalPlayingStateV2, step: Step, first: readonly strin
     stateVersion: m.stateVersion, eventSeq: m.eventSeq };
 }
 function valid(s: DuelCommandSessionV2, kind: 'start' | 'end'): DuelTurnCursorV2 {
-  const m = match(s), c = s.turnCursorV2;
-  check(c !== undefined && cursorBonds.get(s) === c, 'unbound private cursor');
+  const m = match(s), raw = cursorFor(s);
+  const c = raw && driveCursors.get(s) === raw
+    ? { ...raw, stateVersion: m.stateVersion, eventSeq: m.eventSeq }
+    : raw;
+  if (c !== raw) driveCursors.set(s, c!);
+  check(c !== undefined && (driveCursors.get(s) === c || cursorBonds.get(s) === c),
+    'unbound private cursor');
   check(c?.kind === 'v2-turn' && c.matchId === m.matchId && c.turn === m.frame.turnNumber &&
     c.rootTaskID === root(m) && c.stateVersion === m.stateVersion && c.eventSeq === m.eventSeq &&
     (kind === 'start' ? startSteps : endSteps).includes(c.step) &&
@@ -340,19 +369,21 @@ function valid(s: DuelCommandSessionV2, kind: 'start' | 'end'): DuelTurnCursorV2
 }
 function reply(session: DuelCommandSessionV2, status: DuelTurnResultV2['status'],
   persistRequired: boolean, reason?: string): DuelTurnResultV2 {
-  const c = session.turnCursorV2;
+  const c = cursorFor(session)!;
   return { session, status, persistRequired, ...(reason ? { reason } : {}),
     ...(status === 'pending' && c?.pendingTaskID ?
       { pending: { taskId: c.pendingTaskID, turn: c.turn, step: c.step } } : {}) };
 }
 function reject(s: DuelCommandSessionV2, reason: string): DuelTurnResultV2 {
+  // A failed drive must not leave a newer continuation attached to the caller's input.
+  driveCursors.delete(s);
   return reply(s, 'rejected', false, reason);
 }
 function store(s: DuelCommandSessionV2, c: DuelTurnCursorV2): DuelCommandSessionV2 {
   const m = match(s);
   const next = checkpointDuelTurnCursorV2(s, { ...c, stateVersion: m.stateVersion, eventSeq: m.eventSeq });
   cursorBonds.set(next, next.turnCursorV2!);
-  return next;
+  return bindDriveCursor(next, next.turnCursorV2!);
 }
 /** Payment preparation/receipt commits can advance a non-Main Hold cursor through the
  * canonical session ledger. Rebind that private scalar only after the payment is closed;
@@ -374,8 +405,11 @@ function alignClosedPaymentCursor(session: DuelCommandSessionV2): DuelCommandSes
 function move(s: DuelCommandSessionV2, mutate: (draft: DuelCanonicalPlayingStateV2) => {
   readonly match: DuelCanonicalPlayingStateV2; readonly transitions: readonly DuelPhysicalZoneTransition[];
 }): DuelCommandSessionV2 {
+  const c = cursorFor(s);
+  check(c !== undefined, 'move requires a private cursor');
   const next = commitDuelCommandMutationV2(s, mutate).session;
-  return next;
+  const m = match(next);
+  return bindDriveCursor(next, { ...c, stateVersion: m.stateVersion, eventSeq: m.eventSeq });
 }
 function frame(s: DuelCommandSessionV2, phase: DuelCanonicalPlayingStateV2['frame']['phase'],
   open = true, priority: string | null = null): DuelCommandSessionV2 {
@@ -389,14 +423,21 @@ function finish(c: DuelTurnCursorV2, step: Step, extras: Partial<DuelTurnCursorV
     handlerSettledIDs: c.handlerSettledIDs.filter(item => !item.startsWith(`${id}:handler:`)) };
 }
 function wait(s: DuelCommandSessionV2, c: DuelTurnCursorV2): DuelTurnResultV2 {
+  const bound = cursorFor(s) ?? c;
   if (match(s).frame.pendingPayment !== null || s.requiredTasks.some(item => item.status === 'active') ||
       s.requiredTasks.some(item => item.status === 'issued') ||
       s.priorityPayments.some(item => item.status === 'active')) {
-    check(s.turnCursorV2 && cursorBonds.get(s) === s.turnCursorV2 &&
-      s.turnCursorV2.pendingTaskID === task(c), 'payment lost protected task');
-    return reply(s, 'pending', true);
+    const published = s.turnCursorV2 === bound ? s : store(s, bound);
+    check(cursorBonds.get(published) === bound && bound.pendingTaskID === task(c),
+      'payment lost protected task');
+    return reply(published, 'pending', true);
   }
-  return reply(store(s, { ...c, pendingTaskID: task(c) }), 'pending', true);
+  const pending = { ...bound, pendingTaskID: task(c) };
+  const next = s.turnCursorV2 === bound
+    ? checkpointDuelTurnCursorV2(s, pending)
+    : store(s, pending);
+  cursorBonds.set(next, next.turnCursorV2!);
+  return reply(next, 'pending', true);
 }
 function event(step: Step): DuelPhaseEventV2 {
   if (step === 'awaken') return 'awaken';
@@ -434,8 +475,8 @@ function nativeHeadMatchesBoundary(before: DuelCanonicalPlayingStateV2,
       { ...boundaryCursor, stateVersion: 0, eventSeq: 0 }) &&
     cursor.stateVersion <= next.stateVersion && cursor.eventSeq <= next.eventSeq;
 }
-function reenteredNativeBoundary(session: DuelCommandSessionV2): boolean {
-  const cursor = session.turnCursorV2;
+function reenteredNativeBoundary(session: DuelCommandSessionV2,
+  cursor = cursorFor(session)): boolean {
   if (!cursor) return false;
   inspectDuelNativeCommandSessionPathV2(session, session);
   const active = nativeResolutionActive.get(inspectDuelNativeOriginV2(session.match))
@@ -448,7 +489,7 @@ function cover(s: DuelCommandSessionV2, c: DuelTurnCursorV2, services: DuelTurnS
   { readonly session: DuelCommandSessionV2; readonly ready: boolean; readonly handled: boolean;
     readonly handledKeys: readonly string[] } {
   const before = match(s);
-  if (reenteredNativeBoundary(s))
+  if (reenteredNativeBoundary(s, c))
     return { session: s, ready: false, handled: false, handledKeys: [] };
   const subject = c.step === 'hold' || c.step === 'hold-effects'
     ? before.board.battlefields[c.holdIndex]
@@ -466,6 +507,9 @@ function cover(s: DuelCommandSessionV2, c: DuelTurnCursorV2, services: DuelTurnS
     !c.handlerSettledIDs.includes(handlerKey(c, source, services.sources)));
   if (!pendingHandlers.length) return { session: s, ready: true, handled: false, handledKeys: [] };
   if (services.resolveNativeHandlers) {
+    // Native advancement inherits the private cursor carried by the exact command session.
+    // Publish the current scalar continuation before entering that authenticated path.
+    s = store(s, c);
     const boundaryKey = `${event(c.step)}:${task(c)}`;
     const origin = inspectDuelNativeOriginV2(before);
     let boundaries = nativeResolutionActive.get(origin);
@@ -663,19 +707,26 @@ function drawResult(s: DuelCommandSessionV2, c: DuelTurnCursorV2, result: DuelDr
   return { session: next, cursor: finish(c, 'draw-effects', { drawCursor: null }) };
 }
 function startDrive(original: DuelCommandSessionV2, services: DuelTurnServicesV2): DuelTurnResultV2 {
-  let s = original, c = valid(s, 'start');
+  let c = valid(original, 'start');
+  let s = original.turnCursorV2 === c ? original : store(original, c);
   for (let loop = 0; loop < 32; loop++) {
     try {
+      bindDriveCursor(s, c);
       if (!observe(s, c, services)) return wait(s, c);
-      if (c.step === 'main' || c.step === 'ended') return reply(store(s, c), c.step, s !== original);
+      if (c.step === 'main' || c.step === 'ended') {
+        const published = publishCursor(s);
+        return reply(published, c.step, s !== original || published !== s);
+      }
       const coverage = cover(s, c, services);
       if (!coverage.ready) {
-        s = coverage.session;
-        if (match(s).frame.pendingPayment !== null || s.requiredTasks.some(item =>
+        const covered = coverage.session;
+        if (match(covered).frame.pendingPayment !== null || covered.requiredTasks.some(item =>
             item.status === 'issued' || item.status === 'active') ||
-            s.priorityPayments.some(item => item.status === 'active')) return wait(s, c);
+            covered.priorityPayments.some(item => item.status === 'active')) {
+          return wait(covered, c);
+        }
         c = valid(s, 'start');
-        return wait(s, c);
+        return wait(covered, c);
       }
       s = coverage.session;
       if (coverage.handled) {
@@ -801,7 +852,7 @@ function startDrive(original: DuelCommandSessionV2, services: DuelTurnServicesV2
         c = finish(c, 'main');
       }
       if (c.step === 'main' && won(s)) return ended(s, c, services);
-      s = store(s, c);
+      withPrivateCursor(s, c);
     } catch { return reject(original, 'invalid-resolution-or-transaction'); }
   }
   return reject(original, 'step-limit');
@@ -843,19 +894,28 @@ export function resumeDuelStartOfTurnV2(session: DuelCommandSessionV2, taskId: s
   } catch { return reject(session, 'wrong-task-or-session'); }
 }
 function endDrive(original: DuelCommandSessionV2, services: DuelTurnServicesV2): DuelTurnResultV2 {
-  let s = original, c = valid(s, 'end');
+  let c = valid(original, 'end');
+  let s = original.turnCursorV2 === c ? original : store(original, c);
   for (let loop = 0; loop < 512; loop++) {
     try {
+      bindDriveCursor(s, c);
       if (!observe(s, c, services)) return wait(s, c);
-      if (c.step === 'awaiting-turn-start' || c.step === 'ended') return reply(s, c.step, s !== original);
+      if (c.step === 'awaiting-turn-start' || c.step === 'ended') {
+        const published = publishCursor(s);
+        return reply(published, c.step,
+          s !== original || published !== s || published.match !== original.match);
+      }
+      withPrivateCursor(s, c);
       const coverage = cover(s, c, services);
       if (!coverage.ready) {
-        s = coverage.session;
-        if (match(s).frame.pendingPayment !== null || s.requiredTasks.some(item =>
+        const covered = coverage.session;
+        if (match(covered).frame.pendingPayment !== null || covered.requiredTasks.some(item =>
             item.status === 'issued' || item.status === 'active') ||
-            s.priorityPayments.some(item => item.status === 'active')) return wait(s, c);
+            covered.priorityPayments.some(item => item.status === 'active')) {
+          return wait(covered, c);
+        }
         c = valid(s, 'end');
-        return wait(s, c);
+        return wait(covered, c);
       }
       s = coverage.session;
       if (coverage.handled) {
@@ -958,11 +1018,11 @@ function endDrive(original: DuelCommandSessionV2, services: DuelTurnServicesV2):
             focusPlayerId: null, stateOpen: true, pendingPayment: null } }, transitions: [] }));
           const after = match(s);
           const next = fresh(after, 'awaiting-turn-start', c.firstChannelProcessedPlayerIDs);
-          if (!observe(s, next, services)) return wait(s, next);
+          if (!observe(s, next, services)) return wait(store(s, next), next);
           return reply(store(s, next), 'awaiting-turn-start', true);
         }
       }
-      s = store(s, c);
+      withPrivateCursor(s, c);
     } catch { return reject(original, 'invalid-resolution-or-transaction'); }
   }
   return reject(original, 'step-limit');
@@ -971,7 +1031,8 @@ export function runDuelEndOfTurnV2(session: DuelCommandSessionV2, actor: string,
   services: DuelTurnServicesV2): DuelTurnResultV2 {
   try {
     clean(session);
-    const m = match(session), c = valid(session, 'start');
+    const c = valid(session, 'start');
+    const m = match(session);
     check(c.pendingTaskID === null && c.step === 'main' && m.frame.phase === 'main' && m.frame.stateOpen &&
       m.frame.turnPlayerId === actor && m.frame.priorityPlayerId === actor &&
       m.frame.focusPlayerId === null && m.scoring.turnNumber === m.frame.turnNumber &&
