@@ -251,6 +251,12 @@ class AbilityExecution {
       source: base.source,
       controller: base.controller,
       timingPoint: base.timingPoint,
+      // ResolveContext's additive capabilities are supplied by the host that
+      // owns this ability. Preserve their optional presence and call through
+      // the original context so receiver-dependent methods keep their this.
+      ...(base.contractActions === undefined ? {} : { contractActions: base.contractActions }),
+      ...(base.eventObject === undefined ? {} : { eventObject: role => base.eventObject!(role) }),
+      ...(base.transaction === undefined ? {} : { transaction: run => base.transaction!(run) }),
       object: ref => base.object(ref),
       lastKnown: ref => base.lastKnown(ref),
       query: filter => queryObjects(filter, this.expressionContext(current, ignoredTargets, context, locations)),
