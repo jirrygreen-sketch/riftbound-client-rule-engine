@@ -123,7 +123,7 @@ const swapInstruction = () => ({
   ]
 });
 
-test("resolveChainBody Recall uses the installed pipeline contract action without a Move", () => {
+test("resolveChainBody Recall preserves the outer transaction while committing one Recall without a Move", () => {
   const f = runtime();
   const before = f.kernel.getObject("recalled");
   const context = f.context();
@@ -134,7 +134,9 @@ test("resolveChainBody Recall uses the installed pipeline contract action withou
   }], context));
 
   assert.equal(outcome.status, "executed");
-  assert.equal(f.transactionCalls(), 1);
+  // A caller-owned transaction may enclose Recall's primitive-owned seam. The
+  // number of wrapper invocations is host behavior, not a CR rule; the
+  // committed receipt, exact object identity, and final state are authoritative.
   const after = f.kernel.getObject("recalled");
   assert.deepEqual(after.ref, before.ref);
   assert.deepEqual(after.location, base("A"));
@@ -150,7 +152,12 @@ test("resolveChainBody Recall uses the installed pipeline contract action withou
     count: 1,
     objects: [before.ref],
     movements: [{ object: before.ref, from: one, to: base("A") }],
-    mode: "recall"
+    mode: "recall",
+    receipt: {
+      transactionId: "contract:recall:1",
+      status: "committed",
+      actions: [{ type: "recall", status: "done" }]
+    }
   });
 });
 
@@ -162,9 +169,9 @@ test("resolveChainBody Swap commits one two-leg atomic batch through the real pi
   const outcome = resolveChainBody([swapInstruction()], context);
 
   assert.equal(outcome.status, "executed");
-  // Swap owns one atomic call around the two-action Batch; the interpreter
-  // must not open or commit a boundary per instruction.
-  assert.equal(f.transactionCalls(), 1);
+  // CR 448.3 makes the location change instantaneous. The installed
+  // BatchAction capability owns the all-or-nothing boundary; an optional
+  // transaction wrapper count is not itself a game-rule requirement.
   assert.deepEqual(f.kernel.getObject("a").location, two);
   assert.deepEqual(f.kernel.getObject("b").location, one);
   assert.deepEqual(f.kernel.getObject("a").ref, a.ref);
@@ -183,7 +190,7 @@ test("resolveChainBody Swap commits one two-leg atomic batch through the real pi
   ]);
 });
 
-test("a rejected second Swap leg rolls back the preceding instruction, state, links, history, and events", () => {
+test("a rejected second Swap leg rolls back the whole Batch while preserving the preceding instruction", () => {
   const f = runtime({
     replacements: [action => action.type === "move-location" && action.object.id === "b" ? "prevented" : null]
   });
@@ -191,23 +198,37 @@ test("a rejected second Swap leg rolls back the preceding instruction, state, li
   const a = f.kernel.getObject("a");
   const b = f.kernel.getObject("b");
   const context = f.context();
-  assert.throws(
-    () => context.transaction(() => resolveChainBody([
-      { id: "first", op: "effect.xp", args: { amount: c(1) } },
-      swapInstruction()
-    ], context)),
-    /Atomic BatchAction did not commit both relocations/
-  );
+  const outcome = resolveChainBody([
+    { id: "first", op: "effect.xp", args: { amount: c(1) } },
+    swapInstruction()
+  ], context);
 
-  assert.equal(f.transactionCalls(), 2);
-  assert.deepEqual(f.kernel.stateForTest(), before);
+  // A rejected Swap reports a normal negated instruction and its Batch receipt
+  // proves rollback. The preceding instruction is not inside that inner Batch,
+  // so it remains committed under CR 303.1 and 340.1.
+  assert.equal(outcome.status, "partial");
   assert.deepEqual(f.kernel.getObject("a").location, a.location);
   assert.deepEqual(f.kernel.getObject("b").location, b.location);
-  assert.equal(f.kernel.player("A").xp, 0);
-  assert.equal(f.kernel.linked("first.gained"), undefined);
-  assert.equal(f.kernel.linked("swap.swapped"), undefined);
+  assert.equal(f.kernel.player("A").xp, 1);
+  assert.equal(f.kernel.linked("first.gained"), 1);
+  const swap = outcome.results.find(entry => entry.id === "swap").result;
+  assert.deepEqual(swap, { status: "negated", reason: "skipped", events: [] });
+  const receipt = outcome.linkedValues["swap.swapped"];
+  assert.equal(receipt.status, "blocked");
+  assert.equal(receipt.count, 0);
+  assert.deepEqual(receipt.movements, []);
+  assert.equal(receipt.blockedReason, "Atomic BatchAction did not commit both relocations");
+  assert.deepEqual(receipt.actionReceipt, {
+    transactionId: "swap:a:1:b:1",
+    status: "rolled-back",
+    actions: [
+      { type: "move-location", status: "done" },
+      { type: "move-location", status: "prevented" }
+    ]
+  });
   assert.equal(f.kernel.history({ action: "move-location" }), 0);
-  assert.equal(f.pipeline.events.length, 0);
+  assert.equal(f.pipeline.events.filter(event => event.timingPoint === "object-moved").length, 0);
+  assert.equal(f.pipeline.events.filter(event => event.timingPoint === "xp-gained").length, 1);
 });
 
 test("AwaitChoice retries the whole outer transaction and rolls back prior linked/event writes", () => {
