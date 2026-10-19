@@ -164,4 +164,3 @@ test("Smoke and Mirrors retry and rollback reuse the locked first target without
   );
   assert.deepEqual(kernel.stateForTest(), before);
 });
-
