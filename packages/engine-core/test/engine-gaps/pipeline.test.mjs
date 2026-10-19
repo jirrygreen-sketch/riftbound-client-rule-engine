@@ -443,6 +443,103 @@ test('EG-PIPELINE: named activation rollback restores frequency and sequence', (
   assert.equal(retry.consume(), true);
 });
 
+test('EG-PIPELINE: restore permanently invalidates prepared handles without blocking rebuilt transactions', () => {
+  const f = fixture();
+  const source = f.kernel.getObject('source');
+  for (const id of ['first', 'second']) {
+    f.engine.pipeline.registerTrigger({
+      id, source, controller: 'A',
+      spec: { at: 'conquer', filter: { event: 'conquer' }, once: 'per-turn' }, body: [],
+    });
+  }
+  const checkpoint = f.engine.pipeline.checkpoint();
+  const beforeEvents = f.engine.pipeline.events.length;
+  const staleFirst = f.engine.pipeline.activateTrigger('first');
+  assert.ok(staleFirst);
+  f.engine.pipeline.restore(checkpoint);
+  const liveSecond = f.engine.pipeline.activateTrigger('second');
+  assert.ok(liveSecond);
+  assert.notEqual(staleFirst.transaction.id, liveSecond.transaction.id);
+  assert.equal(staleFirst.consume(), false);
+  assert.deepEqual([...f.engine.pipeline.checkpoint().consumed.entries()], []);
+  assert.equal(liveSecond.consume(), true);
+  assert.equal(liveSecond.consume(), false);
+  const consumed = [...f.engine.pipeline.checkpoint().consumed.entries()];
+  assert.equal(consumed.length, 1);
+  assert.match(consumed[0][0], /"second"/);
+  assert.equal(f.engine.pipeline.events.length, beforeEvents);
+});
+
+test('EG-PIPELINE: repeated restore invalidates handles created between restores and preserves checkpoint reuse', () => {
+  const f = fixture();
+  const source = f.kernel.getObject('source');
+  f.engine.pipeline.registerTrigger({
+    id: 'repeat', source, controller: 'A',
+    spec: { at: 'conquer', filter: { event: 'conquer' }, once: 'per-turn' }, body: [],
+  });
+  const checkpoint = f.engine.pipeline.checkpoint();
+  const first = f.engine.pipeline.activateTrigger('repeat');
+  f.engine.pipeline.restore(checkpoint);
+  const second = f.engine.pipeline.activateTrigger('repeat');
+  f.engine.pipeline.restore(checkpoint);
+  const third = f.engine.pipeline.activateTrigger('repeat');
+  assert.ok(first && second && third);
+  assert.equal(new Set([first.transaction.id, second.transaction.id, third.transaction.id]).size, 3);
+  assert.equal(first.consume(), false);
+  assert.equal(second.consume(), false);
+  assert.equal(third.consume(), true);
+  assert.equal(third.consume(), false);
+  assert.equal(f.engine.pipeline.checkpoint().consumed.size, 1);
+  f.engine.pipeline.restore(checkpoint);
+  assert.equal(f.engine.pipeline.checkpoint().consumed.size, 0, 'the original checkpoint remains reusable');
+  const retry = f.engine.pipeline.activateTrigger('repeat');
+  assert.ok(retry);
+  assert.equal(retry.consume(), true);
+});
+
+test('EG-PIPELINE: independent handles for one registration consume in order and failed retries do not leak frequency', () => {
+  const f = fixture();
+  f.engine.pipeline.registerTrigger({
+    id: 'two-live-tokens', source: f.kernel.getObject('source'), controller: 'A', maxPerScope: 2,
+    spec: { at: 'conquer', filter: { event: 'conquer' }, once: 'per-turn' }, body: [],
+  });
+  const checkpoint = f.engine.pipeline.checkpoint();
+  const first = f.engine.pipeline.activateTrigger('two-live-tokens');
+  const second = f.engine.pipeline.activateTrigger('two-live-tokens');
+  assert.ok(first && second);
+  assert.notEqual(first.transaction.id, second.transaction.id);
+  assert.equal(first.consume(), true);
+  assert.equal(first.consume(), false);
+  f.engine.pipeline.restore(checkpoint);
+  assert.equal(first.consume(), false);
+  assert.equal(second.consume(), false);
+  const retry = f.engine.pipeline.activateTrigger('two-live-tokens');
+  assert.ok(retry);
+  assert.equal(retry.consume(), true);
+  assert.equal(retry.consume(), false);
+  assert.equal(f.engine.pipeline.checkpoint().consumed.size, 1);
+});
+
+test('EG-PIPELINE: post-prepare rejection leaves handles and restored frequency untouched', () => {
+  const f = fixture();
+  f.engine.pipeline.registerTrigger({
+    id: 'post-prepare', source: f.kernel.getObject('source'), controller: 'A',
+    spec: { at: 'conquer', filter: { event: 'conquer' }, once: 'per-turn' }, body: [],
+  });
+  const checkpoint = f.engine.pipeline.checkpoint();
+  const rejected = f.engine.pipeline.activateTrigger('post-prepare');
+  assert.ok(rejected);
+  f.engine.pipeline.restore(checkpoint);
+  assert.equal(rejected.consume(), false);
+  assert.equal(f.engine.pipeline.checkpoint().consumed.size, 0);
+  const accepted = f.engine.pipeline.activateTrigger('post-prepare');
+  assert.ok(accepted);
+  assert.equal(accepted.consume(), true);
+  assert.equal(accepted.consume(), false);
+  assert.equal(f.engine.pipeline.checkpoint().consumed.size, 1);
+  assert.notEqual(rejected.consume(), true, 'rejection cannot revive after a valid transaction');
+});
+
 test('EG-PIPELINE: Mighty transition matcher is typed, frozen to one incarnation, and distinct from static current Might', () => {
   const kernel = world().unit('fiora-target', { might: 4 }).build();
   const before = kernel.getObject('fiora-target');

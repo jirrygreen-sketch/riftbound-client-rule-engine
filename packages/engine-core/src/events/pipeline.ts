@@ -124,7 +124,9 @@ export class EventPipeline {
   private scanning = false;
   private suspended = 0;
   private namedActivationSequence = 0;
-  private readonly namedActivations = new Map<string, { readonly registrationId: string; consumed: boolean }>();
+  /** Monotonic lifetime epoch; restore invalidates every pre-restore token. */
+  private namedActivationEpoch = 0;
+  private namedActivations = new Map<string, { readonly registrationId: string; consumed: boolean }>();
   onTrigger: (snapshot: TriggerSnapshot) => void = () => { throw new Error('Trigger sink is not attached'); };
   onEvent?: (event: PipelineEvent) => void;
   routeAction?: (action: GameAction) => ActionExecution | undefined;
@@ -176,7 +178,9 @@ export class EventPipeline {
     } as PipelineEvent);
     const frequencyLimit = registration.maxPerScope ?? (registration.spec.once === undefined ? undefined : 1);
     if (frequencyKey !== null && (this.consumed.get(frequencyKey) ?? 0) >= (frequencyLimit ?? 1)) return null;
-    const transaction = deepFreeze({ version: 'riftbound.named-trigger-activation.v1', id: `named-trigger:${++this.namedActivationSequence}`, registrationId: id });
+    const epoch = this.namedActivationEpoch;
+    const transactionId = `named-trigger:${epoch}:${++this.namedActivationSequence}`;
+    const transaction = deepFreeze({ version: 'riftbound.named-trigger-activation.v1', id: transactionId, epoch, registrationId: id });
     const token = deepFreeze({
       kind: 'named-trigger-activation' as const,
       registration: structuredClone(registration),
@@ -187,6 +191,7 @@ export class EventPipeline {
       transaction,
       consume: () => {
         const key = (transaction as { readonly id: string }).id;
+        if (epoch !== this.namedActivationEpoch) return false;
         const state = this.namedActivations.get(key);
         if (state !== undefined) return false;
         const snapshot: TriggerSnapshot = {
@@ -260,10 +265,16 @@ export class EventPipeline {
     return true;
   }
   checkpoint() {
-    return { log: [...this.log], triggers: new Map(this.triggers), replacements: new Map(this.replacements), rules: new Map(this.rules), consumed: new Map(this.consumed), replacementUses: new Set(this.replacementUses), sequence: this.sequence, batchSequence: this.batchSequence, namedActivationSequence: this.namedActivationSequence, namedActivations: new Map(this.namedActivations), scanQueue: [...this.scanQueue], clock: { ...this.clock }, turnPlayer: this.turnPlayer };
+    return { log: [...this.log], triggers: new Map(this.triggers), replacements: new Map(this.replacements), rules: new Map(this.rules), consumed: new Map(this.consumed), replacementUses: new Set(this.replacementUses), sequence: this.sequence, batchSequence: this.batchSequence, namedActivationSequence: this.namedActivationSequence, namedActivationEpoch: this.namedActivationEpoch, namedActivations: new Map(this.namedActivations), scanQueue: [...this.scanQueue], clock: { ...this.clock }, turnPlayer: this.turnPlayer };
   }
   restore(state: ReturnType<EventPipeline['checkpoint']>): void {
-    this.log = state.log; this.triggers = state.triggers; this.replacements = state.replacements; this.rules = state.rules; this.consumed = state.consumed; this.replacementUses = state.replacementUses; this.sequence = state.sequence; this.batchSequence = state.batchSequence; this.namedActivationSequence = state.namedActivationSequence; this.namedActivations.clear(); for (const [id, value] of state.namedActivations) this.namedActivations.set(id, value); this.scanQueue = state.scanQueue;
+    // Advance from both the live and checkpoint epoch. A checkpoint captured in
+    // an earlier restore lifetime can be reused repeatedly without reviving a
+    // handle created after that checkpoint.
+    const nextEpoch = Math.max(this.namedActivationEpoch, state.namedActivationEpoch) + 1;
+    if (!Number.isSafeInteger(nextEpoch)) throw new RangeError('Named activation epoch exhausted');
+    this.namedActivationEpoch = nextEpoch;
+    this.log = [...state.log]; this.triggers = new Map(state.triggers); this.replacements = new Map(state.replacements); this.rules = new Map(state.rules); this.consumed = new Map(state.consumed); this.replacementUses = new Set(state.replacementUses); this.sequence = state.sequence; this.batchSequence = state.batchSequence; this.namedActivationSequence = state.namedActivationSequence; this.namedActivations = new Map(state.namedActivations); this.scanQueue = [...state.scanQueue];
     Object.assign(this.clock, state.clock); this.turnPlayer = state.turnPlayer;
   }
   /** Timings from rules modules and committed actions share exactly one scanner. */
