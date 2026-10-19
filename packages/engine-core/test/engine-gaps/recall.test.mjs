@@ -10,6 +10,7 @@ import { cardProgram, fixture as programFixture, settle } from "../rules/keyword
 import { runInstruction, world } from "../../dist/effects/testing/index.js";
 import { bindResolveContext } from "../../dist/events/action-adapter.js";
 import { createContractActionCapability } from "../../dist/events/contract-actions/bridge.js";
+import { performRecall } from "../../dist/zones/recall.js";
 import conscription from "../../../card-dsl/dist/cards/unl/conscription.js";
 import glowstone from "../../../card-dsl/dist/cards/ven/glowstone.js";
 import smokeAndMirrors from "../../../card-dsl/dist/cards/unl/smoke-and-mirrors.js";
@@ -34,6 +35,176 @@ function scenario() {
 }
 
 const targets = kernel => ({ units: [kernel.ref("hero")] });
+
+function layeredRecall({ aura = false, keyword = false, persistent = false } = {}) {
+  const builder = world().player("A").player("B")
+    .unit("hero", {
+      might: 2, location: battlefield,
+      ...(persistent ? {
+        damage: 2, exhausted: true, stunned: true, buffs: 2, energy: null, power: null,
+      } : {}),
+    })
+    .unit("source", { location: battlefield });
+  const kernel = builder.build();
+  if (persistent) {
+    kernel.perform({ type: "empower", object: kernel.ref("hero"), amount: 2 });
+    kernel.perform({ type: "add-counter", object: kernel.ref("hero"), counter: "mark", amount: 3 });
+  }
+  if (aura) kernel.addContinuous({
+    id: "battlefield-aura", source: kernel.ref("source"), layer: "arithmetic",
+    filter: { objectId: "hero", location: battlefield },
+    effect: { kind: "continuous.might", amount: 2 },
+  }, { type: "permanent" });
+  if (keyword) kernel.addContinuous({
+    id: "battlefield-keyword", source: kernel.ref("source"), layer: "ability",
+    filter: { objectId: "hero", location: battlefield },
+    effect: { kind: "continuous.grant-keyword", keyword: "Assault" },
+  }, { type: "permanent" });
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  const object = ref => {
+    layers.setObjects(kernel.objects);
+    return layers.evaluate(ref);
+  };
+  const context = overrides => bindResolveContext(kernel, {
+    source: kernel.getObject("source"), controller: "A", object,
+    contractActions: createContractActionCapability(action => kernel.performContract(action)),
+    ...overrides,
+  });
+  return { kernel, layers, object, context };
+}
+
+test("EG-RECALL accepts real LayerEngine snapshots and leaves location-bound derived effects", () => {
+  for (const { aura, keyword } of [
+    { aura: false, keyword: false }, { aura: true, keyword: false }, { aura: false, keyword: true },
+  ]) {
+    const { kernel, object, context } = layeredRecall({ aura, keyword });
+    const ref = kernel.ref("hero");
+    const before = object(ref);
+    assert.equal(before.might, aura ? 4 : 2);
+    assert.equal(before.keywords.some(item => item.id === "Assault"), keyword);
+
+    const outcome = performRecall(context(), ref);
+    const after = object(ref);
+
+    assert.equal(outcome.status, "done");
+    assert.equal(outcome.count, 1);
+    assert.equal(outcome.receipt.status, "committed");
+    assert.deepEqual(outcome.receipt.actions, [{ type: "recall", status: "done" }]);
+    assert.equal(outcome.events.length, 1);
+    assert.equal(outcome.events[0].action, "recall");
+    assert.deepEqual(outcome.events[0].details, { recall: true, from: battlefield, to: base("A") });
+    assert.deepEqual(kernel.getObject("hero").ref, ref);
+    assert.deepEqual(kernel.getObject("hero").location, base("A"));
+    assert.equal(kernel.history({ action: "recall", object: ref }), 1);
+    assert.equal(kernel.history({ action: "move-location", object: ref }), 0);
+    assert.equal(after.might, 2);
+    assert.equal(after.keywords.some(item => item.id === "Assault"), false);
+    assert.deepEqual(after.printed.location, base("A"));
+    assert.deepEqual(after.location, base("A"));
+  }
+});
+
+test("EG-RECALL preserves every persistent status and resource through layered recomputation", () => {
+  const { kernel, object, context } = layeredRecall({ aura: true, keyword: true, persistent: true });
+  const ref = kernel.ref("hero");
+  const raw = kernel.getObject("hero");
+  assert.deepEqual({
+    damage: raw.damage, exhausted: raw.exhausted, stunned: raw.stunned,
+    buffs: raw.buffs, empowered: raw.empowered, counters: [...raw.counters],
+  }, { damage: 2, exhausted: true, stunned: true, buffs: 2, empowered: 2, counters: [["mark", 3]] });
+
+  const outcome = performRecall(context(), ref);
+  const after = kernel.getObject("hero");
+  assert.equal(outcome.status, "done");
+  assert.equal(outcome.count, 1);
+  assert.deepEqual(after.ref, ref);
+  assert.equal(after.damage, 2);
+  assert.equal(after.exhausted, true);
+  assert.equal(after.stunned, true);
+  assert.equal(after.buffs, 2);
+  assert.equal(after.empowered, 2);
+  assert.deepEqual([...after.counters], [["mark", 3]]);
+  assert.equal(object(ref).might, 2);
+  assert.equal(object(ref).keywords.some(item => item.id === "Assault"), false);
+});
+
+test("EG-RECALL restores a failed consumer only through a real transaction boundary", () => {
+  const { kernel, context } = layeredRecall({ persistent: true });
+  const ref = kernel.ref("hero");
+  const checkpoint = kernel.snapshot();
+  const before = kernel.stateForTest();
+  const invalid = overrides => bindResolveContext(kernel, {
+    source: kernel.getObject("source"), controller: "A",
+    contractActions: {
+      version: "riftbound.contract-actions.v1",
+      perform: action => {
+        kernel.perform({ type: "move-location", object: action.object, to: base("A") });
+        return { status: "impossible", events: [] };
+      },
+    },
+    ...overrides,
+  });
+  assert.throws(() => performRecall(invalid(), ref), { name: "RecallAtomicityError" });
+  assert.deepEqual(kernel.getObject("hero").location, base("A"));
+  kernel.restore(checkpoint);
+  assert.deepEqual(kernel.stateForTest(), before);
+
+  let calls = 0;
+  const transaction = run => {
+    calls += 1;
+    const state = kernel.snapshot();
+    try {
+      return run();
+    } catch (error) {
+      kernel.restore(state);
+      throw error;
+    }
+  };
+  const rolledBack = performRecall(invalid({ transaction }), ref);
+  assert.equal(calls, 1);
+  assert.equal(rolledBack.status, "impossible");
+  assert.equal(rolledBack.count, 0);
+  assert.deepEqual(rolledBack.events, []);
+  assert.match(rolledBack.blockedReason, /changed persistent state/);
+  assert.deepEqual(kernel.stateForTest(), before);
+  assert.equal(kernel.history({ action: "move-location" }), 0);
+  assert.equal(kernel.history({ action: "recall" }), 0);
+});
+
+test("EG-RECALL never reports impossible after a throwing consumer, and transaction restores its write", () => {
+  const { kernel } = layeredRecall({ persistent: true });
+  const ref = kernel.ref("hero");
+  const checkpoint = kernel.snapshot();
+  const consumer = {
+    version: "riftbound.contract-actions.v1",
+    perform: action => {
+      kernel.perform({ type: "move-location", object: action.object, to: base("A") });
+      throw new Error("consumer threw after writing");
+    },
+  };
+  const baseContext = { source: kernel.getObject("source"), controller: "A", contractActions: consumer };
+
+  assert.throws(() => performRecall(bindResolveContext(kernel, baseContext), ref), /consumer threw after writing/);
+  assert.deepEqual(kernel.getObject("hero").location, base("A"));
+  assert.equal(kernel.history({ action: "move-location" }), 1);
+  assert.equal(kernel.history({ action: "recall" }), 0);
+  kernel.restore(checkpoint);
+
+  const transaction = run => {
+    const state = kernel.snapshot();
+    try {
+      return run();
+    } catch (error) {
+      kernel.restore(state);
+      throw error;
+    }
+  };
+  assert.throws(() => performRecall(bindResolveContext(kernel, { ...baseContext, transaction }), ref),
+    /consumer threw after writing/);
+  assert.deepEqual(kernel.getObject("hero").location, battlefield);
+  assert.equal(kernel.history({ action: "move-location" }), 0);
+  assert.equal(kernel.history({ action: "recall" }), 0);
+});
 
 test("EG-RECALL moves a Board Permanent to its controller Base without a destination choice", () => {
   const kernel = scenario();
