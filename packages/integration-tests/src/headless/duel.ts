@@ -148,6 +148,36 @@ export interface HeadlessStats {
   readonly privacySafe: boolean;
 }
 
+export type HeadlessTerminationClass = "natural" | "nonNatural" | "invalid";
+
+function knownPlayerId(value: PlayerId | null): PlayerId | null {
+  return value === "A" || value === "B" ? value : null;
+}
+
+/** Classify only evidence committed by the authoritative match and replay audit. */
+export function headlessTerminationClass(result: HeadlessStats): HeadlessTerminationClass {
+  if (!result.replayMatches || !result.privacySafe) return "invalid";
+  const winner = knownPlayerId(result.winner);
+  const naturalWin = result.termination === "winner" && winner !== null &&
+    result.guardReason === null && result.blockers.length === 0 && result.exceptions.length === 0 &&
+    result.actionCoverage.commands.concede === 0 &&
+    result.scores[winner]! >= result.victoryScore &&
+    result.battleStats.scores > 0 && result.battleStats.points >= result.victoryScore;
+  if (naturalWin) return "natural";
+  const noConcession = result.actionCoverage.commands.concede === 0;
+  const unfinished = result.termination === "guard" && result.winner === null && result.guardReason !== null &&
+    result.blockers.length === 0 && result.exceptions.length === 0 && noConcession;
+  const blocked = result.termination === "blocked" && result.winner === null && result.guardReason === null &&
+    result.blockers.length > 0 && result.exceptions.length === 0 && noConcession;
+  const exception = result.termination === "exception" && result.winner === null && result.guardReason === null &&
+    result.blockers.length === 0 && result.exceptions.length > 0 && noConcession;
+  const concession = result.termination === "concede" && winner !== null && result.guardReason === null &&
+    result.blockers.length === 0 && result.exceptions.length === 0 &&
+    result.actionCoverage.commands.concede > 0 &&
+    result.scores[winner]! < result.victoryScore;
+  return unfinished || blocked || exception || concession ? "nonNatural" : "invalid";
+}
+
 export interface HeadlessRunSummary {
   readonly games: number;
   readonly decks: HeadlessDeckPair;
@@ -1014,10 +1044,11 @@ function aggregateHeadlessResults(
   const judgeRequiredCardCounts = [...judgeCards.entries()]
     .map(([cardId, value]) => ({ cardId, name: value.name, count: value.count }))
     .sort((left, right) => right.count - left.count || left.cardId.localeCompare(right.cardId));
+  const naturalWins = results.filter(result => headlessTerminationClass(result) === "natural");
   return {
     games,
     decks,
-    completed: results.filter(result => result.winner !== null).length,
+    completed: naturalWins.length,
     blocked: results.filter(result => result.termination === "blocked").length,
     exceptions: results.filter(result => result.exceptions.length > 0).length,
     judgeRequiredRejections: results.reduce((total, result) => total + result.judgeRequiredRejections, 0),
@@ -1030,10 +1061,10 @@ function aggregateHeadlessResults(
     },
     terminationReasons,
     totalTurns: results.reduce((total, result) => total + result.turnNumber, 0),
-    winners: terminationReasons.winner,
-    winnerRatio: terminationReasons.winner / results.length,
-    winsByPlayer: { A: results.filter(result => result.termination === "winner" && result.winner === "A").length,
-      B: results.filter(result => result.termination === "winner" && result.winner === "B").length },
+    winners: naturalWins.length,
+    winnerRatio: naturalWins.length / results.length,
+    winsByPlayer: { A: naturalWins.filter(result => result.winner === "A").length,
+      B: naturalWins.filter(result => result.winner === "B").length },
     averageTurns: results.reduce((total, result) => total + result.turnNumber, 0) / results.length,
     battleStats, blockerReasons,
     gamesWithReplayMismatch: results.filter(result => !result.replayMatches).length,
