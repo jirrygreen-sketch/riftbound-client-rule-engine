@@ -69,6 +69,13 @@ function canonicalCommand(command: V2Command): string {
   return canonicalJson(command);
 }
 
+function choiceBounds(request: ChoiceRequest<unknown>): { readonly min?: number; readonly max?: number } {
+  if (request.type !== "select-objects" && request.type !== "number") return {};
+  if (!Number.isSafeInteger(request.min) || !Number.isSafeInteger(request.max) ||
+      request.min < 0 || request.max < request.min) throw new TypeError("Pending choice range is invalid");
+  return { min: request.min, max: request.max };
+}
+
 class MatchRuntime implements EngineRuntime {
   private match: Match | null = null;
   private host: EngineRuntimeHost | null = null;
@@ -199,7 +206,7 @@ class MatchRuntime implements EngineRuntime {
           return { id: String(option), label: String(option), ...(value === undefined ? {} : { value }) };
         }),
       } : {}),
-      ...(this.pending.request.type === "select-objects" ? { min: this.pending.request.min, max: this.pending.request.max } : {}),
+      ...choiceBounds(this.pending.request),
     } : null;
     return projectRuntime(this.match!, this.host!, this.runtimeOptions.matchId, playerId, this.stateVersion, this.pending ? {
       ...pendingProjection!,
@@ -251,7 +258,13 @@ class MatchRuntime implements EngineRuntime {
   private choose(playerId: string, command: Extract<V2Command, { type: "choose" }>): RuntimeSubmitResult {
     if (!this.pending) return this.rejected(command, playerId, "No choice is pending");
     if (this.pending.request.id !== command.choiceId || this.pending.request.chooser !== playerId) return this.rejected(command, playerId, "Choice is not owned by this player");
-    const original = this.pending; this.pending = null; this.decision = command.answer;
+    const original = this.pending;
+    if (original.request.type === "number" &&
+        (typeof command.answer !== "number" || !Number.isSafeInteger(command.answer) ||
+          command.answer < original.request.min || command.answer > original.request.max))
+      return this.rejected(command, playerId,
+        `Number choice must be an integer between ${original.request.min} and ${original.request.max}`);
+    this.pending = null; this.decision = command.answer;
     try {
       const result = this.execute(original.playerId, original.command);
       this.stateVersion += 1;
@@ -268,7 +281,17 @@ class MatchRuntime implements EngineRuntime {
   private execute(playerId: string, command: V2Command): Record<string, unknown> {
     const match = this.match!;
     if (command.type === "concede") { concede(match, playerId); return { accepted: true, winnerPlayerId: match.result().winner }; }
-    if (command.type === "pass") { match.flow.pass(playerId); return { accepted: true }; }
+    if (command.type === "pass") {
+      if (match.flow.chain.items.some(item => item.status === "pending")) {
+        // Finalize choices are part of the chain and may suspend before the
+        // priority holder can pass. Resume Finalize here; resolve passes through
+        // the normal chain priority after the item is finalized.
+        match.flow.chain.advance();
+        return { accepted: true };
+      }
+      match.flow.pass(playerId);
+      return { accepted: true };
+    }
     if (command.type === "mulligan") throw new Error("Mulligan is supplied to start(); setup is already complete");
     if (command.type === "choose") throw new Error("Choice commands are handled by the runtime boundary");
     if (command.type === "move") {
@@ -366,7 +389,7 @@ class MatchRuntime implements EngineRuntime {
       stateVersion: this.stateVersion,
       kind: request.type,
       ...(viewer === request.chooser && options ? { options } : {}),
-      ...(request.type === "select-objects" ? { min: request.min, max: request.max } : {}),
+      ...choiceBounds(request),
     };
   }
 

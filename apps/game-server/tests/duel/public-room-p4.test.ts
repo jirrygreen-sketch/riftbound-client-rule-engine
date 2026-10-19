@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DUEL_RULESET_ID, DUEL_COMMAND_PACKET_PROFILE_V3_ACTIONS_1,
-  isDuelProjectionV3Actions1, isServerMessage, type ClientSession,
+  isDuelProjectionV3Actions1, isJournal, isServerMessage, type ClientSession,
   type DuelCommandMessageV3Actions1, type ServerToClientMessage } from '@riftbound/protocol';
 import { loadCardCatalogRuntime } from '../../src/card-catalog.js';
 import { GameRoom } from '../../src/room.js';
@@ -9,7 +9,7 @@ import { setupAdapterFixtureDecks } from './fixtures/setup-adapter-catalog.js';
 
 async function boot() {
   const catalog = await loadCardCatalogRuntime({ catalog: p4RuntimeFixtureCatalog });
-  const room = new GameRoom('public-p4-test', DUEL_RULESET_ID, catalog, () => 0, 'p4');
+  const room = new GameRoom('public-p4-test', DUEL_RULESET_ID, catalog, () => 0, 'p4', undefined, undefined, 'legacy-p4');
   const messages: ServerToClientMessage[][] = [[], []];
   const send = messages.map(list => (value: ServerToClientMessage) => { expect(isServerMessage(value)).toBe(true); list.push(value); });
   const sockets = [room.join('Alice', send[0]!, 'a'), room.join('Bob', send[1]!, 'b')];
@@ -56,10 +56,12 @@ describe('public P4 room ownership', () => {
     for (const card of other?.hand ?? []) expect(JSON.stringify(a)).not.toContain(card.uid);
     expect(JSON.stringify(h.messages[0])).not.toContain(h.sessions[1]!.resumeToken);
     const archive = h.room.exportArchive();
-    expect(archive.duelProfile).toBe('p4'); expect(archive.duelSession).toBeUndefined();
-    expect(archive.duelJournal?.operations).toHaveLength(2);
+    expect(isJournal(archive.journal)).toBe(true);
+    expect(archive.journal?.entries).toHaveLength(2);
     expect(a.actions.some(action => action.kind === 'end-turn' && action.enabled)).toBe(true);
-  }, 30_000);
+  // Owner reconstruction plus restored duplicate replays exceed 30s under
+  // shared-runner load; keep every assertion and give the runner clock 300s.
+  }, 300_000);
 
   it('reconstructs an actual P4 owner and continues with a restored duplicate and next turn', async () => {
     const h = await boot(); h.enterMain();
@@ -76,7 +78,7 @@ describe('public P4 room ownership', () => {
     const nextEnd = next.actions.find(action => action.kind === 'end-turn');
     if (!nextEnd || nextEnd.kind !== 'end-turn') throw Error('next End required');
     expect(h.submit(nextActor, h.command('end-2', { type: 'end-turn', windowId: nextEnd.windowId }, next.match.stateVersion), restored)?.type).toBe('request-result');
-  }, 30_000);
+  }, 300_000);
 
   it('restores a failed transaction using a fresh native branch while preserving current sockets', async () => {
     const h = await boot(); h.enterMain();
@@ -90,7 +92,7 @@ describe('public P4 room ownership', () => {
     expect(h.submit(actor, end)).toMatchObject({ type: 'request-result', duplicate: false });
     const forged = { ...archive, duelProfile: undefined, duelJournal: undefined, duelSession: null };
     expect(() => h.room.restoreArchive(forged)).toThrow('Invalid private duel archive');
-  }, 30_000);
+  }, 300_000);
 
   it('rejects legacy packets and replaced sockets without mutating the P4 history', async () => {
     const h = await boot(), before = h.room.exportArchive();

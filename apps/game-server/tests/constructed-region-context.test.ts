@@ -36,7 +36,7 @@ describe('trusted per-room regional policy and launch source pin', () => {
   it('preserves region/date/source versions in a waiting room and refuses forged source versions', async () => {
     const catalog=await loadCardCatalogRuntime({catalog:setupAdapterFixtureCatalog,constructedPolicy:{asOf:'2026-10-14'}});
     const context=bindConstructedRegion({regionCode:'ROW',eventDate:'2026-10-14'});
-    const room=new GameRoom('region-pending-room',DUEL_RULESET_ID,catalog,()=>0,'p4',context);
+    const room=new GameRoom('region-pending-room',DUEL_RULESET_ID,catalog,()=>0,'p4',context, undefined, 'legacy-p4');
     room.join('Alice',()=>{},'region-A');
     expect(room.roomView().constructedRegion).toEqual(context);
     const archive=room.exportArchive();

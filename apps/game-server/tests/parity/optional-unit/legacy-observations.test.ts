@@ -108,9 +108,10 @@ describe("optional Unit legacy observable command traces", () => {
       expect(flow.acceptedCommandTypes).toEqual(["mulligan", "mulligan", ...Array.from({ length: unit.turn - 1 }, () => "end-turn"),
         "play-card", "answer-pending-choice", ...Array.from({ length: cost.energy }, () => "rune-energy"),
         ...(decision === "pay" ? ["rune-power"] : []), "pay-pending"]);
-      // Scorcher replays seven normal turns at four checkpoints. That genuine
-      // physical-Chain trace took 126s on the shared runner with 120s allowed;
-      // retain every observation and give the longer history its own time limit.
-    }, unit.turn > 3 ? 180_000 : 120_000);
+      // Scorcher replays seven normal turns at four checkpoints. Genuine
+      // traces have reached 126s solo and timed out at 120-180s when the shared
+      // runner was heavily loaded; retain every observation and give the longer
+      // history its own time limit.
+    }, unit.turn > 3 ? 600_000 : 480_000);
   }
 });

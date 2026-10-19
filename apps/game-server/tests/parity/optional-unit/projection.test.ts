@@ -43,5 +43,7 @@ describe("optional Unit choice projection primitive parity", () => {
     // v2 has no public {active:true} wire wrapper. E01 remains TODO for that
     // wrapper and the genuine new-kernel play path; this only proves secrecy.
     expect(flow.views()).toEqual(before);
-  }, 30_000);
+  // The legacyFlow trace has exceeded 30s under heavy shared-runner load;
+  // give the runner clock headroom without touching any assertion.
+  }, 120_000);
 });

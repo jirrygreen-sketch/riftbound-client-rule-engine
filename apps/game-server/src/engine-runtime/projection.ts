@@ -9,6 +9,7 @@ import type {
 } from "../../../../packages/protocol/dist/v2/index.js";
 import type { Match } from "../../../../packages/engine-core/dist/game/lifecycle.js";
 import type { ObjectSnapshot, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
+import { readEmpowered } from "../../../../packages/engine-core/dist/zones/empower-state.js";
 import type { EngineRuntimeHost } from "./host.js";
 import { digest } from "./journal.js";
 
@@ -64,7 +65,20 @@ function projectedObject(object: ObjectSnapshot, viewer: string | null, grants: 
     value.exhausted = object.exhausted;
     value.damage = object.damage;
     if (object.might !== null) value.might = object.might;
-    value.counters = {};
+    // Protocol v2 has one generic counter map rather than dedicated Buff and
+    // Empowered fields. Preserve the authoritative carriers under distinct
+    // keys; never infer Empowered from the ordinary Buff count. The runtime
+    // host emits both compatibility spellings from empoweredState().
+    const empowered = readEmpowered(object);
+    const ordinaryCounters = (object as ObjectSnapshot & {
+      readonly counters?: Readonly<Record<string, number>>;
+    }).counters ?? {};
+    value.counters = {
+      ...ordinaryCounters,
+      buffs: object.buffs,
+      empowered,
+      empoweredCount: empowered,
+    };
   }
   return value as unknown as V2ProjectedObject;
 }

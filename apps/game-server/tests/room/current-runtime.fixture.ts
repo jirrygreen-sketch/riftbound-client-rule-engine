@@ -7,7 +7,7 @@ import { setupAdapterFixtureDecks } from '../duel/fixtures/setup-adapter-catalog
 
 export async function readyRoom(profile?: DuelRoomProfile, runtimeProfile?: DuelOptionalRoomRuntimeProfile) {
   const catalog = await loadCardCatalogRuntime({ catalog: p4RuntimeFixtureCatalog });
-  const room = new GameRoom('current-room', DUEL_RULESET_ID, catalog, () => 0, profile, undefined, runtimeProfile);
+  const room = new GameRoom('current-room', DUEL_RULESET_ID, catalog, () => 0, profile, undefined, runtimeProfile, 'legacy-p4');
   const messages: ServerToClientMessage[][] = [[], []];
   const send = messages.map(list => (value: ServerToClientMessage) => { list.push(value); });
   const connections = [room.join('Alice', send[0]!, 'a'), room.join('Bob', send[1]!, 'b')];

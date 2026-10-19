@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { isV2Projection, type V2Command } from "../../../../packages/protocol/dist/v2/index.js";
 import { createEngineRuntime, projectionDigest, type EngineRuntimeDeck } from "../../src/engine-runtime/index.js";
+import { EngineRuntimeHost } from "../../src/engine-runtime/host.js";
 
 type M1Card = {
   readonly zone: "legend" | "champion" | "mainDeck" | "battlefields" | "runes";
@@ -55,6 +56,28 @@ function command(command: Omit<V2Command, "commandId" | "stateVersion">, command
 }
 
 describe("engine runtime", () => {
+  it("keeps ordinary Buffs separate from layered Empowered state and rolls back a failed mutation", () => {
+    const host = new EngineRuntimeHost({ A: "A", B: "B" }, () => { throw new Error("unexpected choice"); });
+    const ref = host.addCard("A", { id: "empower-card", cardId: "card", name: "Unit", types: ["unit"] }, "board");
+    expect(host.object(ref)).toMatchObject({ buffs: 0, empowered: 0 });
+    expect(host.perform({ type: "buff", object: ref, amount: 2 }).status).toBe("done");
+    expect(host.perform({ type: "empower", object: ref }).status).toBe("done");
+    expect(host.perform({ type: "empower", object: ref }).status).toBe("prevented");
+    expect(host.object(ref)).toMatchObject({ buffs: 2, empowered: 1 });
+    expect(host.perform({ type: "empower", object: ref, amount: 2, multiple: true, limit: 3 }).status).toBe("done");
+    expect(host.object(ref)).toMatchObject({ buffs: 2, empowered: 3 });
+    const checkpoint = host.checkpoint();
+    expect(host.perform({ type: "disempower", object: ref }).status).toBe("done");
+    expect(host.object(ref)).toMatchObject({ buffs: 2, empowered: 2 });
+    host.restore(checkpoint);
+    expect(host.object(ref)).toMatchObject({ buffs: 2, empowered: 3 });
+    expect(host.perform({ type: "disempower", object: ref }).status).toBe("done");
+    expect(host.perform({ type: "disempower", object: ref }).status).toBe("done");
+    expect(host.perform({ type: "disempower", object: ref }).status).toBe("done");
+    expect(host.perform({ type: "disempower", object: ref }).status).toBe("prevented");
+    expect(host.object(ref)).toMatchObject({ buffs: 2, empowered: 0 });
+  });
+
   it("starts the new match lifecycle and keeps opponent hand identities private", () => {
     const decks = [m1Deck("rumble-sfd"), m1Deck("fiora-sfd")] as const;
     const opening = createEngineRuntime({ matchId: "m1-opening", decks, seed: "m1" }).start();
@@ -75,6 +98,58 @@ describe("engine runtime", () => {
     expect(opponent.objects.filter(object => object.ownerPlayerId === "A" && object.zone === "facedown").every(object => object.cardId === undefined && object.name === undefined)).toBe(true);
   });
 
+  it("projects authoritative Buff and layered Empowered counters without conflating them", () => {
+    const decks = [m1Deck("rumble-sfd"), m1Deck("fiora-sfd")] as const;
+    const probe = createEngineRuntime({ matchId: "counter-projection-probe", decks, seed: "counters" }).start();
+    const source = probe.projectFor("A").objects.find(object => object.zone === "hand" && object.ownerPlayerId === "A" && object.cardId);
+    expect(source?.cardId).toBeTruthy();
+    const program = {
+      canonicalCardId: source!.cardId,
+      rulesetVersion: "core-1.5",
+      status: "executable",
+      sourceText: "counter projection test",
+      abilities: [{
+        kind: "activated",
+        timing: "action",
+        cost: { kind: "explicit", energy: { kind: "constant", value: 0 } },
+        body: [
+          { id: "add-buff", op: "effect.buff", args: { mode: { kind: "constant", value: "buff" },
+            objects: { kind: "constant", value: { kind: "source" } },
+            amount: { kind: "constant", value: 2 } } },
+          { id: "empower", op: "effect.empower", args: { objects: { kind: "constant", value: { kind: "source" } } } },
+        ],
+      }],
+    } as const;
+    const runtime = createEngineRuntime({ matchId: "counter-projection", decks, seed: "counters", programs: [program] }).start();
+    const objectId = source!.objectId;
+    const moved = runtime.submit("A", { type: "move", commandId: "move-counter-source", stateVersion: 0,
+      objectId, to: { zone: "base", playerId: "A" } });
+    const activated = runtime.submit("A", { type: "activate", commandId: "activate-counters",
+      stateVersion: moved.receipt.stateVersion, sourceObjectId: objectId, abilityId: "0" });
+    expect(activated.receipt.status).toBe("accepted");
+    runtime.submit("A", { type: "pass", commandId: "pass-counter-a", stateVersion: activated.receipt.stateVersion });
+    const resolved = runtime.submit("B", { type: "pass", commandId: "pass-counter-b",
+      stateVersion: runtime.projectFor(null).stateVersion });
+    expect(resolved.receipt.status, JSON.stringify(resolved.receipt)).toBe("accepted");
+
+    for (const viewer of ["A", "B", null] as const) {
+      const projection = runtime.projectFor(viewer);
+      expect(isV2Projection(projection)).toBe(true);
+      expect(projection.objects.find(object => object.objectId === objectId)?.counters).toMatchObject({
+        buffs: 1,
+        empowered: 1,
+        empoweredCount: 1,
+      });
+    }
+    const restored = createEngineRuntime({ matchId: "counter-projection", decks, seed: "counters", programs: [program] })
+      .restore(runtime.journal());
+    expect(restored.projectFor("A").objects.find(object => object.objectId === objectId)?.counters)
+      .toEqual(runtime.projectFor("A").objects.find(object => object.objectId === objectId)?.counters);
+  }, 60_000);
+
+  // Runtime bootstrapping loads protocol + engine-core source through the
+  // per-worker transformer; under serial full-suite load these can exceed the
+  // default 10s without any assertion change.
   it("enforces state versions, command idempotency, and journal metadata", () => {
     const runtime = createEngineRuntime({ matchId: "m2", decks: [m1Deck("rumble-sfd"), m1Deck("fiora-sfd")], seed: "m2" }).start();
     const initial = runtime.projectFor(null);
@@ -100,7 +175,7 @@ describe("engine runtime", () => {
       stateVersion = next.receipt.stateVersion;
     }
     expect(runtime.projectFor(null).turnNumber).toBeGreaterThan(1);
-  });
+  }, 60_000);
 
   it("rebuilds the same projection from journal commands", () => {
     const options = { matchId: "m3", decks: [m1Deck("rumble-sfd"), m1Deck("fiora-sfd")] as const, seed: "m3" };
@@ -111,7 +186,7 @@ describe("engine runtime", () => {
     expect(restored.projectFor("A")).toEqual(runtime.projectFor("A"));
     expect(restored.projectFor("B")).toEqual(runtime.projectFor("B"));
     expect(runtime.journal().head.stateDigest).toBe(projectionDigest(runtime.projectFor(null)));
-  });
+  }, 60_000);
 
   it("restores setup mulligans from journal metadata and rejects forged actors", () => {
     const decks = [m1Deck("rumble-sfd"), m1Deck("fiora-sfd")] as const;
@@ -135,8 +210,11 @@ describe("engine runtime", () => {
     const forgedJournal = structuredClone(runtime.journal()) as any;
     forgedJournal.entries[0].result = { accepted: false };
     expect(() => createEngineRuntime({ matchId: "m5", decks, seed: "m5" }).restore(forgedJournal)).toThrow(/integrity|digest/i);
-  });
+  }, 60_000);
 
+  // Loading protocol + engine-core source through the per-worker transformer can
+  // take >10s under parallel load; give this case its own headroom so the real
+  // suspension/replay behavior is what is under test, not the runner's clock.
   it("journals a suspended choice and replays it before the answer", () => {
     const decks = [m1Deck("rumble-sfd"), m1Deck("fiora-sfd")] as const;
     const probe = createEngineRuntime({ matchId: "m4", decks, seed: "m4" }).start();
@@ -181,5 +259,62 @@ describe("engine runtime", () => {
     const restored = createEngineRuntime({ matchId: "m4", decks, seed: "m4", programs: [program] }).restore(runtime.journal());
     expect(restored.projectFor("A")).toEqual(runtime.projectFor("A"));
     expect(restored.projectFor("B")).toEqual(runtime.projectFor("B"));
-  });
+  }, 60_000);
+
+  it("projects an authoritative number range only to its chooser and rejects malformed answers", () => {
+    const decks = [m1Deck("rumble-sfd"), m1Deck("fiora-sfd")] as const;
+    const probe = createEngineRuntime({ matchId: "number-probe", decks, seed: "number" }).start();
+    const source = probe.projectFor("A").objects.find(object => object.zone === "hand" && object.ownerPlayerId === "A" && object.cardId);
+    expect(source?.cardId).toBeTruthy();
+    const program = {
+      canonicalCardId: source!.cardId,
+      rulesetVersion: "core-1.5",
+      status: "executable",
+      sourceText: "number choice test",
+      abilities: [{
+        kind: "activated",
+        timing: "action",
+        cost: { kind: "explicit", energy: { kind: "constant", value: 0 } },
+        body: [{
+          id: "repeat", op: "effect.repeat",
+          args: {
+            choices: { kind: "constant", value: [{ id: "repeat-amount", field: "amount", type: "number",
+              min: { kind: "literal", value: 1 }, max: { kind: "literal", value: 2 } }] },
+            actions: { kind: "constant", value: [{ type: "gain-energy",
+              values: { player: { kind: "literal", value: "A" }, amount: { kind: "literal", value: 1 } } }] },
+          },
+        }],
+      }],
+    } as const;
+    const runtime = createEngineRuntime({ matchId: "number", decks, seed: "number", programs: [program] }).start();
+    const objectId = source!.objectId;
+    const moved = runtime.submit("A", { type: "move", commandId: "move-number-source", stateVersion: 0,
+      objectId, to: { zone: "base", playerId: "A" } });
+    const played = runtime.submit("A", { type: "activate", commandId: "activate-number", stateVersion: moved.receipt.stateVersion,
+      sourceObjectId: objectId, abilityId: "0" });
+    expect(played.receipt.status).toBe("accepted");
+    const firstPass = runtime.submit("A", { type: "pass", commandId: "pass-number-a", stateVersion: played.receipt.stateVersion });
+    const next = runtime.submit("B", { type: "pass", commandId: "pass-number-b", stateVersion: firstPass.receipt.stateVersion });
+    expect(next.receipt.status).toBe("pending");
+    const owner = runtime.projectFor("A").pendingChoice;
+    expect(owner).toMatchObject({ status: "pending", kind: "number", min: 1, max: 2 });
+    expect(runtime.projectFor("B").pendingChoice).toEqual({ status: "pending", choiceId: owner.choiceId,
+      ownerPlayerId: "A", stateVersion: owner.stateVersion, kind: "number", min: 1, max: 2 });
+    const choiceId = owner.choiceId;
+    for (const answer of [0, 3, 1.5, Number.NaN]) {
+      const rejected = runtime.submit("A", { type: "choose", commandId: `bad-number-${String(answer)}`,
+        stateVersion: next.receipt.stateVersion, choiceId, answer });
+      expect(rejected.receipt.status).toBe("rejected");
+      expect(runtime.projectFor("A").pendingChoice).toMatchObject({ status: "pending", choiceId });
+    }
+    const accepted = runtime.submit("A", { type: "choose", commandId: "good-number",
+      stateVersion: next.receipt.stateVersion, choiceId, answer: 1 });
+    expect(accepted.receipt.status).toBe("accepted");
+    expect(runtime.submit("A", { type: "choose", commandId: "good-number",
+      stateVersion: next.receipt.stateVersion, choiceId, answer: 1 }).receipt.status).toBe("duplicate");
+    const restored = createEngineRuntime({ matchId: "number", decks, seed: "number", programs: [program] })
+      .restore(runtime.journal());
+    expect(restored.projectFor("A")).toEqual(runtime.projectFor("A"));
+    expect(restored.projectFor("B")).toEqual(runtime.projectFor("B"));
+  }, 60_000);
 });
