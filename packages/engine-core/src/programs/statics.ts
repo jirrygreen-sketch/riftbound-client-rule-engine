@@ -1,8 +1,10 @@
 import type { Ability, EventPattern, Instruction } from '@riftbound/card-dsl';
 import type { ObjectFilter } from '@riftbound/card-dsl';
 import type { ChainEngine } from '../chain/engine.js';
-import type { ContinuousEffectSpec, ObjectSnapshot } from '../effects/contract.js';
+import type { ContinuousEffectSpec, ObjectRef, ObjectSnapshot } from '../effects/contract.js';
 import { bindStaticTriggerRule } from '../events/trigger-rules/index.js';
+import { concreteLocation, isRelativeLocation } from '../layers/relative/location.js';
+import { bindFilterAnchor, isSupportedRelativeFilterValue } from '../layers/relative/filter.js';
 import { bindReplacement as bindReplacementRegistration } from '../replacement/bind.js';
 import { ProgramBindingError } from './errors.js';
 import {
@@ -19,7 +21,7 @@ import {
   registerAbilityGrant,
   record,
   sameRef,
-  sourceSelfFilter,
+  sourceSelector,
   staticEffectDuration,
   throwStaticConditionDefect,
   type AnyRecord,
@@ -58,8 +60,45 @@ export type ReplacementBinding = { id: string; source: ObjectSnapshot; replaces:
 type LayerName = ContinuousEffectSpec['layer'];
 type StaticAbility = Extract<Ability, { kind: 'static' }>;
 
+const LIFECYCLE_BRIDGED_PIPELINES = new WeakSet<object>();
+
+/**
+ * EventPipeline publishes action timings through emitBatch without invoking
+ * emit. Program lifecycle owns its enter/leave hooks on emit, so route those
+ * lifecycle events through the existing hook while suppressing its duplicate
+ * publication. The public event and the original onEvent consumer still run
+ * exactly once from the enclosing batch.
+ */
+function bridgeLifecycleOnEvent(engine: ChainEngine): void {
+  const pipeline = engine.pipeline as (typeof engine.pipeline & {
+    onEvent?: (event: { readonly timingPoint?: string }) => void;
+  }) | undefined;
+  if (pipeline === undefined || pipeline === null) return;
+  if (LIFECYCLE_BRIDGED_PIPELINES.has(pipeline) || typeof pipeline.emit !== 'function' ||
+      typeof pipeline.emitBatch !== 'function') return;
+  LIFECYCLE_BRIDGED_PIPELINES.add(pipeline);
+  const originalOnEvent = pipeline.onEvent;
+  pipeline.onEvent = event => {
+    const timingPoint = event.timingPoint;
+    if (timingPoint === 'object-enters-board' || timingPoint === 'object-enters-chain' ||
+        timingPoint === 'object-leaves-board' || timingPoint === 'object-killed') {
+      const publishBatch = pipeline.emitBatch;
+      pipeline.emitBatch = (() => []) as typeof pipeline.emitBatch;
+      try {
+        pipeline.emit(event as never);
+      } finally {
+        pipeline.emitBatch = publishBatch;
+      }
+    }
+    originalOnEvent?.(event as never);
+  };
+}
+
 const LAYER_BY_KIND: Readonly<Record<string, LayerName>> = Object.freeze({
-  copy: 'copy',
+  // Contract 3.4 order: copy → trait → ability → arithmetic. This table names
+  // every known ContinuousEffect family, including declarations whose runtime
+  // consumer is still blocked in bindStatic below. Unknown kinds fail closed.
+  'copy': 'copy',
   'copy-object': 'copy',
   'copy-text': 'copy',
   'continuous.copy': 'copy',
@@ -70,50 +109,72 @@ const LAYER_BY_KIND: Readonly<Record<string, LayerName>> = Object.freeze({
   'continuous.remove-type': 'trait',
   'continuous.add-tag': 'trait',
   'continuous.remove-tag': 'trait',
+  'continuous.facedown-capacity': 'trait',
   'set-property': 'trait',
   'set-trait': 'trait',
-  trait: 'trait',
+  'trait': 'trait',
   'continuous.might': 'arithmetic',
+  'continuous.bonus-damage': 'arithmetic',
+  'continuous.lethal-threshold': 'arithmetic',
+  'continuous.modify-might-reduction': 'arithmetic',
   'set-might': 'arithmetic',
-  might: 'arithmetic',
-  buff: 'arithmetic',
-  'continuous.bonus-damage': 'ability',
-  'continuous.lethal-threshold': 'ability',
-  'continuous.modify-might-reduction': 'ability',
-  'continuous.combat': 'ability',
+  'might': 'arithmetic',
+  'buff': 'arithmetic',
+  'continuous.grant-abilities': 'ability',
   'continuous.grant-ability': 'ability',
   'continuous.grant-keyword': 'ability',
+  'grant-keyword': 'ability',
+  'continuous.ignore-abilities': 'ability',
   'continuous.ignore-ability': 'ability',
+  'continuous.ignore-target-tax': 'ability',
   'continuous.keyword': 'ability',
   'continuous.location': 'ability',
   'continuous.movement': 'ability',
+  'continuous.play-permission': 'ability',
   'continuous.restrict': 'ability',
   'continuous.require': 'ability',
   'continuous.applied-cost': 'ability',
+  'continuous.target-restriction': 'ability',
   'continuous.timing': 'ability',
-  'grant-keyword': 'ability',
-  requirement: 'ability',
-  restriction: 'ability',
+  'continuous.trigger-multiplicity': 'ability',
+  'continuous.trigger-suppression': 'ability',
+  'continuous.cost-modification': 'ability',
+  'continuous.combat': 'ability',
+  'condition.predicate': 'ability',
+  'condition.value': 'ability',
+  'requirement': 'ability',
+  'restriction': 'ability',
   'applied-cost': 'ability',
+  'target.tax': 'ability',
+  'play-location-permission': 'ability',
+  'accelerate.cost': 'ability',
+  'repeat.cost': 'ability',
+  'cost.additional': 'ability',
+  'cost.hidden': 'ability',
+  'cost.modify': 'ability',
+  'cost.activated': 'ability',
+  'cost.exhaust': 'ability',
+  'cost.printed': 'ability',
 });
 
+/** Map every known ContinuousEffect family to its contract 3.4 layer. */
 export function layerFor(effect: AnyRecord): LayerName {
+  const declared = effect.layer;
   const kind = String(effect.kind ?? '').toLowerCase();
   const mapped = LAYER_BY_KIND[kind];
-  const declared = effect.layer;
-  if (mapped === undefined) {
-    throw new ProgramBindingError('judge-required', `Static ability kind ${String(effect.kind ?? '<missing>')} has no layer mapping`);
+  if (mapped !== undefined) {
+    if (declared !== undefined && declared !== mapped) {
+      throw new ProgramBindingError('judge-required', `Static ability kind ${kind} requires layer ${mapped}`);
+    }
+    return mapped;
   }
-  if (declared !== undefined && declared !== mapped) {
-    throw new ProgramBindingError('judge-required', `Static ability kind ${kind} requires layer ${mapped}`);
-  }
-  return mapped;
+  throw new ProgramBindingError('judge-required', `Static ability kind ${String(effect.kind ?? '<missing>')} has no layer mapping`);
 }
 
 function normalizedEffect(effect: AnyRecord): AnyRecord {
   const kind = String(effect.kind ?? '').toLowerCase();
   if (kind === 'continuous.might') {
-    const mode = effect.mode ?? 'add';
+    const mode = literal(effect.mode) ?? 'add';
     if (mode === 'set') return { ...effect, kind: 'set-might', value: effect.amount ?? effect.value };
     if (mode === 'multiply') return { ...effect, kind: 'multiply-might' };
     if (mode !== 'add') throw new ProgramBindingError('judge-required', `Unsupported static Might mode ${String(mode)}`);
@@ -133,14 +194,72 @@ function normalizedEffect(effect: AnyRecord): AnyRecord {
 }
 
 function numericLayerValue(value: unknown): boolean {
-  if (typeof value === 'number') return Number.isFinite(value);
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-  const item = value as AnyRecord;
-  if (['constant', 'literal'].includes(String(item.kind))) return typeof item.value === 'number' && Number.isFinite(item.value);
-  if (item.kind === 'count') return typeof item.subject === 'string' && item.subject.trim().length > 0;
-  if (item.kind === 'object-property' || item.kind === 'object-attribute') return true;
-  if (item.kind === 'arithmetic') return Array.isArray(item.operands) && item.operands.length > 0;
-  return ['player-property', 'turn-number', 'player-turn-count', 'object-designation'].includes(String(item.kind));
+  const resolved = literal(value);
+  if (typeof resolved === 'number') return Number.isFinite(resolved);
+  const expression = record(resolved);
+  if (['add', 'subtract', 'multiply'].includes(String(expression.kind))) {
+    return numericLayerValue(expression.left) && numericLayerValue(expression.right);
+  }
+  // The merged layer expression interpreter now consumes CountExpr values.
+  // Keep malformed counts (including the old subject-less spelling) blocked.
+  if (expression.kind === 'count') return typeof expression.subject === 'string' && expression.subject.trim().length > 0;
+  if (expression.kind === 'object-property' || expression.kind === 'object-attribute') {
+    const object = record(expression.object);
+    const ref = record(object.ref ?? object);
+    return typeof ref.id === 'string' && typeof ref.zoneEntryId === 'number' &&
+      typeof (expression.property ?? expression.attribute) === 'string';
+  }
+  return false;
+}
+
+/**
+ * Public static-filter adapter retained for callers that inspect the lowered
+ * filter. Relative player and location selectors stay symbolic so the bound
+ * layer evaluates them against the live host.
+ */
+export function staticFilter(effect: AnyRecord, source: ObjectSnapshot, rawFilter: AnyRecord = record(effect.filter)): ObjectFilter {
+  const output: AnyRecord = {};
+  for (const [key, rawValue] of Object.entries(rawFilter)) {
+    const value = literal(rawValue);
+    if (key === 'controller' || key === 'owner') {
+      if (!isSupportedRelativeFilterValue(value)) throw new ProgramBindingError('judge-required', `Unsupported static ${key} selector ${String(value)}`);
+      output[key] = value;
+    } else if (key === 'tag') output.tags = [...(Array.isArray(output.tags) ? output.tags : []), value];
+    else if (key === 'types') output.type = value;
+    else if (key === 'sameLocationAs') {
+      if (!isRelativeLocation(value)) throw new ProgramBindingError('judge-required', 'Static sameLocationAs requires a supported relative anchor');
+      output.sameLocationAs = value;
+    } else if (key === 'object' || key === 'source') {
+      if (sourceSelector(value)) {
+        output.objectId = source.ref.id;
+        output.zoneEntryId = source.ref.zoneEntryId;
+      } else throw new ProgramBindingError('judge-required', `Unsupported static object anchor ${String(value)}`);
+    } else if (key === 'exclude' || key === 'other') {
+      if (key === 'other' && value !== true) throw new ProgramBindingError('judge-required', 'Static other filter must be true');
+      if (key === 'exclude' && !sourceSelector(value)) throw new ProgramBindingError('judge-required', 'Static exclude requires a supported relative anchor');
+      output[key] = value;
+    } else if (key === 'self') {
+      if (!sourceSelector(value)) throw new ProgramBindingError('judge-required', 'Static self anchor is unsupported');
+      output.objectId = source.ref.id;
+      output.zoneEntryId = source.ref.zoneEntryId;
+    } else if (key === 'here') {
+      if (value !== true) throw new ProgramBindingError('judge-required', 'Static here filter must be true');
+      output.here = true;
+    } else if (key === 'location' || key === 'position') {
+      if (typeof value !== 'string' && !isRelativeLocation(value) && concreteLocation(value) === undefined) {
+        throw new ProgramBindingError('judge-required', `Unsupported static ${key} anchor`);
+      }
+      output[key] = value;
+    } else if (key === 'region') {
+      if (typeof value !== 'string' && concreteLocation(value) === undefined) throw new ProgramBindingError('judge-required', 'Static region must be a location or region name');
+      output.region = value;
+    } else if (['objectId', 'zoneEntryId', 'cardId', 'canonicalCardId', 'type', 'types', 'zone', 'states', 'state', 'tags', 'keywords', 'keyword', 'hasKeyword', 'characteristics'].includes(key)) {
+      output[key] = value;
+    } else {
+      throw new ProgramBindingError('judge-required', `Unsupported static filter field ${key}`);
+    }
+  }
+  return output as ObjectFilter;
 }
 
 function targetFilter(effect: AnyRecord, source: ObjectSnapshot): AnyRecord {
@@ -158,6 +277,65 @@ function targetFilter(effect: AnyRecord, source: ObjectSnapshot): AnyRecord {
   return Object.keys(filter).length === 0 ? { object: 'self' } : filter;
 }
 
+const RELATIVE_PLAYER_ALIASES = new Set([
+  'self', 'source', 'controller', 'you', 'caster',
+  'opponent', 'their', 'caster-opponent',
+]);
+
+function canonicalRuleFilter(filter: AnyRecord): { readonly filter: AnyRecord; readonly relativePlayers: ReadonlySet<string> } {
+  const output = { ...filter };
+  const relativePlayers = new Set<string>();
+  for (const field of ['controller', 'owner']) {
+    const value = literal(output[field]);
+    if (typeof value !== 'string' || !RELATIVE_PLAYER_ALIASES.has(value)) continue;
+    relativePlayers.add(field);
+    output[field] = ['opponent', 'their', 'caster-opponent'].includes(value) ? 'opponent' : 'self';
+  }
+  return { filter: output, relativePlayers };
+}
+
+function createLiveStaticRuleFilter(
+  engine: ChainEngine,
+  source: ObjectSnapshot,
+  filter: AnyRecord,
+  condition: unknown,
+): ObjectFilter {
+  const canonical = canonicalRuleFilter(filter);
+  const output = createLiveRuleFilter(engine, source, canonical.filter, condition) as AnyRecord;
+  // The objectId getter has already evaluated player-relative fields against
+  // the live host. Leaving symbolic self/opponent on the rule query would make
+  // those fields depend on the player who happens to issue the query.
+  for (const field of canonical.relativePlayers) delete output[field];
+  if (filter.sameLocationAs !== undefined) {
+    Object.defineProperty(output, 'location', {
+      enumerable: true,
+      configurable: false,
+      get: () => liveSource(engine, source.ref)?.location ?? null,
+    });
+  }
+  return output as ObjectFilter;
+}
+
+function staticTarget(effect: AnyRecord, source: ObjectSnapshot): ObjectFilter {
+  const appliesTo = literal(effect.appliesTo);
+  if (sourceSelector(appliesTo)) {
+    return { objectId: source.ref.id, zone: 'board', zoneEntryId: source.ref.zoneEntryId } as ObjectFilter;
+  }
+  if (typeof appliesTo === 'object' && appliesTo !== null && !Array.isArray(appliesTo)) {
+    return staticFilter(effect, source, appliesTo as AnyRecord);
+  }
+  if (appliesTo === 'opponent') return { controller: 'opponent' } as ObjectFilter;
+  if (appliesTo === 'friendly-units') return { type: 'unit', controller: 'self' } as ObjectFilter;
+  if (appliesTo === 'units-here') return { type: 'unit', here: true } as ObjectFilter;
+  if (appliesTo === 'all-players' || appliesTo === 'all') return {} as ObjectFilter;
+  if (appliesTo !== undefined && appliesTo !== null) {
+    throw new ProgramBindingError('judge-required', `Unsupported static appliesTo ${JSON.stringify(appliesTo)}`);
+  }
+  const filter = staticFilter(effect, source);
+  if (Object.keys(filter).length > 0) return filter;
+  return { objectId: source.ref.id, zone: 'board', zoneEntryId: source.ref.zoneEntryId } as ObjectFilter;
+}
+
 function registerLayer(engine: ChainEngine, ability: StaticAbility, source: ObjectSnapshot, ordinal: number): StaticBindingHandle {
   const effect = record(ability.effect);
   const filter = targetFilter(effect, source);
@@ -166,12 +344,16 @@ function registerLayer(engine: ChainEngine, ability: StaticAbility, source: Obje
   if (layer === 'arithmetic' && !numericLayerValue(normalized.amount ?? normalized.value ?? normalized.delta)) {
     throw new ProgramBindingError('judge-required', `Static ${String(effect.kind)} needs a supported numeric layer value`);
   }
+  if (normalized.kind === 'set-property' && normalized.property === 'might' && !numericLayerValue(normalized.value)) {
+    throw new ProgramBindingError('judge-required', `Static ${String(effect.kind)} needs a supported numeric layer value`);
+  }
   const id = `program-static:${source.ref.id}:${source.ref.zoneEntryId}:${ordinal}`;
   const { spec, duration } = layerSpec(engine, ability, source, id, layer, filter, {
     ...normalized,
     ...(effect.filter === undefined ? {} : { filter: normalizeStaticFilter(effect.filter) }),
     ...(effect.appliesTo === undefined ? {} : { appliesTo: effect.appliesTo }),
   });
+  bindFilterAnchor(spec.filter, () => liveSource(engine, source.ref));
   engine.layers.addContinuous(spec, duration);
   return { unbind: () => { engine.layers.removeContinuous(id); } };
 }
@@ -185,7 +367,8 @@ function registerRule(engine: ChainEngine, ability: StaticAbility, source: Objec
   const layer = layerFor(effect);
   const normalized = normalizedEffect(effect);
   const id = `program-static:${source.ref.id}:${source.ref.zoneEntryId}:${ordinal}`;
-  const liveFilter = createLiveRuleFilter(engine, source, filter, ability.condition);
+  const liveFilter = createLiveStaticRuleFilter(engine, source, filter, ability.condition);
+  bindFilterAnchor(liveFilter, () => liveSource(engine, source.ref));
   const { duration } = layerSpec(engine, ability, source, id, layer, filter, normalized);
   engine.layers.addContinuous({
     id,
@@ -228,8 +411,17 @@ function registerModifier(engine: ChainEngine, ability: StaticAbility, source: O
       ...(condition === undefined ? {} : { staticCondition: condition }),
     } as unknown as ContinuousEffectSpec['effect'],
   };
+  bindFilterAnchor(spec.filter, () => liveSource(engine, source.ref));
   engine.layers.addContinuous(spec, staticEffectDuration(effect, source.ref));
   return { unbind: () => { engine.layers.removeContinuous(id); } };
+}
+
+function registerAbilityGrantRoute(engine: ChainEngine, ability: StaticAbility, source: ObjectSnapshot, id: string): StaticBindingHandle {
+  const effect = record(ability.effect);
+  const withCondition = ability.condition === undefined
+    ? ability
+    : { ...ability, effect: { ...effect, condition: ability.condition } } as unknown as StaticAbility;
+  return registerAbilityGrant(engine, withCondition, source, id);
 }
 
 function registerTriggerRule(engine: ChainEngine, ability: StaticAbility, source: ObjectSnapshot, ordinal: number): StaticBindingHandle {
@@ -267,6 +459,8 @@ function registerPlayLocation(engine: ChainEngine, ability: StaticAbility, sourc
     },
     permission: 'any-battlefield',
   };
+  const liveFilter = createLiveRuleFilter(engine, source, target, ability.condition);
+  bindFilterAnchor(liveFilter, () => liveSource(engine, source.ref));
   Object.defineProperty(permission, 'objectRefs', {
     enumerable: true,
     get: () => {
@@ -280,7 +474,7 @@ function registerPlayLocation(engine: ChainEngine, ability: StaticAbility, sourc
     id,
     layer: 'ability',
     source: source.ref,
-    filter: createLiveRuleFilter(engine, source, target, ability.condition),
+    filter: liveFilter,
     effect: {
       ...permission,
       ...(ability.condition === undefined ? {} : { staticCondition: effectCondition(engine, ability, source, target) }),
@@ -300,12 +494,14 @@ function registerCost(engine: ChainEngine, ability: StaticAbility, source: Objec
   if (!['continuous.cost-modification', 'cost.modify'].includes(String(effect.kind))) return capability;
   const filter = targetFilter(effect, source);
   const id = `program-cost-layer:${source.ref.id}:${source.ref.zoneEntryId}:${ordinal}`;
+  const registeredFilter = Object.fromEntries(Object.entries(filter).filter(([key]) =>
+    !['object', 'source', 'exclude', 'sameLocationAs', 'differentLocationFrom', 'attachedTo', 'relation'].includes(key))) as AnyRecord;
+  bindFilterAnchor(registeredFilter, () => liveSource(engine, source.ref));
   engine.layers.addContinuous({
     id,
     layer: 'ability',
     source: source.ref,
-    filter: Object.fromEntries(Object.entries(filter).filter(([key]) =>
-      !['object', 'source', 'exclude', 'sameLocationAs', 'differentLocationFrom', 'attachedTo', 'relation'].includes(key))) as never,
+    filter: registeredFilter as never,
     effect: {
       ...effect,
       sourcePlayer: source.controller,
@@ -319,8 +515,15 @@ function registerCost(engine: ChainEngine, ability: StaticAbility, source: Objec
 function bindStatic(engine: ChainEngine, ability: StaticAbility, source: ObjectSnapshot, ordinal: number): StaticBindingHandle {
   const kind = String(record(ability.effect).kind ?? '').toLowerCase();
   const id = `program-static:${source.ref.id}:${source.ref.zoneEntryId}:${ordinal}`;
+  // These contract families have no production consumer yet. Keep their old
+  // fail-closed behavior even though layerFor can classify the declaration.
+  if (kind === 'continuous.grant-abilities' || kind === 'continuous.ignore-abilities' ||
+      kind === 'continuous.facedown-capacity' || kind === 'continuous.play-permission' ||
+      kind === 'continuous.target-restriction') {
+    throw new ProgramBindingError('judge-required', `Static ability kind ${kind} has no layer mapping`);
+  }
   if (kind === 'continuous.grant-ability' || kind === 'continuous.ignore-ability') {
-    return registerAbilityGrant(engine, ability, source, id);
+    return registerAbilityGrantRoute(engine, ability, source, id);
   }
   if (kind === 'condition.predicate' || kind === 'condition.value') return registerPredicate(engine, ability, source, ordinal);
   if (kind === 'continuous.cost-modification' || kind === 'cost.modify' || kind === 'cost.additional' ||
@@ -344,6 +547,7 @@ function bindStatic(engine: ChainEngine, ability: StaticAbility, source: ObjectS
 
 /** Build the production adapter used by attachProgramLifecycle. */
 export function createEngineStaticBinder(engine: ChainEngine): ProgramStaticBinder {
+  bridgeLifecycleOnEvent(engine);
   const staticOrdinals = new Map<string, Set<number>>();
   return {
     /** Expose dynamic-host rebinding for lifecycle owners without editing their files. */

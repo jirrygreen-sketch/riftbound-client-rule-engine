@@ -17,6 +17,7 @@ function activationList(registry: ProgramRegistry, source: ObjectSnapshot): Acti
 function translateActivationRestriction(
   restriction: Restriction | undefined,
   source: ObjectSnapshot,
+  controller: PlayerId,
   id: string,
 ): readonly Condition[] | undefined {
   if (!restriction) return undefined;
@@ -25,11 +26,53 @@ function translateActivationRestriction(
       judgeRequired(`Activation restriction ${id} combines a location restriction with another rule`);
     }
     if (source.location?.type !== 'battlefield') return [{ kind: 'never' }];
-    // The production Chain evaluates these conditions with its canonical
-    // evaluator; it also retests them at Finalize. The source incarnation is
-    // fixed for the activation, so bind the location fact captured from that
-    // source rather than inventing a generic location predicate.
-    return [{ kind: 'always' }];
+    // CR 377.2.b requires the condition to hold when the ability is used.
+    // Chain re-evaluates this condition against the current Board at Finalize,
+    // before payment. Require the exact source incarnation to remain on the
+    // Board under the activator, then negate a live query for that source at
+    // the activator's Base. A Board object is at its Base or a Battlefield
+    // (CR 107.1.c / 146.1), so the latter distinguishes Battlefield from Base.
+    // The queries are live rather than always/never snapshots, and the
+    // zone-entry identity prevents a later incarnation from satisfying this
+    // activation's restriction.
+    return [{
+      kind: 'all',
+      conditions: [
+        {
+          kind: 'compare',
+          left: {
+            kind: 'count',
+            subject: 'objects',
+            filter: {
+              objectId: source.ref.id,
+              zoneEntryId: source.ref.zoneEntryId,
+              zone: 'board',
+              controller,
+            },
+          },
+          operator: 'gte',
+          right: { kind: 'constant', value: 1 },
+        },
+        {
+          kind: 'not',
+          condition: {
+            kind: 'compare',
+            left: {
+              kind: 'count',
+              subject: 'objects',
+              filter: {
+                objectId: source.ref.id,
+                zoneEntryId: source.ref.zoneEntryId,
+                zone: 'board',
+                location: { type: 'base', player: controller },
+              },
+            },
+            operator: 'gte',
+            right: { kind: 'constant', value: 1 },
+          },
+        },
+      ],
+    }];
   }
   return translateRestriction(restriction, id);
 }
@@ -47,7 +90,7 @@ export function describeActivate(registry: ProgramRegistry, source: ObjectSnapsh
   const program = registry.get(source.cardId);
   const cost = bindProgramCost({ program, source, mode: 'activate', id, ability });
   if (!cost) judgeRequired(`Activated ability ${id} has no cost plan`);
-  const restrictions = translateActivationRestriction(ability.restriction, source, source.cardId ?? source.ref.id);
+  const restrictions = translateActivationRestriction(ability.restriction, source, controller, source.cardId ?? source.ref.id);
   return { id, controller, source, kind: 'activated', speed: ability.timing, body, cost: { id: `cost:${id}`, ...cost.plan }, ...(restrictions ? { restrictions } : {}) };
 }
 let activationSequence = 0;
