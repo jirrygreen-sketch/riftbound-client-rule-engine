@@ -36,6 +36,8 @@ export interface ReflexivePendingRequest {
   readonly snapshot: ReflexiveConditionSnapshot;
   readonly linkKey?: string;
   readonly linkValue?: Value;
+  /** Runtime-only result aliases visible to this Pending item's Resolve. */
+  readonly linkedValues?: Readonly<Record<string, Value>>;
   readonly ordinal: number;
 }
 

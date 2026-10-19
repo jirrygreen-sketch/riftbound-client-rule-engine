@@ -258,7 +258,7 @@ const triggerReflexive: InstructionDef<ParsedReflexiveArgs> = {
     if (matched.length > 0 && count > matched.length) {
       throw new TypeError('trigger.reflexive count exceeds matched objects');
     }
-    const effectiveCount = matched.length > 0 && args.count === undefined ? matched.length : count;
+    const effectiveCount = matched.length > 0 ? matched.length : count;
     if (effectiveCount === 0) {
       return { status: 'executed', events: [], linkedValues: { created: 0, reflexiveItemIds: [] } };
     }
@@ -295,6 +295,7 @@ const triggerReflexive: InstructionDef<ParsedReflexiveArgs> = {
         snapshot,
         ...(linkKey === undefined ? {} : { linkKey }),
         ...(linkValue === undefined ? {} : { linkValue: structuredClone(linkValue) }),
+        ...(alias === undefined ? {} : { linkedValues: { [alias]: reflexiveLinkValue(linkValue) } }),
         ordinal,
       });
     }

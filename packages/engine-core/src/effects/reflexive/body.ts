@@ -39,16 +39,6 @@ export function normalizeReflexiveBody(body: readonly Instruction[]): {
   return { body: nested, mayAtFinalize: true };
 }
 
-/**
- * The original trigger body contains the unresolved declaration.  It is not a
- * nested target of the trigger itself: CR 355.5.b gives the declaration to the
- * new item's own Finalize.  Validate that body now, then remove only the
- * unresolved declaration from the parent item.
- */
-export function parentBodyWithoutReflexiveDeclarations(body: readonly Instruction[]): readonly Instruction[] {
-  return body.filter(instruction => instruction.op !== 'trigger.reflexive');
-}
-
 function encodeInstruction(instruction: Instruction): Instruction {
   const args = { ...instruction.args };
   if (instruction.op === 'trigger.reflexive') {
@@ -94,6 +84,7 @@ function encodeInstruction(instruction: Instruction): Instruction {
  * original instruction array through `reflexiveInstructions`.
  */
 export function encodeReflexiveRegistrationBody(body: readonly Instruction[]): readonly Instruction[] {
+  if (!body.some(instruction => instruction.op === 'trigger.reflexive')) return body;
   return body.map(encodeInstruction);
 }
 

@@ -1,5 +1,5 @@
 import type { ChainDraft, ChainEngine } from '../../chain/engine.js';
-import type { Instruction, ObjectRef, ObjectSnapshot, Value } from '../contract.js';
+import type { Instruction, ObjectRef, ObjectSnapshot, ResolveContext, Value } from '../contract.js';
 import type {
   ReflexiveConditionSnapshot,
   ReflexivePendingCreation,
@@ -12,6 +12,11 @@ import { encodeReflexiveRegistrationBody } from './body.js';
 const RUNTIME_VERSION = 'riftbound.reflexive-pending.v1' as const;
 const runtimes = new WeakMap<object, ReflexivePendingRuntime>();
 const installations = new WeakMap<ChainEngine, ReflexivePendingRuntimeHandle>();
+interface PendingRecord {
+  readonly links?: Readonly<Record<string, Value>>;
+  readonly snapshot: ReflexiveConditionSnapshot;
+}
+const pendingRecords = new Map<string, PendingRecord>();
 
 export class ReflexivePendingError extends Error {
   readonly status = 'blocked';
@@ -50,15 +55,6 @@ function stableSegment(value: string): string {
   return encodeURIComponent(value);
 }
 
-/**
- * Parent Finalize must not see the Reflexive declaration as its own nested
- * target.  The resolver still receives the original instruction expression,
- * so only the declaration body's shape is rebased in the runtime copy.
- */
-function withoutReflexiveDeclarations(body: readonly Instruction[]): readonly Instruction[] {
-  return body.filter(instruction => instruction.op !== 'trigger.reflexive');
-}
-
 function draftId(engine: ChainEngine, request: ReflexivePendingRequest): string {
   const parent = currentResolveItem(engine);
   if (parent === undefined) throw new ReflexivePendingError('A Reflexive Trigger can only be created during resolution');
@@ -66,7 +62,7 @@ function draftId(engine: ChainEngine, request: ReflexivePendingRequest): string 
   return `reflexive:${parent}:${stableSegment(discriminator)}:${request.ordinal}`;
 }
 
-function createRuntime(engine: ChainEngine, snapshots: ReflexiveConditionSnapshot[]): ReflexivePendingRuntime {
+function createRuntime(engine: ChainEngine): ReflexivePendingRuntime {
   let active = true;
   const runtime: ReflexivePendingRuntime & { detachRuntime(): void } = {
     version: RUNTIME_VERSION,
@@ -85,26 +81,78 @@ function createRuntime(engine: ChainEngine, snapshots: ReflexiveConditionSnapsho
         seen.add(id);
       }
       const creations: ReflexivePendingCreation[] = [];
+      const drafts: ChainDraft[] = [];
       for (const [index, request] of requests.entries()) {
         const id = ids[index]!;
-      const draft: ChainDraft = {
-        id,
-        controller: request.controller,
-        source: structuredClone(request.source),
-        kind: 'triggered',
-        speed: 'normal',
-        body: structuredClone(request.body),
-        ...(request.mayAtFinalize ? { mayAtFinalize: true } : {}),
-      };
-      engine.enqueue(draft);
-      snapshots.push(structuredClone(request.snapshot));
+        const draft: ChainDraft = {
+          id,
+          controller: request.controller,
+          source: structuredClone(request.source),
+          kind: 'triggered',
+          speed: 'normal',
+          body: structuredClone(request.body),
+          ...(request.mayAtFinalize ? { mayAtFinalize: true } : {}),
+        };
+        engine.enqueue(draft);
+        drafts.push(draft);
         creations.push({ id });
+      }
+      for (const [index, request] of requests.entries()) {
+        pendingRecords.set(drafts[index]!.id, {
+          ...(request.linkedValues === undefined ? {} : { links: structuredClone(request.linkedValues) }),
+          snapshot: structuredClone(request.snapshot),
+        });
       }
       return creations;
     },
     detachRuntime(): void { active = false; },
   };
   return runtime;
+}
+
+function currentResolveEntry(engine: ChainEngine): { readonly id: string; readonly body: readonly Instruction[]; readonly targetPlans?: readonly import('../../target/target-plan.js').TargetPlan[] } | undefined {
+  const id = currentResolveItem(engine);
+  if (id === undefined) return undefined;
+  return (engine as unknown as {
+    entries: Array<{ readonly id: string; readonly body: readonly Instruction[]; readonly targetPlans?: readonly import('../../target/target-plan.js').TargetPlan[] }>;
+  }).entries.find(entry => entry.id === id);
+}
+
+function bindResolveSelections(context: ResolveContext, engine: ChainEngine): ResolveContext {
+  const item = currentResolveEntry(engine);
+  if (item === undefined || item.targetPlans === undefined) return context;
+  const selections = new Map(item.targetPlans.map(plan => [plan.requirement.id, plan.selected]));
+  const bound: ResolveContext = {
+    source: context.source,
+    controller: context.controller,
+    timingPoint: context.timingPoint,
+    object: ref => context.object(ref),
+    lastKnown: ref => context.lastKnown(ref),
+    query: filter => context.query(filter),
+    zoneSlice: (player, zone, from, count) => context.zoneSlice(player, zone, from, count),
+    targets: id => {
+      const selected = selections.get(id);
+      return selected === undefined
+        ? context.targets(id)
+        : selected.map(ref => ({ id: ref.id, zoneEntryId: ref.zoneEntryId }));
+    },
+    picks: id => context.picks(id),
+    player: id => context.player(id),
+    evaluate: expr => context.evaluate(expr),
+    test: condition => context.test(condition),
+    linked: key => context.linked(key),
+    history: query => context.history(query),
+    choose: request => context.choose(request),
+    perform: (action => (context.perform as (value: unknown) => ReturnType<ResolveContext['perform']>)(action)) as ResolveContext['perform'],
+    link: (key, value) => context.link(key, value),
+    addContinuous: (effect, duration) => context.addContinuous(effect, duration),
+    registerDelayedTrigger: (spec, body) => context.registerDelayedTrigger(spec, body),
+    ...(context.contractActions === undefined ? {} : { contractActions: context.contractActions }),
+    ...(context.transaction === undefined ? {} : { transaction: context.transaction }),
+    ...(context.eventObject === undefined ? {} : { eventObject: role => context.eventObject!(role) }),
+  };
+  Object.defineProperty(bound, 'source', { configurable: false, enumerable: true, writable: false, value: context.source });
+  return bound;
 }
 
 /**
@@ -116,8 +164,7 @@ export function installReflexivePendingRuntime(engine: ChainEngine): ReflexivePe
   const existing = installations.get(engine);
   if (existing !== undefined) return existing;
 
-  const snapshots: ReflexiveConditionSnapshot[] = [];
-  const runtime = createRuntime(engine, snapshots);
+  const runtime = createRuntime(engine);
   const options = (engine as unknown as { options: { host: { context: ChainEngine['pipeline']['host']['context'] } } }).options;
   const host = options.host;
   const entries = (engine as unknown as { entries: Array<{ readonly id: string; readonly body: readonly Instruction[] }> }).entries;
@@ -135,13 +182,45 @@ export function installReflexivePendingRuntime(engine: ChainEngine): ReflexivePe
   const wrapped = ((source: ObjectSnapshot, controller: string, at: Parameters<typeof original>[2]) => {
     runtimes.set(source, runtime);
     if (at === 'chain-item-finalize') encodeFinalizingEntry();
-    return original(source, controller, at);
+    const baseContext = original(source, controller, at);
+    const context = at === 'chain-item-resolve'
+      ? new Proxy(baseContext, {
+          get(target, key) {
+            if (key === 'source') return source;
+            const value = Reflect.get(target, key);
+            return typeof value === 'function' ? value.bind(target) : value;
+          },
+        })
+      : baseContext;
+    if (at === 'chain-item-resolve') {
+      Object.defineProperty(context, 'source', {
+        configurable: true,
+        enumerable: true,
+        value: source,
+      });
+    }
+    if (at === 'chain-item-resolve') return bindResolveSelections(context, engine);
+    const itemId = currentResolveItem(engine);
+    const links = itemId === undefined ? undefined : pendingRecords.get(itemId)?.links;
+    if (links === undefined) return context;
+    return new Proxy(context, {
+      get(target, key) {
+        if (key === 'linked') return (name: string) => target.linked(name) ?? links[name];
+        const value = Reflect.get(target, key);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
   }) as typeof host.context;
   host.context = wrapped;
 
   const handle: ReflexivePendingRuntimeHandle = {
     get snapshots(): readonly ReflexiveConditionSnapshot[] {
-      return snapshots.map(snapshot => structuredClone(snapshot));
+      const live = new Set(engine.items.map(item => item.id));
+      for (const id of pendingRecords.keys()) if (!live.has(id)) pendingRecords.delete(id);
+      return [...live].flatMap(id => {
+        const snapshot = pendingRecords.get(id)?.snapshot;
+        return snapshot === undefined ? [] : [structuredClone(snapshot)];
+      });
     },
     detach() {
       if (host.context === wrapped) host.context = original;
@@ -156,3 +235,4 @@ export function installReflexivePendingRuntime(engine: ChainEngine): ReflexivePe
 export function reflexiveLinkValue(value: Value | undefined): Value {
   return value === undefined ? null : structuredClone(value);
 }
+
