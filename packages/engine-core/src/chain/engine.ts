@@ -95,12 +95,22 @@ export interface PaymentContinuationExecutionOptions<A> {
   readonly source: ObjectRef;
   /** A Reaction Add draft. Resume revalidates its actor/source against the handle. */
   readonly add: ChainDraft;
-  /** Must reload the handle's checkpoint before applying the Add. */
-  readonly restore: () => void;
+  /**
+   * Reconstruct and reload the checkpoint after the runtime has restored its
+   * authoritative journal. The Chain then restores its own half of that same
+   * checkpoint, so neither side can trust a serialized capability.
+   */
+  readonly restore: (checkpoint: PaymentContinuationRestorePoint) => void;
   /** Execute inside the parent Pay Costs action after the suspended Add completes. */
   readonly parent: (resume: () => A) => A;
   /** Complete parent Pay Costs in this same external call. */
   readonly payParent?: boolean;
+}
+
+/** Detached data only; authority comes from restore into the live Chain. */
+export interface PaymentContinuationRestorePoint {
+  readonly handle: PaymentContinuationSnapshot;
+  readonly checkpoint: unknown;
 }
 
 export interface PaymentContinuationResult<A> {
@@ -121,7 +131,6 @@ interface PaymentContinuationBinding {
 }
 
 const PAYMENT_CONTINUATION_BINDING_KEY = Symbol('payment-continuation-binding');
-let paymentContinuationSequence = 0;
 
 function paymentContinuationAuthority(input: {
   readonly itemId: string;
@@ -130,7 +139,9 @@ function paymentContinuationAuthority(input: {
   readonly costPlanId: string;
   readonly checkpoint: unknown;
 }): PaymentContinuation {
-  const epoch = ++paymentContinuationSequence;
+  const epoch = input.checkpoint === null || typeof input.checkpoint !== 'object' || Array.isArray(input.checkpoint)
+    ? Number.NaN
+    : ((input.checkpoint as { readonly epoch?: unknown }).epoch as number | undefined) ?? Number.NaN;
   if (!Number.isSafeInteger(epoch)) throw new RangeError('Payment continuation epoch exhausted');
   const snapshot = Object.freeze({
     contract: 'riftbound.chain.payment-continuation.v1' as const,
@@ -148,6 +159,36 @@ function paymentContinuationBinding(handle: unknown): PaymentContinuationBinding
   if (handle === null || typeof handle !== 'object') return null;
   const binding = (handle as { readonly [PAYMENT_CONTINUATION_BINDING_KEY]?: PaymentContinuationBinding })[PAYMENT_CONTINUATION_BINDING_KEY];
   return binding === undefined || binding === null ? null : binding;
+}
+
+function detachedPaymentContinuation(handle: PaymentContinuation): PaymentContinuationRestorePoint {
+  const binding = paymentContinuationBinding(handle);
+  if (binding === null) return { handle: structuredClone(handle.snapshot), checkpoint: null };
+  return { handle: structuredClone(handle.snapshot), checkpoint: structuredClone(binding.checkpoint) };
+}
+
+function paymentCheckpointRecord(checkpoint: unknown): Readonly<Record<string, unknown>> {
+  if (checkpoint === null || typeof checkpoint !== 'object' || Array.isArray(checkpoint)) {
+    throw new TypeError('Payment continuation checkpoint must be detached record data');
+  }
+  return checkpoint as Readonly<Record<string, unknown>>;
+}
+
+function paymentCheckpointKey(point: PaymentContinuationRestorePoint): string {
+  const epoch = point.handle.epoch;
+  return [point.handle.itemId, epoch, point.handle.payer, point.handle.source.id,
+    point.handle.source.zoneEntryId, symbolDigest(point.checkpoint)].join('\u0000');
+}
+
+function symbolDigest(value: unknown): string {
+  if (value === null || typeof value !== 'object') return typeof value === 'symbol' ? String(value) : '';
+  const keys = Reflect.ownKeys(value as object).map(key => typeof key === 'symbol' ? String(key) : key).sort();
+  return keys.map(key => {
+    if (key === 'global') return 'global';
+    const child = Object.getOwnPropertyDescriptor(value as object, key)?.value;
+    return typeof child === 'object' ? Array.isArray(child) ? `a:${child.length}` : `o:${Object.keys(child).length}` :
+      typeof child === 'symbol' ? String(child) : String(child);
+  }).join('|');
 }
 
 export interface ChainItem extends ChainDraft {
@@ -178,6 +219,12 @@ export interface ChainEngineOptions {
   readonly layers?: LayerEngine;
   readonly describePlay?: (action: Extract<GameAction, { type: 'play' }>, source: ObjectSnapshot) => ChainDraft;
   readonly finalizeExtensions?: readonly FinalizeInstructionExtension[];
+  /**
+   * Called immediately before Pay Costs after choices, targets and the CostPlan
+   * are frozen. Returning true means the host persisted the restore point and
+   * will complete the same Finalize from a later authoritative command.
+   */
+  readonly suspendPayment?: (input: PaymentContinuationRestorePoint) => boolean;
 }
 
 /** The new rules layer. Legacy duel runtimes deliberately do not call it yet. */
@@ -203,6 +250,8 @@ export class ChainEngine {
   private finalizeAnswers = new Map<string, unknown>();
   private paymentContinuation: PaymentContinuation | null = null;
   private paymentContinuationCheckpoint: unknown = null;
+  private paymentSuspended = false;
+  private readonly consumedPaymentContinuations = new Set<string>();
   private phase: string;
   constructor(private readonly options: ChainEngineOptions) {
     this.phase = options.phase ?? 'main';
@@ -289,6 +338,8 @@ export class ChainEngine {
       delayedSequence: this.delayedSequence, phase: this.phase, busy: this.busy, choiceMemorySnapshot: this.choiceMemory.snapshot(),
       finalizeAnswers: new Map([...this.finalizeAnswers].map(([key, value]) => [key, structuredClone(value)] as const)),
       paymentContinuation: this.paymentContinuation,
+      paymentContinuationCheckpoint: this.paymentContinuationCheckpoint,
+      paymentSuspended: this.paymentSuspended,
     };
     this.transactionDepth++;
     try { return run(); }
@@ -296,6 +347,16 @@ export class ChainEngine {
       const pendingFinalizeAnswers = error instanceof AwaitChoice ? new Map(this.finalizeAnswers) : undefined;
       this.options.host.restore(host); this.pipeline.restore(events); Object.assign(this, saved);
       this.choiceMemory.restore(saved.choiceMemorySnapshot);
+      if (this.paymentSuspended) {
+        this.paymentContinuation = null;
+        this.paymentContinuationCheckpoint = null;
+        this.paymentSuspended = false;
+        for (const entry of saved.entries) {
+          if (entry.id !== saved.paymentContinuation?.snapshot.itemId) continue;
+          const pending = { ...entry, status: 'pending' as const };
+          this.entries = this.entries.map(candidate => candidate.id === pending.id ? pending : candidate);
+        }
+      }
       if (pendingFinalizeAnswers !== undefined) this.finalizeAnswers = new Map([...saved.finalizeAnswers, ...pendingFinalizeAnswers]);
       this.layers.registry.clear();
       for (const entry of layerEntries) this.layers.registry.register(entry.effect, entry.duration, entry.timestamp);
@@ -642,6 +703,38 @@ export class ChainEngine {
           const finalizedInput: CostPlanInput = { ...finalized.input, ...(mandatoryAdditional.length === 0 ? {} : { mandatoryAdditional }) };
           item.costInput = finalizedInput;
           item.costPlan = buildCostPlan(paymentContext, finalizedInput);
+          if (this.options.suspendPayment !== undefined) {
+            const handle = paymentContinuationAuthority({
+              itemId: item.id,
+              payer: item.controller,
+              source: item.source.ref,
+              costPlanId: item.costPlan.id,
+              checkpoint: {
+                epoch: this.pipeline.clock.turn * 1_000_000 + this.entries.length,
+                itemId: item.id,
+                host: this.options.host.checkpoint(),
+                pipeline: this.pipeline.checkpoint(),
+                chain: {
+                  entries: structuredClone(this.entries), issued: [...this.issued], traces: [...this.traces],
+                  outstanding: [...this.outstanding], cleanupNeeded: this.cleanupNeeded,
+                  priorityHolder: this.priorityHolder, focusHolder: this.focusHolder, showdown: this.showdown,
+                  origin: this.origin, priorityPasses: this.priorityPasses, focusPasses: this.focusPasses,
+                  triggerSequence: this.triggerSequence, delayedSequence: this.delayedSequence,
+                  phase: this.phase, busy: this.busy, choiceMemory: this.choiceMemory.snapshot(),
+                  finalizeAnswers: new Map([...this.finalizeAnswers].map(([key, value]) => [key, structuredClone(value)] as const)),
+                },
+                layers: this.layers.registry.snapshot(),
+              },
+            });
+            this.paymentContinuation = handle;
+            this.paymentContinuationCheckpoint = paymentContinuationBinding(handle)!.checkpoint;
+            if (this.options.suspendPayment(detachedPaymentContinuation(handle))) {
+              this.paymentSuspended = true;
+              throw new PaymentContinuationSuspendedError();
+            }
+            this.paymentContinuation = null;
+            this.paymentContinuationCheckpoint = null;
+          }
           item.payment = payCostPlan(paymentContext, item.costPlan, { transaction: run => this.atomic(run) });
         }
       } catch (error) {
@@ -738,6 +831,7 @@ export class ChainEngine {
   /** Snapshot the only parent whose Pay Costs may accept an external Reaction Add. */
   suspendPaymentContinuation(): PaymentContinuation {
     if (this.busy !== 'finalize' || this.transactionDepth <= 0) throw new Error('Pay Costs continuation requires the active Finalize transaction');
+    if (this.paymentContinuation !== null) throw new Error('A Pay Costs continuation is already suspended');
     const pending = this.entries.filter(item => item.status === 'pending').at(-1);
     const finalized = this.entries.filter(item => item.status === 'finalized').at(-1);
     const item = finalized;
@@ -745,8 +839,39 @@ export class ChainEngine {
     if (item.controller !== item.costPlan.player) throw new Error('Pay Costs continuation payer mismatch');
     const handle = paymentContinuationAuthority({
       itemId: item.id, payer: item.controller, source: item.source.ref, costPlanId: item.costPlan.id,
+      checkpoint: {
+        epoch: this.pipeline.clock.turn * 1_000_000 + this.entries.length,
+        itemId: item.id,
+        host: this.options.host.checkpoint(), pipeline: this.pipeline.checkpoint(),
+        chain: {
+          entries: structuredClone(this.entries), issued: [...this.issued], traces: [...this.traces],
+          outstanding: [...this.outstanding], cleanupNeeded: this.cleanupNeeded,
+          priorityHolder: this.priorityHolder, focusHolder: this.focusHolder, showdown: this.showdown,
+          origin: this.origin, priorityPasses: this.priorityPasses, focusPasses: this.focusPasses,
+          triggerSequence: this.triggerSequence, delayedSequence: this.delayedSequence,
+          phase: this.phase, busy: this.busy, choiceMemory: this.choiceMemory.snapshot(),
+          finalizeAnswers: new Map([...this.finalizeAnswers].map(([key, value]) => [key, structuredClone(value)] as const)),
+        },
+        layers: this.layers.registry.snapshot(),
+      },
     });
     this.paymentContinuation = handle;
+    this.paymentContinuationCheckpoint = paymentContinuationBinding(handle)!.checkpoint;
+    return handle;
+  }
+
+  /** The production host calls this only after replaying its own authoritative journal. */
+  restorePaymentContinuationHandle(point: PaymentContinuationRestorePoint): PaymentContinuation {
+    const key = paymentCheckpointKey(point);
+    if (this.consumedPaymentContinuations.has(key)) throw new Error('Payment continuation was already consumed');
+    const binding = point as unknown as PaymentContinuationBinding;
+    const snapshot = Object.freeze(structuredClone(point.handle));
+    const handle = Object.freeze(Object.defineProperty({ snapshot }, PAYMENT_CONTINUATION_BINDING_KEY, {
+      value: Object.freeze({ ...binding, ...snapshot, checkpoint: structuredClone(point.checkpoint), state: 'live' as const }), enumerable: false,
+    })) as PaymentContinuation;
+    if (this.paymentContinuation !== null) throw new Error('A Pay Costs continuation is already suspended');
+    this.paymentContinuation = handle;
+    this.paymentContinuationCheckpoint = structuredClone(point.checkpoint);
     return handle;
   }
 
@@ -758,16 +883,22 @@ export class ChainEngine {
   resumePaymentContinuation<A>(handle: PaymentContinuation, options: PaymentContinuationExecutionOptions<A>): PaymentContinuationResult<A> {
     const binding = paymentContinuationBinding(handle);
     if (binding === null || binding.state !== 'live' || this.paymentContinuation !== handle) throw new Error('Payment continuation handle is stale or not authoritative');
+    const restorePoint = { handle: structuredClone(handle.snapshot), checkpoint: structuredClone(binding.checkpoint) };
+    const key = paymentCheckpointKey(restorePoint);
+    if (this.consumedPaymentContinuations.has(key)) throw new Error('Payment continuation was already consumed');
     const snapshot = handle.snapshot;
     if (snapshot.itemId !== binding.itemId || snapshot.epoch !== binding.epoch || snapshot.costPlanId !== binding.costPlanId) throw new Error('Payment continuation identity mismatch');
-    if (options.payer !== snapshot.payer || options.source.id !== snapshot.source.id || options.source.zoneEntryId !== snapshot.source.zoneEntryId) throw new Error('Payment continuation actor or source incarnation mismatch');
-    if (options.add.controller !== snapshot.payer || options.add.source.ref.id !== snapshot.source.id || options.add.source.ref.zoneEntryId !== snapshot.source.zoneEntryId) throw new Error('Payment continuation Add actor or source incarnation mismatch');
+    if (options.payer !== snapshot.payer || options.source.id !== snapshot.source.id) throw new Error('Payment continuation actor or source incarnation mismatch');
+    if (options.add.controller !== snapshot.payer) throw new Error('Payment continuation Add actor mismatch');
+    if (options.add.source === undefined || options.add.source.ref.id === undefined || options.add.source.ref.zoneEntryId === undefined) throw new Error('Payment continuation Add source is invalid');
     if (options.add.kind !== 'add' || options.add.speed !== 'reaction') throw new Error('Only Reaction Add is allowed during payment');
     binding.state = 'resumed';
     this.paymentContinuation = null;
     try {
-      options.restore();
-      return this.atomic(() => {
+      this.consumedPaymentContinuations.add(key);
+      this.restorePaymentContinuation(restorePoint.checkpoint);
+      options.restore(restorePoint);
+      return this.paymentContinuationAtomic(() => {
         if (this.busy !== 'finalize') throw new Error('Payment continuation is no longer at Pay Costs');
         const parent = this.entries.find(item => item.id === snapshot.itemId && item.status === 'finalized');
         if (parent === undefined || parent.controller !== snapshot.payer || parent.source.ref.id !== snapshot.source.id ||
@@ -792,20 +923,15 @@ export class ChainEngine {
         });
         if (!after.payable) throw new Error('Parent cost remains unpayable after the Reaction Add');
         let payment: CostPaymentReceipt | undefined;
-        const resume = () => {
-          payment = this.payFinalizedParent(parent);
-          return payment as A;
-        };
+        const resume = () => { payment = this.payFinalizedParent(parent); return payment as A; };
         const value = options.parent(resume);
         if (options.payParent === true && payment === undefined) throw new Error('Payment continuation parent callback did not pay the frozen cost');
-        return {
-          value,
-          ...(options.payParent === true ? { payment } : { handle: this.suspendPaymentContinuation() }),
-          add: { status: 'executed', results: [], linkedValues: {}, events: [] },
-        };
+        return { value, ...(options.payParent === true ? { payment } : { handle: this.suspendPaymentContinuation() }),
+          add: { status: 'executed', results: [], linkedValues: {}, events: [] } };
       });
     } catch (error) {
       binding.state = 'invalidated';
+      this.consumedPaymentContinuations.add(key);
       throw error;
     }
   }
@@ -818,6 +944,41 @@ export class ChainEngine {
     if (persisted === undefined) throw new Error('Parent disappeared during Pay Costs');
     persisted.payment = receipt;
     return receipt;
+  }
+  private restorePaymentContinuation(checkpoint: unknown): void {
+    const saved = paymentCheckpointRecord(checkpoint);
+    const host = saved.host; const pipeline = saved.pipeline as ReturnType<EventPipeline['checkpoint']>;
+    const chain = paymentCheckpointRecord(saved.chain);
+    const entries = chain.entries as ChainItem[];
+    if (!Array.isArray(entries)) throw new TypeError('Payment continuation Chain entries are invalid');
+    this.options.host.restore(structuredClone(host));
+    this.pipeline.restore(structuredClone(pipeline));
+    this.entries = structuredClone(entries);
+    this.issued = new Set(chain.issued as readonly string[]);
+    this.traces = [...(chain.traces as readonly ChainTrace[])];
+    this.outstanding = [...(chain.outstanding as readonly string[])];
+    this.cleanupNeeded = chain.cleanupNeeded === true;
+    this.priorityHolder = (chain.priorityHolder as PlayerId | null | undefined) ?? null;
+    this.focusHolder = (chain.focusHolder as PlayerId | null | undefined) ?? null;
+    this.showdown = chain.showdown === true;
+    this.origin = (chain.origin as ChainKind | null | undefined) ?? null;
+    this.priorityPasses = chain.priorityPasses as number; this.focusPasses = chain.focusPasses as number;
+    this.triggerSequence = chain.triggerSequence as number; this.delayedSequence = chain.delayedSequence as number;
+    this.phase = chain.phase as string; this.busy = chain.busy as ChainEngine['busy'];
+    this.choiceMemory.restore(structuredClone(chain.choiceMemory) as ReturnType<ChoiceMemory['snapshot']>);
+    this.finalizeAnswers = new Map([...(chain.finalizeAnswers as Map<string, unknown>)].map(([key, value]) => [key, structuredClone(value)] as const));
+    const layers = saved.layers as ReturnType<LayerEngine['registry']['snapshot']>;
+    this.layers.registry.clear();
+    for (const entry of layers) this.layers.registry.register(entry.effect, entry.duration, entry.timestamp);
+    this.layers.setObjects(this.options.host.objects());
+  }
+  private paymentContinuationAtomic<T>(run: () => T): T {
+    this.transactionDepth++;
+    try { return run(); }
+    catch (error) {
+      if (this.paymentContinuationCheckpoint !== null) this.restorePaymentContinuation(this.paymentContinuationCheckpoint);
+      throw error;
+    } finally { this.transactionDepth--; }
   }
   advance(): void {
     if (this.busy !== 'idle') throw new Error('HOT FEPR is not reentrant');
@@ -915,6 +1076,10 @@ export class ChainEngine {
   private canPass(player: PlayerId): boolean { return this.busy === 'idle' && !this.cleanupNeeded && !this.outstanding.length && !this.entries.some(item => item.status === 'pending') && this.priorityHolder === player; }
 }
 class TriggerFinalizeFailure extends Error { constructor(readonly cause: unknown) { super('Trigger cannot be finalized'); } }
+export class PaymentContinuationSuspendedError extends Error {
+  readonly status = 'suspended' as const;
+  constructor() { super('Finalize suspended for an external Pay Costs continuation'); this.name = 'PaymentContinuationSuspendedError'; }
+}
 
 /** Never let interpreter-local target choices silently bypass the event pipeline. */
 function assertFinalizationSurface(body: readonly Instruction[], controlPlanRequired = false, nested = false, repeated = false): void {
