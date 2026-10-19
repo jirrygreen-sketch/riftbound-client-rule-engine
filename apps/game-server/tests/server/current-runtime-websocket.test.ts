@@ -12,7 +12,8 @@ import { p4RuntimeFixtureCatalog } from '../duel/fixtures/p4-runtime-catalog.js'
 import { setupAdapterFixtureDecks } from '../duel/fixtures/setup-adapter-catalog.js';
 import { packet, project } from '../room/current-runtime.fixture.js';
 
-const scratch = '/tmp/RIFT-254-server-batch-d-room-dispatch';
+const portBase = Number(process.env.SWARM_PORT_BASE ?? 34680);
+const scratch = path.join('/tmp', process.env.SWARM_TASK ?? 'RIFT-350-server-cutover-engine-runtime');
 const servers: GameServer[] = [], clients: Client[] = [], directories: string[] = [];
 class Client {
   readonly messages: ServerToClientMessage[] = [];
@@ -131,7 +132,7 @@ function privacy(views: DuelProjectionV3Actions1[]) {
 
 describe('current runtime over actual WebSocket transport', () => {
   it('creates a two-client room, executes commands and resumes the same private projections using event cursors', async () => {
-    const h = await pair(40520);
+    const h = await pair(portBase + 1);
     privacy(h.views);
     const journal = h.room.exportArchive().journal;
     await h.sockets[0]!.close();
@@ -151,10 +152,10 @@ describe('current runtime over actual WebSocket transport', () => {
   it('restarts storage mode with exactly the same journal and views, returns the original duplicate and continues commands', async () => {
     await mkdir(scratch, { recursive: true });
     const directory = await mkdtemp(path.join(scratch, 'restart-')); directories.push(directory);
-    const h = await pair(40521, directory), journal = h.room.exportArchive().journal;
+    const h = await pair(portBase + 2, directory), journal = h.room.exportArchive().journal;
     for (const client of h.sockets) await client.close();
     await h.server.stop();
-    const restarted = await start(40521, directory), room = restarted.server.rooms.get(h.sessions[0]!.roomId)!;
+    const restarted = await start(portBase + 2, directory), room = restarted.server.rooms.get(h.sessions[0]!.roomId)!;
     expect(room.exportArchive().journal).toEqual(journal);
     expect(room.roomView()).toMatchObject({ status: 'playing', version: h.views[0]!.match.stateVersion });
     const resumed = await Promise.all(h.sessions.map(s => connect(restarted.url, s, h.views[0]!.match.eventSeq)));
@@ -184,7 +185,7 @@ describe('current runtime over actual WebSocket transport', () => {
       }
     }
     const store = new FailingMetadataStore(directory, async () => catalog);
-    const h = await pair(40522, directory, store);
+    const h = await pair(portBase + 3, directory, store);
     const end = h.views[h.actor]!.actions.find(a => a.kind === 'end-turn' && a.enabled);
     if (!end || end.kind !== 'end-turn') throw Error('End action required');
     const command = packet('end-with-lost-metadata', h.views[h.actor]!.match.stateVersion,
@@ -198,7 +199,7 @@ describe('current runtime over actual WebSocket transport', () => {
     expect(journal!.head.stateVersion).toBeGreaterThan(command.expectedVersion);
     // Stop while sockets remain attached: no later disconnect save can repair the lagging checkpoint.
     await h.server.stop();
-    const restarted = await start(40522, directory), room = restarted.server.rooms.get(h.room.roomId)!;
+    const restarted = await start(portBase + 3, directory), room = restarted.server.rooms.get(h.room.roomId)!;
     expect(room.exportArchive().journal).toEqual(journal);
     const resumed = await connect(restarted.url, h.sessions[h.actor], journal!.head.eventSeq);
     expect(await projection(resumed)).toEqual(views[h.actor]);
