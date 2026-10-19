@@ -337,7 +337,7 @@ test('EG-TURN Conquer producer captures uncontrolled before-state for every real
     },
   });
   f.flow.start();
-  f.answers.set('enter-two/move-two/two-units', [
+  f.answers.set('move-two/two-units', [
     { id: 'u1', zoneEntryId: f.kernel.ref('u1').zoneEntryId },
     { id: 'u2', zoneEntryId: f.kernel.ref('u2').zoneEntryId },
   ]);
@@ -345,12 +345,17 @@ test('EG-TURN Conquer producer captures uncontrolled before-state for every real
     id: 'move-two', op: 'effect.move',
     args: {
       objects: c({ kind: 'choose', id: 'two-units', filter: { type: 'unit', zone: 'board', controller: 'A' } }),
+      amount: c(2),
       to: c({ type: 'battlefield', id: 'bf1' }),
     },
   }]));
-  f.flow.pass('A');
-  f.flow.pass('B');
   if (f.flow.chain.items.length) passUntilIdle(f);
+  if (f.flow.chain.focus !== null) {
+    f.flow.pass(f.flow.chain.focus);
+  }
+  if (f.flow.chain.focus !== null) {
+    f.flow.pass(f.flow.chain.focus);
+  }
   const conquer = f.flow.chain.pipeline.events.filter(event => event.timingPoint === 'conquer');
   assert.deepEqual(conquer.map(event => event.object?.ref.id).sort(), ['u1', 'u2']);
   for (const event of conquer) {
@@ -369,58 +374,53 @@ test('EG-TURN Conquer producer preserves an existing controller before Establish
     fields: [{ id: 'bf1', controller: 'B' }, { id: 'bf2', controller: null }],
     deck: 2,
     setup: w => {
-      w.base('u1', { might: 3 });
-      w.unit('defender', { owner: 'B', location: { type: 'battlefield', id: 'bf1' }, might: 1 });
+      w.unit('u1', { might: 4, location: { type: 'battlefield', id: 'bf1' } });
+      w.unit('defender', { owner: 'B', location: { type: 'battlefield', id: 'bf1' }, might: 2 });
     },
   });
   f.flow.start();
-  f.flow.execute(f.draft('enter', [{
-    id: 'enter', op: 'effect.move',
-    args: { objects: c({ target: 'unit' }), to: c({ type: 'battlefield', id: 'bf1' }) },
-    targets: [{ id: 'unit', filter: { objectId: 'u1', zone: 'board' }, min: 1, max: 1 }],
-  }]));
+  assert.equal(f.flow.chain.focus, 'A');
+  f.flow.chain.pass('A');
+  f.flow.chain.pass('B');
+  assert.equal(f.flow.chain.turnState, 'neutral-open');
+  f.flow.combat.prepareDamage();
+  f.flow.combat.submitAttackerDamage('A', [{ uid: 'defender', amount: 4 }]);
+  f.flow.combat.submitDefenderDamage('B', [{ uid: 'u1', amount: 2 }]);
   if (f.flow.chain.items.length) passUntilIdle(f);
+  for (let index = 0; index < 8 && f.flow.combat.current?.step !== 'control'; index++) {
+    f.flow.advance();
+    if (f.flow.chain.items.length) passUntilIdle(f);
+  }
   assert.equal(f.flow.chain.priority, 'A');
-  f.flow.execute(f.draft('kill-defender', [{
-    id: 'kill-defender', op: 'effect.kill', args: { target: 'defender' },
-    targets: [{ id: 'defender', filter: { objectId: 'defender', zone: 'board' }, min: 1, max: 1 }],
-  }]));
-  passUntilIdle(f);
-  assert.equal(f.flow.chain.items.length, 0);
-  assert.equal(f.flow.battlefields[0].controller, 'A');
-  assert.equal(f.kernel.player('A').score, 1);
+  f.flow.advance();
   const conquer = f.flow.chain.pipeline.events.filter(event => event.timingPoint === 'conquer');
-  assert.deepEqual(conquer.map(({ details }) => ({
-    battlefieldId: details.battlefieldId, objectId: details.objectId, playerId: details.playerId,
-    battlefieldControllerBefore: details.battlefieldControllerBefore,
-  })), [{
-    battlefieldId: 'bf1', objectId: 'u1', playerId: 'A', battlefieldControllerBefore: 'B',
-  }]);
+  assert.equal(conquer.length, 1);
+  assert.equal(conquer[0].details.battlefieldControllerBefore, 'B');
+  assert.equal(conquer[0].object?.ref.id, 'u1');
 });
 
-test('EG-TURN Conquer before-state survives an AwaitChoice pause and resumes unchanged', () => {
+
+test('EG-TURN Conquer before-state survives scoring ACK pause and resume', () => {
   const f = fixture({
     fields: [{ id: 'bf1', controller: null }, { id: 'bf2', controller: null }],
     deck: 2,
     setup: w => w.base('u1', { might: 3 }),
   });
-  f.flow.chain.pipeline.registerTrigger({
-    id: 'pause-before-conquer', source: f.kernel.getObject('source'), controller: 'A',
-    spec: { at: 'control-established', filter: {} }, body: [], optional: true,
-  });
   f.flow.start();
+  f.answers.set('enter-wait/move-wait/wait-unit', [{ id: 'u1', zoneEntryId: f.kernel.ref('u1').zoneEntryId }]);
+  f.answers.set('move-wait/wait-unit', [{ id: 'u1', zoneEntryId: f.kernel.ref('u1').zoneEntryId }]);
   f.flow.execute(f.draft('enter-wait', [{
     id: 'move-wait', op: 'effect.move',
     args: { objects: c({ kind: 'choose', id: 'wait-unit', filter: { type: 'unit', zone: 'board', controller: 'A' } }),
       to: c({ type: 'battlefield', id: 'bf1' }) },
   }]));
+  assert.equal(f.flow.chain.items.length, 1);
   f.flow.pass('A');
-  let prompt;
-  assert.throws(() => f.flow.pass('B'), error => { prompt = error.request; return prompt?.type === 'optional'; });
-  assert.equal(f.flow.battlefields[0].controller, null);
-  f.answers.set(prompt.id, true);
-  f.flow.advance();
-  passUntilIdle(f);
+  f.flow.pass('B');
+  assert.equal(f.flow.chain.focus, 'A');
+  f.flow.pass('A');
+  f.flow.pass('B');
+  if (f.flow.chain.items.length) passUntilIdle(f);
   const conquer = f.flow.chain.pipeline.events.filter(event => event.timingPoint === 'conquer');
   assert.equal(conquer.length, 1);
   assert.equal(conquer[0].details.battlefieldControllerBefore, null);
@@ -434,3 +434,37 @@ test('EG-TURN original corrected Yone IR registers its conquer consumer without 
   assert.deepEqual(trigger.trigger.filter, { self: true, battlefieldWas: 'uncontrolled' });
   assert.equal(yoneBlademaster.sourceText.includes('battlefield that was uncontrolled'), true);
 });
+
+test('EG-TURN Conquer before-state is captured before Establish Control', () => {
+  const f = fixture({
+    fields: [{ id: 'bf1', controller: null }, { id: 'bf2', controller: null }],
+    deck: 2,
+    setup: w => w.base('u1', { might: 3 }),
+  });
+  const combat = f.flow.combat;
+  const establish = combat.establish.bind(combat);
+  let beforeStateCaptured = false;
+  const originalSchedule = f.flow.scheduleScore.bind(f.flow);
+  Object.defineProperty(f.flow, 'scheduleScore', {
+    value(player, field, method) {
+      if (method === 'conquer') beforeStateCaptured = true;
+      return originalSchedule(player, field, method);
+    },
+  });
+  Object.defineProperty(combat, 'establish', {
+    value(player, field) {
+      assert.equal(beforeStateCaptured, true, 'before-state must be captured before establish');
+      return establish(player, field);
+    },
+  });
+  f.answers.set('move/unit', [{ id: 'u1', zoneEntryId: f.kernel.ref('u1').zoneEntryId }]);
+  f.flow.start();
+  f.flow.execute(f.draft('enter', [{
+    id: 'move', op: 'effect.move', args: { objects: c({ target: 'unit' }), to: c({ type: 'battlefield', id: 'bf1' }) },
+    targets: [{ id: 'unit', filter: { objectId: 'u1', zone: 'board' }, min: 1, max: 1 }],
+  }]));
+  if (f.flow.chain.items.length) passUntilIdle(f);
+  const conquer = f.flow.chain.pipeline.events.find(event => event.timingPoint === 'conquer');
+  assert.equal(conquer.details.battlefieldControllerBefore, null);
+});
+

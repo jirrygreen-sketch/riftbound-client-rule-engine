@@ -41,15 +41,19 @@ export interface TurnFlowOptions {
 
 type Task = () => void;
 
-interface ActiveScore {
+interface ActiveScoreBase {
   readonly player: PlayerId;
   readonly field: string;
-  readonly method: 'hold' | 'conquer';
   readonly finalDraw: boolean;
   readonly units: readonly ObjectRef[];
-  /** Present exactly when method is conquer; captured before Establish Control. */
-  readonly battlefieldControllerBefore?: PlayerId | null;
 }
+type ActiveScore =
+  | (ActiveScoreBase & { readonly method: 'hold' })
+  | (ActiveScoreBase & {
+    readonly method: 'conquer';
+    /** Captured before Establish Control; absence is not representable. */
+    readonly battlefieldControllerBefore: PlayerId | null;
+  });
 
 /**
  * New CR 1.5 turn driver over batch 4 HOT FEPR. Legacy duel profiles are untouched.
@@ -145,10 +149,9 @@ export class TurnFlow {
             player: score.player, battlefieldId: score.field, method: score.method,
             ...(score.units.length === 1 ? { objectId: score.units[0]!.id } : {}),
           });
-          const details = {
-            battlefieldId: score.field,
-            ...(score.method === 'conquer' ? { battlefieldControllerBefore: score.battlefieldControllerBefore } : {}),
-          };
+          const details = score.method === 'conquer'
+            ? { battlefieldId: score.field, battlefieldControllerBefore: score.battlefieldControllerBefore }
+            : { battlefieldId: score.field };
           if (score.method === 'conquer') emissions.unshift(this.combat.establish(score.player, score.field));
           if (score.finalDraw) emissions.push({ timingPoint: 'final-point', player: score.player, details });
           for (const unit of score.units) {
@@ -425,10 +428,9 @@ export class TurnFlow {
         return;
       }
       const units = this.battlefieldUnits(field, player).map(unit => unit.ref);
-      this.scoring = {
-        player, field, method, finalDraw, units,
-        ...(battlefieldControllerBefore === undefined ? {} : { battlefieldControllerBefore }),
-      };
+      this.scoring = battlefieldControllerBefore === undefined
+        ? { player, field, method: 'hold', finalDraw, units }
+        : { player, field, method: 'conquer', finalDraw, units, battlefieldControllerBefore };
       try {
         if (finalDraw) this.draw(player);
         else this.commit({ type: 'score', player, amount: 1 });
@@ -441,6 +443,7 @@ export class TurnFlow {
    * immediately before the real Establish Control step. Capture it while the
    * Score task is scheduled, before combat.establish can mutate the battlefield.
    */
+  /** Internal production seam used by score scheduling; kept closed outside TurnFlow. */
   private captureBattlefieldControllerBefore(field: string, scorer: PlayerId): PlayerId | null {
     const battlefield = this.battlefields.find(candidate => candidate.id === field);
     if (battlefield === undefined) {
