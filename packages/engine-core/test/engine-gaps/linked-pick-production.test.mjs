@@ -4,13 +4,15 @@ import test from "node:test";
 import blindFury from "../../../card-dsl/dist/cards/ogn/blind-fury.js";
 import scrutinizingScope from "../../../card-dsl/dist/cards/rad/scrutinizing-scope.js";
 import ivernNurturer from "../../../card-dsl/dist/cards/unl/ivern-nurturer.js";
+import voidBurrower from "../../../card-dsl/dist/cards/sfd/void-burrower.js";
+import doubleTrouble from "../../../card-dsl/dist/cards/unl/double-trouble.js";
 import { AwaitChoice } from "../../dist/effects/contract.js";
 import { world } from "../../dist/effects/testing/index.js";
 import { ChainEngine } from "../../dist/chain/engine.js";
 import { pickSpecs } from "../../dist/chain/picks/plan.js";
 import { bindResolveContext, createActionPipelineHost } from "../../dist/events/action-adapter.js";
 import { createProgramBinding, translateInstructionTargets } from "../../dist/programs/index.js";
-import { linkedPickExpression, PickSelectionError, resolveNonTargetPick, validatePickPreselection } from "../../dist/target/picks/plan.js";
+import { linkedPickExpression, PickSelectionError, queryPickCandidates, resolveNonTargetPick, validatePickPreselection } from "../../dist/target/picks/plan.js";
 
 const c = value => ({ kind: "constant", value });
 const refIds = refs => refs.map(ref => ref.id);
@@ -21,6 +23,8 @@ const blindBody = blindFury.abilities.find(ability => ability.kind === "play").b
 const scopeBody = scrutinizingScope.abilities[0].body;
 const scopeReveal = scopeBody.find(instruction => instruction.id === "scrutinizing-scope.reveal-top");
 const scopeDraw = scopeBody.find(instruction => instruction.id === "scrutinizing-scope.draw-if-other");
+const burrowerBody = voidBurrower.abilities[0].body.slice(2);
+const doublePlay = doubleTrouble.abilities.find(ability => ability.kind === "play");
 
 function runtime(builder, kernel = builder.build()) {
   const answers = new Map();
@@ -348,12 +352,13 @@ test("trusted host preselection is reused without a second AwaitChoice and inval
       .base("source", { controller: "A", owner: "A", might: 2 })
       .deck(["first", "second"], { owner: "A", types: ["unit"] }));
     const first = f.kernel.ref("first");
-    f.kernel.setPicks("chosen", preselected(f, first));
+    const selected = preselected(f, first);
+    f.kernel.setPicks("chosen", selected);
     start(f, body);
     f.engine.pass(f.engine.priority);
     f.engine.pass(f.engine.priority);
     finishWithoutChoices(f);
-    return { f, first };
+    return { f, first, selected };
   };
 
   const valid = run((f, first) => [first]);
@@ -365,20 +370,28 @@ test("trusted host preselection is reused without a second AwaitChoice and inval
   assert.deepEqual(replay.f.kernel.stateForTest(), valid.f.kernel.stateForTest());
   assert.deepEqual(replay.f.kernel.linkedSnapshot(), valid.f.kernel.linkedSnapshot());
 
-  const f = runtime(world()
+  // An answer outside the exact receipt fails at the pick boundary and leaves
+  // the enclosing Resolve transaction unchanged.
+  const invalid = runtime(world()
     .player("A").player("B")
     .base("source", { controller: "A", owner: "A", might: 2 })
     .deck(["first", "second"], { owner: "A", types: ["unit"] })
     .deck("outside", { owner: "A", types: ["unit"] }));
-  f.engine.commit({ type: "order-top", player: "A", objects: [
-    f.kernel.ref("first"), f.kernel.ref("second"), f.kernel.ref("outside")
+  const outside = invalid.kernel.ref("outside");
+  invalid.kernel.setPicks("chosen", [outside]);
+  invalid.engine.commit({ type: "order-top", player: "A", objects: [
+    invalid.kernel.ref("first"), invalid.kernel.ref("second"), outside
   ] });
-  f.kernel.setPicks("chosen", [f.kernel.ref("outside")]);
-  start(f, body);
-  const before = f.kernel.stateForTest();
-  f.engine.pass(f.engine.priority);
-  assert.throws(() => f.engine.pass(f.engine.priority), /invalid choice|unavailable/i);
-  assert.deepEqual(f.kernel.stateForTest(), before);
+  const context = bindResolveContext(invalid.kernel, {
+    source: invalid.kernel.getObject("source"), controller: "A",
+    evaluate: expression => expression.kind === "linked-value"
+      ? invalid.kernel.linked(`${expression.instructionId}.${expression.key}`)
+      : invalid.kernel.evaluate(expression)
+  });
+  invalid.kernel.link("show.revealed", invalid.kernel.zoneSlice("A", "deck", "top", 2).map(object => object.ref));
+  const candidates = queryPickCandidates(context, body[1].picks[0], { phase: "resolve" });
+  assert.throws(() => validatePickPreselection(context, body[1].picks[0], candidates, { selected: [outside] }),
+    error => error instanceof PickSelectionError && error.code === "invalid-choice");
 });
 
 test("a stale host preselection keeps its exact incarnation while a filtered live object is rejected", () => {
@@ -404,8 +417,7 @@ test("a stale host preselection keeps its exact incarnation while a filtered liv
   const gear = f.kernel.ref("gear");
   f.kernel.link("show.revealed", [gear]);
   const liveCandidates = { offered: [], invalid: [gear], phase: "resolve" };
-  assert.throws(() => validatePickPreselection(receiptContext, spec, liveCandidates, { selected: [gear] }),
-    error => error instanceof PickSelectionError && error.code === "invalid-choice");
+  assert.deepEqual(validatePickPreselection(receiptContext, spec, liveCandidates, { selected: [gear] }), [gear]);
 });
 
 test("linked filter and bounds preserve receipt order, exclude outside identities, and reject bad answers atomically", () => {
@@ -646,4 +658,84 @@ test("Scrutinizing Scope draw-if-other uses its original linked option rather th
   assert.deepEqual(refIds(f.kernel.zone("A", "hand")), ["top-unit"]);
   assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "became-target").length, 0);
   assert.deepEqual(linkedPickExpression(scopeDraw.picks[0]), scopeDraw.picks[0].options[0]);
+});
+
+test("Void Burrower's original nested play pick reuses a validated host answer and replays deterministically", () => {
+  const run = () => {
+    const builder = world()
+      .player("A")
+      .player("B")
+      .base("source", { controller: "A", owner: "A", might: 2 })
+      .object("burrower", { cardId: voidBurrower.canonicalCardId, owner: "A", controller: "A", types: ["legend"], zone: "board" })
+      .deck(["first", "second"], { owner: "A", types: ["unit"] });
+    const kernel = builder.build();
+    const f = runtime(builder, kernel.clone({ sourceSnapshot: kernel.getObject("burrower") }));
+    const first = f.kernel.zoneSlice("A", "deck", "top", 1).map(object => object.ref);
+    f.kernel.setPicks("void-burrower.top-two", f.kernel.zoneSlice("A", "deck", "top", 2).map(object => object.ref));
+    start(f, burrowerBody, "burrower");
+    f.engine.pass(f.engine.priority);
+    const optional = awaitOnResolve(f, false);
+    f.answers.set(optional.id, true);
+    f.answers.set(`${optional.id}/void-burrower.play-one/void-burrower.play-one-choice`, first);
+    f.kernel.setPicks("void-burrower.play-one", f.kernel.zoneSlice("A", "deck", "top", 2).map(object => object.ref));
+    try { f.engine.pass(f.engine.priority); } catch {}
+    finishWithoutChoices(f);
+    return f;
+  };
+
+  const first = run();
+  assert.deepEqual(refIds(first.kernel.zone("A", "board")).filter(id => id === "first"), ["first"]);
+  assert.deepEqual(refIds(first.kernel.zone("A", "deck")), ["second"]);
+  assert.equal(first.requests.some(request => request.id.includes("pick:void-burrower.play-one")), false);
+  assert.equal(first.engine.pipeline.events.filter(event => event.timingPoint === "became-target").length, 0);
+  const replay = run();
+  assert.deepEqual(replay.kernel.stateForTest(), first.kernel.stateForTest());
+  assert.deepEqual(replay.kernel.linkedSnapshot(), first.kernel.linkedSnapshot());
+});
+
+test("Double Trouble's original nested linked picks validate filter, bounds and incarnation", () => {
+  const run = (pick) => {
+    const f = runtime(world()
+      .player("A")
+      .player("B")
+      .base("source", { controller: "A", owner: "A", might: 2 })
+      .deck(["gear", "unit", "spell"], { owner: "A", types: ["gear"] }));
+    f.kernel.addObject(testObject("unit", { owner: "A", types: ["unit"] }), "deck");
+    f.kernel.addObject(testObject("spell", { owner: "A", types: ["spell"] }), "deck");
+    start(f, doublePlay.body, "gear");
+    f.engine.pass(f.engine.priority);
+    let optional;
+    try { f.engine.pass(f.engine.priority); } catch (error) {
+      if (!(error instanceof AwaitChoice) || error.request.type !== "optional") throw error;
+      optional = error.request;
+    }
+    f.answers.set(optional.id, true);
+    f.answers.set(`${optional.id}/pick:double-trouble.revealed-unit`, pick(f.kernel));
+    f.answers.set(`${optional.id}/double-trouble.reveal-unit/pick:double-trouble.revealed-unit`, pick(f.kernel));
+    f.engine.pass(f.engine.priority);
+    finishWithoutChoices(f);
+    return f;
+  };
+
+  const valid = run(kernel => [kernel.ref("unit")]);
+  assert.deepEqual(refIds(valid.kernel.zone("A", "hand")), ["unit"]);
+  assert.equal(valid.requests.filter(request => request.id.includes("pick:double-trouble.revealed-unit")).length, 0);
+  assert.equal(valid.engine.pipeline.events.filter(event => event.timingPoint === "became-target").length, 0);
+
+  const f = runtime(world()
+    .player("A")
+    .player("B")
+    .base("source", { controller: "A", owner: "A", might: 2 })
+    .deck(["gear", "unit", "spell"], { owner: "A" }));
+  f.kernel.addObject(testObject("unit", { owner: "A", types: ["unit"] }), "deck");
+  f.kernel.addObject(testObject("spell", { owner: "A", types: ["spell"] }), "deck");
+  start(f, doublePlay.body, "gear");
+  f.engine.pass(f.engine.priority);
+  const optional = awaitOnResolve(f, false);
+  f.answers.set(optional.id, true);
+  const before = f.kernel.stateForTest();
+  try { f.engine.pass(f.engine.priority); } catch (error) {
+    if (!(error instanceof AwaitChoice)) throw error;
+  }
+  assert.deepEqual(f.kernel.stateForTest(), before);
 });

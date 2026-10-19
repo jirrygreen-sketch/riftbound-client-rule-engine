@@ -16,6 +16,37 @@ function isObjectRef(value: unknown): value is ObjectRef {
 
 type PickOutput = ObjectRef | string;
 
+/** Instruction ids visible in the assembled body, including nested control bodies. */
+function declaredInstructionIds(body: readonly Instruction[]): ReadonlySet<string> {
+  const ids = new Set<string>();
+  const visit = (instructions: readonly Instruction[]): void => {
+    for (const instruction of instructions) {
+      ids.add(instruction.id);
+      const nested = instruction.args.body;
+      if (nested && (nested.kind === 'constant' || nested.kind === 'literal') && Array.isArray(nested.value)) {
+        visit(nested.value as unknown as readonly Instruction[]);
+      }
+      const modes = instruction.args.modes;
+      if (instruction.op === 'choice.mode' && modes &&
+        (modes.kind === 'constant' || modes.kind === 'literal') && Array.isArray(modes.value)) {
+        for (const mode of modes.value) {
+          if (!mode || typeof mode !== 'object' || Array.isArray(mode)) continue;
+          const modeBody = (mode as { readonly body?: unknown }).body;
+          if (Array.isArray(modeBody)) visit(modeBody as readonly Instruction[]);
+          else if (modeBody && typeof modeBody === 'object') {
+            const wrapped = modeBody as { readonly kind?: unknown; readonly value?: unknown };
+            if ((wrapped.kind === 'constant' || wrapped.kind === 'literal') && Array.isArray(wrapped.value)) {
+              visit(wrapped.value as readonly Instruction[]);
+            }
+          }
+        }
+      }
+    }
+  };
+  visit(body);
+  return ids;
+}
+
 function linkedValues(context: ResolveContext, spec: PickSpec): PickOutput[] {
   try {
     const result = resolveNonTargetPick(context, spec, { phase: 'resolve' });
@@ -47,6 +78,7 @@ function choose<T>(context: ResolveContext, request: ChoiceRequest<T>): T {
 
 /** Bridge actual inspect/reveal/choice.order results to the primitive pick APIs. */
 export function orderedPickResolver(body: readonly Instruction[]): InterpreterOptions['picks'] {
+  const instructionIds = declaredInstructionIds(body);
   const deferred = new Set<string>();
   const collectDeferred = (instructions: readonly Instruction[]): void => {
     for (const instruction of instructions) {
@@ -77,16 +109,23 @@ export function orderedPickResolver(body: readonly Instruction[]): InterpreterOp
     if (!spec) return undefined;
     const source = spec.linked ?? linkedPickExpression(spec);
     const sourceAvailable = source !== undefined && hasResult(source.instructionId);
-    if (spec.linked !== undefined && source !== undefined && !sourceAvailable) {
+    const sourceDeclared = source !== undefined && instructionIds.has(source.instructionId);
+    // A producer outside this execution body may already have executed in an
+    // enclosing scope. The interpreter's hasResult callback is authoritative
+    // there; only a producer that is visible in this body but has no result is
+    // a future dependency that must fail closed.
+    if (sourceDeclared && !sourceAvailable) {
       throw new MissingInformation(`Unavailable linked pick ${id}`);
     }
     if (spec.exclude !== undefined && !hasResult(spec.exclude.instructionId)) {
       throw new MissingInformation(`Unavailable linked exclusion ${id}`);
     }
-    // The original options-only linked spelling is a Resolve source even when
-    // its producer is still in a nested scope. It is not a standalone pick: a
-    // host answer must still be checked against that exact receipt. Only a pick
-    // with no declared linked source uses the standalone compatibility path.
+    // A producer present anywhere in the assembled body must have a real
+    // Resolve result before its pick can be read. Only a caller that stripped a
+    // producer out of the executed body uses the explicit host-preselection
+    // compatibility path; that path still enforces filter, bounds and live
+    // incarnation below. A declared-but-not-yet-executed producer never falls
+    // back to source/target guessing.
     const noSource = source === undefined;
     let candidates: PickCandidateSet;
     try {

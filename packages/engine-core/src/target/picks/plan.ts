@@ -312,8 +312,11 @@ export function validatePickPreselection(
   preselection: PickPreselection
 ): PickValue[] {
   const hasLinkedSource = spec.linked !== undefined || linkedPickExpression(spec) !== undefined;
-  const requested = hasLinkedSource ? requestedValues(context, spec) : candidates.offered;
-  const requestedStale = hasLinkedSource ? [] : candidates.invalid;
+  // `candidates` was already derived from the exact receipt and passed through
+  // its current object filter. Re-evaluating the receipt here loses the scope
+  // of nested producers and can accidentally widen or narrow the trusted set.
+  const requested = [...candidates.offered, ...candidates.invalid];
+  const requestedStale = candidates.invalid;
   const requestedKeys = new Set(requested.map(valueKey));
   const bounds = pickBounds(spec, candidates.offered.length);
   const stale: PickValue[] = [];
@@ -327,8 +330,7 @@ export function validatePickPreselection(
     }
     seen.add(key);
     if (available.has(key)) result.push(copyValue(value));
-    else if (isObjectRef(value) && hasLinkedSource && context.object(value) === null) stale.push(copyValue(value));
-    else if (!hasLinkedSource && isObjectRef(value) && requestedStale.some(candidate => valueKey(candidate) === key)) stale.push(copyValue(value));
+    else if (isObjectRef(value) && requestedStale.some(candidate => valueKey(candidate) === key)) stale.push(copyValue(value));
     else throw new PickSelectionError("invalid-choice", `${spec.id} preselection failed its current filter`);
   }
   const expectedMin = spec.min ?? (spec.selection === "one" ? 1 : 0);
@@ -391,24 +393,18 @@ export function validateDeferredPickPreselection(
   candidates: PickCandidateSet,
   selected: readonly PickValue[]
 ): PickValue[] {
-  const source = spec.linked ?? linkedPickExpression(spec);
-  const sourceValuesList = source === undefined ? undefined : requestedValues(context, spec);
-  const sourceKeys = sourceValuesList === undefined ? undefined : new Set(sourceValuesList.map(valueKey));
-  const filterKeys = spec.filter === undefined ? undefined : new Set(context.query(spec.filter as ObjectFilter).map(object => refKey(object.ref)));
+  // The candidate set already contains only values present in the exact linked
+  // receipt and still passing the current filter. Validate the host-offered
+  // collection against that computed set so nested producers are not evaluated
+  // again in the wrong scope.
+  const offeredKeys = new Set(candidates.offered.map(valueKey));
   const seen = new Set<string>();
   return selected.map(value => {
     const key = valueKey(value);
     if (seen.has(key)) throw new PickSelectionError("invalid-choice", `${spec.id} deferred candidates contain a duplicate value`);
     seen.add(key);
-    if (sourceKeys !== undefined && !sourceKeys.has(key)) {
-      throw new PickSelectionError("invalid-choice", `${spec.id} deferred candidate was not in its linked receipt`);
-    }
-    if (isObjectRef(value)) {
-      if (filterKeys !== undefined && !filterKeys.has(refKey(value))) {
-        throw new PickSelectionError("invalid-choice", `${spec.id} deferred candidate failed its current filter`);
-      }
-    } else if (spec.filter !== undefined) {
-      throw new PickSelectionError("invalid-choice", `${spec.id} object filter cannot accept a scalar candidate`);
+    if (!offeredKeys.has(key)) {
+      throw new PickSelectionError("invalid-choice", `${spec.id} deferred candidate was not in its filtered linked receipt`);
     }
     return copyValue(value);
   });
