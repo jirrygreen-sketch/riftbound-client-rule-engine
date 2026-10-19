@@ -25,16 +25,7 @@ import type { CardProgram } from "../../ir/index.js";
 const singularity = {
   canonicalCardId: "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "当前静态 IR 的 6 Energy + 2 Mind、0..2 unit target 与 effect.damage 已由 executableView 经" +
-    " createProgramBinding -> ChainEngine 验证；但 P4 默认 Spell 服务（apps/game-server/src/duel/" +
-    "p4-spell-services.ts 的 createP4SpellServices，且 authoritative-runtime-p4.ts:809 正在使用它）" +
-    "只开放 draw-cards/kill-unit/kill-units/point-damage，没有 deal-damage port/closure，真实房间会在" +
-    " Spell cost slice 前 fail closed。另，默认 programs/play.ts -> chain/engine.ts 路径不校验" +
-    " source owner/actor，会接纳资源充足的非所有者（见本卡 golden 的 source-ownership TODO）。" +
-    "需对应 engine-core/game-server owner 提供 source-owned deal-damage port 与 actor guard 后再恢复" +
-    " executable；CR 309/312/337/339/355.5/358/359.3.e.8/418.1.c。",
+  status: "executable",
   abilities: [
     {
       kind: "play",
