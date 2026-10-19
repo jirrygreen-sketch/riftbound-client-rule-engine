@@ -214,4 +214,3 @@ export function hasChoiceMemory(body: readonly Instruction[]): boolean {
   });
   return visit(body);
 }
-

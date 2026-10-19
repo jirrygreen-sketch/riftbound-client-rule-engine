@@ -293,4 +293,3 @@ test('contractActions.perform routes a batch through commitContract and emits bo
   assert.equal(f.kernel.getObject('first').zone, 'trash');
   assert.equal(f.kernel.getObject('second').zone, 'trash');
 });
-
