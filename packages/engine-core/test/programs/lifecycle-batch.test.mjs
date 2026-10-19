@@ -92,16 +92,17 @@ test('a real atomic Kill batch runs one leave detach and leaves no stale program
 });
 
 test('deferTriggerScan retains a leaving source until the whole deferred wave is scanned', () => {
-  const f = runtime([{ id: 'source', cardId: 'observer' }, { id: 'victim', cardId: 'plain' }], [
+  const f = runtime([{ id: 'source', cardId: 'observer', zone: 'hand' }, { id: 'victim', cardId: 'plain' }], [
     card('observer', [{ kind: 'triggered', trigger: { at: 'object-killed', filter: { self: true } }, optional: false,
       body: [{ id: 'draw', op: 'effect.draw', args: { amount: constant(1) } }] }]),
     card('plain', []),
   ]);
   const lifecycle = f.binding.attachLifecycle(f.engine);
+  assert.equal(f.engine.commit({ type: 'move-zone', object: f.kernel.ref('source'), to: 'battlefield', location: battlefield }).status, 'done');
   f.engine.pipeline.deferTriggerScan(() => {
     assert.equal(f.engine.commit({ type: 'kill', object: f.kernel.ref('source') }).status, 'done');
     assert.equal(f.engine.commit({ type: 'kill', object: f.kernel.ref('victim') }).status, 'done');
-    assert.ok(f.engine.pipeline.checkpoint().triggers.has('program:source:1:0'), 'leave registration remains during the deferred transaction');
+    assert.ok(f.engine.pipeline.checkpoint().triggers.has('program:source:2:0'), 'leave registration remains during the deferred transaction');
   });
   assert.equal(f.engine.items.length, 1, 'the leaving source still scans its own death');
   assert.equal(f.engine.items[0].trigger.event.object.ref.id, 'source');
@@ -141,8 +142,9 @@ test('one batch installs every entrant and keeps death LKI for multiple sources 
 
 test('invalid static binding is reported and rolls back without retaining registrations or layers', () => {
   const errors = [];
-  const f = runtime([{ id: 'bad', cardId: 'bad' }], [card('bad', [{ kind: 'static', effect: { kind: 'continuous.unsupported' } }])]);
+  const f = runtime([{ id: 'bad', cardId: 'bad', zone: 'hand' }], [card('bad', [{ kind: 'static', effect: { kind: 'continuous.unsupported' } }])]);
   const lifecycle = f.binding.attachLifecycle(f.engine, error => errors.push(error));
+  assert.equal(f.engine.commit({ type: 'move-zone', object: f.kernel.ref('bad'), to: 'battlefield', location: battlefield }).status, 'done');
   assert.equal(errors.length, 1);
   assert.ok(errors[0] instanceof ProgramBindingError);
   assert.equal(f.engine.layers.registry.list().length, 0);

@@ -201,7 +201,10 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     return transaction(() => originalDeferTriggerScan(run));
   }) as typeof pipeline.deferTriggerScan;
 
-  transaction(() => reconcile());
+  // Do not pre-bind existing Board objects: legacy callers may deliberately
+  // install a static through the public binder, and eager lifecycle ownership
+  // would turn that supported path into a duplicate registration. Existing
+  // objects are reconciled on their next real lifecycle boundary.
 
   return {
     detach() {
