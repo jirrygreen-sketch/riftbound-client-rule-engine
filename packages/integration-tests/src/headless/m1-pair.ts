@@ -6,6 +6,7 @@ import type {
   HeadlessStats,
 } from "./duel.js";
 import type { M1PreconId } from "./decks.js";
+import { performance } from "node:perf_hooks";
 
 const { replayHeadlessJournal, runHeadlessGame } = await import(
   new URL("./duel.ts", import.meta.url).href,
@@ -96,6 +97,12 @@ export interface M1FailureDiagnostic {
   readonly judgeReason: string | null;
 }
 
+export interface M1ProbeTiming {
+  readonly importMs: number;
+  readonly executionMs: number;
+  readonly totalMs: number;
+}
+
 export interface M1AcceptanceRun {
   readonly expectedGames: number;
   readonly attemptedGames: number;
@@ -106,6 +113,7 @@ export interface M1AcceptanceRun {
   readonly replayMismatches: number;
   readonly freshWorldReplayMismatches: number;
   readonly privacyLeaks: number;
+  readonly planMismatches: number;
   readonly exceptionGames: number;
   readonly blockedGames: number;
   readonly guardGames: number;
@@ -114,6 +122,7 @@ export interface M1AcceptanceRun {
   readonly battleStats: HeadlessBattleStats;
   readonly results: readonly M1GameEvidence[];
   readonly failure: M1FailureDiagnostic | null;
+  readonly timing?: M1ProbeTiming;
 }
 
 type NaturalEvidence = Pick<M1GameEvidence,
@@ -153,12 +162,20 @@ export function aggregateM1Evidence(results: readonly M1GameEvidence[]): M1Accep
   const replayMismatches = results.filter(result => !result.replayMatches).length;
   const freshWorldReplayMismatches = results.filter(result => !result.freshWorldReplayMatches).length;
   const privacyLeaks = results.filter(result => !result.privacySafe).length;
+  const planMismatches = results.filter(result => {
+    const expected = M1_ACCEPTANCE_PLAN[result.caseIndex];
+    return expected === undefined ||
+      expected.seed !== result.seed ||
+      expected.orientation !== result.orientation ||
+      expected.decks.A !== result.decks.A ||
+      expected.decks.B !== result.decks.B;
+  }).length;
   const exceptionGames = results.filter(result => result.exceptions.length > 0 || result.termination === "exception").length;
   const concessionGames = results.filter(result => result.termination === "concede" || result.concedeCommands > 0).length;
   return {
     expectedGames: M1_ACCEPTANCE_GAMES,
     attemptedGames: results.length,
-    passed: results.length === M1_ACCEPTANCE_GAMES && naturalGames === M1_ACCEPTANCE_GAMES &&
+    passed: results.length === M1_ACCEPTANCE_GAMES && naturalGames === M1_ACCEPTANCE_GAMES && planMismatches === 0 &&
       replayMismatches === 0 && freshWorldReplayMismatches === 0 && privacyLeaks === 0 &&
       exceptionGames === 0 && concessionGames === 0,
     naturalGames,
@@ -167,6 +184,7 @@ export function aggregateM1Evidence(results: readonly M1GameEvidence[]): M1Accep
     replayMismatches,
     freshWorldReplayMismatches,
     privacyLeaks,
+    planMismatches,
     exceptionGames,
     blockedGames: terminationReasons.blocked,
     guardGames: terminationReasons.guard,
@@ -259,7 +277,8 @@ function executePlan(plan: readonly M1AcceptanceCase[]): M1AcceptanceRun {
       concedeCommands: stats.actionCoverage.commands.concede,
       naturalTermination: false,
     };
-    results.push(Object.freeze({ ...result, naturalTermination: isNaturalM1Game(result) }));
+    const evidence = Object.freeze({ ...result, naturalTermination: isNaturalM1Game(result) });
+    results.push(evidence);
     if (stats.termination === "exception") {
       return failedRun(results, {
         phase: "execution", caseIndex: acceptance.index, seed: acceptance.seed,
@@ -273,9 +292,21 @@ function executePlan(plan: readonly M1AcceptanceCase[]): M1AcceptanceRun {
   return aggregateM1Evidence(results);
 }
 
-/** Explicit one-game diagnostic. It never advances to a second seed after a thrown setup error. */
+/**
+ * Explicit one-game diagnostic. It never advances to a second seed after a
+ * thrown setup error and returns the actual termination without predicting a
+ * permanent blocker. It is intentionally not part of the automatic unit-test
+ * configuration because a full runtime/replay/privacy probe has acceptance
+ * cost; callers use this entry or the separately gated runM1Acceptance().
+ */
 export function probeM1Acceptance(): M1AcceptanceRun {
-  return executePlan(M1_ACCEPTANCE_PLAN.slice(0, 1));
+  const startedAt = performance.now();
+  const run = executePlan(M1_ACCEPTANCE_PLAN.slice(0, 1));
+  const finishedAt = performance.now();
+  return Object.freeze({
+    ...run,
+    timing: Object.freeze({ importMs: 0, executionMs: Math.round(finishedAt - startedAt), totalMs: Math.round(finishedAt - startedAt) }),
+  });
 }
 
 /** Explicit full gate. Nothing invokes this at module load or from the existing soak/CLI entry points. */

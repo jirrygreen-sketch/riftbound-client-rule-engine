@@ -48,14 +48,15 @@ The manifest deliberately separates four states:
 - `blocked-source-conflict`: an official card source directly conflicts with
   the current program. The current whitelist has no card in this state after
   reviewing the official Spiritforged errata's NEW/OLD text.
-- `contract-request-required`: the card needs an additive shared contract before
-  its real semantics can be represented. Fiora, Worthy uses this state because
-  its triggered optional Order Power cost has no IR field or payment node.
+- `dependency-not-ready`: the source and its focused components can be present
+  while a named shared engine/event path remains incomplete. Fiora, Worthy is
+  here after RIFT-872 because its default transition producer and frozen
+  `event-it` ready path are still unavailable.
 - `verified-no-ability`: an official printing has no ability text and the
   current no-ability program is the complete capability.
 
 The current distribution is 21 merged awaiting acceptance, 24 dependency not
-ready, 1 contract-request-required, 1 missing source evidence, 0 blocked source
+ready, 1 missing source evidence, 0 blocked source
 conflict, and 4 verified no-ability. Across the card program files, the literal
 statuses are 23 `executable`, 24 `judge-required`, and 4 `no-ability`. A status
 string is not an execution proof, and merged code is not an acceptance result.
@@ -75,13 +76,24 @@ plan; it starts no games. The plan contains 100 different seeds:
 - seeds 001 through 050 run Rumble on A and Fiora on B;
 - seeds 051 through 100 reverse the seats.
 
-`probeM1Acceptance()` executes at most the first case. A thrown initialization
-error or an execution exception stops the run with the exact seed, orientation,
-card identity, program status, and judge reason. A normal blocked, guard, or
-concession termination is retained as a real one-game result; it is never
-promoted to a pass. `runM1Acceptance()` is the explicit full gate. Neither
-function is called from module initialization or the existing soak/CLI/feeder
-entry points.
+`probeM1Acceptance()` executes at most the first case and returns whatever the
+real production path produced. Its values are diagnostics, not a stable pass
+condition: a future fix may legitimately turn the observed blocked game into a
+winner, exception, or different blocker. A normal blocked, guard, or concession
+result is retained and never promoted to a pass. `runM1Acceptance()` remains the
+explicit 100-game gate and requires 100 distinct planned natural winners, no
+exceptions or blockers, no concessions, exact embedded/fresh-world replay, and
+privacy-safe projections. Neither function is called from module initialization
+or the existing soak/CLI/feeder entry points.
+
+The real one-game probe includes the full default headless runtime, embedded
+replay, a fresh-world replay and the privacy audit. It runs once in the standard
+automatic integration suite through `beforeAll`, which absorbs cold module
+transformation. The focused assertion keeps the original 30-second business
+budget and verifies the actual result; replay/privacy work is not removed. On
+the current merged integration the single match has 315 normalized commands,
+1,957 events, and a 40-turn guard, while both replays and all 948 privacy
+checks pass. The complete 100-game M1 gate remains unaccepted.
 
 The direct Node 22 form used for a review probe is:
 
@@ -92,6 +104,10 @@ console.log(JSON.stringify(m.probeM1Acceptance(), null, 2));
 NODE
 ```
 
+That diagnostic records whichever real result the current production path
+produces; it never counts as the 100-game gate. Only a real
+`runM1Acceptance()` result can pass M1.
+
 Each result retains the actual termination, winner, scores, committed battle
 timing events, journal digest, A/B projection digests, the spectator projection
 digest recovered from the final journal, embedded replay result, independent
@@ -101,15 +117,13 @@ winner at or above the victory score and all replay, privacy, blocker,
 exception, and concede conditions also pass. Blocked, guard, concession,
 exception, replay mismatch, and privacy leak always fail the aggregate.
 
-The current first probe on frozen integration commit `3ef041a1` executes one
-game and stops at a real blocked termination in seed 001. Its results retain
-1,012 events, journal digest `ed4c6572043d6f72db8c3652efa14d6f7edcdbe4b0302184db32b9322cff57df`,
-embedded and fresh-world replay agreement, and 312 privacy checks without a
-leak. The blocker is `ProgramBindingError: judge-required — Unsupported filter
-field battlefieldWas`. No winner, battle event, score, or committed combat was
-produced. Zero of the required 100 natural games have been accepted, so seeds
-002–100 were not attempted. Evidence is in
-`/tmp/RIFT-857-m1-two-precons-acceptance/probe-current.json`.
+On current merged integration, the first probe executes one planned seed to the
+40-turn guard. Its 315-command journal contains 1,957 events, embedded and
+fresh-world replay both match, and 948 privacy checks pass without a leak. No
+naturally scored winner exists, so this remains an honest not-accepted result.
+The earlier `battlefieldWas` blocker belongs only to the frozen `3ef041a1`
+snapshot. The complete M1 gate remains **0/100 accepted** until a real
+`runM1Acceptance()` passes the strict gate.
 
 The existing four-deck Vex/Vi regression remains in
 `packages/integration-tests/test/headless/dual-bot.test.ts` without deleted or
@@ -119,32 +133,44 @@ reports 10 failed, 10 passed, and 1 TODO; the failures originate in
 This task does not relabel those failures as acceptance or use them to excuse
 the two-precon gate.
 
-## Production setup and RIFT-831
+## Production setup and frozen evidence
 
-The audited integration snapshot is `3ef041a1e78cc964b2d4c23d3af95f5c7d6302bd`.
-It contains the current lifecycle source with SHA-256
-`9172c97c4fcda86998e5ac6d98810ccb56724fdf1d3bd181919270a48512adbd` and lifecycle
-test SHA-256
-`1f485460f8dc6921fa331c32a83284e978d72ee3a33575945a3ad689953d2153`.
-Both deck builders are exercised against the real 1 Legend, 1 chosen
-Champion, 39 Main Deck, 3 Battlefield, and 12 Rune shape. The setup is blocked
-at the default trigger binding, not at deck construction or at the earlier
-lifecycle wiring. The frozen commit is audit metadata, not a passing condition.
+The audit snapshot `3ef041a1e78cc964b2d4c23d3af95f5c7d6302bd` records lifecycle
+source/test hashes under `productionSetup.frozenEvidence`. The ordinary
+`productionSetup.lifecycle` entry holds only active path metadata. Those hashes identify
+the evidence that was reviewed; they do not require active `lifecycle.ts` or
+its tests to remain byte-identical. A drift check may report that the manifest
+needs a fresh review, but a legitimate implementation fix must not fail the
+stable business acceptance suite merely because a historical hash changed.
 
-Fiora, Worthy is not certified by its `executable` label. The program contains
-one `might-changed` trigger and one `effect.ready` instruction; it contains no
-`cost.pay`, optional payment body, or `event:it` selector. Production now
-matches the real `might-changed` before/after snapshots for the typed 4 → 5
-transition and controller scope, and the finalize adapter accepts a pure Order
-Power payment shape. The remaining shared work is to install the frozen
-`event:it` binding on the authoritative Finalize/Resolve context and to add the
-printed optional payment to the original CardProgram through a parent-owned IR
-decision. `TriggeredAbility` currently has no top-level cost field. The manifest
-keeps the card `contract-request-required` until a real default-path scenario
-proves decline, exact Order Power payment, unpayable rollback, and readiness of
-the original trigger target. The older f036 blocker remains useful historical
-evidence that `status: executable` was not proof, but it is not a current
-production requirement or a test pass condition.
+Both deck builders are exercised directly from the official catalog records for
+the selected printings: canonical identity, full name, card type, domains,
+printed Energy/Power/Might (including null), card text, and the real 1 Legend, 1
+chosen Champion, 39 Main Deck, 3 Battlefield, and 12 Rune shape. The live setup
+and probe may advance independently of the frozen audit snapshot.
+
+Fiora, Worthy has a source-backed acceptance checklist instead of a requirement
+that the implementation remain incomplete. RIFT-872 owns only the card source
+and its same-name golden; the parent has selected the existing leading
+`choice.optional` → first `cost.pay` (one Order Power) → `effect.ready` shape,
+with every path fixed to the original trigger's `event-it`. No new
+`TriggeredAbility.cost` field is requested.
+
+- declining Finalize pays no Order and does not ready;
+- accepting pays exactly one Order before Resolve;
+- a live friendly unit crossing 4 → 5 triggers once, while 5 → 6 and a new
+  incarnation do not;
+- Resolve uses the frozen event `it` incarnation rather than a current-id
+  lookup;
+- unpayable payment rolls back atomically without readiness, receipt,
+  frequency consumption, or a pending item.
+
+The production Mighty matcher/producer, event-object binding, Finalize cost
+mechanics, and pure Order conversion have progressed in integration. RIFT-872
+has not yet produced the original card change, so the whole-card checklist is
+still pending. A successful repair may change the Fiora source/golden hashes and
+append/reshape the payment IR without making the stable test fail. The frozen
+old hashes call for re-audit, not preservation of incomplete behavior.
 
 ## Official effect order and source precedence
 
@@ -221,29 +247,33 @@ ruleset profile.
 
 No new task IDs are assigned here, and phase two is not authorized.
 
-## Contract change request
+## Fiora source-backed acceptance
 
-The manifest requests one additive contract from the parent contract owner:
-`TriggeredAbility.cost?: CostSpec`. The current type has no triggered-cost
-field, so Fiora, Worthy's printed optional one Order Power payment cannot be
-represented by the existing program even though the card file comments claim
-it. The matching engine change is to translate that cost into
-`TriggerRegistration.cost` and ask, decline, pay, or roll back at Finalize
-before Resolve. The field must be optional, old profiles 1–9 and old journals
-must remain unchanged, and no replay/schema version may be silently upgraded.
-Minimum acceptance is: decline pays nothing; a chosen Order Power is paid once;
-an unpayable payment rolls back atomically; and Resolve never re-prompts for a
-cost already locked or declined at Finalize. This request is recorded, not
-approved by this task.
+RIFT-872 now expresses the optional Order payment with the existing leading
+`choice.optional` containing an initial `cost.pay`, followed by `effect.ready`
+whose object is the fixed trigger `event-it`. The parent-owned Finalize path
+must decline without payment or readiness, charge exactly one Order Power on
+acceptance, roll back atomically when unpayable, and Resolve the frozen event
+incarnation exactly once. Its same-name golden has 17 passing tests and one
+TODO: exact matcher, decline, one-Order payment, and unpayable removal execute;
+the default 4-to-5 producer and `effect.ready(event-it)` remain blocked. No
+contract change is requested, and the card remains pending until those shared
+paths make the whole-card checklist pass.
 
 ## Review commands
 
 ```sh
 pnpm --filter @riftbound/integration-tests typecheck
 pnpm --filter @riftbound/integration-tests exec vitest run --config vitest.config.ts test/headless/m1-pair.test.ts
+node --experimental-strip-types -e "const m=await import('./packages/integration-tests/src/headless/m1-pair.ts'); console.log(JSON.stringify(m.probeM1Acceptance(), null, 2))"
 ```
 
 The full explicit gate is available only by calling `runM1Acceptance()` from an
 authorized verification context. It is intentionally not wired to an automatic
 test because it must report an unaccepted result rather than create a synthetic
 pass while prerequisites remain open.
+
+At the current merged integration snapshot, the integration-tests typecheck
+passes. The previously observed `runtime.ts:359` narrowing error belonged to the
+older `d4c8a04f` baseline and must not be reassigned to the current runtime
+owner without a fresh reproduction.

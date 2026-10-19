@@ -12,6 +12,7 @@ import { createProgramBinding } from '../../dist/programs/index.js';
 import { matchesTriggerEvent } from '../../dist/events/pipeline-match.js';
 import { matchesMightyTransition } from '../../dist/events/pipeline-match.js';
 import { deriveMightChangedEmissions } from '../../dist/events/producers/might-change.js';
+import { translateObjectFilter, translateTriggerFilter } from '../../dist/programs/filters.js';
 import { triggerEventObjectBinding } from '../../dist/events/pipeline-types.js';
 import { EventPipeline } from '../../dist/events/pipeline.js';
 import { createActionPipelineHost } from '../../dist/events/action-adapter.js';
@@ -30,6 +31,7 @@ import { world } from '../../dist/effects/testing/index.js';
 import frigidJewel from '../../../card-dsl/dist/cards/unl/frigid-jewel.js';
 import karthusEternal from '../../../card-dsl/dist/cards/ogn/karthus-eternal.js';
 import chronobreak from '../../../card-dsl/dist/cards/rad/chronobreak.js';
+import fioraWorthy from '../../../card-dsl/dist/cards/sfd/fiora-worthy.js';
 
 function f_event(emission, batchId) {
   if (emission === undefined) return null;
@@ -585,6 +587,109 @@ test('EG-PIPELINE: Mighty transition matches a real might-changed emission with 
   }, repeated, 'A'), false);
   const illegal = f_event(deriveMightChangedEmissions([before], [{ ...before, might: 4 }], { batchId: 'mighty-noop' })[0], 'mighty-noop');
   assert.equal(illegal, null);
+});
+
+test('EG-PIPELINE: original Fiora IR registers and scans one real 4-to-5 Pending through the default pipeline', () => {
+  // Official evidence (checked 2026-10-19): CR v1.5 709-711; layer changes
+  // create one Might transition and preserve the affected Unit incarnation.
+  // https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+  // Core Rules updated 2026-10-09; effective 2026-10-16.
+  // Fiora, Worthy canonicalCardId:
+  // card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f
+  const program = { ...fioraWorthy, status: 'executable', judgeReason: undefined };
+  const f = fixture({ choose: request => request.type === 'optional' ? true : undefined });
+  f.kernel.addObject({
+    ...f.kernel.getObject('source'),
+    ref: { id: 'fiora', zoneEntryId: 1 }, cardId: program.canonicalCardId,
+    types: ['unit'], controller: 'A', owner: 'A', zone: 'board',
+    location: { type: 'battlefield', id: 'field' }, might: 3,
+  }, 'board');
+  f.kernel.addObject({
+    ...f.kernel.getObject('source'),
+    ref: { id: 'target', zoneEntryId: 1 }, cardId: 'card:target',
+    types: ['unit'], controller: 'A', owner: 'A', zone: 'board',
+    location: { type: 'battlefield', id: 'field' }, might: 4,
+  }, 'board');
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const registered = binding.registerProgramTriggers(f.engine, f.kernel.getObject('fiora'));
+  assert.equal(registered.length, 1);
+  const before = f.kernel.getObject('target');
+  const after = { ...before, might: 5 };
+  const [emission] = deriveMightChangedEmissions([before], [after], {
+    batchId: 'fiora-mighty', cause: 'layer-recompute', source: f.kernel.getObject('fiora'),
+  });
+  const [event] = f.engine.pipeline.emitBatch([emission], undefined, 'fiora-mighty');
+  assert.equal(event.it.ref.id, 'target');
+  assert.equal(event.it.ref.zoneEntryId, before.ref.zoneEntryId);
+  assert.deepEqual(event.details.before.ref, before.ref);
+  assert.deepEqual(event.details.after.ref, before.ref);
+  assert.equal(f.engine.items.length, 1);
+  assert.equal(f.engine.items[0].trigger.registration.id, registered[0]);
+  assert.deepEqual(f.engine.items[0].trigger.event.it.ref, event.it.ref);
+});
+
+test('EG-PIPELINE: original Fiora IR rejects every non-crossing and stale Mighty fact', () => {
+  const program = { ...fioraWorthy, status: 'executable', judgeReason: undefined };
+  const f = fixture();
+  const source = f.kernel.getObject('source');
+  f.kernel.addObject({
+    ...source, ref: { id: 'fiora', zoneEntryId: 1 }, cardId: program.canonicalCardId,
+    types: ['unit'], controller: 'A', owner: 'A', zone: 'board', location: { type: 'base', player: 'A' }, might: 3,
+  }, 'board');
+  createProgramBinding({ cardPrograms: [program] }).registerProgramTriggers(f.engine, f.kernel.getObject('fiora'));
+  const unit = (id, might, values = {}) => ({
+    ...source, ref: { id, zoneEntryId: 1 }, cardId: `card:${id}`, types: ['unit'],
+    controller: 'A', owner: 'A', zone: 'board', location: { type: 'battlefield', id: 'field' }, might, ...values,
+  });
+  const cases = [
+    [unit('same-four', 3), unit('same-four', 4)],
+    [unit('above', 5), unit('above', 6)],
+    [unit('down', 5), unit('down', 4)],
+    [unit('opponent', 4, { controller: 'B', owner: 'B' }), unit('opponent', 5, { controller: 'B', owner: 'B' })],
+    [unit('non-board', 4, { zone: 'hand', location: null }), unit('non-board', 5, { zone: 'hand', location: null })],
+    [unit('non-unit', 4, { types: ['gear'] }), unit('non-unit', 5, { types: ['gear'] })],
+    [unit('stale', 4), unit('stale', 5, { ref: { id: 'stale', zoneEntryId: 2 } })],
+  ];
+  for (const [before, after] of cases) {
+    const [emission] = deriveMightChangedEmissions([before], [after], { batchId: before.ref.id });
+    if (emission === undefined) continue;
+    f.engine.pipeline.emitBatch([emission], undefined, before.ref.id);
+    assert.equal(f.engine.items.length, 0, before.ref.id);
+  }
+  const [missingFacts] = deriveMightChangedEmissions([unit('missing', 4)], [unit('missing', 5)], { batchId: 'missing-facts' });
+  f.engine.pipeline.emitBatch([{ ...missingFacts, details: { previousMight: 4, currentMight: 5 } }], undefined, 'missing-facts');
+  assert.equal(f.engine.items.length, 0);
+});
+
+test('EG-PIPELINE: becomesMighty is a typed might-changed predicate and never a normal query field', () => {
+  const filter = { object: { type: 'unit', controller: 'self', becomesMighty: true } };
+  const translated = translateTriggerFilter(filter, 'fiora', 'might-changed');
+  assert.deepEqual(translated, {
+    event: 'might-changed',
+    object: { type: 'unit', controller: 'self' },
+    details: { becomesMighty: true },
+  });
+  assert.throws(() => translateObjectFilter({ becomesMighty: true }), error =>
+    error?.code === 'judge-required' && /Unsupported filter field becomesMighty/.test(error.message));
+  assert.equal(matchesTriggerEvent({ type: 'unit', becomesMighty: true }, {
+    type: 'task-resolved', seq: 1, eventId: 1, turnNumber: 1, activePlayerId: 'A', taskId: 'bare',
+    sourceCardId: '', reason: 'bare', autoResolved: true, timingPoint: 'might-changed', kind: 'might-changed',
+    object: { ref: { id: 'u', zoneEntryId: 1 }, cardId: 'u', name: 'u', types: ['unit'], tags: [], keywords: [],
+      owner: 'A', controller: 'A', zone: 'board', location: null, might: 5, energy: null, power: null,
+      exhausted: false, damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false },
+  }, 'A'), false);
+  assert.throws(() => translateTriggerFilter({ event: 'might-changed', becomesMighty: true }, 'fiora', 'might-changed'), error =>
+    error?.code === 'judge-required' && /typed might-changed/.test(error.message));
+  for (const invalid of [
+    { event: 'unknown-event', object: { type: 'unit', becomesMighty: true } },
+    { event: 'might-changed', object: { type: 'unit', becomesMighty: false } },
+    { event: 'might-changed', object: { type: 'unit', becomesMighty: 'true' } },
+    { event: 'might-changed', object: { type: 'gear', becomesMighty: true } },
+    { event: 'hold', object: { type: 'unit', becomesMighty: true } },
+  ]) {
+    assert.throws(() => translateTriggerFilter(invalid, 'fiora', 'might-changed'), error =>
+      error?.code === 'judge-required');
+  }
 });
 
 test('EG-PIPELINE: conflicting explicit batch identities fail before publishing an event', () => {
