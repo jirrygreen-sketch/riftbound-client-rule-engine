@@ -7,6 +7,7 @@
  */
 import type { ActionOutcome, Domain, GameAction, ObjectRef, PlayerId, PlayerSnapshot, ZoneId } from '../effects/contract.js';
 import type { PipelineHost, PipelineEvent } from '../events/pipeline-types.js';
+import { createProgramBinding, type ProgramBinding, type ProgramSource } from '../programs/index.js';
 import { TurnFlow } from '../turn/flow.js';
 
 export interface MatchCard {
@@ -40,15 +41,9 @@ export type MatchHost = PipelineHost & {
   readonly player: (id: PlayerId) => PlayerSnapshot;
 };
 
-/**
- * Opaque card-program dependency supplied by the caller.
- *
- * RIFT-262 does not bind printed cards to executable abilities; RIFT-257 owns
- * the concrete program registry. Keeping this boundary opaque lets the match
- * lifecycle carry the injected registry without inventing card semantics here.
- */
 export interface MatchPrograms {
-  readonly [key: string]: unknown;
+  /** Trusted CardProgram source; programs are validated before setup mutates state. */
+  readonly programs: ProgramSource;
 }
 
 export type MatchRulesetVersion = 'core-1.5';
@@ -109,6 +104,10 @@ export interface Match {
   readonly setup: MatchSetupReport;
   readonly flow: TurnFlow;
   readonly programs?: MatchPrograms;
+  /** Registry installed on this match's real Chain when MatchPrograms was supplied. */
+  readonly programBinding?: ProgramBinding;
+  /** Detach the program lifecycle, including every static/trigger registration. */
+  readonly detachPrograms?: () => void;
   readonly result: () => MatchResult;
   readonly events: () => readonly PipelineEvent[];
 }
@@ -258,7 +257,10 @@ function objectPower(card: MatchCard): readonly Domain[] | null {
 
 function tokenCard(card: MatchCard, types: readonly string[]) {
   return {
-    cardId: card.cardId ?? card.canonicalCardId ?? null,
+    // The source catalog's printing id may differ from the canonical card id.
+    // Programs and identity checks are keyed by the canonical id; the setup
+    // report retains the printing id separately for presentation.
+    cardId: card.canonicalCardId ?? card.cardId ?? null,
     name: card.name ?? card.id,
     types: [...types],
     tags: [...(card.tags ?? [])],
@@ -391,6 +393,11 @@ export function createMatch(options: MatchOptions): Match {
     throw new TypeError('createMatch requires exactly two decks');
   }
   const [deckA, deckB] = options.decks;
+  // Validation happens before setup writes any object or resource state. The
+  // concrete registry then drives both direct Play commands and effect.Play.
+  const programBinding = options.programs === undefined
+    ? undefined
+    : createProgramBinding({ cardPrograms: options.programs.programs });
   const random = new MatchRandom(
     typeof options.seed === 'string' ? hashSeed(options.seed) :
       typeof options.seed === 'number' ? Math.trunc(options.seed) >>> 0 :
@@ -467,7 +474,9 @@ export function createMatch(options: MatchOptions): Match {
     turnOrder,
     battlefields: report.battlefields,
     victoryScore: options.victoryScore ?? DEFAULT_VICTORY_SCORE,
+    ...(programBinding === undefined ? {} : { describePlay: programBinding.describePlay }),
   });
+  const lifecycle = programBinding?.attachLifecycle(flow.chain, error => { throw error; });
   flow.start();
   for (const field of flow.battlefields) {
     const reported = report.battlefields.find(value => value.id === field.id);
@@ -505,6 +514,8 @@ export function createMatch(options: MatchOptions): Match {
     setup: report,
     flow,
     programs: options.programs,
+    ...(programBinding === undefined ? {} : { programBinding }),
+    ...(lifecycle === undefined ? {} : { detachPrograms: lifecycle.detach }),
     result: () => ({ winner: matchWinner(match), turnNumber: flow.turn }),
     events: () => flow.chain.pipeline.events,
   };
