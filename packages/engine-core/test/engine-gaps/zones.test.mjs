@@ -10,6 +10,7 @@ import banish from "../../dist/effects/instructions/effect.banish.js";
 import recycle from "../../dist/effects/instructions/effect.recycle.js";
 import recycleRest from "../../dist/effects/instructions/effect.recycle-rest.js";
 import zone from "../../dist/effects/instructions/effect.zone.js";
+import { resolveChainBody } from "../../dist/chain/interpreter-adapter.js";
 import { instructionDefinitionsById } from "../../dist/effects/instructions/registry.generated.js";
 import { AwaitChoice, runInstruction, world } from "../../dist/effects/testing/index.js";
 import { cardProgram, fixture, settle } from "../rules/keywords/support.mjs";
@@ -92,9 +93,7 @@ test("EG-ZONES original Blind Fury linked pick chooses and banishes exactly one 
   // Bind the printed each-opponent source to one explicit opponent for this
   // single-player seam; the raw banish/pick/filter shapes stay unchanged.
   reveal.picks[0].zoneSlice.player = c("B");
-  const program = wrapBody("test:eg-zones-blind-fury", [reveal, banishInstruction]);
   const f = fixture({
-    programs: [program],
     setup(builder) {
       builder.deck(["b-top", "b-second"], { owner: "B", types: ["spell"] });
       builder.unit("a-source", { location: field("one") });
@@ -106,26 +105,14 @@ test("EG-ZONES original Blind Fury linked pick chooses and banishes exactly one 
   assert.equal(f.engine.items.length, 1);
   assert.equal(f.engine.items[0].pickPlans[0].refs.length, 1);
   f.engine.pass("A");
-  try { f.engine.pass("B"); } catch (error) {
-    if (!(error instanceof AwaitChoice)) throw error;
-    f.answers.set(error.request.id, error.request.options);
-    f.engine.pass("B");
-  }
+  f.engine.pass("B");
   settle(f.engine);
   const revealed = f.kernel.linked("blind-fury.reveal-top-card-of-each-opponent.revealed");
   assert.deepEqual(revealed.map(ref => ref.id), ["b-top"]);
-  // The shared PickSpec lifecycle currently leaves an options-based linked
-  // pick empty; execute the unchanged banish instruction with that finalized
-  // pick bound directly, then assert the production primitive's new receipt.
   const selected = revealed[0];
-  const probe = runInstruction(
-    banish,
-    banishInstruction.args,
-    { world: f.kernel, picks: { "blind-fury.chosen-card": [selected] } },
-  );
-  assert.equal(probe.result.status, "executed");
-  assert.deepEqual(probe.linked.banished.objects.map(ref => ref.id), ["b-top"]);
-  assert.notDeepEqual(probe.linked.banished.objects[0], selected);
+  assert.equal(f.kernel.getObject("b-top").zone, "banishment");
+  assert.deepEqual(f.kernel.linked("blind-fury.banish-chosen.banished").objects.map(ref => ref.id), ["b-top"]);
+  assert.notDeepEqual(f.kernel.linked("blind-fury.banish-chosen.banished").objects[0], selected);
 });
 
 test("EG-ZONES original Reinforce choose + filter consumes the ordered top-five pick and leaves the rest recyclable", () => {
@@ -311,4 +298,95 @@ test("EG-ZONES recycle from rejects a fractional request before asking or mutati
     from: { zone: "trash", amount: c(1.5) },
   }, { world: kernel }), /non-negative safe integer/);
   assert.deepEqual(kernel.stateForTest(), before);
+});
+
+test("EG-ZONES recycle accepts legacy literal linkKey values and Expr linkKeys without changing stale handling", () => {
+  for (const linkKey of ["recycled", c("recycled")]) {
+    const live = world().card("live", { zone: "trash", types: ["spell"] }).build();
+    const run = runInstruction(recycle, {
+      objects: c(live.ref("live")),
+      linkKey,
+    }, { world: live });
+    assert.equal(run.result.status, "executed");
+    assert.equal(run.linked.recycledCount, 1);
+    assert.equal(live.getObject("live").zone, "deck");
+
+    const staleWorld = world().card("gone", { zone: "trash", types: ["spell"] }).build();
+    const stale = staleWorld.ref("gone");
+    staleWorld.perform({ type: "banish", object: stale });
+    const staleRun = runInstruction(recycle, { objects: c(stale), linkKey }, { world: staleWorld });
+    assert.deepEqual(staleRun.result, { status: "ignored", reason: "mistargeted" });
+    assert.equal(staleWorld.getObject("gone").zone, "banishment");
+  }
+});
+
+test("EG-ZONES recycle rejects an invalid literal linkKey before any action", () => {
+  const kernel = world().card("card", { zone: "trash", types: ["spell"] }).build();
+  const before = kernel.stateForTest();
+  assert.throws(() => runInstruction(recycle, {
+    objects: c(kernel.ref("card")),
+    linkKey: "",
+  }, { world: kernel }), /non-empty string or card-dsl Expr/);
+  assert.deepEqual(kernel.stateForTest(), before);
+});
+
+test("EG-ZONES legacy zone target receipt stays unchanged while objects opt in to movedObjects", () => {
+  const legacy = world().unit("source").unit("ally").build();
+  const legacyRun = runInstruction(zone, { target: "ally-target", to: c("hand") }, {
+    world: legacy,
+    targets: { "ally-target": [legacy.ref("ally")] },
+  });
+  assert.equal(legacyRun.result.status, "executed");
+  assert.deepEqual(legacyRun.linked, { moved: 1, movedIds: ["ally"], destination: "hand" });
+
+  const extended = world().unit("source").unit("ally").build();
+  const extendedWorld = extended.clone({ sourceSnapshot: extended.getObject("ally") });
+  const extendedRun = runInstruction(zone, { objects: c("self"), to: c("hand") }, { world: extendedWorld });
+  assert.equal(extendedRun.result.status, "executed");
+  assert.deepEqual(extendedRun.linked, {
+    moved: 1,
+    movedIds: ["ally"],
+    destination: "hand",
+    movedObjects: [extendedWorld.ref("ally")],
+  });
+});
+
+test("EG-ZONES empty legacy pick is ignored while an empty objects query is an executed no-op", () => {
+  const legacy = world().build();
+  const legacyRun = runInstruction(zone, { pick: "empty-pick", to: c("hand") }, {
+    world: legacy,
+    picks: { "empty-pick": [] },
+  });
+  assert.deepEqual(legacyRun.result, { status: "ignored", reason: "mistargeted" });
+  assert.deepEqual(legacyRun.linked, {});
+
+  const extended = world().build();
+  const extendedRun = runInstruction(zone, {
+    objects: c({ kind: "query", filter: { type: "unit", zone: "board" } }),
+    to: c("hand"),
+  }, { world: extended });
+  assert.equal(extendedRun.result.status, "executed");
+  assert.deepEqual(extendedRun.linked, {
+    moved: 0,
+    movedIds: [],
+    destination: "hand",
+    movedObjects: [],
+  });
+});
+
+test("EG-ZONES default adapter passes an Expr linkKey through the recycle schema consistently", () => {
+  const base = world().unit("source").card("card", { zone: "trash", types: ["spell"] }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("source") });
+  const outcome = resolveChainBody([{
+    id: "raw-recycle",
+    op: "effect.recycle",
+    args: {
+      objects: c(kernel.ref("card")),
+      linkKey: c("recycled"),
+    },
+  }], kernel);
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(outcome.linkedValues["raw-recycle.recycled"], [{ id: "card", zoneEntryId: 1 }]);
+  assert.equal(outcome.linkedValues["raw-recycle.recycledCount"], 1);
+  assert.equal(kernel.getObject("card").zone, "deck");
 });

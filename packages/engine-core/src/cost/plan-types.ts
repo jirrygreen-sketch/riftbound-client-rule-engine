@@ -47,16 +47,50 @@ export interface CostPlanInput {
   readonly discounts?: readonly CostDiscount[];
   readonly discountOrder?: readonly string[];
   readonly ignoreAllCosts?: boolean;
+  /** Finalize-locked non-target cost choices; retries must reuse these receipts. */
+  readonly costChoices?: CostChoiceLocks;
 }
 
 export type NonstandardCostAction = Extract<GameAction, {
-  type: 'exhaust' | 'discard' | 'recycle' | 'kill' | 'reveal' | 'spend-buff'
+  type: 'exhaust' | 'discard' | 'recycle' | 'kill' | 'banish' | 'disempower' | 'reveal' | 'spend-buff'
 }>;
+
+/** A non-target object selection locked by Finalize for a cost component. */
+export interface CostChoiceReceipt {
+  readonly id: string;
+  readonly kind: string;
+  readonly min: number;
+  readonly max: number;
+  readonly count: number;
+  readonly objects: readonly ObjectRef[];
+}
+
+/**
+ * Serialized Finalize decision for one non-target cost PickSpec. The Chain
+ * owner must persist this before building the plan and pass the same receipt
+ * back on every retry; ids and object incarnations are not recomputed.
+ */
+export interface CostChoiceLock {
+  readonly planId: string;
+  readonly choiceId: string;
+  readonly kind: string;
+  readonly receipt: CostChoiceReceipt;
+}
+
+export interface CostChoiceLocks {
+  readonly locks: readonly CostChoiceLock[];
+}
+
+/** Additive Finalize input: one lock per encountered cost object choice. */
+export interface CostChoicePlanInput {
+  readonly costChoices?: CostChoiceLocks;
+}
 
 export interface CostAction {
   readonly id: string;
   readonly componentId: string;
   readonly action: NonstandardCostAction;
+  readonly choiceId?: string;
 }
 
 export interface CostAmount {
@@ -64,6 +98,7 @@ export interface CostAmount {
   readonly power: readonly DuelPowerRequirement[];
   readonly xp: number;
   readonly actions: readonly CostAction[];
+  readonly choices?: readonly CostChoiceReceipt[];
 }
 
 export interface CostComponent {
@@ -135,6 +170,7 @@ export interface CostPaymentReceipt {
   readonly total: CostAmount;
   readonly power: DuelPaymentPlan;
   readonly additional: readonly { readonly id: string; readonly kind: OptionalCostInput['kind']; readonly paid: true }[];
+  readonly choices?: readonly CostChoiceReceipt[];
   readonly actions: readonly { readonly id: string; readonly action: GameAction; readonly status: 'done' | 'replaced' }[];
   readonly events: readonly GameEvent[];
 }

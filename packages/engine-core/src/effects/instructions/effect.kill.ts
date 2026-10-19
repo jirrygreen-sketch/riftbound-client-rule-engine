@@ -1,4 +1,4 @@
-import type { Expr, GameEvent, InstructionDef, ObjectRef, Schema, Value } from "../contract.js";
+import type { Expr, GameEvent, InstructionDef, ObjectFilter, ObjectRef, ResolveContext, Schema, Value } from "../contract.js";
 
 /**
  * effect.kill —— 消灭（Kill）原语。
@@ -19,6 +19,12 @@ import type { Expr, GameEvent, InstructionDef, ObjectRef, Schema, Value } from "
  *   卡牌如 ogn-229-298 Vengeance "Kill a unit."、unl-159-219 Soul Harvest）。
  * - `picks`?: string —— PickSpec 的 id，经 `ctx.picks(id)` 取得非目标选择的 ObjectRef
  *   （不触发"成为目标"触发，见 CR v1.5 与契约 3.4）。
+ * - `objects`?: Expr —— 结算时求值为 `{ kind: "query", filter }`、
+ *   `{ linked: id }`（也接受 `{ kind: "linked", id }`），或单个 ObjectRef。query 经 `ctx.query(filter)` 读取当前
+ *   Board 特征集合（355.10.d），不经过目标锁定管线；linked 经 `ctx.linked(id)` 读取
+ *   前序指令的实际结果。两者都只接受仍指向同一 zone incarnation 的 Board 对象。
+ *   多对象集合的同步死亡由内核的 batch action 负责；本契约目前没有该能力，因此这里
+ *   对多于一个对象的结果返回 negated(impossible)，不以逐条 kill 伪装同时死亡。
  * - `count`?: Expr —— 消灭数量。省略时消灭全部已解析对象；否则把已解析对象交给
  *   `ctx.choose`（select-objects）让玩家决定消灭哪些（重放式挂起，契约 3.6 choose），
  *   按选择顺序消灭。数量 0 时什么都不消灭（executed，0 个事件）；超过可用数按不可能处理
@@ -49,8 +55,13 @@ import type { Expr, GameEvent, InstructionDef, ObjectRef, Schema, Value } from "
  * 确定性：不读时间、不用随机；选择一律经 `ctx.choose`，数量一律经 `ctx.evaluate` 求值。
  */
 
-/** 单一对象来源：target（目标）、picks（非目标选择）、self（消灭能力来源）。 */
-export type KillSourceKind = "target" | "picks" | "self";
+/** 对象来源：target、picks、query、linked 或 self。 */
+export type KillSourceKind = "target" | "picks" | "query" | "linked" | "self";
+
+/** 非目标的当前集合选择。 */
+export type KillSelection =
+  | { readonly kind: "query"; readonly filter: ObjectFilter }
+  | { readonly kind: "linked"; readonly id: string; readonly key?: string };
 
 /** effect.kill 的参数；见文件头 JSDoc。 */
 export interface KillArgs {
@@ -58,6 +69,8 @@ export interface KillArgs {
   readonly target?: string;
   /** PickSpec id；取得的对象必须是 ObjectRef。 */
   readonly picks?: string;
+  /** 结算时的非目标集合选择；与 target/picks/self 互斥。 */
+  readonly objects?: Expr | KillSelection | ObjectRef;
   /** 为 true 时消灭能力来源自身（"Kill this"）。 */
   readonly self?: boolean;
   /** 消灭数量；省略表示全部已解析对象。求值结果必须是非负整数。 */
@@ -91,7 +104,54 @@ function isExpr(value: unknown): value is Expr {
 function isObjectRef(value: unknown): value is ObjectRef {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as { readonly id?: unknown; readonly zoneEntryId?: unknown };
-  return typeof candidate.id === "string" && typeof candidate.zoneEntryId === "number";
+  return typeof candidate.id === "string" && candidate.id.length > 0 &&
+    Number.isSafeInteger(candidate.zoneEntryId) && (candidate.zoneEntryId as number) >= 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isValue(value: unknown, ancestors = new Set<unknown>()): value is Value {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if ((!isRecord(value) && !Array.isArray(value)) || ancestors.has(value)) return false;
+  ancestors.add(value);
+  const valid = Object.values(value).every(entry => isValue(entry, ancestors));
+  ancestors.delete(value);
+  return valid;
+}
+
+function parseSelection(value: unknown): KillSelection | ObjectRef {
+  if (isObjectRef(value)) return value;
+  if (!isRecord(value)) throw new Error("effect.kill args.objects must be a query, linked selector, or ObjectRef");
+  if (value.kind === "query") {
+    if (!isRecord(value.filter) || !isValue(value.filter)) {
+      throw new Error("effect.kill query selection requires an object filter");
+    }
+    return { kind: "query", filter: value.filter as ObjectFilter };
+  }
+  if (value.kind === "linked") {
+    const key = typeof value.key === "string" && value.key.length > 0 ? value.key : undefined;
+    const id = typeof value.id === "string" ? value.id : key ??
+      (typeof value.instructionId === "string" ? value.instructionId : undefined);
+    if (id === undefined || id.length === 0) {
+      throw new Error("effect.kill linked selection requires a non-empty id");
+    }
+    if (value.key !== undefined && key === undefined) {
+      throw new Error("effect.kill linked selection key must be a non-empty string");
+    }
+    return { kind: "linked", id };
+  }
+  // ObjectSelector spelling used by the shared interpreter: { linked: id }.
+  if (Object.keys(value).length === 1 && typeof value.linked === "string" && value.linked.length > 0) {
+    return { kind: "linked", id: value.linked };
+  }
+  throw new Error("effect.kill args.objects must be a query, linked selector, or ObjectRef");
+}
+
+function isQuerySelection(value: KillSelection | ObjectRef): value is Extract<KillSelection, { kind: "query" }> {
+  return !isObjectRef(value) && value.kind === "query";
 }
 
 function parseArgs(value: unknown): KillArgs {
@@ -101,6 +161,7 @@ function parseArgs(value: unknown): KillArgs {
   const candidate = value as Record<string, unknown>;
   const target = candidate.target;
   const picks = candidate.picks;
+  const rawObjects = candidate.objects;
   const self = candidate.self;
   const count = candidate.count;
   const reason = candidate.reason;
@@ -110,6 +171,7 @@ function parseArgs(value: unknown): KillArgs {
   if (picks !== undefined && typeof picks !== "string") {
     throw new Error("effect.kill args.picks must be a PickSpec id string");
   }
+  const objects = rawObjects === undefined ? undefined : isExpr(rawObjects) ? rawObjects : parseSelection(rawObjects);
   if (self !== undefined && typeof self !== "boolean") {
     throw new Error("effect.kill args.self must be a boolean");
   }
@@ -119,13 +181,43 @@ function parseArgs(value: unknown): KillArgs {
   if (reason !== undefined && typeof reason !== "string") {
     throw new Error("effect.kill args.reason must be a string");
   }
-  if (self !== true && target === undefined && picks === undefined) {
-    throw new Error("effect.kill requires args.target, args.picks, or args.self: true");
+  const hasSource = self === true || target !== undefined || picks !== undefined || objects !== undefined;
+  if (!hasSource) {
+    throw new Error("effect.kill requires args.target, args.picks, args.objects, or args.self: true");
   }
-  return { target, picks, self, count, reason };
+  if (objects !== undefined && (self === true || target !== undefined || picks !== undefined)) {
+    throw new Error("effect.kill args.objects cannot be combined with another object source");
+  }
+  return { target, picks, objects, self, count, reason };
 }
 
 const argsSchema: Schema<KillArgs> = { parse: parseArgs };
+
+function refKey(ref: ObjectRef): string {
+  return `${ref.id}:${ref.zoneEntryId}`;
+}
+
+function linkedRefs(value: Value | undefined): ObjectRef[] {
+  const refs: ObjectRef[] = [];
+  const visit = (entry: unknown): void => {
+    if (isObjectRef(entry)) refs.push(entry);
+    else if (Array.isArray(entry)) entry.forEach(visit);
+    else if (isRecord(entry)) {
+      if (Array.isArray(entry.objects)) entry.objects.forEach(visit);
+      else Object.values(entry).forEach(visit);
+    }
+  };
+  visit(value);
+  const seen = new Set<string>();
+  return refs.filter(ref => !seen.has(refKey(ref)) && seen.add(refKey(ref)));
+}
+
+function linkedValue(ctx: ResolveContext, selection: Extract<KillSelection, { kind: "linked" }>): Value | undefined {
+  if (selection.key === undefined) return ctx.linked(selection.id);
+  return ctx.linked(`${selection.id}.${selection.key}`) ??
+    ctx.linked(selection.key) ??
+    ctx.linked(selection.id);
+}
 
 /** effect.kill 原语定义；默认导出供 scripts/gen-registries.mjs 收集进 instructions 注册表。 */
 export default {
@@ -133,6 +225,7 @@ export default {
   argsSchema,
   execute(ctx, args) {
     const resolved: ResolvedKillObject[] = [];
+    let evaluatedSelection: KillSelection | ObjectRef | undefined;
     if (args.self === true) {
       resolved.push({ ref: ctx.source.ref, via: "self" });
     }
@@ -147,13 +240,32 @@ export default {
         resolved.push({ ref: pick, via: "picks" });
       }
     }
+    if (args.objects !== undefined) {
+      const selection = isExpr(args.objects) ? parseSelection(ctx.evaluate(args.objects)) : args.objects;
+      evaluatedSelection = selection;
+      if (isObjectRef(selection)) resolved.push({ ref: selection, via: "linked" });
+      else if (selection.kind === "query") {
+        const refs = ctx.query(selection.filter).map(object => object.ref).sort((left, right) =>
+          left.id < right.id ? -1 : left.id > right.id ? 1 : left.zoneEntryId - right.zoneEntryId);
+        for (const ref of refs) resolved.push({ ref, via: "query" });
+      } else {
+        for (const ref of linkedRefs(linkedValue(ctx, selection))) resolved.push({ ref, via: "linked" });
+      }
+    }
 
     // 429.2.a：只有当前在 Board 上的对象才能被消灭；引用已失效（离区后旧 zoneEntryId）
     // 或已不在场上的对象不计入。目标全部失效 → ignored（mistargeted，契约 3.4）。
+    const seen = new Set<string>();
     const alive: ResolvedKillObject[] = resolved.filter(entry => {
+      if (seen.has(refKey(entry.ref))) return false;
+      seen.add(refKey(entry.ref));
       const snapshot = ctx.object(entry.ref);
       return snapshot !== null && snapshot.zone === "board";
     });
+    if (alive.length === 0 && evaluatedSelection !== undefined && isQuerySelection(evaluatedSelection)) {
+      ctx.link("killed", []);
+      return { status: "executed", events: [], linkedValues: { killed: [] } };
+    }
     if (alive.length === 0) {
       return { status: "ignored", reason: "mistargeted" };
     }
@@ -189,6 +301,15 @@ export default {
           .filter(entry => order.has(`${entry.ref.id}:${entry.ref.zoneEntryId}`))
           .sort((a, b) => (order.get(`${a.ref.id}:${a.ref.zoneEntryId}`) ?? 0) - (order.get(`${b.ref.id}:${b.ref.zoneEntryId}`) ?? 0));
       }
+    }
+
+    // CR 370.1.a.2: all objects affected by one Kill Instruction die as one
+    // event. ResolveContext exposes only a single-object kill action, so the
+    // new query/linked set form cannot execute more than one current object.
+    // Existing target/picks collections retain their established primitive
+    // behavior while the shared batch contract is supplied by its owner.
+    if (args.objects !== undefined && selected.length > 1) {
+      return { status: "negated", reason: "impossible", events: [] };
     }
 
     const events: GameEvent[] = [];
