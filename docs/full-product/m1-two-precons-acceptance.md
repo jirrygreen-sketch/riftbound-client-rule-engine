@@ -46,21 +46,24 @@ The manifest deliberately separates four states:
   clause. Riposte remains here even though its current program file says
   `executable`.
 - `blocked-source-conflict`: an official card source directly conflicts with
-  the current program. Yone is moved here from `missing-source-evidence`.
+  the current program. The current whitelist has no card in this state after
+  reviewing the official Spiritforged errata's NEW/OLD text.
 - `contract-request-required`: the card needs an additive shared contract before
   its real semantics can be represented. Fiora, Worthy uses this state because
   its triggered optional Order Power cost has no IR field or payment node.
 - `verified-no-ability`: an official printing has no ability text and the
   current no-ability program is the complete capability.
 
-The current distribution is 20 merged awaiting acceptance, 24 dependency not
-ready, 1 contract-request-required, 1 missing source evidence, 1 blocked source
-conflict, and 4 verified no-ability. Across the card
-program files, the literal statuses are 23 `executable`, 24
-`judge-required`, and 4 `no-ability`. A status string is not an execution
-proof, and merged code is not an acceptance result. The 20 merged-but-unaccepted
-goldens retain 23 `test.todo` boundaries; the manifest indexes each one. A TODO
-does not count as an execution pass.
+The current distribution is 21 merged awaiting acceptance, 24 dependency not
+ready, 1 contract-request-required, 1 missing source evidence, 0 blocked source
+conflict, and 4 verified no-ability. Across the card program files, the literal
+statuses are 23 `executable`, 24 `judge-required`, and 4 `no-ability`. A status
+string is not an execution proof, and merged code is not an acceptance result.
+The 51 independent golden files currently report 39 passing files, 12 failing
+files, 272 passing cases, and 52 TODO cases. The manifest records the exact
+exit/pass/fail/todo result for every card. A TODO does not count as an execution
+pass, and a failing golden remains visible rather than being used as proof that
+a feature is absent.
 
 ## Dedicated bounded entry
 
@@ -73,11 +76,12 @@ plan; it starts no games. The plan contains 100 different seeds:
 - seeds 051 through 100 reverse the seats.
 
 `probeM1Acceptance()` executes at most the first case. A thrown initialization
-error, or a game terminating with an exception, stops the run and returns the
-exact seed, orientation, error, canonical card ID, program status, and judge
-reason available from the real error. `runM1Acceptance()` is the explicit full
-gate. Neither function is called from module initialization or the existing
-soak/CLI/feeder entry points.
+error or an execution exception stops the run with the exact seed, orientation,
+card identity, program status, and judge reason. A normal blocked, guard, or
+concession termination is retained as a real one-game result; it is never
+promoted to a pass. `runM1Acceptance()` is the explicit full gate. Neither
+function is called from module initialization or the existing soak/CLI/feeder
+entry points.
 
 The direct Node 22 form used for a review probe is:
 
@@ -97,15 +101,15 @@ winner at or above the victory score and all replay, privacy, blocker,
 exception, and concede conditions also pass. Blocked, guard, concession,
 exception, replay mismatch, and privacy leak always fail the aggregate.
 
-The current first probe stops during initialization before any command. The
-real lifecycle rejects Ferrous Forerunner's shipped `judge-required`
-`CardProgram` with `ProgramBindingError` and canonical ID
-`card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3`.
-This is why the full 100-game acceptance has not run. Zero games have been
-accepted; the pair is not a pass.
-The captured current probe evidence is
-`/tmp/RIFT-857-m1-two-precons-acceptance/probe-current.json`, SHA-256
-`d748ff5192d2cd0f1f8ca525cb62fe8e233d22d815a2b596e770b78c7e86999c`.
+The current first probe on frozen integration commit `3ef041a1` executes one
+game and stops at a real blocked termination in seed 001. Its results retain
+1,012 events, journal digest `ed4c6572043d6f72db8c3652efa14d6f7edcdbe4b0302184db32b9322cff57df`,
+embedded and fresh-world replay agreement, and 312 privacy checks without a
+leak. The blocker is `ProgramBindingError: judge-required — Unsupported filter
+field battlefieldWas`. No winner, battle event, score, or committed combat was
+produced. Zero of the required 100 natural games have been accepted, so seeds
+002–100 were not attempted. Evidence is in
+`/tmp/RIFT-857-m1-two-precons-acceptance/probe-current.json`.
 
 The existing four-deck Vex/Vi regression remains in
 `packages/integration-tests/test/headless/dual-bot.test.ts` without deleted or
@@ -115,32 +119,32 @@ reports 10 failed, 10 passed, and 1 TODO; the failures originate in
 This task does not relabel those failures as acceptance or use them to excuse
 the two-precon gate.
 
-## RIFT-831 setup status
+## Production setup and RIFT-831
 
-The current task HEAD `e2710938ce4b4cc9c492dcf1e848c7ba9801b703` does not
-contain the required newsource merge `b6dc9debd813125413085a8a301f1ccdec5ef092`.
-The parent review HEAD `f036b0e5026aba1668ae88be2d74a05abeb55670` is also not
-an ancestor of this task HEAD. The current lifecycle is SHA-256
-`59aa7584e929afef458df2a862e643e0462bebbbc4497eec872ff67fa2f1166e`;
-the newsource lifecycle is
-`9172c97c4fcda86998e5ac6d98810ccb56724fdf1d3bd181919270a48512adbd`.
-Their focused lifecycle tests also differ. The current test passes 8/8, but it
-does not prove the refreshed newsource setup/leave boundary. The manifest marks
-this as `parent-wiring-required`; the parent must integrate the newsource
-before treating the 831 boundary as refreshed.
+The audited integration snapshot is `3ef041a1e78cc964b2d4c23d3af95f5c7d6302bd`.
+It contains the current lifecycle source with SHA-256
+`9172c97c4fcda86998e5ac6d98810ccb56724fdf1d3bd181919270a48512adbd` and lifecycle
+test SHA-256
+`1f485460f8dc6921fa331c32a83284e978d72ee3a33575945a3ad689953d2153`.
+Both deck builders are exercised against the real 1 Legend, 1 chosen
+Champion, 39 Main Deck, 3 Battlefield, and 12 Rune shape. The setup is blocked
+at the default trigger binding, not at deck construction or at the earlier
+lifecycle wiring. The frozen commit is audit metadata, not a passing condition.
 
-Fiora, Worthy is not certified by its `executable` label. The parent full-seed
-probe at `/root/swarm-rift/shared/parent-reviews/integration-f036b0e5-20261019-0745/full-seed-probe.json`
-(SHA-256 `e366720c974fcda8c18ccd742ef347386c071acc7cbed566be8af966d38c6c23`)
-reaches a real `ProgramBindingError: Unsupported filter field becomesMighty`.
-Its printed optional one Order Power payment appears only in comments: the
-program has one `effect.ready` instruction and no payment IR. The manifest now
-maps these to the might-changed payload/filter producer, triggered optional
-Finalize cost, and the authoritative event:it bridge, all owned by
-`engine-core`. The optional Order Power portion also needs a parent-owned
-additive IR/wire change because `TriggeredAbility` has no cost field. The
-manifest records that contract request and keeps the card
-`contract-request-required`; it does not silently certify the executable label.
+Fiora, Worthy is not certified by its `executable` label. The program contains
+one `might-changed` trigger and one `effect.ready` instruction; it contains no
+`cost.pay`, optional payment body, or `event:it` selector. Production now
+matches the real `might-changed` before/after snapshots for the typed 4 → 5
+transition and controller scope, and the finalize adapter accepts a pure Order
+Power payment shape. The remaining shared work is to install the frozen
+`event:it` binding on the authoritative Finalize/Resolve context and to add the
+printed optional payment to the original CardProgram through a parent-owned IR
+decision. `TriggeredAbility` currently has no top-level cost field. The manifest
+keeps the card `contract-request-required` until a real default-path scenario
+proves decline, exact Order Power payment, unpayable rollback, and readiness of
+the original trigger target. The older f036 blocker remains useful historical
+evidence that `status: executable` was not proof, but it is not a current
+production requirement or a test pass condition.
 
 ## Official effect order and source precedence
 
@@ -178,12 +182,13 @@ pass.
 The official Radiance Chronobreak ruling is indexed as blocked and not
 generalized. It requires each owner to order only its own played-back units,
 then groups are placed in turn order; the full interaction is not implemented.
-The index also records the official Spiritforged Yone errata conflict: the
-selected `sfd-233-star-221` printing and official errata use “open
-battlefield”, while the current CardProgram in
-`packages/card-dsl/src/cards/rad/yone-blademaster.ts` uses “uncontrolled”. The
-card is blocked for review by the existing card-dsl owner; this task does not
-modify it or expand phase-one scope.
+The official Spiritforged page labels “open battlefield” as OLD TEXT and
+“uncontrolled” as NEW TEXT. The selected catalog text and current CardProgram
+in `packages/card-dsl/src/cards/rad/yone-blademaster.ts` both use
+“uncontrolled”, so the old source-conflict blocker is removed. Yone remains a
+whole-card acceptance item because the program's Weaponmaster and combat body
+have not passed a real default game. This task does not modify the card or
+expand phase-one scope.
 
 The official source set and their SHA-256 values are recorded in the manifest.
 The source snapshots are authoritative evidence; the local HTML/PDF cache is
@@ -203,9 +208,12 @@ ruleset profile.
    template goldens, source evidence, and acceptance obligations.
 2. Resolve Yone and Riposte source evidence from official card text and Core
    Rules v1.5. Do not promote them from `executable` status alone.
-3. Reverify the 20 merged-but-unaccepted programs through whole-card
-   production scenarios, preserving every existing golden and adding legal,
-   illegal, stale-target, declined, and atomic rollback boundaries.
+3. Reverify every executable or judge-required program with a whole-card
+   production scenario. Start from its independent golden's observed result:
+   update stale gap-existence assertions into positive behavior tests only where
+   the authoritative primitive exists; retain genuine `test.todo` boundaries.
+   Add legal, illegal, stale-target, declined, and atomic rollback cases where
+   the card text requires them.
 4. Run the explicit 100-game gate. Acceptance requires 100/100 natural
    terminations with zero exceptions, replay mismatches, or privacy leaks.
 5. Only after the automated gate passes, run the manual two-native-client game

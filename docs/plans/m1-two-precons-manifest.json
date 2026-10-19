@@ -44,7 +44,48 @@
     },
     "programAndGoldenMappingSha256": "044fcb9728b2ec1cb01c9b08ee68211f7d3f9fddef32ce59cb15eccb0e79659b",
     "canonicalIdsSha256": "ba94d4805a8ecf16e3e7958c9e6411642c7a52eeaf572c2851afdab1247f794b",
-    "selectedDeckEntriesSha256": "f5855588629daab2f5bd973d8d348ced01218b513481eab804d881de54c0f1a5"
+    "selectedDeckEntriesSha256": "f5855588629daab2f5bd973d8d348ced01218b513481eab804d881de54c0f1a5",
+    "rules": {
+      "cr15": {
+        "title": "Riftbound Core Rules v1.5",
+        "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+        "publishedAt": "2026-10-09",
+        "effectiveDate": "2026-10-16",
+        "rules": [
+          "337",
+          "340",
+          "355.8",
+          "383.3.a",
+          "383.3.b",
+          "383.3.b.1",
+          "709",
+          "710",
+          "711",
+          "808.1"
+        ]
+      },
+      "radiance": {
+        "title": "Core Rules: Radiance Patch Notes (Effective October 16, 2026)",
+        "url": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+        "publishedAt": "2026-10-09T16:00:00.000Z",
+        "effectiveDate": "2026-10-16",
+        "sha256": "dfba4f3ecf6956c32c19327330eaca96d317bedbf2c211c80a8fe1f1dccb569f"
+      },
+      "sfErrata": {
+        "title": "Riftbound Spiritforged Errata",
+        "url": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/",
+        "publishedAt": "2026-01-14T02:00:00.000Z",
+        "effectiveDate": null,
+        "sha256": "dca55c2d013473ffca82fb649a70d16d4b4356c22f74bd5a71b3aa3a9a4c94af"
+      },
+      "sfRulings": {
+        "title": "Riftbound Core Rules: Spiritforged Patch Notes",
+        "url": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-core-rules-spiritforged-patch-notes/",
+        "publishedAt": "2025-12-05T02:00:00.000Z",
+        "effectiveDate": "2025-12-12",
+        "sha256": "c085e3a1b89df98df6c4458d195b276430eb49e601533d80a247786598bb3111"
+      }
+    }
   },
   "decks": [
     {
@@ -1745,7 +1786,8 @@
           "evidence": {
             "parentProbe": "/root/swarm-rift/shared/parent-reviews/integration-f036b0e5-20261019-0745/full-seed-probe.json",
             "parentProbeSha256": "e366720c974fcda8c18ccd742ef347386c071acc7cbed566be8af966d38c6c23",
-            "observedBlocker": "ProgramBindingError: Unsupported filter field becomesMighty"
+            "observedBlocker": "ProgramBindingError: Unsupported filter field becomesMighty",
+            "historicalSupersession": "The f036 becomesMighty ProgramBindingError was superseded by the merged 4-to-5 matcher/producer; it is not current expected behavior or an acceptance assertion."
           }
         },
         {
@@ -1873,7 +1915,7 @@
         "ability": "[Weaponmaster] (When you play me, you may [Equip] one of your Equipment to me for :rb_rune_rainbow: less, even if it's already attached.)\nWhen I conquer an open battlefield, deal damage equal to my Might to an enemy unit in a base."
       },
       "programStatus": "executable",
-      "verificationStatus": "blocked-source-conflict",
+      "verificationStatus": "merged-awaiting-acceptance",
       "productionAcceptance": "pending",
       "program": {
         "path": "packages/card-dsl/src/cards/rad/yone-blademaster.ts",
@@ -1911,7 +1953,7 @@
         "todo": 1,
         "wholeCardStatus": "unproven"
       },
-      "evidenceGap": null
+      "evidenceGap": "Official Spiritforged NEW TEXT matches the current uncontrolled CardProgram; whole-card default combat acceptance remains pending."
     },
     {
       "canonicalCardId": "card.hash-2ebf1fe6e5ed7bb875f1c112b3e0ed1635b557c0c0ad550d752b8dd376243007",
@@ -5105,9 +5147,9 @@
     },
     "verificationStatus": {
       "dependency-not-ready": 24,
-      "merged-awaiting-acceptance": 20,
+      "merged-awaiting-acceptance": 21,
       "contract-request-required": 1,
-      "blocked-source-conflict": 1,
+      "blocked-source-conflict": 0,
       "verified-no-ability": 4,
       "missing-source-evidence": 1
     },
@@ -5151,7 +5193,6 @@
     "programStatusIsNotExecutionProof": true,
     "mergedCodeIsNotAcceptanceProof": true,
     "missingSourceEvidenceCards": [
-      "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
       "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d"
     ],
     "acceptedNaturalTerminationRequires": [
@@ -5888,19 +5929,6 @@
         "state": "missing-source-evidence",
         "cards": [
           {
-            "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
-            "name": "Yone, Blademaster",
-            "program": "packages/card-dsl/src/cards/rad/yone-blademaster.ts",
-            "golden": "packages/card-dsl/test/cards/rad/yone-blademaster.test.mjs",
-            "sourcePrintings": [
-              "rad-181-167",
-              "sfd-116-221",
-              "sfd-233-221",
-              "sfd-233-star-221"
-            ],
-            "planGap": "rule-review:non-reminder-printing-difference"
-          },
-          {
             "canonicalCardId": "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
             "name": "Riposte",
             "program": "packages/card-dsl/src/cards/sfd/riposte.ts",
@@ -5911,7 +5939,7 @@
             "planGap": "rule-review:unmatched-functional-clause"
           }
         ],
-        "acceptance": "Resolve the non-reminder printing difference and unmatched functional clause from authoritative card and rule evidence before accepting executable labels. Keep judge-required until evidence and real execution both exist."
+        "acceptance": "Riposte retains its unmatched functional clause pending authoritative evidence and real default execution. Yone has moved to whole-card acceptance because the official New Text agrees with the program."
       },
       {
         "key": "status-not-proof-fiora-and-mighty",
@@ -5986,7 +6014,7 @@
           {
             "key": "might-changed-becomes-mighty-trigger-binding",
             "owner": "engine-core",
-            "state": "dependency-not-ready",
+            "state": "merged-partially",
             "paths": [
               "packages/engine-core/src/programs/filters.ts",
               "packages/engine-core/src/events/pipeline-match.ts",
@@ -6008,7 +6036,8 @@
                 "golden": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
                 "templateGoldens": []
               }
-            ]
+            ],
+            "reason": "Typed 4-to-5 transitions and controller scope are consumed by production pipeline-match; end-to-end Fiora proof still depends on event:it Finalize binding and the missing original payment IR."
           },
           {
             "key": "event-it-authoritative-bridge",
@@ -6058,7 +6087,8 @@
                 "golden": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
                 "templateGoldens": []
               }
-            ]
+            ],
+            "reason": "Finalize accepts a pure Order Power shape, but Fiora original IR has no choice.optional/cost.pay and TriggeredAbility has no shared cost field; parent owns the additive IR decision."
           },
           {
             "key": "combat-event-payload-location-hold",
@@ -6389,6 +6419,13 @@
             "name": "Mechanized Menace",
             "program": "packages/card-dsl/src/cards/sfd/mechanized-menace.ts",
             "golden": "packages/card-dsl/test/cards/sfd/mechanized-menace.test.mjs",
+            "templateGoldens": []
+          },
+          {
+            "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
+            "name": "Yone, Blademaster",
+            "program": "packages/card-dsl/src/cards/rad/yone-blademaster.ts",
+            "golden": "packages/card-dsl/test/cards/rad/yone-blademaster.test.mjs",
             "templateGoldens": []
           }
         ],
@@ -7266,22 +7303,7 @@
     },
     "acceptancePolicy": "A verified entry proves only the named mechanism through the listed real production component assertion. It does not prove any whole M1 deck or the 100-game gate. Pending/blocked entries cannot be approximated."
   },
-  "cardSourceConflicts": [
-    {
-      "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
-      "selectedPrintingId": "sfd-233-star-221",
-      "officialSource": {
-        "url": "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/",
-        "title": "Riftbound Spiritforged Errata",
-        "publishedAt": "2026-01-14T02:00:00.000Z",
-        "sha256": "dca55c2d013473ffca82fb649a70d16d4b4356c22f74bd5a71b3aa3a9a4c94af"
-      },
-      "selectedPrintingText": "When I conquer an open battlefield, deal damage equal to my Might to an enemy unit in a base.",
-      "currentProgramText": "When I conquer a battlefield that was uncontrolled, deal damage equal to my Might to an enemy unit in a base.",
-      "status": "blocked",
-      "owner": "existing-card-dsl-owner"
-    }
-  ],
+  "cardSourceConflicts": [],
   "productionSetup": {
     "state": "blocked",
     "frozenIntegrationCommit": "3ef041a1e78cc964b2d4c23d3af95f5c7d6302bd",
@@ -7327,7 +7349,1765 @@
     },
     "owner": "engine-core",
     "remainingDependencies": [
-      "token-entry-deathknell"
+      "combat-event-payload-location-hold"
+    ]
+  },
+  "parallelWorkstreams": {
+    "policy": "The generic shared ports are gateways. A card file and its same-name independent golden stay together; do not change the program status based on source inspection alone.",
+    "merged": "RIFT-831 lifecycle and RIFT-810 Mighty transition ports are present in the frozen integration snapshot and are recorded as audit facts, not acceptance criteria.",
+    "sharedPortGates": {
+      "combat-event-payload-location-hold": {
+        "key": "combat-event-payload-location-hold",
+        "owner": "engine-core",
+        "state": "dependency-not-ready",
+        "paths": [
+          "packages/engine-core/src/combat/flow.ts",
+          "packages/engine-core/src/turn/flow.ts",
+          "packages/engine-core/src/events/pipeline-match.ts",
+          "packages/engine-core/src/events/trigger-spec.ts",
+          "packages/engine-core/src/programs/filters.ts"
+        ],
+        "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+        "affectedCards": [
+          {
+            "canonicalCardId": "card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c",
+            "name": "Rumble, Scrapper",
+            "program": "packages/card-dsl/src/cards/sfd/rumble-scrapper.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/rumble-scrapper.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-0c36f22df8ffa7bed49f59fd138d24b9b0a52a7b8ad4c720afcaa12ec816eee4",
+            "name": "Minefield",
+            "program": "packages/card-dsl/src/cards/sfd/minefield.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/minefield.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+            "name": "Rumble, Hotheaded",
+            "program": "packages/card-dsl/src/cards/sfd/rumble-hotheaded.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-569dc9079a6d404c0d850d27b510585b856ab3def5e1e0bbafa30a3bf9d48e82",
+            "name": "Plundering Poro",
+            "program": "packages/card-dsl/src/cards/sfd/plundering-poro.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/plundering-poro.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-5a86b358540e9ab2512400c77f3291739c2aa6ccb7b537449298a640b02b0e82",
+            "name": "Ravenbloom Conservatory",
+            "program": "packages/card-dsl/src/cards/sfd/ravenbloom-conservatory.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/ravenbloom-conservatory.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+            "name": "Fiora, Peerless",
+            "program": "packages/card-dsl/src/cards/sfd/fiora-peerless.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/fiora-peerless.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-77763eae5320de558954776a37677e8638b6d4af73399e5a7c4f5d5321a2b564",
+            "name": "Treasure Hoard",
+            "program": "packages/card-dsl/src/cards/sfd/treasure-hoard.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/treasure-hoard.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6",
+            "name": "Laurent Duelist",
+            "program": "packages/card-dsl/src/cards/sfd/laurent-duelist.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/laurent-duelist.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-9daf60cdf4c82e4fba1f685af1c9b0d748003f7e9ad9c68f02f429bdd0cf85e5",
+            "name": "Veiled Temple",
+            "program": "packages/card-dsl/src/cards/sfd/veiled-temple.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/veiled-temple.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-c225141f743b61c67ddf269932c6bbdef739f37888f62163906faa7fa1e6dc2b",
+            "name": "Sunken Temple",
+            "program": "packages/card-dsl/src/cards/sfd/sunken-temple.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/sunken-temple.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef",
+            "name": "Lucian, Merciless",
+            "program": "packages/card-dsl/src/cards/sfd/lucian-merciless.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/lucian-merciless.test.mjs"
+          }
+        ],
+        "rules": [
+          "383.4.d.1",
+          "383.4.d.2"
+        ],
+        "acceptance": "A real Conquer/Hold emission carries the Unit and battlefield identity; controller, here/self, and stale-location cases select only authoritative objects. No manually emitted payload.",
+        "observation": "Frozen integration 3ef041a1 code inspection plus current default probe/golden runs; this is an implementation dependency record, not a pass assertion."
+      },
+      "token-entry-deathknell": {
+        "key": "token-entry-deathknell",
+        "owner": "engine-core",
+        "state": "dependency-not-ready",
+        "paths": [
+          "packages/engine-core/src/effects/instructions/effect.token.ts",
+          "packages/engine-core/src/effects/tokens/definitions.ts",
+          "packages/engine-core/src/effects/keywords/Deathknell.ts",
+          "packages/engine-core/src/programs/lifecycle.ts",
+          "packages/engine-core/src/chain/engine.ts"
+        ],
+        "reason": "Controller-base token location, Gold/Universal Power semantics, exhausted entry, and the real Deathknell body binding are incomplete. RIFT-831 lifecycle regressions are merged but do not prove these cards.",
+        "affectedCards": [
+          {
+            "canonicalCardId": "card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3",
+            "name": "Ferrous Forerunner",
+            "program": "packages/card-dsl/src/cards/sfd/ferrous-forerunner.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/ferrous-forerunner.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
+            "name": "Wages of Pain",
+            "program": "packages/card-dsl/src/cards/sfd/wages-of-pain.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/wages-of-pain.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-569dc9079a6d404c0d850d27b510585b856ab3def5e1e0bbafa30a3bf9d48e82",
+            "name": "Plundering Poro",
+            "program": "packages/card-dsl/src/cards/sfd/plundering-poro.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/plundering-poro.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-77763eae5320de558954776a37677e8638b6d4af73399e5a7c4f5d5321a2b564",
+            "name": "Treasure Hoard",
+            "program": "packages/card-dsl/src/cards/sfd/treasure-hoard.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/treasure-hoard.test.mjs"
+          }
+        ],
+        "rules": [
+          "808.1",
+          "808.1.c",
+          "808.1.d"
+        ],
+        "acceptance": "Production effect.token resolves controller-relative base, required entry state, and exact token characteristics; Deathknell forwards the printed body through trigger.leave only for a real object-killed event; original golden executes without a manual controller ref.",
+        "observation": "Frozen integration 3ef041a1 code inspection plus current default probe/golden runs; this is an implementation dependency record, not a pass assertion."
+      },
+      "production-lifecycle-keyword-reexpansion": {
+        "key": "production-lifecycle-keyword-reexpansion",
+        "owner": "engine-core",
+        "state": "dependency-not-ready",
+        "paths": [
+          "packages/engine-core/src/programs/lifecycle.ts",
+          "packages/engine-core/src/programs/keyword-grants.ts",
+          "packages/engine-core/src/programs/statics.ts",
+          "packages/engine-core/src/layers/rules/query.ts",
+          "packages/engine-core/src/replacement/bind.ts",
+          "packages/engine-core/src/programs/filters.ts",
+          "packages/engine-core/src/events/pipeline-match.ts",
+          "packages/engine-core/src/events/pipeline-types.ts",
+          "packages/engine-core/src/events/action-adapter.ts",
+          "packages/engine-core/src/events/producers/might-change.ts",
+          "packages/engine-core/src/programs/trigger-adapters/event-it.ts",
+          "packages/engine-core/src/chain/engine.ts",
+          "packages/engine-core/src/effects/interpreter/selectors.ts",
+          "packages/card-dsl/src/ir/types.ts",
+          "packages/engine-core/src/programs/triggers.ts",
+          "packages/engine-core/src/programs/trigger-adapters/finalize-cost.ts"
+        ],
+        "reason": "Fiora, Worthy additionally needs becomesMighty payload/filter matching, the frozen event:it bridge, and an actual optional Order Power payment IR consumed at Finalize.",
+        "affectedCards": [
+          {
+            "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+            "name": "Rumble, Hotheaded",
+            "program": "packages/card-dsl/src/cards/sfd/rumble-hotheaded.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab",
+            "name": "Breakneck Mech",
+            "program": "packages/card-dsl/src/cards/sfd/breakneck-mech.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/breakneck-mech.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40",
+            "name": "Forecaster",
+            "program": "packages/card-dsl/src/cards/sfd/forecaster.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/forecaster.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9",
+            "name": "Gem Jammer",
+            "program": "packages/card-dsl/src/cards/sfd/gem-jammer.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/gem-jammer.test.mjs"
+          }
+        ],
+        "rules": [
+          "706",
+          "807"
+        ],
+        "acceptance": "A default-created permanent receives the original keyword grant/replacement on entering board; attacker/defender and entry-state cases use actual combat designations and engine cleanup.",
+        "observation": "Frozen integration 3ef041a1 code inspection plus current default probe/golden runs; this is an implementation dependency record, not a pass assertion."
+      },
+      "cost-repeat-additional-cost": {
+        "key": "cost-repeat-additional-cost",
+        "owner": "engine-core",
+        "state": "dependency-not-ready",
+        "paths": [
+          "packages/engine-core/src/programs/play.ts",
+          "packages/engine-core/src/chain/engine.ts",
+          "packages/engine-core/src/chain/interpreter-adapter.ts",
+          "packages/engine-core/src/effects/keywords/Repeat.ts",
+          "packages/engine-core/src/effects/instructions/effect.repeat.ts",
+          "packages/engine-core/src/cost/discounts/collect.ts",
+          "packages/engine-core/src/programs/statics.ts"
+        ],
+        "reason": "Optional additional/Repeat payments and CardProgram static costs lack complete Finalize collection, paid-instance binding, and rollback.",
+        "affectedCards": [
+          {
+            "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+            "name": "Rumble, Hotheaded",
+            "program": "packages/card-dsl/src/cards/sfd/rumble-hotheaded.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-153eb4df721b70662a63652ba1602985ceed08d81a0b23fc0d6b10349ee15ca9",
+            "name": "Frigid Touch",
+            "program": "packages/card-dsl/src/cards/sfd/frigid-touch.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/frigid-touch.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-3c1c01b405853556e3e1c12bbd758e94d73f5ed474a5643bb068eaa7cb549c6e",
+            "name": "Danger Zone",
+            "program": "packages/card-dsl/src/cards/sfd/danger-zone.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/danger-zone.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-44e95dd0a87b7dfcd7565b73a33e204f85c97ac82e004a6127ff7ed649fb41ad",
+            "name": "Ornn's Forge",
+            "program": "packages/card-dsl/src/cards/sfd/ornns-forge.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/ornns-forge.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+            "name": "Jaull-Fish",
+            "program": "packages/card-dsl/src/cards/sfd/jaull-fish.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/jaull-fish.test.mjs"
+          }
+        ],
+        "rules": [
+          "356.4.f",
+          "383.3.b.1"
+        ],
+        "acceptance": "Finalize chooses/declines optional additional cost, charges the printed component once, preserves paid provenance, and rolls back all state on inability.",
+        "observation": "Frozen integration 3ef041a1 code inspection plus current default probe/golden runs; this is an implementation dependency record, not a pass assertion."
+      },
+      "might-changed-becomes-mighty-trigger-binding": {
+        "key": "might-changed-becomes-mighty-trigger-binding",
+        "owner": "engine-core",
+        "state": "merged-partially",
+        "paths": [
+          "packages/engine-core/src/programs/filters.ts",
+          "packages/engine-core/src/events/pipeline-match.ts",
+          "packages/engine-core/src/events/pipeline-types.ts",
+          "packages/engine-core/src/events/action-adapter.ts",
+          "packages/engine-core/src/events/producers/might-change.ts"
+        ],
+        "reason": "See mapped dependency.",
+        "affectedCards": [
+          {
+            "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+            "name": "Fiora, Worthy",
+            "program": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs"
+          }
+        ],
+        "rules": [
+          "709",
+          "710",
+          "711"
+        ],
+        "acceptance": "A real 4-to-5 friendly-unit transition is collected; 5-to-6 and non-board/incarnation changes do not trigger. Current matcher exists; end-to-end collection remains unproven.",
+        "observation": "Frozen integration 3ef041a1 code inspection plus current default probe/golden runs; this is an implementation dependency record, not a pass assertion."
+      },
+      "event-it-authoritative-bridge": {
+        "key": "event-it-authoritative-bridge",
+        "owner": "engine-core",
+        "state": "dependency-not-ready",
+        "paths": [
+          "packages/engine-core/src/programs/trigger-adapters/event-it.ts",
+          "packages/engine-core/src/events/pipeline-types.ts",
+          "packages/engine-core/src/chain/engine.ts",
+          "packages/engine-core/src/effects/interpreter/selectors.ts"
+        ],
+        "reason": "See mapped dependency.",
+        "affectedCards": [
+          {
+            "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+            "name": "Fiora, Worthy",
+            "program": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs"
+          }
+        ],
+        "rules": [
+          "337",
+          "340",
+          "383.3.b.1"
+        ],
+        "acceptance": "Chain Finalize stores frozen event:it data on the pending item and Resolve reads that exact incarnation after controller changes; no current-id relookup.",
+        "observation": "Frozen integration 3ef041a1 code inspection plus current default probe/golden runs; this is an implementation dependency record, not a pass assertion."
+      },
+      "triggered-optional-order-power-finalize": {
+        "key": "triggered-optional-order-power-finalize",
+        "owner": "parent-contract-owner-and-engine-core-finalize-owner",
+        "state": "contract-request-required",
+        "paths": [
+          "packages/card-dsl/src/ir/types.ts",
+          "packages/engine-core/src/programs/triggers.ts",
+          "packages/engine-core/src/programs/trigger-adapters/finalize-cost.ts",
+          "packages/engine-core/src/chain/engine.ts"
+        ],
+        "reason": "Pure Order Power conversion exists, but original IR has no payment node and the shared TriggeredAbility cost contract is unapproved.",
+        "affectedCards": [
+          {
+            "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+            "name": "Fiora, Worthy",
+            "program": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs"
+          }
+        ],
+        "rules": [
+          "383.3.a",
+          "383.3.b",
+          "383.3.b.1"
+        ],
+        "acceptance": "Parent-approved additive IR representation is authored on the original card; default Finalize permits decline, pays exactly one Order Power on acceptance, and rolls back unpayable cases.",
+        "observation": "Frozen integration 3ef041a1 code inspection plus current default probe/golden runs; this is an implementation dependency record, not a pass assertion."
+      },
+      "mighty-query-consumer": {
+        "key": "mighty-query-consumer",
+        "owner": "engine-core",
+        "state": "dependency-not-ready",
+        "paths": [
+          "packages/engine-core/src/effects/keywords/Mighty.ts",
+          "packages/engine-core/src/layers/filter.ts",
+          "packages/engine-core/src/programs/filters.ts",
+          "packages/engine-core/src/programs/statics.ts",
+          "packages/engine-core/src/effects/interpreter/expr.ts"
+        ],
+        "reason": "Effective Might >= 5 is not consistently exposed to production filters and static evaluation. Unknown mightGte inputs remain fail-closed.",
+        "affectedCards": [
+          {
+            "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+            "name": "Fiora, Peerless",
+            "program": "packages/card-dsl/src/cards/sfd/fiora-peerless.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/fiora-peerless.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f",
+            "name": "Show of Strength",
+            "program": "packages/card-dsl/src/cards/sfd/show-of-strength.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/show-of-strength.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-c225141f743b61c67ddf269932c6bbdef739f37888f62163906faa7fa1e6dc2b",
+            "name": "Sunken Temple",
+            "program": "packages/card-dsl/src/cards/sfd/sunken-temple.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/sunken-temple.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+            "name": "Jaull-Fish",
+            "program": "packages/card-dsl/src/cards/sfd/jaull-fish.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/jaull-fish.test.mjs"
+          }
+        ],
+        "rules": [
+          "709",
+          "710",
+          "711"
+        ],
+        "acceptance": "Original card query evaluates effective Might through the layer system at 4, 5, and >=5; non-board LKI uses printed Might where required.",
+        "observation": "Frozen integration 3ef041a1 code inspection plus current default probe/golden runs; this is an implementation dependency record, not a pass assertion."
+      },
+      "nontarget-picks-equipment": {
+        "key": "nontarget-picks-equipment",
+        "owner": "engine-core",
+        "state": "dependency-not-ready",
+        "paths": [
+          "packages/engine-core/src/programs/filters.ts",
+          "packages/engine-core/src/chain/picks/plan.ts",
+          "packages/engine-core/src/target/picks/plan.ts",
+          "packages/engine-core/src/effects/instructions/effect.detach.ts",
+          "packages/engine-core/src/effects/keywords/Weaponmaster.ts"
+        ],
+        "reason": "Non-target picks, equipped/attached predicates, and authoritative Equip cost provenance need production Finalize consumers.",
+        "affectedCards": [
+          {
+            "canonicalCardId": "card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7",
+            "name": "Veteran Poro",
+            "program": "packages/card-dsl/src/cards/sfd/veteran-poro.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/veteran-poro.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef",
+            "name": "Lucian, Merciless",
+            "program": "packages/card-dsl/src/cards/sfd/lucian-merciless.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/lucian-merciless.test.mjs"
+          },
+          {
+            "canonicalCardId": "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+            "name": "Strike Down",
+            "program": "packages/card-dsl/src/cards/sfd/strike-down.ts",
+            "golden": "packages/card-dsl/test/cards/sfd/strike-down.test.mjs"
+          }
+        ],
+        "rules": [
+          "355.8"
+        ],
+        "acceptance": "Original non-target picks receive valid choices at Finalize; equipped/attached predicates and stale choices fail closed without a fabricated ObjectRef.",
+        "observation": "Frozen integration 3ef041a1 code inspection plus current default probe/golden runs; this is an implementation dependency record, not a pass assertion."
+      },
+      "legion-history-condition": {
+        "key": "legion-history-condition",
+        "owner": "engine-core",
+        "state": "dependency-not-ready",
+        "paths": [
+          "packages/engine-core/src/events/pipeline-match.ts",
+          "packages/engine-core/src/events/trigger-spec.ts",
+          "packages/engine-core/src/programs/filters.ts",
+          "packages/engine-core/src/effects/interpreter/condition.ts"
+        ],
+        "reason": "Evaluate Legion from the authoritative finalized-card history at the trigger collection time, exclude the source correctly, reset at the turn boundary, and execute the original +2 Might body through the production chain.",
+        "affectedCards": [
+          {
+            "canonicalCardId": "card.hash-d4e849d845765608b07bf4af4aa19877f6303dfff539b541d0d070320dd05d91",
+            "name": "Dangerous Duo",
+            "program": "packages/card-dsl/src/cards/ogn/dangerous-duo.ts",
+            "golden": "packages/card-dsl/test/cards/ogn/dangerous-duo.test.mjs"
+          }
+        ],
+        "rules": [
+          "383.3",
+          "383.4"
+        ],
+        "acceptance": "Legion is evaluated from finalized-card history excluding the source and reset at turn boundaries; original body runs only when true.",
+        "observation": "Frozen integration 3ef041a1 code inspection plus current default probe/golden runs; this is an implementation dependency record, not a pass assertion."
+      }
+    },
+    "cards": {
+      "independentlyReadyForReview": [
+        {
+          "canonicalCardId": "card.hash-0ba141b975db96cac65aab56bfd7dbb63904c538cc3d9c32bdfb3b2d98e486de",
+          "name": "Royal Guard",
+          "program": "packages/card-dsl/src/cards/sfd/royal-guard.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/royal-guard.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "triggered"
+            ],
+            "ops": [
+              "effect.play",
+              "effect.token"
+            ],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 3,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b",
+          "name": "Singularity",
+          "program": "packages/card-dsl/src/cards/ogn/singularity.ts",
+          "golden": "packages/card-dsl/test/cards/ogn/singularity.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "play"
+            ],
+            "ops": [
+              "effect.damage"
+            ],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 6,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-1504d8f14af5ce1b9f7a3663c23e6ef7cb57d59a6274dc921cd9296ee8e2494b",
+          "name": "Production Surge",
+          "program": "packages/card-dsl/src/cards/sfd/production-surge.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/production-surge.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "static",
+              "play"
+            ],
+            "ops": [
+              "effect.draw",
+              "effect.token"
+            ],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 6,
+            "fail": 0,
+            "todo": 2,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
+          "name": "Yone, Blademaster",
+          "program": "packages/card-dsl/src/cards/rad/yone-blademaster.ts",
+          "golden": "packages/card-dsl/test/cards/rad/yone-blademaster.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "keyword",
+              "triggered"
+            ],
+            "ops": [
+              "effect.damage"
+            ],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 4,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-2ebf1fe6e5ed7bb875f1c112b3e0ed1635b557c0c0ad550d752b8dd376243007",
+          "name": "Consult the Past",
+          "program": "packages/card-dsl/src/cards/ogn/consult-the-past.ts",
+          "golden": "packages/card-dsl/test/cards/ogn/consult-the-past.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "keyword",
+              "play"
+            ],
+            "ops": [
+              "effect.draw"
+            ],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 5,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-30497c69657abd1d3abf17f9b3766e7d064817473a88828ca2ef4ab9b51f7902",
+          "name": "Fury Rune",
+          "program": "packages/card-dsl/src/cards/ogn/fury-rune.ts",
+          "golden": "packages/card-dsl/test/cards/ogn/fury-rune.test.mjs",
+          "programStatus": "no-ability",
+          "verificationStatus": "verified-no-ability",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "no-ability",
+            "abilityKinds": [],
+            "ops": [],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 3,
+            "fail": 0,
+            "todo": 0,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-34880fcae16bd9461e4c318dfb455365ff9e353db357f948b4a15dea7e01b389",
+          "name": "Bubble Bot",
+          "program": "packages/card-dsl/src/cards/sfd/bubble-bot.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/bubble-bot.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "triggered"
+            ],
+            "ops": [
+              "effect.ready"
+            ],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 2,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-5b08b5b8648e8c5c057d15279d1b4e677457eb0b43fcf2810e2ec4f4c4d1b7cf",
+          "name": "Stupefy",
+          "program": "packages/card-dsl/src/cards/ogn/stupefy.ts",
+          "golden": "packages/card-dsl/test/cards/ogn/stupefy.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "keyword",
+              "play"
+            ],
+            "ops": [
+              "continuous.might",
+              "effect.draw"
+            ],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 6,
+            "fail": 0,
+            "todo": 0,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-600e0796e82099284b213e87b112b1c5df42777ef72b70a3b4cd49a84d27dd10",
+          "name": "Void Seeker",
+          "program": "packages/card-dsl/src/cards/ogn/void-seeker.ts",
+          "golden": "packages/card-dsl/test/cards/ogn/void-seeker.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "keyword",
+              "play"
+            ],
+            "ops": [
+              "effect.damage",
+              "effect.draw"
+            ],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 4,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-8d49727ab9ae782b8a21802c9ae0b51e5d712a37a072d991629bfbf3645535b3",
+          "name": "Punch First",
+          "program": "packages/card-dsl/src/cards/sfd/punch-first.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/punch-first.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "keyword",
+              "play"
+            ],
+            "ops": [
+              "continuous.might"
+            ],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 9,
+            "fail": 0,
+            "todo": 2,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-902c6a1366a1a0e653ccb65102ff621b109af3b0b40f5bbeb7d8d3a5aeae2322",
+          "name": "Warmog's Armor",
+          "program": "packages/card-dsl/src/cards/sfd/warmogs-armor.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/warmogs-armor.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "keyword"
+            ],
+            "ops": [],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 2,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-959c19d68f06f8f929625bfde93a1132701da5a5d0b49e91583db341384f0bfe",
+          "name": "B.F. Sword",
+          "program": "packages/card-dsl/src/cards/sfd/bf-sword.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/bf-sword.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "keyword"
+            ],
+            "ops": [],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 2,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-a1ee07f71d453092ab7d54f9491684e972b735b22bb1f3fda73f2641bcedbfe1",
+          "name": "Doran's Blade",
+          "program": "packages/card-dsl/src/cards/sfd/dorans-blade.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/dorans-blade.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "keyword"
+            ],
+            "ops": [],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 2,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-a2227b03e9e13c8e2ddae7a973c746cc4243ff631dfaf462dc9823e687bbbf17",
+          "name": "Body Rune",
+          "program": "packages/card-dsl/src/cards/ogn/body-rune.ts",
+          "golden": "packages/card-dsl/test/cards/ogn/body-rune.test.mjs",
+          "programStatus": "no-ability",
+          "verificationStatus": "verified-no-ability",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "no-ability",
+            "abilityKinds": [],
+            "ops": [],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 3,
+            "fail": 0,
+            "todo": 0,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-a8a4cb783649a0339782e2d3808d6144661c621634da7c9f79b4f87981fac97b",
+          "name": "Mind Rune",
+          "program": "packages/card-dsl/src/cards/ogn/mind-rune.ts",
+          "golden": "packages/card-dsl/test/cards/ogn/mind-rune.test.mjs",
+          "programStatus": "no-ability",
+          "verificationStatus": "verified-no-ability",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "no-ability",
+            "abilityKinds": [],
+            "ops": [],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 3,
+            "fail": 0,
+            "todo": 0,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-afc40c373a9fb4e48492323d7af26d3a58b824c385707dd3c269e97fee236103",
+          "name": "Unsung Hero",
+          "program": "packages/card-dsl/src/cards/sfd/unsung-hero.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/unsung-hero.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "keyword",
+              "triggered"
+            ],
+            "ops": [
+              "effect.draw"
+            ],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 4,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-cab923a670e4baa826aa3de381c8b992bf33987fcb0d65feb75ca538a8681010",
+          "name": "Long Sword",
+          "program": "packages/card-dsl/src/cards/sfd/long-sword.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/long-sword.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "keyword"
+            ],
+            "ops": [],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 2,
+            "fail": 0,
+            "todo": 2,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-ccfc067dad8a1bf92c6ae1aa5f7110e9d211a1842a9254bb9320705c2f96c6c4",
+          "name": "Grand Duelist",
+          "program": "packages/card-dsl/src/cards/sfd/grand-duelist.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/grand-duelist.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "triggered"
+            ],
+            "ops": [
+              "effect.channel",
+              "effect.exhaust"
+            ],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 6,
+            "fail": 0,
+            "todo": 2,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-cf0b322a78010676e3d8b287830194a3bdc8970e65a141578ae8a3074ebd956f",
+          "name": "Dauntless Vanguard",
+          "program": "packages/card-dsl/src/cards/sfd/dauntless-vanguard.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/dauntless-vanguard.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "static"
+            ],
+            "ops": [],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 2,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-d3579e6825470471f5ce05c53533806a5244c5e84364fe57b2aab0b7cc0f14e0",
+          "name": "Sacred Shears",
+          "program": "packages/card-dsl/src/cards/sfd/sacred-shears.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/sacred-shears.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "keyword"
+            ],
+            "ops": [],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 2,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-d490b51d08bdd7f97b1708aabfa6309995106f10de815b6fd927368e4a630569",
+          "name": "Assembly Rig",
+          "program": "packages/card-dsl/src/cards/sfd/assembly-rig.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/assembly-rig.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "activated"
+            ],
+            "ops": [
+              "effect.token"
+            ],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 4,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-e0efe08be77e60ed68f2e43ba425b763efd364eb44b0c760d26ef1fcc1b6df67",
+          "name": "Order Rune",
+          "program": "packages/card-dsl/src/cards/ogn/order-rune.ts",
+          "golden": "packages/card-dsl/test/cards/ogn/order-rune.test.mjs",
+          "programStatus": "no-ability",
+          "verificationStatus": "verified-no-ability",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "no-ability",
+            "abilityKinds": [],
+            "ops": [],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 3,
+            "fail": 0,
+            "todo": 0,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-e2638655ff5ed3a1e60a501be3c23d74e46ef7f1900bed31b436f1a579b316ed",
+          "name": "Pit Rookie",
+          "program": "packages/card-dsl/src/cards/ogn/pit-rookie.ts",
+          "golden": "packages/card-dsl/test/cards/ogn/pit-rookie.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "triggered"
+            ],
+            "ops": [
+              "effect.buff"
+            ],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 7,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-f67321dac096b3ad1e49b55231663e26f3f9d96efafe79d75719a6eb72fc5caa",
+          "name": "Vengeance",
+          "program": "packages/card-dsl/src/cards/ogn/vengeance.ts",
+          "golden": "packages/card-dsl/test/cards/ogn/vengeance.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "play"
+            ],
+            "ops": [
+              "effect.kill"
+            ],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 4,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7",
+          "name": "Mechanized Menace",
+          "program": "packages/card-dsl/src/cards/sfd/mechanized-menace.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/mechanized-menace.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "merged-awaiting-acceptance",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "static"
+            ],
+            "ops": [],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 4,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        }
+      ],
+      "blockedOnSharedPorts": [
+        {
+          "canonicalCardId": "card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c",
+          "name": "Rumble, Scrapper",
+          "program": "packages/card-dsl/src/cards/sfd/rumble-scrapper.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/rumble-scrapper.test.mjs",
+          "dependencies": [
+            "combat-event-payload-location-hold"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 1,
+            "pass": 8,
+            "fail": 1,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3",
+          "name": "Ferrous Forerunner",
+          "program": "packages/card-dsl/src/cards/sfd/ferrous-forerunner.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/ferrous-forerunner.test.mjs",
+          "dependencies": [
+            "token-entry-deathknell"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 1,
+            "pass": 4,
+            "fail": 2,
+            "todo": 2,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-0c36f22df8ffa7bed49f59fd138d24b9b0a52a7b8ad4c720afcaa12ec816eee4",
+          "name": "Minefield",
+          "program": "packages/card-dsl/src/cards/sfd/minefield.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/minefield.test.mjs",
+          "dependencies": [
+            "combat-event-payload-location-hold"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 6,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+          "name": "Rumble, Hotheaded",
+          "program": "packages/card-dsl/src/cards/sfd/rumble-hotheaded.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs",
+          "dependencies": [
+            "production-lifecycle-keyword-reexpansion",
+            "combat-event-payload-location-hold",
+            "cost-repeat-additional-cost"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 1,
+            "pass": 10,
+            "fail": 3,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-153eb4df721b70662a63652ba1602985ceed08d81a0b23fc0d6b10349ee15ca9",
+          "name": "Frigid Touch",
+          "program": "packages/card-dsl/src/cards/sfd/frigid-touch.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/frigid-touch.test.mjs",
+          "dependencies": [
+            "cost-repeat-additional-cost"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 7,
+            "fail": 0,
+            "todo": 2,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+          "name": "Fiora, Worthy",
+          "program": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+          "dependencies": [
+            "might-changed-becomes-mighty-trigger-binding",
+            "event-it-authoritative-bridge",
+            "triggered-optional-order-power-finalize"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 4,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-3c1c01b405853556e3e1c12bbd758e94d73f5ed474a5643bb068eaa7cb549c6e",
+          "name": "Danger Zone",
+          "program": "packages/card-dsl/src/cards/sfd/danger-zone.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/danger-zone.test.mjs",
+          "dependencies": [
+            "cost-repeat-additional-cost"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 6,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
+          "name": "Wages of Pain",
+          "program": "packages/card-dsl/src/cards/sfd/wages-of-pain.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/wages-of-pain.test.mjs",
+          "dependencies": [
+            "token-entry-deathknell"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 1,
+            "pass": 5,
+            "fail": 2,
+            "todo": 0,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-44e95dd0a87b7dfcd7565b73a33e204f85c97ac82e004a6127ff7ed649fb41ad",
+          "name": "Ornn's Forge",
+          "program": "packages/card-dsl/src/cards/sfd/ornns-forge.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/ornns-forge.test.mjs",
+          "dependencies": [
+            "cost-repeat-additional-cost"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 1,
+            "pass": 4,
+            "fail": 1,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-569dc9079a6d404c0d850d27b510585b856ab3def5e1e0bbafa30a3bf9d48e82",
+          "name": "Plundering Poro",
+          "program": "packages/card-dsl/src/cards/sfd/plundering-poro.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/plundering-poro.test.mjs",
+          "dependencies": [
+            "token-entry-deathknell",
+            "combat-event-payload-location-hold"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 5,
+            "fail": 0,
+            "todo": 2,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-5a86b358540e9ab2512400c77f3291739c2aa6ccb7b537449298a640b02b0e82",
+          "name": "Ravenbloom Conservatory",
+          "program": "packages/card-dsl/src/cards/sfd/ravenbloom-conservatory.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/ravenbloom-conservatory.test.mjs",
+          "dependencies": [
+            "combat-event-payload-location-hold"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 10,
+            "fail": 0,
+            "todo": 2,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+          "name": "Fiora, Peerless",
+          "program": "packages/card-dsl/src/cards/sfd/fiora-peerless.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/fiora-peerless.test.mjs",
+          "dependencies": [
+            "combat-event-payload-location-hold",
+            "mighty-query-consumer"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 17,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-77763eae5320de558954776a37677e8638b6d4af73399e5a7c4f5d5321a2b564",
+          "name": "Treasure Hoard",
+          "program": "packages/card-dsl/src/cards/sfd/treasure-hoard.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/treasure-hoard.test.mjs",
+          "dependencies": [
+            "token-entry-deathknell",
+            "combat-event-payload-location-hold"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 5,
+            "fail": 0,
+            "todo": 3,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7",
+          "name": "Veteran Poro",
+          "program": "packages/card-dsl/src/cards/sfd/veteran-poro.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/veteran-poro.test.mjs",
+          "dependencies": [
+            "nontarget-picks-equipment"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 1,
+            "pass": 5,
+            "fail": 2,
+            "todo": 0,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f",
+          "name": "Show of Strength",
+          "program": "packages/card-dsl/src/cards/sfd/show-of-strength.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/show-of-strength.test.mjs",
+          "dependencies": [
+            "mighty-query-consumer"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 1,
+            "pass": 5,
+            "fail": 3,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6",
+          "name": "Laurent Duelist",
+          "program": "packages/card-dsl/src/cards/sfd/laurent-duelist.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/laurent-duelist.test.mjs",
+          "dependencies": [
+            "combat-event-payload-location-hold"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 1,
+            "pass": 4,
+            "fail": 2,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-9daf60cdf4c82e4fba1f685af1c9b0d748003f7e9ad9c68f02f429bdd0cf85e5",
+          "name": "Veiled Temple",
+          "program": "packages/card-dsl/src/cards/sfd/veiled-temple.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/veiled-temple.test.mjs",
+          "dependencies": [
+            "combat-event-payload-location-hold"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 5,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-c225141f743b61c67ddf269932c6bbdef739f37888f62163906faa7fa1e6dc2b",
+          "name": "Sunken Temple",
+          "program": "packages/card-dsl/src/cards/sfd/sunken-temple.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/sunken-temple.test.mjs",
+          "dependencies": [
+            "combat-event-payload-location-hold",
+            "mighty-query-consumer"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 1,
+            "pass": 7,
+            "fail": 1,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef",
+          "name": "Lucian, Merciless",
+          "program": "packages/card-dsl/src/cards/sfd/lucian-merciless.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/lucian-merciless.test.mjs",
+          "dependencies": [
+            "combat-event-payload-location-hold",
+            "nontarget-picks-equipment"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 6,
+            "fail": 0,
+            "todo": 2,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab",
+          "name": "Breakneck Mech",
+          "program": "packages/card-dsl/src/cards/sfd/breakneck-mech.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/breakneck-mech.test.mjs",
+          "dependencies": [
+            "production-lifecycle-keyword-reexpansion"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 9,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40",
+          "name": "Forecaster",
+          "program": "packages/card-dsl/src/cards/sfd/forecaster.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/forecaster.test.mjs",
+          "dependencies": [
+            "production-lifecycle-keyword-reexpansion"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 1,
+            "pass": 8,
+            "fail": 1,
+            "todo": 0,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-d4e849d845765608b07bf4af4aa19877f6303dfff539b541d0d070320dd05d91",
+          "name": "Dangerous Duo",
+          "program": "packages/card-dsl/src/cards/ogn/dangerous-duo.ts",
+          "golden": "packages/card-dsl/test/cards/ogn/dangerous-duo.test.mjs",
+          "dependencies": [
+            "legion-history-condition"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 5,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+          "name": "Jaull-Fish",
+          "program": "packages/card-dsl/src/cards/sfd/jaull-fish.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/jaull-fish.test.mjs",
+          "dependencies": [
+            "mighty-query-consumer",
+            "cost-repeat-additional-cost"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 6,
+            "fail": 0,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9",
+          "name": "Gem Jammer",
+          "program": "packages/card-dsl/src/cards/sfd/gem-jammer.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/gem-jammer.test.mjs",
+          "dependencies": [
+            "production-lifecycle-keyword-reexpansion"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 0,
+            "pass": 7,
+            "fail": 0,
+            "todo": 0,
+            "wholeCardStatus": "unproven"
+          }
+        },
+        {
+          "canonicalCardId": "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+          "name": "Strike Down",
+          "program": "packages/card-dsl/src/cards/sfd/strike-down.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/strike-down.test.mjs",
+          "dependencies": [
+            "nontarget-picks-equipment"
+          ],
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 1,
+            "pass": 7,
+            "fail": 1,
+            "todo": 1,
+            "wholeCardStatus": "unproven"
+          }
+        }
+      ],
+      "sourceBlocked": [
+        {
+          "canonicalCardId": "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
+          "name": "Riposte",
+          "program": "packages/card-dsl/src/cards/sfd/riposte.ts",
+          "golden": "packages/card-dsl/test/cards/sfd/riposte.test.mjs",
+          "programStatus": "executable",
+          "verificationStatus": "missing-source-evidence",
+          "ir": {
+            "inspectedAt": "2026-10-19",
+            "source": "packages/card-dsl/src/cards/registry.generated.ts",
+            "rulesetVersion": "core-1.5",
+            "declaredStatus": "executable",
+            "abilityKinds": [
+              "keyword",
+              "play"
+            ],
+            "ops": [
+              "condition.value",
+              "continuous.might",
+              "effect.counter"
+            ],
+            "observedPaymentInstruction": false,
+            "observedEventItSelector": false
+          },
+          "observedGolden": {
+            "observedAt": "2026-10-19T11:17:12.061Z",
+            "exitCode": 1,
+            "pass": 9,
+            "fail": 1,
+            "todo": 0,
+            "wholeCardStatus": "unproven"
+          }
+        }
+      ]
+    },
+    "failureDisposition": [
+      {
+        "canonicalCardId": "card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c",
+        "name": "Rumble, Scrapper",
+        "golden": "packages/card-dsl/test/cards/sfd/rumble-scrapper.test.mjs",
+        "exitCode": 1,
+        "fail": 1,
+        "todo": 1,
+        "action": "Existing assertion may encode an absent feature; update only when the mapped behavior is truly implemented, otherwise retain the failure and missing dependency. Never delete or weaken it."
+      },
+      {
+        "canonicalCardId": "card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3",
+        "name": "Ferrous Forerunner",
+        "golden": "packages/card-dsl/test/cards/sfd/ferrous-forerunner.test.mjs",
+        "exitCode": 1,
+        "fail": 2,
+        "todo": 2,
+        "action": "Existing assertion may encode an absent feature; update only when the mapped behavior is truly implemented, otherwise retain the failure and missing dependency. Never delete or weaken it."
+      },
+      {
+        "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+        "name": "Rumble, Hotheaded",
+        "golden": "packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs",
+        "exitCode": 1,
+        "fail": 3,
+        "todo": 1,
+        "action": "Existing assertion may encode an absent feature; update only when the mapped behavior is truly implemented, otherwise retain the failure and missing dependency. Never delete or weaken it."
+      },
+      {
+        "canonicalCardId": "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
+        "name": "Wages of Pain",
+        "golden": "packages/card-dsl/test/cards/sfd/wages-of-pain.test.mjs",
+        "exitCode": 1,
+        "fail": 2,
+        "todo": 0,
+        "action": "Existing assertion may encode an absent feature; update only when the mapped behavior is truly implemented, otherwise retain the failure and missing dependency. Never delete or weaken it."
+      },
+      {
+        "canonicalCardId": "card.hash-44e95dd0a87b7dfcd7565b73a33e204f85c97ac82e004a6127ff7ed649fb41ad",
+        "name": "Ornn's Forge",
+        "golden": "packages/card-dsl/test/cards/sfd/ornns-forge.test.mjs",
+        "exitCode": 1,
+        "fail": 1,
+        "todo": 1,
+        "action": "Existing assertion may encode an absent feature; update only when the mapped behavior is truly implemented, otherwise retain the failure and missing dependency. Never delete or weaken it."
+      },
+      {
+        "canonicalCardId": "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
+        "name": "Riposte",
+        "golden": "packages/card-dsl/test/cards/sfd/riposte.test.mjs",
+        "exitCode": 1,
+        "fail": 1,
+        "todo": 0,
+        "action": "Existing assertion may encode an absent feature; update only when the mapped behavior is truly implemented, otherwise retain the failure and missing dependency. Never delete or weaken it."
+      },
+      {
+        "canonicalCardId": "card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7",
+        "name": "Veteran Poro",
+        "golden": "packages/card-dsl/test/cards/sfd/veteran-poro.test.mjs",
+        "exitCode": 1,
+        "fail": 2,
+        "todo": 0,
+        "action": "Existing assertion may encode an absent feature; update only when the mapped behavior is truly implemented, otherwise retain the failure and missing dependency. Never delete or weaken it."
+      },
+      {
+        "canonicalCardId": "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f",
+        "name": "Show of Strength",
+        "golden": "packages/card-dsl/test/cards/sfd/show-of-strength.test.mjs",
+        "exitCode": 1,
+        "fail": 3,
+        "todo": 1,
+        "action": "Existing assertion may encode an absent feature; update only when the mapped behavior is truly implemented, otherwise retain the failure and missing dependency. Never delete or weaken it."
+      },
+      {
+        "canonicalCardId": "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6",
+        "name": "Laurent Duelist",
+        "golden": "packages/card-dsl/test/cards/sfd/laurent-duelist.test.mjs",
+        "exitCode": 1,
+        "fail": 2,
+        "todo": 1,
+        "action": "Existing assertion may encode an absent feature; update only when the mapped behavior is truly implemented, otherwise retain the failure and missing dependency. Never delete or weaken it."
+      },
+      {
+        "canonicalCardId": "card.hash-c225141f743b61c67ddf269932c6bbdef739f37888f62163906faa7fa1e6dc2b",
+        "name": "Sunken Temple",
+        "golden": "packages/card-dsl/test/cards/sfd/sunken-temple.test.mjs",
+        "exitCode": 1,
+        "fail": 1,
+        "todo": 1,
+        "action": "Existing assertion may encode an absent feature; update only when the mapped behavior is truly implemented, otherwise retain the failure and missing dependency. Never delete or weaken it."
+      },
+      {
+        "canonicalCardId": "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40",
+        "name": "Forecaster",
+        "golden": "packages/card-dsl/test/cards/sfd/forecaster.test.mjs",
+        "exitCode": 1,
+        "fail": 1,
+        "todo": 0,
+        "action": "Existing assertion may encode an absent feature; update only when the mapped behavior is truly implemented, otherwise retain the failure and missing dependency. Never delete or weaken it."
+      },
+      {
+        "canonicalCardId": "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+        "name": "Strike Down",
+        "golden": "packages/card-dsl/test/cards/sfd/strike-down.test.mjs",
+        "exitCode": 1,
+        "fail": 1,
+        "todo": 1,
+        "action": "Existing assertion may encode an absent feature; update only when the mapped behavior is truly implemented, otherwise retain the failure and missing dependency. Never delete or weaken it."
+      }
     ]
   }
 }

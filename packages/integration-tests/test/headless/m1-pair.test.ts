@@ -269,6 +269,41 @@ describe("RIFT-857 two-precon acceptance", () => {
     }
   });
 
+  it("derives the Fiora IR boundary from the real program and production ports", async () => {
+    const manifest = readManifest();
+    const card = manifest.canonicalWhitelist.find(value => value.name === "Fiora, Worthy");
+    expect(card).toBeDefined();
+    if (card === undefined) return;
+    const program = await import(
+      new URL("../../../../packages/card-dsl/dist/cards/sfd/fiora-worthy.js", import.meta.url).href
+    );
+    const abilities = program.default.abilities as readonly {
+      readonly kind: string;
+      readonly body: readonly { readonly op: string }[];
+    }[];
+    expect(abilities.map(ability => ability.kind)).toEqual(card.ir.abilityKinds);
+    expect(abilities.flatMap(ability => ability.body.map(instruction => instruction.op))).toEqual(card.ir.ops);
+    expect(card.ir.observedPaymentInstruction).toBe(false);
+    expect(card.ir.observedEventItSelector).toBe(false);
+
+    const before = { might: 4, ref: { id: "fiora-unit", zoneEntryId: 7 }, zone: "board",
+      types: ["unit"], controller: "A" };
+    const after = { might: 5, ref: { id: "fiora-unit", zoneEntryId: 7 }, zone: "board",
+      types: ["unit"], controller: "A" };
+    const { matchesMightyTransition } = await import(
+      new URL("../../../../packages/engine-core/dist/events/pipeline-match.js", import.meta.url).href
+    );
+    const { costPayArgsToCostSpec } = await import(
+      new URL("../../../../packages/engine-core/dist/programs/trigger-adapters/finalize-cost.js", import.meta.url).href
+    );
+    expect(matchesMightyTransition(true, before, after)).toBe(true);
+    expect(matchesMightyTransition(true, after, { ...after, might: 6 })).toBe(false);
+    expect(matchesMightyTransition(true, before, { ...after, ref: { ...after.ref, zoneEntryId: 8 } })).toBe(false);
+    expect(costPayArgsToCostSpec({ power: { kind: "constant", value: ["Order"] } })).toEqual({
+      payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["Order"] }],
+    });
+  });
+
   it("does not count blocked, guard, concession, replay failure, or privacy failure as natural", () => {
     const natural = fixture();
     expect(isNaturalM1Game(natural)).toBe(true);
@@ -328,14 +363,13 @@ describe("RIFT-857 two-precon acceptance", () => {
       }
       for (const cardId of entry.m1CardIds) expect(whitelist.has(cardId), entry.id).toBe(true);
       expect(entry.assertions.length, entry.id).toBeGreaterThan(0);
-      for (const assertion of entry.assertions) expect(["verified", "partial", "blocked"]).toContain(assertion.result);
+      for (const assertion of entry.assertions) {
+        expect(["verified", "partial", "blocked"]).toContain(assertion.result);
+        expect(() => readFileSync(repositoryPath(assertion.path), "utf8"), `${entry.id}: ${assertion.path}`).not.toThrow();
+      }
       if (entry.status !== "verified") expect(entry.missingEvidence, entry.id).toBeTruthy();
     }
-    const yoneConflict = manifest.cardSourceConflicts.find(conflict => conflict.selectedPrintingId === "sfd-233-star-221");
-    expect(yoneConflict).toEqual(expect.objectContaining({
-      canonicalCardId: "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
-      status: "blocked",
-    }));
+    expect(manifest.cardSourceConflicts).toEqual([]);
   });
 
   it("keeps Fiora, Worthy blocked on its real IR and shared production ports", () => {
