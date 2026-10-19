@@ -262,14 +262,20 @@ export class GameRoom {
     const toCard = (cardId: string, id: string) => {
       const card = cards.get(cardId);
       if (!card) throw new RoomError(`Unknown card ${cardId}`, "invalid-deck");
+      const catalogDomains = card.domains.filter((domain): domain is Domain => domains.has(domain));
+      if (catalogDomains.length !== card.domains.length) {
+        throw new RoomError(`Card ${cardId} has an invalid catalog Domain`, "invalid-deck");
+      }
       return {
         id,
         cardId: card.canonicalCardId,
         name: card.name,
         types: [card.cardType.toLowerCase()],
+        tags: [...card.tags],
         energy: card.energy,
         might: card.might,
-        power: card.domains.filter(domain => domains.has(domain)) as Domain[],
+        power: card.power === null ? null : catalogDomains,
+        domains: catalogDomains,
       };
     };
     const expand = (zone: keyof RoomDeckSubmission, required = false) => {
