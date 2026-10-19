@@ -27,6 +27,7 @@ const scalarFields = new Set([
   'printedCostNoMoreThanKilledUnit', 'killedUnit', 'killed', 'costReference'
 ]);
 const relations = new Set(['same-location', 'different-location', 'same-controller', 'different-controller', 'same-owner', 'different-owner', 'another', 'other']);
+const symbolicId = /^[a-z][a-z0-9._:-]*$/;
 
 function selector(value: unknown): unknown {
   if (value === 'self' || value === 'source') return value;
@@ -36,6 +37,18 @@ function selector(value: unknown): unknown {
     throw new ProgramBindingError('invalid-program', 'Expected a symbolic ObjectSelector, not a runtime object reference');
   }
   return { ...input };
+}
+
+function selectedUnitSelector(value: unknown): { readonly target: string } {
+  const input = record(value);
+  if (Object.keys(input).length !== 1 || typeof input.target !== 'string' ||
+      !symbolicId.test(input.target)) {
+    throw new ProgramBindingError(
+      'invalid-program',
+      'locationRelation different-from-selected-unit requires one symbolic target selector'
+    );
+  }
+  return { target: input.target };
 }
 
 function put(output: Record<string, unknown>, key: string, value: unknown): void {
@@ -97,6 +110,16 @@ export function translateObjectFilter(input: ObjectFilter | Record<string, unkno
       if (!relations.has(String(relation.relation)) || Object.keys(relation).some(field => !['relation', 'object', 'other'].includes(field)) ||
           relation.object === undefined && relation.other === undefined) throw new ProgramBindingError('judge-required', 'Unsupported object relation filter');
       put(output, key, { ...relation, ...(relation.object === undefined ? {} : { object: selector(relation.object) }), ...(relation.other === undefined ? {} : { other: selector(relation.other) }) });
+    } else if (key === 'locationRelation') {
+      if (value !== 'different-from-selected-unit') {
+        throw new ProgramBindingError('judge-required', `Unsupported location relation ${String(value)}`);
+      }
+      const reference = selectedUnitSelector(input.exclude);
+      // Keep both existing consumers aligned. queryObjects can evaluate the
+      // anchor directly; the structured relation also fails closed when a
+      // TargetPlan query has no bound prior-target context.
+      put(output, 'differentLocationFrom', reference);
+      put(output, 'relation', { relation: 'different-location', object: reference });
     } else if (scalarFields.has(key)) put(output, key, value);
     else throw new ProgramBindingError('judge-required', `Unsupported filter field ${key}`);
   }
