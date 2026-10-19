@@ -35,7 +35,9 @@ type Engagement = {
   damage?: {
     readonly plan: DuelBaseCombatPlan;
     readonly attacker?: DuelBaseCombatCompleteAllocation['attacker'];
+    readonly attackerChoice?: readonly DuelBaseCombatOrderedUIDAmount[];
   };
+  designatedRoles?: Readonly<Record<string, 'attacker' | 'defender'>>;
   result?: CombatResult;
   endEmitted?: boolean;
 };
@@ -113,6 +115,9 @@ export class CombatFlow {
       fields: structuredClone(this.fields),
       engagement: engagement === null ? null : {
         ...engagement,
+        ...(engagement.designatedRoles === undefined ? {} : {
+          designatedRoles: { ...engagement.designatedRoles },
+        }),
         ...(engagement.damage === undefined ? {} : {
           damage: { ...engagement.damage },
         }),
@@ -204,11 +209,25 @@ export class CombatFlow {
     }
     return units.map(unit => this.withRole(unit, byController.get(unit.controller)!));
   }
+  private markDesignated(units: readonly ObjectSnapshot[]): void {
+    const active = this.engagement;
+    if (active === null) return;
+    const designated = { ...(active.designatedRoles ?? {}) };
+    for (const unit of units) designated[this.refKey(unit.ref)] = this.role(unit)!;
+    active.designatedRoles = Object.freeze(designated);
+  }
   /** Apply 323.2 to units that arrive after the opening designation wave. */
-  private refreshRoles(field: string): boolean {
+  private refreshRoles(field: string): {
+    readonly changed: boolean;
+    readonly emissions: readonly TimingEmission[];
+  } {
     const engagement = this.engagement;
-    if (engagement?.attacker === undefined || engagement.defender === undefined) return false;
+    if (engagement?.attacker === undefined || engagement.defender === undefined || engagement.combatId === undefined) {
+      return { changed: false, emissions: [] };
+    }
     let changed = false;
+    const designated = { ...(engagement.designatedRoles ?? {}) };
+    const emissions: TimingEmission[] = [];
     const byController = new Map<PlayerId, 'attacker' | 'defender'>([
       [engagement.attacker, 'attacker'], [engagement.defender, 'defender'],
     ]);
@@ -220,11 +239,28 @@ export class CombatFlow {
       if (this.combatRoles.get(this.refKey(unit.ref)) !== role) {
         this.combatRoles.set(this.refKey(unit.ref), role); changed = true;
       }
+      const key = this.refKey(unit.ref);
+      if (designated[key] !== role) {
+        designated[key] = role;
+        emissions.push({
+          timingPoint: role === 'attacker' ? 'attack-declared' : 'defense-declared',
+          player: unit.controller,
+          object: this.withRole(unit, role),
+          details: {
+            combatId: engagement.combatId,
+            battlefieldId: engagement.field,
+            attackerId: engagement.attacker,
+            defenderId: engagement.defender,
+            source: 'cleanup-designation',
+          },
+        });
+      }
     }
     for (const key of [...this.combatRoles.keys()]) {
       if (!present.has(key)) { this.combatRoles.delete(key); changed = true; }
     }
-    return changed;
+    engagement.designatedRoles = Object.freeze(designated);
+    return { changed, emissions };
   }
   private clearRoles(): void { this.combatRoles.clear(); }
   private openCombat(field: MutableField): CombatStartResult {
@@ -241,6 +277,7 @@ export class CombatFlow {
       this.engagement = { field: field.id, step: 'showdown', attacker, defender, combatId };
       field.staged = 'none';
       const units = this.establishRoles(field.id);
+      this.markDesignated(units);
       const details = { combatId, battlefieldId: field.id, attackerId: attacker, defenderId: defender };
       const openings: TimingEmission[] = [
         { timingPoint: 'combat-start', player: attacker, details },
@@ -292,7 +329,17 @@ export class CombatFlow {
     }
     let changed = false;
     const active = this.engagement;
-    if (active?.field !== undefined && this.refreshRoles(active.field)) changed = true;
+    if (active?.field !== undefined) {
+      const refreshed = this.withTransaction(() => {
+        const result = this.refreshRoles(active.field);
+        if (result.emissions.length > 0) {
+          emitCombatWave(this.chain, this, result.emissions,
+            `${active.combatId}:designation:${this.chain.pipeline.clock.turn}:${this.chain.pipeline.events.length}`);
+        }
+        return result;
+      });
+      changed ||= refreshed.changed || refreshed.emissions.length > 0;
+    }
     for (const field of this.fields) {
       if (field.id === active?.field) continue;
       const units = this.units(field.id);
@@ -425,6 +472,7 @@ export class CombatFlow {
     this.engagement = { field: fieldId, step: 'showdown', attacker, defender, combatId };
     field.staged = 'none';
     const units = this.establishRoles(fieldId);
+    this.markDesignated(units);
     const details = { combatId, battlefieldId: fieldId, attackerId: attacker, defenderId: defender, focus: existingFocus };
     emitCombatWave(this.chain, this, [
       { timingPoint: 'combat-start', player: attacker, details },
@@ -506,14 +554,22 @@ export class CombatFlow {
       if (active?.step !== 'damage' || active.damage === undefined || active.attacker !== actor) {
         throw new TurnCombatBlockedError('damage-choice', 'Only the Attacker may submit the first allocation');
       }
+      if (active.damage.attacker !== undefined) {
+        throw new TurnCombatBlockedError('damage-choice', 'The Attacker allocation is already committed');
+      }
       const allocation = validateDuelBaseCombatAllocation(active.damage.plan, actor, orderedUIDAmounts,
         this.chain.pipeline.events.length);
-      active.damage = { plan: active.damage.plan, attacker: allocation };
+      const attackerChoice = Object.freeze(allocation.assignments.map(assignment => Object.freeze({
+        uid: assignment.uid,
+        amount: assignment.amount,
+      })));
+      active.damage = { plan: active.damage.plan, attacker: allocation, attackerChoice };
     });
   }
   /** The Defender's legal choice completes and atomically deals both sides. */
   submitDefenderDamage(actor: PlayerId, orderedUIDAmounts: readonly DuelBaseCombatOrderedUIDAmount[]): CombatDamageResult {
-    return this.withTransaction(() => {
+    try {
+      return this.withTransaction(() => {
         const active = this.engagement;
         if (active?.step !== 'damage' || active.damage?.attacker === undefined || active.defender !== actor ||
             active.combatId === undefined) {
@@ -548,37 +604,67 @@ export class CombatFlow {
         ];
         emitCombatWave(this.chain, this,
           [{ timingPoint: 'combat-damage-before', player: active.attacker, details }], `${batchId}:before`);
-        const execution = this.chain.pipeline.host.executeContract === undefined ? undefined :
+        const execution = this.host.executeContract === undefined ? undefined :
           actions.length === 0
             ? { outcome: { status: 'done' as const, events: [] }, emissions: [] }
-            : this.chain.pipeline.host.executeContract({ type: 'batch', transactionId: batchId, actions });
+            : this.host.executeContract({ type: 'batch', transactionId: batchId, actions });
         if (execution === undefined || execution.outcome.status !== 'done') {
           throw new TurnCombatBlockedError('simultaneous-damage-transaction',
             'Both combat damage allocations could not be committed atomically');
         }
         const damageEmissions = [
-          ...complete.attacker.assignments.map(assignment => ({
-            timingPoint: 'damage-dealt' as const,
-            player: complete.sideIDs[0],
-            source: attackerSource,
-            object: before.find(unit => unit.ref.id === assignment.uid),
-            target: before.find(unit => unit.ref.id === assignment.uid),
-            amount: assignment.amount,
-            batchId,
-            simultaneousGroup: batchId,
-            details: { ...details, combat: true },
-          })),
-          ...complete.defender.assignments.map(assignment => ({
-            timingPoint: 'damage-dealt' as const,
-            player: complete.sideIDs[1],
-            source: defenderSource,
-            object: before.find(unit => unit.ref.id === assignment.uid),
-            target: before.find(unit => unit.ref.id === assignment.uid),
-            amount: assignment.amount,
-            batchId,
-            simultaneousGroup: batchId,
-            details: { ...details, combat: true },
-          })),
+          ...complete.attacker.assignments.map(assignment => {
+            const target = before.find(unit => unit.ref.id === assignment.uid)!;
+            return {
+              timingPoint: 'damage-dealt' as const,
+              player: complete.sideIDs[0],
+              source: attackerSource,
+              object: target,
+              target,
+              amount: assignment.amount,
+              batchId,
+              simultaneousGroup: batchId,
+              details: {
+                ...details,
+                actionId: batchId,
+                batchId,
+                combat: true,
+                playerId: complete.sideIDs[0],
+                sourceId: attackerSource.ref.id,
+                targetId: target.ref.id,
+                objectId: target.ref.id,
+                amount: assignment.amount,
+                responsiblePlayerId: complete.sideIDs[0],
+                affectedPlayerId: target.controller,
+              },
+            };
+          }),
+          ...complete.defender.assignments.map(assignment => {
+            const target = before.find(unit => unit.ref.id === assignment.uid)!;
+            return {
+              timingPoint: 'damage-dealt' as const,
+              player: complete.sideIDs[1],
+              source: defenderSource,
+              object: target,
+              target,
+              amount: assignment.amount,
+              batchId,
+              simultaneousGroup: batchId,
+              details: {
+                ...details,
+                actionId: batchId,
+                batchId,
+                combat: true,
+                playerId: complete.sideIDs[1],
+                sourceId: defenderSource.ref.id,
+                targetId: target.ref.id,
+                objectId: target.ref.id,
+                amount: assignment.amount,
+                responsiblePlayerId: complete.sideIDs[1],
+                affectedPlayerId: target.controller,
+              },
+            };
+          }),
         ];
         emitCombatWave(this.chain, this, damageEmissions, batchId);
         emitCombatWave(this.chain, this,
@@ -587,7 +673,20 @@ export class CombatFlow {
         this.chain.requestCleanup('combat-damage-dealt');
         return Object.freeze({ field: active.field, combatId: active.combatId, attackerPlayerId: complete.sideIDs[0],
           defenderPlayerId: complete.sideIDs[1], batchId });
-    });
+      });
+    } catch (error) {
+      this.rebuildDamagePlanAfterFailure();
+      throw error;
+    }
+  }
+  /** Completion consumes the kernel plan before the host batch commits. */
+  private rebuildDamagePlanAfterFailure(): void {
+    const active = this.engagement;
+    if (active?.step !== 'damage' || active.damage?.attackerChoice === undefined) return;
+    const version = this.chain.pipeline.events.length;
+    const plan = createCombatDamagePlan(this.runtime());
+    const attacker = validateDuelBaseCombatAllocation(plan, active.attacker!, active.damage.attackerChoice, version);
+    active.damage = { plan, attacker, attackerChoice: active.damage.attackerChoice };
   }
   /** Start the 468 Resolution step after Combat Cleanup has killed lethal Units. */
   resolveCombatResult(): CombatResult {

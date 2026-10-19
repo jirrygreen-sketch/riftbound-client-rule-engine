@@ -108,7 +108,7 @@ function combatFixture({
     assert.equal(chain.turnState, 'neutral-open');
   };
   return {
-    kernel, chain, flow, binding, answers, asked, started, closeShowdown,
+    kernel, host, chain, flow, binding, answers, asked, started, closeShowdown,
     events: timingPoint => chain.pipeline.events.filter(event => event.timingPoint === timingPoint),
   };
 }
@@ -360,6 +360,8 @@ test('EG-COMBAT legal choices commit both sides in one damage batch; an illegal 
   f.flow.prepareDamage();
   f.flow.submitAttackerDamage('A', [{ uid: 'defender', amount: 4 }]);
   assert.equal(f.flow.damageView().attackerSubmitted, true);
+  assert.throws(() => f.flow.submitAttackerDamage('A', [{ uid: 'defender', amount: 4 }]),
+    /already committed/);
   const beforeState = f.kernel.snapshot();
   const beforeEvents = f.chain.pipeline.events;
   assert.throws(() => f.flow.submitDefenderDamage('B', []), /assigned total/);
@@ -375,6 +377,9 @@ test('EG-COMBAT legal choices commit both sides in one damage batch; an illegal 
   assert.equal(damageEvents.length, 2);
   assert.ok(damageEvents.every(event => event.batchId === result.batchId));
   assert.ok(damageEvents.every(event => event.details.combatId === result.combatId));
+  assert.ok(damageEvents.every(event => event.source.ref.id === 'attacker' || event.source.ref.id === 'defender'));
+  assert.ok(damageEvents.every(event => event.details.sourceId === event.source.ref.id));
+  assert.ok(damageEvents.every(event => event.details.responsiblePlayerId === event.player));
   assert.deepEqual(damageEvents.map(event => [event.target.ref.id, event.amount]),
     [['defender', 4], ['attacker', 3]]);
   assert.equal(f.events('combat-damage-before').length, 1);
@@ -382,8 +387,10 @@ test('EG-COMBAT legal choices commit both sides in one damage batch; an illegal 
 });
 
 test('EG-COMBAT deferred trigger failure restores both Units and the event/layer ledgers before damage is published', () => {
+  let failOrder = true;
   const f = combatFixture({ choose: request => {
-    if (request.id === 'trigger:9:A:order:0') throw new Error('deferred damage scan failed');
+    if (failOrder && request.id.endsWith(':A:order:0')) throw new Error('deferred damage scan failed');
+    if (!failOrder && request.type === 'mode' && /:[AB]:order:/.test(request.id)) return request.options[0];
     return undefined;
   } });
   f.started();
@@ -396,6 +403,10 @@ test('EG-COMBAT deferred trigger failure restores both Units and the event/layer
     id: 'damage-observer', source: f.kernel.getObject('attacker'), controller: 'A',
     spec: { at: 'damage-dealt', filter: { event: 'damage-dealt' } }, body: [],
   });
+  f.chain.pipeline.registerTrigger({
+    id: 'damage-observer-2', source: f.kernel.getObject('defender'), controller: 'A',
+    spec: { at: 'damage-dealt', filter: { event: 'damage-dealt' } }, body: [],
+  });
   assert.throws(() => f.flow.submitDefenderDamage('B', [{ uid: 'attacker', amount: 3 }]),
     /deferred damage scan failed/);
   assert.equal(f.kernel.getObject('attacker').damage, 0);
@@ -403,6 +414,50 @@ test('EG-COMBAT deferred trigger failure restores both Units and the event/layer
   assert.deepEqual(f.kernel.snapshot(), beforeSnapshot);
   assert.equal(f.chain.pipeline.events.length, beforeDamageEvents);
   assert.equal(f.flow.damageView().attackerSubmitted, true);
+
+  failOrder = false;
+  const result = f.flow.submitDefenderDamage('B', [{ uid: 'attacker', amount: 3 }]);
+  assert.equal(result.batchId, 'combat:bf1:1:damage');
+  assert.equal(f.kernel.getObject('attacker').damage, 3);
+  assert.equal(f.kernel.getObject('defender').damage, 4);
+  assert.equal(f.events('damage-dealt').length, 2);
+});
+
+test('EG-COMBAT a late Unit gains its controller role only in Cleanup and fires its first declaration once', () => {
+  const f = combatFixture({ defenderLocation: 'bf2', choose: request =>
+    request.type === 'mode' && request.id.startsWith('engagement:') ? request.options[0] : undefined });
+  f.flow.entered(f.kernel.getObject('attacker'));
+  f.flow.cleanup();
+  assert.equal(f.flow.battlefields[0].staged, 'showdown');
+  f.chain.advance();
+  f.flow.advance();
+  assert.equal(f.chain.focus, 'A');
+  assert.equal(f.chain.commit({ type: 'move-location', object: f.kernel.ref('defender'),
+    to: field('bf1') }).status, 'done');
+  f.flow.cleanup();
+  f.flow.advance();
+  assert.equal(f.flow.lifecycle?.phase, 'showdown');
+  f.kernel.addObject({
+    ...f.kernel.getObject('attacker'),
+    ref: { id: 'late-attacker', zoneEntryId: 1 },
+    cardId: null,
+    name: 'late-attacker',
+    location: field('bf1'),
+  }, 'board');
+
+  assert.equal(f.events('attack-declared').length, 1);
+  assert.equal(f.flow.snapshot(f.kernel.getObject('late-attacker')).combatRole, null);
+  assert.equal(f.flow.cleanup(), true);
+  assert.equal(f.flow.snapshot(f.kernel.getObject('late-attacker')).combatRole, 'attacker');
+  assert.deepEqual(f.events('attack-declared').map(event => event.object.ref.id), ['attacker', 'late-attacker']);
+  assert.equal(f.flow.cleanup(), false);
+  assert.equal(f.events('attack-declared').length, 2);
+
+  assert.equal(f.chain.commit({ type: 'take-control', object: f.kernel.ref('late-attacker'), player: 'B' }).status, 'done');
+  assert.equal(f.flow.cleanup(), true);
+  assert.equal(f.flow.snapshot(f.kernel.getObject('late-attacker')).combatRole, 'defender');
+  assert.equal(f.events('attack-declared').length, 2);
+  assert.equal(f.events('defense-declared').length, 2);
 });
 
 test('EG-COMBAT lethal damage is cleaned, result is scored once, roles clear, and conquer reaches Score', () => {
