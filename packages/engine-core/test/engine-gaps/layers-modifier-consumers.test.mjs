@@ -166,6 +166,15 @@ function shieldRuntime(builder, programs = []) {
   return { kernel, layers, engine, binding, resolve, draftPlay, submitPlay, play, settle, snapshot };
 }
 
+function ntofoRuntime({ energy = 3, power = ['Calm'], ally = {}, enemy = {} } = {}) {
+  const admitted = { ...ntofo, status: 'executable', judgeReason: undefined };
+  const f = shieldRuntime(world().player('A', { energy, power }).player('B')
+    .hand('ntofo', { cardId: admitted.canonicalCardId, types: ['spell'], might: null, energy: 2, power: ['Calm'] })
+    .unit('ally', { controller: 'A', might: 3, energy: null, power: null, keywords: [{ id: 'Shield' }], ...ally })
+    .unit('enemy', { owner: 'B', controller: 'B', might: 8, energy: null, power: null, ...enemy }), [admitted]);
+  return { f, admitted };
+}
+
 function reductionProgram(id, { amount = -2, minimum, duration = 'permanent', settlementId = 'reduction' } = {}) {
   return cardProgram(id, [{
     id: 'reduce',
@@ -380,13 +389,9 @@ test('Shield Value remains readable for an attacker while the Might contribution
   assert.equal(f.snapshot('ally').might, 3);
 });
 
-test('Ntofo Strikes shipped IR crosses describePlay, target finalization, payment and fail-closed Shield reading', () => {
+test('Ntofo Strikes shipped IR pays, grants Shield 2, reads Shield 3 and deals it to the enemy', () => {
   assert.equal(ntofo.status, 'judge-required');
-  const admitted = { ...ntofo, status: 'executable', judgeReason: undefined };
-  const f = shieldRuntime(world().player('A', { energy: 3, power: ['Calm'] }).player('B')
-    .hand('ntofo', { cardId: admitted.canonicalCardId, types: ['spell'], might: null, energy: 2, power: ['Calm'] })
-    .unit('ally', { controller: 'A', might: 3, energy: null, power: null, combatRole: 'defender', keywords: [{ id: 'Shield' }] })
-    .unit('enemy', { owner: 'B', controller: 'B', might: 8, energy: null, power: null }), [admitted]);
+  const { f } = ntofoRuntime({ ally: { combatRole: 'defender' } });
   f.kernel.setAnswers({ 'target:ntofo-strikes.friendly-unit': [f.kernel.ref('ally')],
     'target:ntofo-strikes.enemy-unit': [f.kernel.ref('enemy')] });
   const { action, draft } = f.draftPlay('ntofo');
@@ -397,16 +402,98 @@ test('Ntofo Strikes shipped IR crosses describePlay, target finalization, paymen
   f.play('ntofo');
   assert.equal(f.kernel.player('A').energy, 1, 'the finalized printed Energy cost was actually paid');
   assert.deepEqual(f.kernel.player('A').power, [], 'the finalized Power cost was actually paid');
-  assert.equal(f.kernel.getObject('enemy').damage, 0,
-    'the adapter-bound Shield read is ignored, so no damage amount is invented');
+  assert.equal(f.kernel.getObject('enemy').damage, 3);
   assert.equal(f.engine.trace.some(entry => entry.step === 'resolved'), true, 'the spell reached Resolve');
-  assert.equal(f.kernel.linkedSnapshot()['ntofo-strikes.shield-value.shieldValue'], undefined,
-    'the shipped downstream read fails closed instead of fabricating a Shield receipt');
-  assert.deepEqual(f.snapshot('ally').keywords, [{ id: 'Shield', value: 1 }]);
-  assert.equal(f.snapshot('ally').might, 4);
+  const links = f.kernel.linkedSnapshot();
+  assert.equal(links['ntofo-strikes.grant-shield.granted.count'], 1);
+  assert.deepEqual(links['ntofo-strikes.grant-shield.granted.objects'], [{ id: 'ally', zoneEntryId: 1 }]);
+  assert.equal(links['ntofo-strikes.shield-value.shieldValue'], 3);
+  assert.equal(links['ntofo-strikes.deal-shield.dealt'], 3);
+  assert.deepEqual(links['ntofo-strikes.deal-shield.dealtTo'],
+    [{ target: { id: 'enemy', zoneEntryId: 1 }, amount: 3 }]);
+  assert.deepEqual(f.snapshot('ally').keywords, [{ id: 'Shield', value: 3 }]);
+  assert.equal(f.snapshot('ally').might, 6, 'printed Shield 1 and granted Shield 2 both add Might while defending');
+  assert.equal(f.layers.registry.list().filter(entry => entry.effect.effect.kind === 'continuous.grant-keyword').length, 1,
+    'the real grant registration remains in the production layer registry');
   assert.equal(f.snapshot('ally').energy, null);
   assert.equal(f.snapshot('ally').power, null);
   assert.equal(ntofo.status, 'judge-required');
+  f.engine.emit({ timingPoint: 'turn-end', player: 'A' });
+  assert.deepEqual(f.snapshot('ally').keywords, [{ id: 'Shield', value: 1 }]);
+  assert.equal(f.snapshot('ally').might, 4, 'the end-of-turn Shield grant expires');
+});
+
+test('Ntofo rolls back Resolve after a prevented late spell move without inventing damage', () => {
+  const { f } = ntofoRuntime({ ally: { combatRole: 'defender' } });
+  f.kernel.setAnswers({ 'target:ntofo-strikes.friendly-unit': [f.kernel.ref('ally')],
+    'target:ntofo-strikes.enemy-unit': [f.kernel.ref('enemy')] });
+  f.engine.pipeline.registerReplacement({
+    id: 'late-ntofo-prevent',
+    matches: action => action.type === 'move-zone' && action.to === 'trash' && action.object.id === 'ntofo',
+    apply: () => ({ status: 'prevent' }),
+  });
+  f.submitPlay('ntofo');
+  assert.throws(() => f.settle(), /Could not resolve|Resolved spell could not leave Chain/);
+  assert.equal(f.kernel.player('A').energy, 1, 'Finalize payment remains committed');
+  assert.deepEqual(f.kernel.player('A').power, []);
+  assert.equal(f.kernel.getObject('enemy').damage, 0);
+  assert.equal(f.kernel.linkedSnapshot()['ntofo-strikes.shield-value.shieldValue'], undefined);
+  assert.equal(f.layers.registry.list().some(entry => entry.effect.effect.kind === 'continuous.grant-keyword'), false,
+    'the Resolve transaction rolls its grant registration back');
+});
+
+test('Ntofo Shield Value is readable from an attacker while its Might bonus stays defender-only', () => {
+  const { f } = ntofoRuntime({ ally: { combatRole: 'attacker' } });
+  f.kernel.setAnswers({ 'target:ntofo-strikes.friendly-unit': [f.kernel.ref('ally')],
+    'target:ntofo-strikes.enemy-unit': [f.kernel.ref('enemy')] });
+  f.play('ntofo');
+  assert.equal(f.kernel.linkedSnapshot()['ntofo-strikes.shield-value.shieldValue'], 3);
+  assert.equal(f.kernel.getObject('enemy').damage, 3);
+  assert.deepEqual(f.snapshot('ally').keywords, [{ id: 'Shield', value: 3 }]);
+  assert.equal(f.snapshot('ally').might, 3, 'Shield is a readable characteristic but adds no Might while attacking');
+});
+
+test('Ntofo rejects an illegal friendly target before payment and leaves no registration', () => {
+  const { f } = ntofoRuntime({ ally: { controller: 'B', owner: 'B', combatRole: 'defender' } });
+  f.kernel.setAnswers({ 'target:ntofo-strikes.friendly-unit': [f.kernel.ref('ally')],
+    'target:ntofo-strikes.enemy-unit': [f.kernel.ref('enemy')] });
+  const before = f.kernel.snapshot();
+  const links = f.kernel.linkedSnapshot();
+  assert.throws(() => f.submitPlay('ntofo'), /target|legal/i);
+  assert.deepEqual(f.kernel.snapshot(), before);
+  assert.deepEqual(f.kernel.linkedSnapshot(), links);
+  assert.equal(f.engine.layers.registry.list().some(entry => entry.effect.effect.kind === 'continuous.grant-keyword'), false);
+});
+
+test('Ntofo ignores a Shield target that leaves after Finalize and rolls back the late play', () => {
+  const { f } = ntofoRuntime({ ally: { combatRole: 'defender' } });
+  f.kernel.setAnswers({ 'target:ntofo-strikes.friendly-unit': [f.kernel.ref('ally')],
+    'target:ntofo-strikes.enemy-unit': [f.kernel.ref('enemy')] });
+  f.submitPlay('ntofo');
+  const before = f.kernel.snapshot();
+  const links = f.kernel.linkedSnapshot();
+  assert.equal(f.engine.commit({ type: 'kill', object: f.kernel.ref('ally') }).status, 'done');
+  f.settle();
+  assert.equal(f.kernel.getObject('enemy').damage, 0);
+  assert.equal(f.kernel.linkedSnapshot()['ntofo-strikes.shield-value.shieldValue'], undefined);
+  assert.ok(before.objects.size > 0 && links !== null);
+});
+
+test('Ntofo reports prevention without inventing damage or a damage receipt', () => {
+  const { f } = ntofoRuntime({ ally: { combatRole: 'defender' } });
+  f.kernel.setAnswers({ 'target:ntofo-strikes.friendly-unit': [f.kernel.ref('ally')],
+    'target:ntofo-strikes.enemy-unit': [f.kernel.ref('enemy')] });
+  f.engine.pipeline.registerReplacement({ id: 'prevent-ntofo', matches: action => action.type === 'damage' && action.source.id === 'ntofo',
+    apply: () => ({ status: 'prevent' }) });
+  const before = f.kernel.snapshot();
+  const links = f.kernel.linkedSnapshot();
+  f.play('ntofo');
+  assert.equal(f.kernel.player('A').energy, 1);
+  assert.deepEqual(f.kernel.player('A').power, []);
+  assert.equal(f.kernel.getObject('enemy').damage, 0);
+  assert.equal(f.kernel.linkedSnapshot()['ntofo-strikes.deal-shield.dealt'], undefined);
+  assert.notDeepEqual(f.kernel.linkedSnapshot(), links);
+  assert.equal(f.engine.layers.registry.list().some(entry => entry.effect.effect.kind === 'continuous.grant-keyword'), true);
 });
 
 test('Ntofo Strikes rejects an unpayable card before changing state', () => {
