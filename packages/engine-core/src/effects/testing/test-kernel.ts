@@ -29,7 +29,7 @@ import { isTimingPointId, type TimingPointId } from "../../events/timing-points.
 import { evaluateCondition } from "../interpreter/condition.js";
 import { arithmetic, equalValues } from "../interpreter/values.js";
 import { resolveObjectSelector } from "../interpreter/selectors.js";
-import { executeContractAction, isKnownContractAction } from "../../events/contract-actions/bridge.js";
+import { executeContractAction, isKnownContractAction, type ContractActionExecution } from "../../events/contract-actions/bridge.js";
 import { disempowerTransition } from "../../zones/empower-state.js";
 
 export { AwaitChoice } from "../contract.js";
@@ -299,6 +299,102 @@ export class TestWorld implements ResolveContext {
     return this.performResolved(rewritten.action);
   }
 
+  /**
+   * Apply replacements first, then expose the exact pre-transition source while
+   * it is still authoritative. This is the state side of the versioned pipeline
+   * death boundary; no event is fabricated here.
+   */
+  performWithDeathBoundary(
+    action: GameAction,
+    boundary: (before: readonly ObjectSnapshot[]) => void,
+  ): ActionOutcome {
+    if (action.type !== 'kill') return this.perform(action);
+    const object = this.current(action.object);
+    if (object === null || object.zone !== 'board') return { status: 'impossible', events: [] };
+    const checkpoint = this.snapshot();
+    try {
+      const rewritten = this.rewriteReplacement(action);
+      if (!('resolved' in rewritten)) return rewritten;
+      boundary([copySnapshot(object)]);
+      const outcome = this.apply(rewritten.action);
+      if (outcome.status === 'done') {
+        this.state.history.push({ action: structuredClone(action), object: copySnapshot(object), timingPoint: this.timingPoint, turn: 1, combat: 0 });
+      }
+      return outcome;
+    } catch (error) {
+      this.restore(checkpoint);
+      throw error;
+    }
+  }
+
+  /** One replacement/validation wave, one boundary callback, then all Trash moves. */
+  performKillBatchWithDeathBoundary(
+    actions: readonly Extract<GameAction, { type: 'kill' }>[],
+    batchId: string,
+    boundary: (before: readonly ObjectSnapshot[]) => void,
+  ): ContractActionExecution {
+    const checkpoint = this.snapshot();
+    const rewritten: Extract<GameAction, { type: 'kill' }>[] = [];
+    const confirmed: ObjectSnapshot[] = [];
+    try {
+      for (const action of actions) {
+        const object = this.current(action.object);
+        if (object === null || object.zone !== 'board') {
+          this.restore(checkpoint);
+          return { outcome: { status: 'impossible', events: [] }, steps: [] };
+        }
+        const replacement = this.rewriteReplacement(action);
+        if (!('resolved' in replacement)) {
+          this.restore(checkpoint);
+          return { outcome: replacement, steps: [] };
+        }
+        if (replacement.action.type !== 'kill') {
+          this.restore(checkpoint);
+          return { outcome: { status: 'impossible', events: [] }, steps: [] };
+        }
+        if (replacement.action.type !== 'kill') {
+          this.restore(checkpoint);
+          return { outcome: { status: 'impossible', events: [] }, steps: [] };
+        }
+        rewritten.push(replacement.action);
+        confirmed.push(copySnapshot(object));
+      }
+
+      boundary(confirmed);
+      const steps: Array<{
+        readonly action: ContractGameAction;
+        readonly before: readonly ObjectSnapshot[];
+        readonly after: readonly ObjectSnapshot[];
+        readonly outcome: ActionOutcome;
+      }> = [];
+      const events: TestEvent[] = [];
+      for (const [index, action] of rewritten.entries()) {
+        const before = this.objects;
+        const outcome = this.apply(action);
+        if (outcome.status !== 'done') throw new Error(`Confirmed Kill could not enter Trash: ${action.object.id}`);
+        const after = this.objects;
+        steps.push({ action: actions[index]!, before, after, outcome });
+        events.push(makeEvent(this.state, 'kill', this.timingPoint, { batchId }));
+        this.state.history.push({ action: structuredClone(actions[index]!), object: confirmed[index]!, timingPoint: this.timingPoint, turn: 1, combat: 0 });
+      }
+      return {
+        outcome: {
+          status: 'done',
+          events,
+          receipt: {
+            transactionId: batchId,
+            status: 'committed',
+            actions: actions.map(() => ({ type: 'kill' as const, status: 'done' as const })),
+          },
+        },
+        steps,
+      };
+    } catch (error) {
+      this.restore(checkpoint);
+      throw error;
+    }
+  }
+
   private performResolved(action: GameAction): ActionOutcome {
     const ref = actionObject(action);
     const object = ref === undefined ? undefined : this.object(ref) ?? undefined;
@@ -397,6 +493,21 @@ export class TestWorld implements ResolveContext {
   /** Capability consumer used by the action adapter for all-Kill batches. */
   performBatchLeafForCapability(action: GameAction, batchId: string): ActionOutcome {
     return this.performBatchLeaf(action, batchId);
+  }
+
+  /** Test state port binding for the versioned pipeline death boundary. */
+  deathBoundaryPort(): {
+    readonly performWithDeathBoundary: (action: GameAction, boundary: (before: readonly ObjectSnapshot[]) => void) => ActionOutcome;
+    readonly performKillBatchWithDeathBoundary: (
+      actions: readonly Extract<GameAction, { type: 'kill' }>[],
+      batchId: string,
+      boundary: (before: readonly ObjectSnapshot[]) => void,
+    ) => ContractActionExecution;
+  } {
+    return {
+      performWithDeathBoundary: (action, boundary) => this.performWithDeathBoundary(action, boundary),
+      performKillBatchWithDeathBoundary: (actions, batchId, boundary) => this.performKillBatchWithDeathBoundary(actions, batchId, boundary),
+    };
   }
 
   private rewriteReplacement(action: GameAction): { readonly resolved: true; readonly action: GameAction } | ActionOutcome {
