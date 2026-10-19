@@ -180,6 +180,55 @@ test('original Iron Revenant cost choice locks once, pays through the default Ch
   assert.equal(ironRevenant.status, 'judge-required');
 });
 
+test('a multi-choice cost keeps earlier Finalize answers across AwaitChoice and pays only after all locks', () => {
+  const f = scene(
+    world().player('A', { energy: 1 }).player('B')
+      .hand('source', { types: ['spell'], energy: 0, power: [] })
+      .hand('first', { types: ['gear'] })
+      .hand('other-gear', { types: ['gear'] })
+      .hand('second', { types: ['unit'] })
+      .hand('other-unit', { types: ['unit'] }),
+    [],
+    { 'cost:multi-cost:pick:first-choice': [{ id: 'first', zoneEntryId: 1 }] },
+  );
+  const firstChoice = {
+    id: 'first-choice', options: ['placeholder'],
+    filter: { zone: 'hand', type: 'gear', owner: 'controller' }, min: 1, max: 1,
+  };
+  const secondChoice = {
+    id: 'second-choice', options: ['placeholder'],
+    filter: { zone: 'hand', type: 'unit', owner: 'controller' }, min: 1, max: 1,
+  };
+  const draft = {
+    id: 'multi-cost', controller: 'A', source: f.kernel.getObject('source'), kind: 'spell', speed: 'normal', body: [],
+    cost: { id: 'cost:multi-cost', cost: { energy: constant(1), payments: [
+      { kind: 'discard', choice: firstChoice },
+      { kind: 'discard', choice: secondChoice },
+    ] } },
+  };
+
+  assert.throws(
+    () => f.engine.execute(draft),
+    error => error instanceof AwaitChoice && error.request.id === 'cost:multi-cost:pick:second-choice',
+  );
+  assert.equal(f.engine.items.length, 0);
+  assert.equal(f.kernel.player('A').energy, 1, 'no part of a multi-action cost is paid before all choices lock');
+  assert.equal(f.kernel.getObject('first').zone, 'hand');
+  assert.equal(f.asked.filter(request => request.id === 'cost:multi-cost:pick:first-choice').length, 1);
+
+  f.answers.set('cost:multi-cost:pick:second-choice', [f.kernel.ref('second')]);
+  f.engine.execute(draft);
+  const [item] = f.engine.items;
+  assert.equal(item.status, 'finalized');
+  assert.equal(f.asked.filter(request => request.id === 'cost:multi-cost:pick:first-choice').length, 1,
+    'retry reuses the first locked answer instead of asking again');
+  assert.deepEqual(item.costInput.costChoices.locks.map(lock => lock.choiceId), ['first-choice', 'second-choice']);
+  assert.deepEqual(item.payment.choices.map(choice => choice.id), ['first-choice', 'second-choice']);
+  assert.equal(f.kernel.player('A').energy, 0);
+  assert.equal(f.kernel.getObject('first').zone, 'trash');
+  assert.equal(f.kernel.getObject('second').zone, 'trash');
+});
+
 test('trigger event:it consumes the immutable event.it snapshot with no target/source fallback', () => {
   const f = scene(
     world().player('A').player('B')
