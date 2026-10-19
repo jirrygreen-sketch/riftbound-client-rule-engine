@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { projectFor } from "../../../engine-core/dist/projection/v2/index.js";
-import { headlessProjectionLeaks } from "../../src/headless/index.js";
+import { world } from "../../../engine-core/dist/effects/testing/test-kernel.js";
+import { checkpointHeadlessWorld, createHeadlessCheckpointManager, headlessProjectionLeaks, restoreHeadlessWorld } from "../../src/headless/index.js";
 
 // This is a projection audit fixture, not a manufactured playing position.
 const privateCard = (owner: string, zone: "hand" | "deck" | "rune-deck", id: string) => ({
@@ -19,6 +20,38 @@ const input = {
 };
 
 describe("headless privacy audit", () => {
+  it("checkpoints authoritative state and linked values with one state copy", () => {
+    const kernel = world().player("A").player("B").build();
+    kernel.link("before", 1);
+    const snapshot = vi.spyOn(kernel, "snapshot");
+    const checkpoint = checkpointHeadlessWorld(kernel);
+    expect(snapshot).toHaveBeenCalledTimes(1);
+
+    kernel.perform({ type: "gain-energy", player: "A", amount: 3 });
+    kernel.link("after", 2);
+    restoreHeadlessWorld(kernel, checkpoint);
+    expect(kernel.player("A").energy).toBe(0);
+    expect(kernel.linkedSnapshot()).toEqual({ before: 1 });
+  });
+
+  it("reuses an unchanged checkpoint until authoritative state or links change", () => {
+    const kernel = world().player("A").player("B").build();
+    const manager = createHeadlessCheckpointManager(kernel);
+    const snapshot = vi.spyOn(kernel, "snapshot");
+    const first = manager.checkpoint();
+    expect(manager.checkpoint()).toBe(first);
+    expect(snapshot).toHaveBeenCalledTimes(1);
+
+    manager.invalidate();
+    kernel.perform({ type: "gain-energy", player: "A", amount: 2 });
+    const second = manager.checkpoint();
+    expect(second).not.toBe(first);
+    expect(snapshot).toHaveBeenCalledTimes(2);
+
+    manager.restore(first);
+    expect(kernel.player("A").energy).toBe(0);
+  });
+
   it.each(["A", "B", "spectator"])("checks all private surfaces for %s", viewer => {
     const projection = projectFor(input, viewer);
     const hidden = cards.filter(card => card.zone !== "hand" || card.owner !== viewer).map(card => card.ref);
