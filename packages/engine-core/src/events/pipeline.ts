@@ -1,15 +1,69 @@
-import type { ActionOutcome, GameAction, ObjectSnapshot, PlayerId } from '../effects/contract.js';
+import type { ActionOutcome, ContractGameAction, GameAction, ObjectFilter, ObjectSnapshot, PlayerId, ResolveContext } from '../effects/contract.js';
 import { getTimingPoint } from './timing-points.js';
 import { matchesTriggerEvent } from './pipeline-match.js';
 import { assertTriggerSpec } from './trigger-spec.js';
-import type { ActionExecution, PipelineClock, PipelineEvent, PipelineHost, ReplacementRegistration, TimingEmission, TriggerRegistration, TriggerSnapshot } from './pipeline-types.js';
+import type { ActionExecution, PipelineClock, PipelineEvent, PipelineHost, ReplacementRegistration, TimingEmission, TriggerRegistration, TriggerRule, TriggerRuleContext, TriggerSnapshot } from './pipeline-types.js';
 import { evaluateCondition } from '../effects/interpreter/condition.js';
 import { MissingInformation } from '../effects/interpreter/values.js';
+import { bindEventHistory } from '../effects/interpreter/expr-ext/event-history.js';
+import { matchesObjectPredicates } from '../effects/filters/predicates.js';
+import { resolveRuleAmount } from './trigger-rules/index.js';
 
-function evaluateTriggerCondition(host: PipelineHost, registration: TriggerRegistration, event: PipelineEvent, source: ObjectSnapshot): boolean {
+function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
+  if (value === null || typeof value !== 'object' || seen.has(value as object)) return value;
+  seen.add(value as object);
+  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child, seen);
+  return Object.freeze(value);
+}
+
+function explicitBatchIdentity(emission: TimingEmission): string | undefined {
+  for (const value of [emission.batchId, emission.simultaneousGroup]) {
+    if (value !== undefined && (typeof value !== 'string' || value.length === 0)) {
+      throw new TypeError('Timing batch identity must be a non-empty string');
+    }
+  }
+  // Action producers use batchId for the enclosing atomic action and
+  // simultaneousGroup for a named timing wave within it. The enclosing batch
+  // identity is authoritative; simultaneousGroup is only a fallback when no
+  // action batch was supplied.
+  return emission.batchId ?? emission.simultaneousGroup;
+}
+
+function relativeQuery(context: ResolveContext, controller: PlayerId): ResolveContext['query'] {
+  return filter => {
+    const normalized: Record<string, unknown> = { ...filter };
+    for (const key of ['controller', 'owner'] as const) {
+      if (normalized[key] === 'self') normalized[key] = controller;
+    }
+    return context.query({}).filter(object => {
+      for (const key of ['controller', 'owner'] as const) {
+        if (normalized[key] === 'opponent' && object[key] === controller) return false;
+      }
+      return matchesObjectPredicates({
+        ...normalized,
+        ...(normalized.controller === 'opponent' ? { controller: 'any' } : {}),
+        ...(normalized.owner === 'opponent' ? { owner: 'any' } : {}),
+      }, object);
+    });
+  };
+}
+
+function evaluateTriggerCondition(
+  pipeline: { readonly events: readonly PipelineEvent[] },
+  host: PipelineHost,
+  registration: TriggerRegistration,
+  event: PipelineEvent,
+  source: ObjectSnapshot,
+  controller: PlayerId,
+): boolean {
   const condition = registration.spec.condition;
   if (condition === undefined) return true;
-  const context = host.context(source, registration.controller, event.timingPoint);
+  const base = host.context(source, controller, event.timingPoint);
+  const context = bindEventHistory(new Proxy(base, { get(target, key) {
+    if (key === 'query') return relativeQuery(target, controller);
+    const value = Reflect.get(target, key);
+    return typeof value === 'function' ? value.bind(target) : value;
+  } }), pipeline);
   return evaluateCondition(condition as unknown as import("@riftbound/card-dsl").Condition, {
     context,
     event,
@@ -25,9 +79,11 @@ export class EventPipeline {
   private log: PipelineEvent[] = [];
   private triggers = new Map<string, TriggerRegistration>();
   private replacements = new Map<string, ReplacementRegistration>();
-  private consumed = new Set<string>();
+  private consumed = new Map<string, number>();
   private replacementUses = new Set<string>();
+  private rules = new Map<string, TriggerRule>();
   private sequence = 0;
+  private batchSequence = 0;
   private scanQueue: PipelineEvent[] = [];
   private scanning = false;
   private suspended = 0;
@@ -41,47 +97,111 @@ export class EventPipeline {
   registerTrigger(registration: TriggerRegistration): void {
     getTimingPoint(registration.spec.at);
     assertTriggerSpec(registration.spec);
+    if (registration.maxPerScope !== undefined &&
+        (!Number.isSafeInteger(registration.maxPerScope) || registration.maxPerScope < 0)) {
+      throw new RangeError('Trigger maxPerScope must be a nonnegative safe integer');
+    }
     if (this.triggers.has(registration.id)) throw new Error(`Duplicate trigger ${registration.id}`);
     this.triggers.set(registration.id, structuredClone(registration));
   }
   unregisterTrigger(id: string): void { this.triggers.delete(id); }
+  /** O(1) lifecycle probe; never snapshots or exposes the mutable registry. */
+  hasTriggerRegistration(id: string): boolean { return this.triggers.has(id); }
+  registerTriggerRule(rule: TriggerRule): void {
+    if (!rule.id || rule.id.trim().length === 0) throw new TypeError('Trigger rule id must be non-empty');
+    if (rule.mode !== 'additional' && rule.mode !== 'multiply' && rule.mode !== 'suppress') {
+      throw new TypeError('Trigger rule mode must be additional, multiply, or suppress');
+    }
+    if (rule.amount !== undefined && typeof rule.amount !== 'function' &&
+        (!Number.isSafeInteger(rule.amount) || rule.amount < 0)) {
+      throw new RangeError('Trigger rule amount must be a nonnegative safe integer or a function');
+    }
+    if (this.rules.has(rule.id)) throw new Error(`Duplicate trigger rule ${rule.id}`);
+    this.rules.set(rule.id, rule);
+  }
+  unregisterTriggerRule(id: string): void { this.rules.delete(id); }
+  /** Alias used by adapters that distinguish multiplicity from suppression. */
+  registerMultiplicityRule(rule: TriggerRule): void {
+    if (rule.mode !== 'additional' && rule.mode !== 'multiply') throw new TypeError('Multiplicity rule must add or multiply triggers');
+    this.registerTriggerRule(rule);
+  }
+  registerSuppressionRule(rule: TriggerRule): void {
+    if (rule.mode !== 'suppress') throw new TypeError('Suppression rule must suppress triggers');
+    this.registerTriggerRule(rule);
+  }
   registerReplacement(registration: ReplacementRegistration): void {
     if (this.replacements.has(registration.id)) throw new Error(`Duplicate replacement ${registration.id}`);
     this.replacements.set(registration.id, registration);
   }
-  private frequencyKey(registration: TriggerRegistration, source: ObjectSnapshot): string | null {
+  /** O(1) lifecycle probe; never snapshots or exposes the mutable registry. */
+  hasReplacementRegistration(id: string): boolean { return this.replacements.has(id); }
+  private frequencyKey(registration: TriggerRegistration, source: ObjectSnapshot, event: PipelineEvent): string | null {
     const scope = registration.spec.once;
     if (!scope) return null;
-    const value = scope === 'per-game' ? 'game' : scope === 'per-object' ? `${source.ref.id}:${source.ref.zoneEntryId}` : this.clock[scope.slice(4) as keyof PipelineClock];
+    const value = scope === 'per-game' ? 'game' :
+      scope === 'per-object' ? `${source.ref.id}:${source.ref.zoneEntryId}` :
+      scope === 'per-batch' ? (event.batchId ?? `event:${event.eventId}`) :
+      this.clock[scope.slice(4) as keyof PipelineClock];
     return JSON.stringify([registration.id, source.ref, scope, value]);
   }
   consume(snapshot: TriggerSnapshot): boolean {
     if (snapshot.frequencyKey === null) return true;
-    if (this.consumed.has(snapshot.frequencyKey)) return false;
-    this.consumed.add(snapshot.frequencyKey);
+    const limit = snapshot.frequencyLimit ?? 1;
+    const used = this.consumed.get(snapshot.frequencyKey) ?? 0;
+    if (used >= limit) return false;
+    this.consumed.set(snapshot.frequencyKey, used + 1);
     return true;
   }
   checkpoint() {
-    return { log: [...this.log], triggers: new Map(this.triggers), consumed: new Set(this.consumed), replacementUses: new Set(this.replacementUses), sequence: this.sequence, scanQueue: [...this.scanQueue], clock: { ...this.clock }, turnPlayer: this.turnPlayer };
+    return { log: [...this.log], triggers: new Map(this.triggers), replacements: new Map(this.replacements), rules: new Map(this.rules), consumed: new Map(this.consumed), replacementUses: new Set(this.replacementUses), sequence: this.sequence, batchSequence: this.batchSequence, scanQueue: [...this.scanQueue], clock: { ...this.clock }, turnPlayer: this.turnPlayer };
   }
   restore(state: ReturnType<EventPipeline['checkpoint']>): void {
-    this.log = state.log; this.triggers = state.triggers; this.consumed = state.consumed; this.replacementUses = state.replacementUses; this.sequence = state.sequence; this.scanQueue = state.scanQueue;
+    this.log = state.log; this.triggers = state.triggers; this.replacements = state.replacements; this.rules = state.rules; this.consumed = state.consumed; this.replacementUses = state.replacementUses; this.sequence = state.sequence; this.batchSequence = state.batchSequence; this.scanQueue = state.scanQueue;
     Object.assign(this.clock, state.clock); this.turnPlayer = state.turnPlayer;
   }
   /** Timings from rules modules and committed actions share exactly one scanner. */
   emit(emission: TimingEmission, action?: GameAction): PipelineEvent {
-    getTimingPoint(emission.timingPoint);
-    if (emission.timingPoint === 'turn-start') this.clock.turn++;
-    if (emission.timingPoint === 'combat-start') this.clock.combat++;
-    if (emission.timingPoint === 'showdown-open') this.clock.showdown++;
-    if (['awaken-start', 'beginning-start', 'channel-start', 'draw-start', 'main-start', 'turn-end'].includes(emission.timingPoint)) this.clock.phase++;
-    const event: PipelineEvent = Object.freeze(structuredClone({ type: 'task-resolved' as const, seq: this.sequence + 1, eventId: ++this.sequence, turnNumber: this.clock.turn, activePlayerId: this.turnPlayer, taskId: `pipeline:${this.sequence}`, sourceCardId: emission.source?.cardId ?? emission.object?.cardId ?? '', reason: emission.kind ?? emission.timingPoint, autoResolved: true as const, ...emission, ...(action ? { action } : {}) }));
-    this.log.push(event);
-    this.onEvent?.(event);
-    this.scanQueue.push(event);
-    this.drain();
-    return event;
+    return this.emitBatch([emission], action)[0]!;
   }
+  /** Publish one atomic wave. All emitted timings share one batch identity. */
+  emitBatch(emissions: readonly TimingEmission[], action?: GameAction, batchId?: string): readonly PipelineEvent[] {
+    if (emissions.length === 0) return [];
+    if (batchId !== undefined && (typeof batchId !== 'string' || batchId.length === 0)) {
+      throw new TypeError('Timing batch identity must be a non-empty string');
+    }
+    const explicitBatchIds = new Set<string>();
+    const fallbackGroups = new Set<string>();
+    for (const emission of emissions) {
+      const identity = explicitBatchIdentity(emission);
+      if (emission.batchId !== undefined) explicitBatchIds.add(identity!);
+      else if (identity !== undefined) fallbackGroups.add(identity);
+    }
+    if (explicitBatchIds.size > 1) throw new TypeError('Timing emissions in one atomic batch must share a batch identity');
+    if (explicitBatchIds.size === 0 && fallbackGroups.size > 1) {
+      throw new TypeError('Timing emissions in one atomic batch must share a simultaneous group');
+    }
+    const sharedBatchId = explicitBatchIds.values().next().value ?? fallbackGroups.values().next().value;
+    if (batchId !== undefined && sharedBatchId !== undefined && batchId !== sharedBatchId) {
+      throw new TypeError('Explicit batch identity conflicts with emission batch identity');
+    }
+    const resolvedBatchId = batchId ?? sharedBatchId ?? this.nextBatchId();
+    const events: PipelineEvent[] = [];
+    for (const [batchIndex, emission] of emissions.entries()) {
+      getTimingPoint(emission.timingPoint);
+      if (emission.timingPoint === 'turn-start') this.clock.turn++;
+      if (emission.timingPoint === 'combat-start') this.clock.combat++;
+      if (emission.timingPoint === 'showdown-open') this.clock.showdown++;
+      if (['awaken-start', 'beginning-start', 'channel-start', 'draw-start', 'main-start', 'turn-end'].includes(emission.timingPoint)) this.clock.phase++;
+      const event = deepFreeze(structuredClone({ type: 'task-resolved' as const, seq: this.sequence + 1, eventId: ++this.sequence, turnNumber: this.clock.turn, activePlayerId: this.turnPlayer, taskId: `pipeline:${this.sequence}`, sourceCardId: emission.source?.cardId ?? emission.object?.cardId ?? '', reason: emission.kind ?? emission.timingPoint, autoResolved: true as const, ...emission, batchId: resolvedBatchId, batchIndex, batchSize: emissions.length, ...(action ? { action } : {}) })) as PipelineEvent;
+      events.push(event);
+      this.log.push(event);
+      this.onEvent?.(event);
+      this.scanQueue.push(event);
+    }
+    this.drain();
+    return events;
+  }
+  private nextBatchId(): string { return `pipeline-batch:${++this.batchSequence}`; }
   private drain(): void {
     if (!this.scanning && !this.suspended) {
       this.scanning = true;
@@ -89,7 +209,10 @@ export class EventPipeline {
         let scans = 0;
         while (this.scanQueue.length) {
           if (++scans > 10000) throw new Error('Trigger cascade exceeded the rules-task budget');
-          const wave = this.scanQueue.splice(0);
+          const first = this.scanQueue[0]!;
+          let end = 1;
+          while (end < this.scanQueue.length && this.scanQueue[end]!.batchId === first.batchId) end++;
+          const wave = this.scanQueue.splice(0, end);
           this.scan(wave);
           for (const next of wave) for (const [id, registration] of this.triggers) if (registration.expiresAt === next.timingPoint) this.triggers.delete(id);
         }
@@ -97,7 +220,7 @@ export class EventPipeline {
       finally { this.scanning = false; }
     }
   }
-  private publish(emissions: readonly TimingEmission[], action: GameAction): PipelineEvent[] {
+  private publish(emissions: readonly TimingEmission[], action?: GameAction): PipelineEvent[] {
     const groups = new Map<string, TimingEmission[]>();
     for (const emission of emissions) {
       const group = emission.simultaneousGroup ?? 'action';
@@ -106,7 +229,7 @@ export class EventPipeline {
     const events: PipelineEvent[] = [];
     for (const group of groups.values()) {
       this.suspended++;
-      try { for (const emission of group) events.push(this.emit(emission, action)); }
+      try { events.push(...this.emitBatch(group, action)); }
       finally { this.suspended--; }
       this.drain();
     }
@@ -134,22 +257,28 @@ export class EventPipeline {
       const controller = registration.delayed ? registration.controller : captured.controller;
       if (!matchesTriggerEvent(registration.spec.filter, event, controller)) continue;
       if (registration.spec.condition) {
-        if (this.host.testTrigger) {
-          try {
-            if (!this.host.testTrigger(registration, event, captured)) continue;
-          } catch (error) {
-            // Older host adapters evaluated only the live object context.  A
-            // predicate that needs the immutable event payload can therefore
-            // surface MissingInformation; retry through the canonical event-
-            // aware evaluator instead of dropping the trigger wave.
-            if (!(error instanceof MissingInformation)) throw error;
-            if (!evaluateTriggerCondition(this.host, registration, event, captured)) continue;
-          }
-        } else if (!evaluateTriggerCondition(this.host, registration, event, captured)) continue;
+        try {
+          // The pipeline evaluator has the captured source, immutable event,
+          // and relative-player context.  A legacy host hook is only a fallback
+          // for conditions that genuinely need host-specific information.
+          if (!evaluateTriggerCondition(this, this.host, registration, event, captured, controller)) continue;
+        } catch (error) {
+          if (!(error instanceof MissingInformation) || !this.host.testTrigger) throw error;
+          if (!this.host.testTrigger(registration, event, captured)) continue;
+        }
       }
-      const frequencyKey = this.frequencyKey(registration, captured);
-      if (frequencyKey !== null && this.consumed.has(frequencyKey)) continue;
-      hits.push({ registration, source: captured, controller, event, frequencyKey });
+      const frequencyKey = this.frequencyKey(registration, captured, event);
+      const frequencyLimit = registration.maxPerScope ?? (registration.spec.once === undefined ? undefined : 1);
+      if (frequencyKey !== null && (this.consumed.get(frequencyKey) ?? 0) >= (frequencyLimit ?? 1)) continue;
+      const context: TriggerRuleContext = { registration, source: captured, controller, event };
+      const effect = this.triggerRuleEffect(context);
+      if (effect.suppressed) continue;
+      // Keep every frequency-matching instance in the collection wave. The
+      // controller's legal ordering chooses which instance is finalized, and
+      // consume() enforces once/maxPerScope exactly at that point.
+      for (let occurrence = 0; occurrence < effect.multiplicity; occurrence++) {
+        hits.push({ registration, source: captured, controller, event, frequencyKey, frequencyLimit, occurrence, multiplicity: effect.multiplicity, batchId: event.batchId });
+      }
     }
     }
     const start = this.turnOrder.indexOf(this.turnPlayer);
@@ -158,14 +287,17 @@ export class EventPipeline {
       let own = hits.filter(hit => hit.controller === controller);
       own = own.filter(hit => {
         if (!hit.registration.optional) return true;
-        const answer = this.host.choose<boolean>({ id: `trigger:${hit.event.eventId}:${hit.registration.id}:optional`, chooser: controller, visibility: 'public', type: 'optional' });
+        const occurrence = hit.occurrence ?? 0;
+        const answer = this.host.choose<boolean>({ id: `trigger:${hit.event.eventId}:${hit.registration.id}:${occurrence}:optional`, chooser: controller, visibility: 'public', type: 'optional' });
         if (typeof answer !== 'boolean') throw new TypeError('Optional trigger answer must be boolean');
         return answer;
       });
       if (own.length > 1) {
         const remaining = [...own], ordered: TriggerSnapshot[] = [];
         while (remaining.length > 1) {
-          const token = (hit: TriggerSnapshot) => own.filter(candidate => candidate.registration.id === hit.registration.id).length > 1 ? `${hit.registration.id}:${hit.event.eventId}` : hit.registration.id;
+          const token = (hit: TriggerSnapshot) => own.filter(candidate => candidate.registration.id === hit.registration.id).length > 1
+            ? `${hit.registration.id}:${hit.event.eventId}:${hit.occurrence ?? 0}`
+            : hit.registration.id;
           const id = this.host.choose<string>({ id: `trigger:${events[0]!.eventId}:${controller}:order:${ordered.length}`, chooser: controller, visibility: 'public', type: 'mode', options: remaining.map(token) });
           const index = remaining.findIndex(hit => token(hit) === id);
           if (index < 0) throw new TypeError('Invalid trigger order');
@@ -173,13 +305,62 @@ export class EventPipeline {
         }
         own = [...ordered, ...remaining];
       }
-      for (const hit of own) this.onTrigger(structuredClone(hit));
+      for (const hit of own) {
+        // The sink and the chain's structured clone must both retain the exact
+        // immutable event identity used to create the trigger snapshot.
+        this.onTrigger(deepFreeze(structuredClone({ ...hit, event: deepFreeze(structuredClone(hit.event)) })));
+      }
     }
+  }
+  private triggerRuleEffect(context: TriggerRuleContext): { readonly suppressed: boolean; readonly multiplicity: number } {
+    let multiplicity = 1;
+    let multiplicityMode: 'additional' | 'multiply' | undefined;
+    const rules = [...this.rules.values()].sort((left, right) => left.id.localeCompare(right.id));
+    for (const rule of rules) {
+      let ruleSource: ObjectSnapshot | undefined;
+      if (rule.source !== undefined) {
+        const current = this.host.objects().find(object => object.ref.id === rule.source!.ref.id);
+        const source = current ?? context.event.object;
+        if (rule.boundToIncarnation && source?.ref.zoneEntryId !== rule.source.ref.zoneEntryId) continue;
+        if (!rule.delayed && (!source || !(rule.activeZones ?? ['board']).includes(source.zone))) continue;
+        ruleSource = source;
+      }
+      const ruleContext = { ...context, ...(ruleSource === undefined ? {} : { ruleSource }) };
+      if (!rule.matches(ruleContext)) continue;
+      if (rule.mode === 'suppress') return { suppressed: true, multiplicity: 0 };
+      if (multiplicityMode !== undefined && multiplicityMode !== rule.mode) {
+        throw new RangeError('Additional and multiply trigger rules require an authoritative ordering');
+      }
+      multiplicityMode = rule.mode;
+      const amount = resolveRuleAmount(rule, ruleContext);
+      multiplicity = rule.mode === 'additional' ? multiplicity + amount : multiplicity * amount;
+      if (!Number.isSafeInteger(multiplicity) || multiplicity < 0) throw new RangeError(`Invalid trigger multiplicity after ${rule.id}`);
+    }
+    return { suppressed: false, multiplicity };
   }
   commit(action: GameAction): ActionOutcome {
     const checkpoint = this.host.checkpoint(), own = this.checkpoint();
     try { return this.apply(action, action, new Set()); }
     catch (error) { this.host.restore(checkpoint); this.restore(own); throw error; }
+  }
+  commitContract(action: ContractGameAction): ActionOutcome {
+    const checkpoint = this.host.checkpoint(), own = this.checkpoint();
+    try {
+      if (this.host.executeContract === undefined) {
+        throw new Error('Contract action execution is unavailable');
+      }
+      const execution = this.host.executeContract(action);
+      if (execution.outcome.status !== 'done') {
+        if (execution.emissions.length) throw new Error('Unperformed contract actions cannot emit trigger timings');
+        return execution.outcome;
+      }
+      const events = this.publish(execution.emissions);
+      return { ...execution.outcome, events: [...execution.outcome.events, ...events] };
+    } catch (error) {
+      this.host.restore(checkpoint);
+      this.restore(own);
+      throw error;
+    }
   }
   private affectedPlayer(action: GameAction): PlayerId {
     const ref = 'target' in action ? action.target : 'object' in action ? action.object : undefined;
