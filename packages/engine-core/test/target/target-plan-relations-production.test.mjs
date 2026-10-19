@@ -64,7 +64,6 @@ test("Smoke and Mirrors original symbolic filters consume the prior locked targe
   assert.deepEqual(pair.second.selected, [kernel.ref("b")]);
   assert.equal(kernel.answers.size, 0);
 });
-
 for (const [label, options, targetId] of [
   ["same target", {}, "a"],
   ["enemy controller", { enemy: true }, "b"],
