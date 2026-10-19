@@ -1,4 +1,4 @@
-import type { ChoiceRequest, GameAction, GameEvent, Instruction, ObjectSnapshot, PlayerId, ResolveContext, ActionOutcome } from '../effects/contract.js';
+import type { ChoiceRequest, ContractGameAction, GameAction, GameEvent, Instruction, ObjectSnapshot, PlayerId, ResolveContext, ActionOutcome } from '../effects/contract.js';
 import type { TimingPointId } from './timing-points.js';
 import type { TriggerSpec } from './trigger-spec.js';
 import type { CostPlanInput } from '../cost/plan-types.js';
@@ -127,6 +127,8 @@ export interface PipelineHost {
   checkpoint(): unknown;
   restore(checkpoint: unknown): void;
   execute(action: GameAction): ActionExecution;
+  /** Optional typed seam for Recall and atomic Batch actions. */
+  executeContract?(action: ContractGameAction): ActionExecution;
   context(source: ObjectSnapshot, controller: PlayerId, at: TimingPointId): ResolveContext;
   objects(): readonly ObjectSnapshot[];
   choose<T>(request: ChoiceRequest<T>): T;
