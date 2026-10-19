@@ -316,7 +316,7 @@ test('contractActions.perform routes a batch through commitContract and emits bo
   assert.equal(f.kernel.getObject('second').zone, 'trash');
 });
 
-test('original Smoke and Mirrors relation consumes the first finalized target in the default Chain', () => {
+test('original Smoke and Mirrors body fails closed before a partial swap when no prior-target relation seam exists', () => {
   const play = smokeAndMirrors.abilities.find(ability => ability.kind === 'play');
   const program = { ...admitted(smokeAndMirrors), abilities: [play] };
   const f = scene(
@@ -328,20 +328,17 @@ test('original Smoke and Mirrors relation consumes the first finalized target in
     { 'target:smoke-and-mirrors.unit-a': [{ id: 'one', zoneEntryId: 1 }] },
   );
 
-  f.engine.execute(f.binding.describePlay(
-    { type: 'play', player: 'A', object: f.kernel.ref('spell') },
-    f.kernel.getObject('spell'),
-  ));
-  const [item] = f.engine.items;
-  assert.equal(item.status, 'finalized');
-  assert.deepEqual(item.targetPlans.map(plan => plan.selected), [
-    [f.kernel.ref('one')],
-    [f.kernel.ref('two')],
-  ]);
-  assert.deepEqual(f.asked.map(request => request.id), [
-    'target:smoke-and-mirrors.unit-a',
-    'target:smoke-and-mirrors.unit-b',
-  ]);
+  assert.throws(
+    () => f.engine.execute(f.binding.describePlay(
+      { type: 'play', player: 'A', object: f.kernel.ref('spell') },
+      f.kernel.getObject('spell'),
+    )),
+    error => error.name === 'TargetSelectionError' && error.code === 'no-legal-targets',
+  );
+  assert.equal(f.engine.items.length, 0);
+  assert.deepEqual(f.asked.map(request => request.id), ['target:smoke-and-mirrors.unit-a']);
+  assert.deepEqual(f.kernel.getObject('one').location, field('one'));
+  assert.deepEqual(f.kernel.getObject('two').location, field('two'));
   assert.equal(smokeAndMirrors.status, 'judge-required');
 });
 

@@ -11,8 +11,6 @@ import type {
   CostPlanInput,
   OptionalCostInput,
 } from '../../cost/plan-types.js';
-import { bindFinalizedTargetPlans } from '../../target/target-plan.js';
-import type { TargetPlan, TargetsFinalizedEvent } from '../../target/target-plan.js';
 import {
   finalizeChoicePlan,
   type ChoicePlan,
@@ -164,29 +162,10 @@ export function finalizeInstructionChoices(
   body: readonly Instruction[],
   options: ChoicePlanOptions = {},
 ): ChoicePlan {
-  const finalized: TargetPlan[] = [];
-  let bound = bindFinalizedTargetPlans(context, finalized);
-  const refresh = (): void => { bound = bindFinalizedTargetPlans(context, finalized); };
-  const targetOptions = {
-    ...options.targetOptions,
-    onTargetsFinalized: (event: TargetsFinalizedEvent) => {
-      options.targetOptions?.onTargetsFinalized?.(event);
-      finalized.push(event.plan);
-      refresh();
-    },
-  };
-  const plan = finalizeChoicePlan(bound, body, { ...options, targetOptions });
-  if (finalized.length === 0) return plan;
-  // `finalizeChoicePlan` exposes immutable plan records, while cross-target
-  // legality is evaluated during that walk. Rebuild the returned records with
-  // the exact locked selections after all relations have passed.
-  const targets = plan.targets.map(target => {
-    const matching = finalized.find(candidate =>
-      candidate.requirement.id === target.plan.requirement.id &&
-      candidate.mode === target.plan.mode && candidate.repeatIndex === target.plan.repeatIndex);
-    return matching === undefined ? target : { ...target, plan: matching };
-  });
-  return Object.freeze({ ...plan, targets: Object.freeze(targets) });
+  // Cross-target relations require an explicit prior-target binding seam.
+  // Do not infer one from list order: a missing relation anchor must fail
+  // closed before any target or payment is committed.
+  return finalizeChoicePlan(context, body, options);
 }
 
 export function hasFinalizeChoices(body: readonly Instruction[]): boolean {

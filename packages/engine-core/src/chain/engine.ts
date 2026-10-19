@@ -7,7 +7,7 @@ import { resolveChainBody } from './interpreter-adapter.js';
 import { buildCostPlan } from '../cost/cost-plan.js';
 import { payCostPlan } from '../cost/payment.js';
 import { CostPlanError, type CostComponentInput, type CostPlan, type CostPlanInput, type CostPaymentReceipt } from '../cost/plan-types.js';
-import { bindFinalizedTargetPlans, finalizeTargetPlan, resolveTargetPlan, TargetSelectionError, type TargetFinalizeOptions, type TargetPlan, type TargetRequirement } from '../target/target-plan.js';
+import { finalizeTargetPlan, resolveTargetPlan, TargetSelectionError, type TargetFinalizeOptions, type TargetPlan, type TargetRequirement } from '../target/target-plan.js';
 import { LayerEngine } from '../layers/engine.js';
 import { matchesObjectFilter } from '../layers/filter.js';
 import { actionTimings, canAct as canActByRules, playLocations, restrictions as ruleRestrictions } from '../layers/rules/query.js';
@@ -446,7 +446,6 @@ export class ChainEngine {
               onTargeted: event => this.emitBecameTarget(item, context, event.target),
             });
             item.targetPlans.push(finalized);
-            context = bindFinalizedTargetPlans(context, item.targetPlans);
           }
         }
         if (!controlPlanRequired) {
@@ -471,7 +470,6 @@ export class ChainEngine {
               onTargeted: event => this.emitBecameTarget(item, context, event.target),
             });
             item.targetPlans.push(plan);
-            context = bindFinalizedTargetPlans(context, item.targetPlans);
           }
         }
         this.collectBoundTargetTaxes(item, context, targetTaxes);
