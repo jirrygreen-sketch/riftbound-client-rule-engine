@@ -85,6 +85,15 @@
         "effectiveDate": "2025-12-12",
         "sha256": "c085e3a1b89df98df6c4458d195b276430eb49e601533d80a247786598bb3111"
       }
+    },
+    "frozenAuditSnapshot": {
+      "frozenIntegrationCommit": "3ef041a1e78cc964b2d4c23d3af95f5c7d6302bd",
+      "immutable": true,
+      "semantics": "Hashes in this object and in each card program, golden, and goldenExecution block describe the frozen audit snapshot only. They do not assert that active production source remains unchanged.",
+      "liveSourceComparison": {
+        "mode": "report-only",
+        "onDrift": "record a revalidation item; do not fail the business acceptance test merely because a legitimate implementation fix changed source"
+      }
     }
   },
   "decks": [
@@ -1750,17 +1759,19 @@
         "might": 3,
         "ability": "When a unit you control becomes [Mighty], you may pay :rb_rune_order: to ready it. (A unit is Mighty while it has 5+ :rb_might:.)"
       },
-      "programStatus": "executable",
-      "verificationStatus": "contract-request-required",
-      "productionAcceptance": "pending",
+      "programStatus": "judge-required",
+      "verificationStatus": "dependency-not-ready",
+      "productionAcceptance": "pending: default 4-to-5 producer and event-it ready bridge incomplete",
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
-        "sha256": "1a1cc1e25845c56e853d1d22e0db1eae727060d97771ab0b14fb1f5fc37064f6"
+        "sha256": "b7144c0eabd837204910095171cd0679c5bb8c29c52629a6ee412e63cd4d14db",
+        "evidenceKind": "current-observed-not-lock"
       },
       "goldens": {
         "independent": {
           "path": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
-          "sha256": "f0daebf7e7408e961810e77036f6e847d77c333cc0a1fe61f72b07db166d4813"
+          "sha256": "1ab60ba56f4641fd0582c2cc718ed4c421125ac9606e8a49b40966fc52349cd7",
+          "evidenceKind": "current-observed-not-lock"
         },
         "templates": []
       },
@@ -1768,7 +1779,7 @@
         {
           "key": "might-changed-becomes-mighty-trigger-binding",
           "owner": "engine-core",
-          "state": "merged-partially",
+          "state": "dependency-not-ready",
           "paths": [
             "packages/engine-core/src/programs/filters.ts",
             "packages/engine-core/src/events/pipeline-match.ts",
@@ -1782,7 +1793,7 @@
             "EG-PAYLOAD",
             "EG-EVENTS"
           ],
-          "reason": "Current production matcher consumes the might-changed before/after snapshots for the typed <5 to >=5 transition and controller scope. End-to-end proof remains blocked by the shared event-it/Finalize and missing card cost IR boundaries.",
+          "reason": "Matcher supports exact 4-to-5 incarnation transitions, but default programs/filters.ts still rejects object.becomesMighty and default Chain does not publish scanned layer might-changed events.",
           "evidence": {
             "parentProbe": "/root/swarm-rift/shared/parent-reviews/integration-f036b0e5-20261019-0745/full-seed-probe.json",
             "parentProbeSha256": "e366720c974fcda8c18ccd742ef347386c071acc7cbed566be8af966d38c6c23",
@@ -1805,7 +1816,7 @@
             "EG-CONTRACT",
             "EG-FINALIZE"
           ],
-          "reason": "The trigger must ready the exact unit that became Mighty. Production Finalize must install the frozen event:it binding from that trigger event; a current-id lookup or source lookup would be wrong after incarnation/control changes.",
+          "reason": "872 golden proves current effect.ready schema cannot consume {event:it}; frozen trigger event identity must reach Resolve.",
           "evidence": {
             "frozenBindingPath": "packages/engine-core/src/programs/trigger-adapters/event-it.ts",
             "existingContractTest": "packages/engine-core/test/engine-gaps/event-it-contract.test.mjs",
@@ -1814,12 +1825,14 @@
         },
         {
           "key": "triggered-optional-order-power-finalize",
-          "owner": "parent-and-engine-core",
-          "state": "contract-request-required",
+          "owner": "RIFT-872 Fiora source/golden owner plus engine-core Finalize owner",
+          "state": "partially-merged",
           "paths": [
-            "packages/card-dsl/src/ir/types.ts",
-            "packages/engine-core/src/programs/triggers.ts",
+            "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+            "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+            "packages/engine-core/src/programs/trigger-adapters/leading-choice.ts",
             "packages/engine-core/src/programs/trigger-adapters/finalize-cost.ts",
+            "packages/engine-core/src/programs/triggers.ts",
             "packages/engine-core/src/chain/engine.ts"
           ],
           "gapLabels": [
@@ -1827,62 +1840,66 @@
             "EG-COSTCHOICE",
             "EG-FINALIZE"
           ],
-          "reason": "Current costPayArgsToCostSpec accepts a pure Order Power leading cost.pay shape, but original CardProgram has no choice.optional/cost.pay and TriggeredAbility has no cost field. Parent must approve/add the IR field (or adopt the leading-choice shape) before the engine-core Finalize consumer can execute decline/pay/rollback.",
+          "reason": "872 source now uses leading choice.optional -> cost.pay Order Power -> effect.ready(event-it); adapter, decline, exact payment, and unpayable removal goldens pass. Whole default trigger path awaits producer/event-it readiness.",
           "evidence": {
             "programPath": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
-            "programSha256": "1a1cc1e25845c56e853d1d22e0db1eae727060d97771ab0b14fb1f5fc37064f6",
-            "observedIrInstructionCount": 1,
+            "programSha256": "b7144c0eabd837204910095171cd0679c5bb8c29c52629a6ee412e63cd4d14db",
             "observedOps": [
+              "choice.optional",
+              "cost.pay",
               "effect.ready"
             ],
-            "missingPaymentInstruction": true,
+            "missingPaymentInstruction": false,
             "triggeredAbilityCostFieldPresent": false
           },
-          "contractRequest": {
-            "type": "additive-ir-and-wire-contract",
-            "requestedBy": "RIFT-857",
-            "status": "requested-not-approved",
-            "targetOwners": [
-              "parent-contract-owner",
-              "engine-core-finalize-owner"
-            ],
-            "proposedShape": {
-              "field": "TriggeredAbility.cost?: CostSpec",
-              "flow": "translate to TriggerRegistration.cost; ask/decline/pay at Finalize; preserve rollback; do not change old schemas or replays"
-            },
-            "compatibility": "Additive optional field only; old journals/profiles 1-9 and existing CardPrograms remain unchanged.",
-            "minimumAcceptance": [
-              "decline pays nothing",
-              "chosen Order Power paid exactly once",
-              "unpayable payment rolls back atomically",
-              "Resolve never re-prompts for cost"
+          "requiredProgramShape": {
+            "trigger": "might-changed",
+            "filter": "friendly unit becomesMighty true",
+            "body": [
+              {
+                "op": "choice.optional",
+                "nestedFirst": "cost.pay Order Power"
+              },
+              {
+                "op": "effect.ready",
+                "object": "fixed event-it"
+              }
             ]
-          }
+          },
+          "acceptance": [
+            "decline Finalize pays nothing and cancels the whole trigger",
+            "accept Finalize pays exactly one Order Power before Resolve",
+            "Resolve readies the exact frozen event.it incarnation",
+            "unpayable payment rolls back without readiness/receipt/frequency consumption"
+          ]
         }
       ],
       "ir": {
-        "inspectedAt": "2026-10-19",
+        "inspectedAt": "2026-10-19T14:42:00Z",
         "source": "packages/card-dsl/src/cards/registry.generated.ts",
         "rulesetVersion": "core-1.5",
-        "declaredStatus": "executable",
+        "declaredStatus": "judge-required",
         "abilityKinds": [
           "triggered"
         ],
         "ops": [
+          "choice.optional",
+          "cost.pay",
           "effect.ready"
         ],
-        "observedPaymentInstruction": false,
-        "observedEventItSelector": false
+        "observedPaymentInstruction": true,
+        "observedEventItSelector": true
       },
       "goldenExecution": {
-        "observedAt": "2026-10-19T11:17:12.061Z",
+        "observedAt": "2026-10-19T14:42:00Z",
         "exitCode": 0,
-        "pass": 4,
+        "pass": 17,
         "fail": 0,
         "todo": 1,
-        "wholeCardStatus": "unproven"
+        "wholeCardStatus": "unproven",
+        "immutableSnapshot": false
       },
-      "evidenceGap": "Mapped shared dependency remains executable-unproven: might-changed-becomes-mighty-trigger-binding, event-it-authoritative-bridge, triggered-optional-order-power-finalize"
+      "evidenceGap": "872 source and executable component goldens merged; default 4-to-5 producer, TriggerSnapshot event:it assignment, and effect.ready event selector remain incomplete."
     },
     {
       "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
@@ -1929,7 +1946,7 @@
         "templates": []
       },
       "dependencies": [],
-      "sourceConflict": "blocked:current program uses uncontrolled while selected SFD printing and official errata use open",
+      "sourceConflict": "resolved:official NEW TEXT uses uncontrolled, matching the selected current catalog text and CardProgram",
       "ir": {
         "inspectedAt": "2026-10-19",
         "source": "packages/card-dsl/src/cards/registry.generated.ts",
@@ -5146,10 +5163,8 @@
       "no-ability": 4
     },
     "verificationStatus": {
-      "dependency-not-ready": 24,
+      "dependency-not-ready": 25,
       "merged-awaiting-acceptance": 21,
-      "contract-request-required": 1,
-      "blocked-source-conflict": 0,
       "verified-no-ability": 4,
       "missing-source-evidence": 1
     },
@@ -5168,7 +5183,7 @@
       "legion-history-condition": 1
     },
     "dependencyMappingCount": 35,
-    "contractChangeRequests": 1,
+    "contractChangeRequests": 0,
     "executionVerificationStatus": {
       "unproven": 47,
       "verifiedNoAbility": 4,
@@ -5459,31 +5474,60 @@
       "concedeCommands"
     ],
     "currentProbe": {
-      "status": "blocked",
+      "status": "guard",
       "attemptedGames": 1,
       "caseIndex": 0,
       "seed": "RIFT-857-m1-seed-001",
-      "termination": "blocked",
-      "blockers": [
-        {
-          "name": "ProgramBindingError",
-          "code": "judge-required",
-          "message": "Unsupported filter field battlefieldWas"
-        }
-      ],
+      "termination": "guard",
+      "guardReason": "turn-limit",
+      "winner": null,
+      "scores": {
+        "A": 0,
+        "B": 0
+      },
+      "eventCount": 1957,
+      "journalDigest": "eb14ecfb8e9bfe0adc66854590b3907f743a77d340e968835ef5d83d1484e23a",
       "replayMatches": true,
       "freshWorldReplayMatches": true,
       "privacySafe": true,
-      "privacyChecks": 312,
+      "privacyChecks": 948,
       "exceptions": [],
-      "observedAt": "2026-10-19T11:19:28.750Z",
-      "evidencePath": "/tmp/RIFT-857-m1-two-precons-acceptance/probe-current.json"
+      "blockers": [],
+      "concedeCommands": 0,
+      "naturalGames": 0,
+      "elapsedMs": 42650,
+      "observedAt": "2026-10-19T14:49:28.885Z",
+      "kind": "last-observed-diagnostic",
+      "releaseGate": false,
+      "evidenceKind": "automatic-standard-gate-diagnostic"
     },
     "existingRegression": {
       "preserved": true,
       "path": "packages/integration-tests/test/headless/dual-bot.test.ts",
       "currentFocusedResult": "10 failed, 10 passed, 1 todo when privacy+dual-bot are run together; failures originate in runHeadlessGame initialization on the current judge-required programs",
       "policy": "No deletion, skip, weakened assertion, or four-deck matrix change was made by this task."
+    },
+    "performance": {
+      "defaultAutomaticRun": true,
+      "executionMode": "beforeAll in standard m1-pair.test.ts",
+      "hookTimeoutMs": 60000,
+      "businessTestTimeoutMs": 30000,
+      "latestObservedMs": 42650,
+      "reason": "One real match now runs in standard automatic integration. Hook isolates cold transform/load; the 30-second business assertion verifies the returned real runtime/replay/privacy result.",
+      "retained": [
+        "real Match/Chain commands",
+        "embedded replay",
+        "fresh-world replay",
+        "privacy audit",
+        "exception flood stop"
+      ],
+      "observations": {
+        "normalizedCommands": 315,
+        "events": 1957,
+        "termination": "guard",
+        "reason": "turn-limit"
+      },
+      "latestTestFileDurationMs": 42650
     }
   },
   "followUpPlan": {
@@ -5948,10 +5992,11 @@
           {
             "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
             "name": "Fiora, Worthy",
-            "verificationStatus": "contract-request-required",
+            "verificationStatus": "dependency-not-ready",
             "programStatus": "executable",
             "program": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
-            "golden": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs"
+            "golden": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+            "productionAcceptance": "pending: default 4-to-5 producer and event-it ready bridge incomplete"
           },
           {
             "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
@@ -6066,12 +6111,14 @@
           },
           {
             "key": "triggered-optional-order-power-finalize",
-            "owner": "parent-and-engine-core",
-            "state": "contract-request-required",
+            "owner": "RIFT-872 Fiora source/golden owner plus engine-core Finalize owner",
+            "state": "partially-merged",
             "paths": [
-              "packages/card-dsl/src/ir/types.ts",
-              "packages/engine-core/src/programs/triggers.ts",
+              "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+              "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+              "packages/engine-core/src/programs/trigger-adapters/leading-choice.ts",
               "packages/engine-core/src/programs/trigger-adapters/finalize-cost.ts",
+              "packages/engine-core/src/programs/triggers.ts",
               "packages/engine-core/src/chain/engine.ts"
             ],
             "gapLabels": [
@@ -6088,7 +6135,27 @@
                 "templateGoldens": []
               }
             ],
-            "reason": "Finalize accepts a pure Order Power shape, but Fiora original IR has no choice.optional/cost.pay and TriggeredAbility has no shared cost field; parent owns the additive IR decision."
+            "reason": "RIFT-872 source uses leading choice.optional -> cost.pay Order Power -> effect.ready(event-it). Adapter, decline, exact payment, and unplayable rollback goldens pass; default producer/event-it ready remain incomplete.",
+            "requiredProgramShape": {
+              "trigger": "might-changed",
+              "filter": "friendly unit becomesMighty true",
+              "body": [
+                {
+                  "op": "choice.optional",
+                  "nestedFirst": "cost.pay Order Power"
+                },
+                {
+                  "op": "effect.ready",
+                  "object": "fixed event-it"
+                }
+              ]
+            },
+            "acceptance": [
+              "decline Finalize pays nothing and cancels the whole trigger",
+              "accept Finalize pays exactly one Order Power before Resolve",
+              "Resolve readies the exact frozen event.it incarnation",
+              "unpayable payment rolls back without readiness/receipt/frequency consumption"
+            ]
           },
           {
             "key": "combat-event-payload-location-hold",
@@ -7309,9 +7376,8 @@
     "frozenIntegrationCommit": "3ef041a1e78cc964b2d4c23d3af95f5c7d6302bd",
     "lifecycle": {
       "path": "packages/engine-core/src/programs/lifecycle.ts",
-      "sourceSha256": "9172c97c4fcda86998e5ac6d98810ccb56724fdf1d3bd181919270a48512adbd",
       "testPath": "packages/engine-core/test/engine-gaps/lifecycle.test.mjs",
-      "testSha256": "1f485460f8dc6921fa331c32a83284e978d72ee3a33575945a3ad689953d2153"
+      "evidenceKind": "active-path-only"
     },
     "deckConstruction": {
       "counts": {
@@ -7323,34 +7389,56 @@
       }
     },
     "realProbe": {
-      "seed": "RIFT-857-m1-seed-001",
+      "status": "guard",
       "attemptedGames": 1,
-      "state": "blocked",
-      "deckPair": {
-        "A": "rumble-sfd",
-        "B": "fiora-sfd"
+      "caseIndex": 0,
+      "seed": "RIFT-857-m1-seed-001",
+      "termination": "guard",
+      "guardReason": "turn-limit",
+      "winner": null,
+      "scores": {
+        "A": 0,
+        "B": 0
       },
-      "orientation": "rumble-a",
-      "termination": "blocked",
-      "blockers": [
-        {
-          "name": "ProgramBindingError",
-          "code": "judge-required",
-          "message": "Unsupported filter field battlefieldWas"
-        }
-      ],
+      "eventCount": 1957,
+      "journalDigest": "eb14ecfb8e9bfe0adc66854590b3907f743a77d340e968835ef5d83d1484e23a",
       "replayMatches": true,
       "freshWorldReplayMatches": true,
       "privacySafe": true,
-      "privacyChecks": 312,
+      "privacyChecks": 948,
       "exceptions": [],
-      "journalDigest": "ed4c6572043d6f72db8c3652efa14d6f7edcdbe4b0302184db32b9322cff57df",
-      "reason": "The one permitted seed reached a real blocked termination at default trigger binding (Unsupported filter field battlefieldWas); it did not reach a natural winner, so seeds 002-100 were not attempted."
+      "blockers": [],
+      "concedeCommands": 0,
+      "naturalGames": 0,
+      "elapsedMs": 42650,
+      "observedAt": "2026-10-19T14:49:28.885Z",
+      "kind": "last-observed-diagnostic",
+      "releaseGate": false,
+      "evidenceKind": "automatic-standard-gate-diagnostic"
     },
     "owner": "engine-core",
     "remainingDependencies": [
       "combat-event-payload-location-hold"
-    ]
+    ],
+    "evidenceKind": "frozen-audit-snapshot",
+    "frozenEvidence": {
+      "frozenIntegrationCommit": "3ef041a1e78cc964b2d4c23d3af95f5c7d6302bd",
+      "lifecycle": {
+        "sourceSha256": "9172c97c4fcda86998e5ac6d98810ccb56724fdf1d3bd181919270a48512adbd",
+        "testSha256": "1f485460f8dc6921fa331c32a83284e978d72ee3a33575945a3ad689953d2153"
+      },
+      "note": "Historical audit hashes only. Source changes by assigned owners may legitimately drift; the stable suite reports re-audit need instead of freezing old code.",
+      "evidenceKind": "immutable-audit-snapshot",
+      "activeSourceContract": false
+    },
+    "liveSourcePolicy": {
+      "mode": "report-only",
+      "checks": [
+        "path exists",
+        "file parses or builds if applicable"
+      ],
+      "onDrift": "report stale-manifest evidence for revalidation; do not freeze the prior implementation"
+    }
   },
   "parallelWorkstreams": {
     "policy": "The generic shared ports are gateways. A card file and its same-name independent golden stay together; do not change the program status based on source inspection alone.",
@@ -7655,15 +7743,17 @@
       },
       "triggered-optional-order-power-finalize": {
         "key": "triggered-optional-order-power-finalize",
-        "owner": "parent-contract-owner-and-engine-core-finalize-owner",
-        "state": "contract-request-required",
+        "owner": "RIFT-872 Fiora source/golden owner plus engine-core Finalize owner",
+        "state": "partially-merged",
         "paths": [
-          "packages/card-dsl/src/ir/types.ts",
-          "packages/engine-core/src/programs/triggers.ts",
+          "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+          "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+          "packages/engine-core/src/programs/trigger-adapters/leading-choice.ts",
           "packages/engine-core/src/programs/trigger-adapters/finalize-cost.ts",
+          "packages/engine-core/src/programs/triggers.ts",
           "packages/engine-core/src/chain/engine.ts"
         ],
-        "reason": "Pure Order Power conversion exists, but original IR has no payment node and the shared TriggeredAbility cost contract is unapproved.",
+        "reason": "RIFT-872 source and Finalize cost behavior are merged; default might-changed producer and effect.ready(event-it) remain incomplete.",
         "affectedCards": [
           {
             "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
@@ -7677,8 +7767,22 @@
           "383.3.b",
           "383.3.b.1"
         ],
-        "acceptance": "Parent-approved additive IR representation is authored on the original card; default Finalize permits decline, pays exactly one Order Power on acceptance, and rolls back unpayable cases.",
-        "observation": "Frozen integration 3ef041a1 code inspection plus current default probe/golden runs; this is an implementation dependency record, not a pass assertion."
+        "acceptance": "Source golden proves decline, one Order payment, and unpayable rollback. Whole-card acceptance additionally requires default 4-to-5 event production and frozen event-it ready.",
+        "observation": "Frozen integration 3ef041a1 code inspection plus current default probe/golden runs; this is an implementation dependency record, not a pass assertion.",
+        "requiredProgramShape": {
+          "trigger": "might-changed",
+          "filter": "friendly unit becomesMighty true",
+          "body": [
+            {
+              "op": "choice.optional",
+              "nestedFirst": "cost.pay Order Power"
+            },
+            {
+              "op": "effect.ready",
+              "object": "fixed event-it"
+            }
+          ]
+        }
       },
       "mighty-query-consumer": {
         "key": "mighty-query-consumer",
@@ -9109,5 +9213,142 @@
         "action": "Existing assertion may encode an absent feature; update only when the mapped behavior is truly implemented, otherwise retain the failure and missing dependency. Never delete or weaken it."
       }
     ]
-  }
+  },
+  "sourceBackedAcceptance": [
+    {
+      "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+      "cardName": "Fiora, Worthy",
+      "officialSource": {
+        "catalog": "packages/card-data/data/deck-catalog.json",
+        "printingId": "sfd-180a-221",
+        "cardText": "When a unit you control becomes [Mighty], you may pay :rb_rune_order: to ready it."
+      },
+      "status": "pending-whole-card",
+      "requirements": [
+        {
+          "id": "decline-pays-nothing",
+          "ruleRefs": [
+            "383.3.a",
+            "383.3.a.1",
+            "383.3.a.2"
+          ],
+          "expected": [
+            "declining Finalize removes the ability without paying Order or readying a unit"
+          ],
+          "evidence": {
+            "owner": "RIFT-872",
+            "path": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+            "testTitle": "sfd-180-221 Fiora, Worthy: declining the leading may pays nothing and does not ready",
+            "result": "verified",
+            "currentStatus": "executed: decline retains Order and does not ready",
+            "titlePresent": true
+          }
+        },
+        {
+          "id": "pay-exactly-one-order",
+          "ruleRefs": [
+            "383.3.b",
+            "383.3.b.1"
+          ],
+          "expected": [
+            "accepting Finalize pays exactly one Order rune or power once before Resolve"
+          ],
+          "evidence": {
+            "owner": "RIFT-872",
+            "path": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+            "testTitle": "sfd-180-221 Fiora, Worthy: accepting the leading cost pays exactly one Order Power once",
+            "result": "verified",
+            "currentStatus": "executed: one Order removed, one payment receipt",
+            "titlePresent": true
+          }
+        },
+        {
+          "id": "mighty-crosses-four-to-five-once",
+          "ruleRefs": [
+            "708",
+            "709",
+            "710",
+            "711"
+          ],
+          "expected": [
+            "a live friendly unit 4 to 5 triggers once",
+            "5 to 6 does not trigger",
+            "non-board Might uses printed Might and cannot newly satisfy this board transition"
+          ],
+          "evidence": {
+            "owner": "RIFT-872",
+            "path": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+            "testTitle": "sfd-180-221 Fiora, Worthy: the Mighty matcher implements the exact transition and incarnation boundary",
+            "result": "partial",
+            "currentStatus": "matcher passed; default producer/once collection pending",
+            "titlePresent": true
+          }
+        },
+        {
+          "id": "ready-exact-event-incarnation",
+          "ruleRefs": [
+            "337",
+            "340"
+          ],
+          "expected": [
+            "Resolve readies the frozen event.it incarnation",
+            "a different incarnation or current-id fallback is rejected"
+          ],
+          "evidence": {
+            "owner": "RIFT-872",
+            "path": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+            "testTitle": "sfd-180-221 Fiora, Worthy: the current effect.ready schema cannot consume event:it (shared bridge required)",
+            "result": "blocked",
+            "currentStatus": "negative production test passes; behavior remains blocked",
+            "titlePresent": true
+          }
+        },
+        {
+          "id": "pay-failure-atomic-rollback",
+          "ruleRefs": [
+            "383.3.b.1"
+          ],
+          "expected": [
+            "unpayable Order cost leaves no payment, ready, pending item, receipt, or trigger-frequency consumption"
+          ],
+          "evidence": {
+            "owner": "RIFT-872",
+            "path": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+            "testTitle": "sfd-180-221 Fiora, Worthy: an accepted but unpayable Finalize removes the trigger without a payment",
+            "result": "verified",
+            "currentStatus": "executed: no payment and no Resolve",
+            "titlePresent": true
+          }
+        }
+      ],
+      "evidenceStatus": {
+        "source": "RIFT-872 source merged with leading choice.optional/cost.pay/effect.ready(event-it)",
+        "finalize": "decline, one Order payment, and unpayable removal execute in same-name golden",
+        "transition": "exact matcher proven; default production producer still pending",
+        "incarnation": "effect.ready event:it currently rejected; bridge pending",
+        "wholeCard": "17 pass / 0 fail / 1 TODO; pending"
+      },
+      "owner": "RIFT-872 Fiora source/golden owner plus engine-core Finalize owner",
+      "acceptanceCommand": "M1 acceptance will report 100/100 only after all five requirements pass",
+      "implementationShape": {
+        "approach": "existing leading choice.optional -> cost.pay -> effect.ready(event-it)",
+        "newTriggeredAbilityCostField": false,
+        "merged": true
+      },
+      "driftPolicy": "Fiora source/golden hash drift after RIFT-872 is expected; re-audit path and behavior, not fail the stable test on old audit hash.",
+      "goldenExecution": {
+        "observedAt": "2026-10-19T14:42:00Z",
+        "exitCode": 0,
+        "pass": 17,
+        "fail": 0,
+        "todo": 1,
+        "wholeCardStatus": "unproven",
+        "immutableSnapshot": false
+      },
+      "finalEvidence": {
+        "testTitle": "sfd-180-221 Fiora, Worthy: end-to-end 4-to-5 production trigger, Finalize choice/payment, and event-it ready remain blocked by the shared programs/filters.ts transition translation, the default layer-to-event producer, the generic TriggerSnapshot event:it assignment, and effect.ready's event selector schema (CR 383.3.a/.b.1, 709)",
+        "result": "todo"
+      }
+    }
+  ]
 }

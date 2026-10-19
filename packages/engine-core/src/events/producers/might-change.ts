@@ -38,6 +38,7 @@ export function deriveMightChangedEmissions(
       timingPoint: 'might-changed',
       kind: 'might-changed',
       object: current,
+      it: current,
       source: context.source,
       player: context.player ?? current.controller,
       details: {
@@ -49,8 +50,7 @@ export function deriveMightChangedEmissions(
     };
     const enriched = context.actionId !== undefined || context.batchId !== undefined ||
       context.effectController !== undefined || context.source !== undefined;
-    emissions.push(enriched
-      ? withActionPayload(emission, {
+    emissions.push(withActionPayload(emission, enriched ? {
         ...actionPayload(
           { type: 'buff', object: current.ref, amount: 0 },
           previous,
@@ -59,8 +59,7 @@ export function deriveMightChangedEmissions(
         ),
         previousMight: previous.might,
         currentMight: current.might,
-      }, { before: previous, after: current })
-      : emission);
+      } : {}, { before: previous, after: current }));
   }
 
   return Object.freeze(emissions);
