@@ -26,6 +26,7 @@ import {
   type ReplacementDependencies,
   type ReplacementPipelineAdapter
 } from "../../replacement/index.js";
+import type { ReplacementRegistration } from "../../events/pipeline-types.js";
 
 export type ReplacementDuration = "permanent" | "this-turn" | "next-time-this-turn";
 
@@ -43,9 +44,10 @@ export interface ReplacementEnterArgs {
   readonly duration?: Expr | Value;
   readonly appliesTo?: Expr | Value;
   readonly filter?: Expr | Value;
+  readonly window?: Expr | Value;
 }
 
-const ARGUMENTS = new Set(["state", "exhausts", "zone", "duration", "appliesTo", "filter"]);
+const ARGUMENTS = new Set(["state", "exhausts", "zone", "duration", "appliesTo", "filter", "window"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -128,10 +130,15 @@ function constant(value: Value): Expr {
 export function bindWithDuration(
   ctx: ResolveContext,
   ability: ReplacementAbilityInput,
-  lifetime: ReplacementDuration
+  lifetime: ReplacementDuration,
+  transformRegistration?: (registration: ReplacementRegistration) => ReplacementRegistration
 ): { readonly id: string; readonly cancel: () => void } {
   const dependencies = replacementDependencies(ctx);
-  const bound = bindReplacement(ability, ctx.source.ref, wrappedDependencies(ctx, ability, dependencies, lifetime));
+  const bound = bindReplacement(
+    ability,
+    ctx.source.ref,
+    wrappedDependencies(ctx, ability, dependencies, lifetime, transformRegistration)
+  );
   return { id: bound.registration.id, cancel: bound.cancel };
 }
 
@@ -147,7 +154,8 @@ function wrappedDependencies(
   ctx: ResolveContext,
   ability: ReplacementAbilityInput,
   dependencies: ReplacementDependencies,
-  lifetime: ReplacementDuration
+  lifetime: ReplacementDuration,
+  transformRegistration?: (registration: ReplacementRegistration) => ReplacementRegistration
 ): ReplacementDependencies {
   const boundTurn = dependencies.pipeline.clock.turn;
   const kind = ability.replaces.event ?? ability.replaces.type ?? ability.replaces.kind;
@@ -173,29 +181,41 @@ function wrappedDependencies(
       target,
       hostRef: host.ref,
       controller: host.controller,
+      hostSnapshot: host,
       snapshotFor
     });
   };
+  // A one-shot declaration is consumed only after the pipeline actually
+  // chooses it. The binder's optional decision runs after `matches`, so this
+  // wrapper cannot mark the window on a decline. Failed application is rolled
+  // back by the pipeline checkpoint, and a retry rebuilds this local window.
+  const oneShot = { used: false };
   const wrappedPipeline: ReplacementPipelineAdapter = {
     clock: dependencies.pipeline.clock,
     registerReplacement(registration) {
-      let used = false;
-      dependencies.pipeline.registerReplacement({
+      const registrationToRegister: ReplacementRegistration = {
         ...registration,
         matches: (action, original) => {
           if (lifetime !== "permanent" && dependencies.pipeline.clock.turn !== boundTurn) return false;
-          if (lifetime === "next-time-this-turn" && used) return false;
+          if (lifetime === "next-time-this-turn" && oneShot.used) return false;
           if (!matchesDeclaredPattern(action)) return false;
           return registration.matches(action, original);
         },
         apply: (action, original) => {
           const result = registration.apply(action, original);
-          if (lifetime === "next-time-this-turn") used = true;
+          if (lifetime === "next-time-this-turn") oneShot.used = true;
           return result;
         }
-      });
+      };
+      dependencies.pipeline.registerReplacement(
+        transformRegistration?.(registrationToRegister) ?? registrationToRegister
+      );
     },
-    unregisterReplacement: id => dependencies.pipeline.unregisterReplacement?.(id)
+    unregisterReplacement: id => dependencies.pipeline.unregisterReplacement?.(id),
+    ...(dependencies.pipeline.checkpoint === undefined ? {} : {
+      checkpoint: () => dependencies.pipeline.checkpoint?.(),
+      restore: (checkpoint: unknown) => dependencies.pipeline.restore?.(checkpoint)
+    })
   };
   return { host: dependencies.host, pipeline: wrappedPipeline };
 }
@@ -207,7 +227,10 @@ const SUPPORTED_FILTER_KEYS = new Set([
 ]);
 
 function entryFilter(value: Value | undefined, requireSelf = false): Readonly<Record<string, unknown>> {
-  if (value === undefined) return { self: true };
+  if (value === undefined) {
+    if (requireSelf) throw new BlockedReplacementError("replacement.enter appliesTo must identify the host/source object");
+    return { self: true };
+  }
   if (!isRecord(value)) {
     throw new BlockedReplacementError("replacement.enter appliesTo/filter must be an object filter");
   }
@@ -223,7 +246,7 @@ function entryFilter(value: Value | undefined, requireSelf = false): Readonly<Re
   if (self !== undefined && self !== true && self !== "self" && self !== "source") {
     throw new BlockedReplacementError("replacement.enter can only register a self/source entry replacement");
   }
-  return { ...value, self: true };
+  return self === undefined ? value : { ...value, self: true };
 }
 
 const replacementEnter = {

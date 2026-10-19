@@ -6,6 +6,7 @@ import type {
   ObjectSnapshot,
   PlayerId
 } from "../effects/contract.js";
+import { BlockedReplacementError } from "./types.js";
 
 /** Which side of a GameAction an EventPattern inspects. */
 export interface PatternTarget {
@@ -27,7 +28,10 @@ const ACTION_KINDS: Readonly<Record<string, readonly GameAction["type"][]>> = {
   damage: ["damage"],
   score: ["score"],
   "card-played": ["play"],
-  "card-revealed": ["reveal"]
+  "card-revealed": ["reveal"],
+  "object-enters-zone": ["move-zone", "return-to-hand", "recycle", "banish", "discard"],
+  "object-leaves-chain": ["move-zone", "banish"],
+  "object-leaves-zone": ["move-zone", "move-location", "return-to-hand", "recycle", "banish", "kill"]
 };
 
 /** The action ref an EventPattern object filter inspects. */
@@ -43,8 +47,30 @@ export interface PatternMatchInput {
   readonly target: PatternTarget;
   readonly hostRef: ObjectRef;
   readonly controller: PlayerId;
+  /** Live host snapshot for relative object and location anchors. */
+  readonly hostSnapshot?: ObjectSnapshot;
   /** Snapshot for a ref, optionally the post-action orientation. */
   snapshotFor(ref: ObjectRef, after?: boolean): ObjectSnapshot | null;
+}
+
+const SUPPORTED_FILTER_KEYS: ReadonlySet<string> = new Set([
+  "self", "other", "source", "target", "attachedTo", "sameLocationAs",
+  "differentLocationFrom", "exclude", "object", "objectId", "id", "cardId",
+  "canonicalCardId", "zoneEntryId", "type", "types", "tag", "tags", "zone",
+  "location", "locationType", "controller", "owner", "states", "state",
+  "ready", "exhausted", "characteristics"
+]);
+
+const sameLocation = (
+  left: ObjectSnapshot["location"],
+  right: ObjectSnapshot["location"]
+): boolean => left !== null && right !== null &&
+  (left.type === "base"
+    ? right.type === "base" && left.player === right.player
+    : right.type === "battlefield" && left.id === right.id);
+
+function isHostAnchor(value: unknown): boolean {
+  return value === "self" || value === "source" || value === "host";
 }
 
 /**
@@ -57,12 +83,17 @@ export function filterMatchesSnapshot(
   snapshot: ObjectSnapshot,
   ref: ObjectRef,
   hostRef: ObjectRef,
-  controller: PlayerId
+  controller: PlayerId,
+  hostSnapshot?: ObjectSnapshot
 ): boolean {
   if (!filter || Object.keys(filter).length === 0) return true;
   const normalized: Record<string, unknown> = {};
   const states: unknown[] = [];
   for (const [key, value] of Object.entries(filter)) {
+    if (!SUPPORTED_FILTER_KEYS.has(key)) {
+      throw new BlockedReplacementError(`replacement filter contains an unsupported key: ${key}`);
+    }
+    if (key === "zoneEntryId" && value !== ref.zoneEntryId) return false;
     if (key === "exhausted" && typeof value === "boolean") {
       if (value) states.push("exhausted");
       else states.push("ready");
@@ -80,14 +111,48 @@ export function filterMatchesSnapshot(
       if (value === true && sameRef(ref, hostRef)) return false;
       continue;
     }
-    if ((key === "source" || key === "target") && (value === "self" || value === "source")) {
+    if (key === "source" || key === "target") {
+      if (!isHostAnchor(value)) {
+        throw new BlockedReplacementError(`replacement ${key} anchor is unsupported or unavailable`);
+      }
       if (!sameRef(ref, hostRef)) return false;
       continue;
     }
-    if (key === "object" && typeof value === "object" && value !== null && (value as { objectId?: unknown }).objectId === "self") {
-      const rest = { ...(value as Record<string, unknown>) };
-      rest.objectId = ref.id;
-      if (!filterMatchesSnapshot(rest, snapshot, ref, hostRef, controller)) return false;
+    if (key === "object") {
+      if (!isHostAnchor(value)) {
+        throw new BlockedReplacementError("replacement object anchor is unsupported or unavailable");
+      }
+      if (!sameRef(ref, hostRef)) return false;
+      continue;
+    }
+    if (key === "exclude") {
+      if (!isHostAnchor(value)) {
+        throw new BlockedReplacementError("replacement exclude anchor is unsupported or unavailable");
+      }
+      if (sameRef(ref, hostRef)) return false;
+      continue;
+    }
+    if (key === "sameLocationAs" || key === "differentLocationFrom") {
+      if (!isHostAnchor(value)) {
+        throw new BlockedReplacementError(`replacement ${key} anchor is unsupported or unavailable`);
+      }
+      const host = hostSnapshot ?? (sameRef(ref, hostRef) ? snapshot : undefined);
+      if (host === undefined) {
+        throw new BlockedReplacementError(`replacement ${key} requires the live host snapshot`);
+      }
+      const matches = sameLocation(snapshot.location, host.location);
+      if (key === "sameLocationAs" ? !matches : matches) return false;
+      continue;
+    }
+    if (key === "attachedTo") {
+      if (!isHostAnchor(value)) {
+        throw new BlockedReplacementError("replacement attachedTo anchor is unsupported or unavailable");
+      }
+      if (snapshot.attachedTo === null || !sameRef(snapshot.attachedTo, hostRef)) return false;
+      continue;
+    }
+    if (key === "objectId" && (value === "self" || value === "source")) {
+      if (!sameRef(ref, hostRef)) return false;
       continue;
     }
     if ((key === "controller" || key === "owner") && (value === "self" || value === "controller" || value === "opponent")) {
@@ -115,6 +180,48 @@ export function actionMatchesEventPattern(input: PatternMatchInput): boolean {
   const actionTypes = typeof kind === "string" ? ACTION_KINDS[kind] : undefined;
   if (!actionTypes || !actionTypes.includes(action.type)) return false;
   if (kind === "object-enters-board" && (action.type !== "move-zone" || (action.to !== "base" && action.to !== "battlefield"))) return false;
+  if (kind === "object-leaves-chain" &&
+      (action.type !== "move-zone" || ("object" in action && input.snapshotFor(action.object)?.zone !== "chain"))) return false;
+  if (kind === "object-leaves-chain" && action.type === "banish") {
+    const ref = target.object ?? action.object;
+    if (input.snapshotFor(ref)?.zone !== "chain") return false;
+  }
+  if (kind === "object-leaves-zone" &&
+      (action.type === "kill" || action.type === "banish" || action.type === "recycle" ||
+       action.type === "return-to-hand" || action.type === "move-zone" || action.type === "move-location")) {
+    const ref = target.object ?? actionObjectRef(action);
+    const snapshot = ref ? input.snapshotFor(ref) : null;
+    if (snapshot === null) return false;
+    const fromZone = pattern.fromZone;
+    if (fromZone !== undefined) {
+      const zones = Array.isArray(fromZone) ? fromZone : [fromZone];
+      if (!zones.includes(snapshot.zone)) return false;
+    }
+  }
+  const notFromZone = pattern.notFromZone;
+  if (notFromZone !== undefined && (action.type === "kill" || action.type === "banish" || action.type === "recycle" ||
+      action.type === "return-to-hand" || action.type === "move-zone" || action.type === "move-location")) {
+    const ref = target.object ?? actionObjectRef(action);
+    const snapshot = ref ? input.snapshotFor(ref) : null;
+    if (snapshot === null) return false;
+    const excluded = Array.isArray(notFromZone) ? notFromZone : [notFromZone];
+    if (excluded.includes(snapshot.zone)) return false;
+  }
+  const toZone = pattern.toZone;
+  if (toZone !== undefined && (kind === "object-enters-zone" || kind === "object-leaves-zone")) {
+    if (action.type === "move-zone") {
+      const zones = Array.isArray(toZone) ? toZone : [toZone];
+      if (!zones.includes(action.to === "deck-bottom" ? "deck" : action.to === "deck-top" ? "deck" : action.to)) return false;
+    } else if (action.type === "return-to-hand") {
+      if (!(Array.isArray(toZone) ? toZone : [toZone]).includes("hand")) return false;
+    } else if (action.type === "recycle") {
+      if (!(Array.isArray(toZone) ? toZone : [toZone]).includes("deck")) return false;
+    } else if (action.type === "banish") {
+      if (!(Array.isArray(toZone) ? toZone : [toZone]).includes("banishment")) return false;
+    } else if (action.type === "discard" || action.type === "kill") {
+      if (!(Array.isArray(toZone) ? toZone : [toZone]).includes("trash")) return false;
+    }
+  }
   const filter = pattern.filter as Readonly<Record<string, unknown>> | undefined;
   const objectFilter = pattern.object as Readonly<Record<string, unknown>> | undefined;
   const entry = kind === "object-enters-board";
@@ -125,7 +232,7 @@ export function actionMatchesEventPattern(input: PatternMatchInput): boolean {
     if (!snapshot) return false;
     return [filter, objectFilter].every(candidate =>
       candidate === undefined ||
-      filterMatchesSnapshot(candidate, snapshot, ref, hostRef, controller)
+      filterMatchesSnapshot(candidate, snapshot, ref, hostRef, controller, input.hostSnapshot)
     );
   }
   const ref = target.object ?? actionObjectRef(action);
@@ -134,7 +241,7 @@ export function actionMatchesEventPattern(input: PatternMatchInput): boolean {
   if (ref && snapshot) {
     return [filter, objectFilter].every(candidate =>
       candidate === undefined ||
-      filterMatchesSnapshot(candidate, snapshot, ref, hostRef, controller)
+      filterMatchesSnapshot(candidate, snapshot, ref, hostRef, controller, input.hostSnapshot)
     );
   }
   if (ref || !snapshot) {
