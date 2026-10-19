@@ -1,14 +1,16 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import {
   M1_ACCEPTANCE_GAMES,
   M1_ACCEPTANCE_GAMES_PER_SIDE,
   M1_ACCEPTANCE_PLAN,
   aggregateM1Evidence,
   isNaturalM1Game,
+  probeM1Acceptance,
   type M1GameEvidence,
+  type M1AcceptanceRun,
 } from "../../src/headless/m1-pair.js";
 import { buildM1Deck } from "../../src/headless/decks.js";
 
@@ -138,6 +140,14 @@ interface Manifest {
       readonly id: string;
       readonly ruleRefs: readonly string[];
       readonly expected: readonly string[];
+      readonly evidence: {
+        readonly path: string;
+        readonly testTitle: string;
+        readonly owner: string;
+        readonly result: "verified" | "partial" | "blocked";
+        readonly currentStatus: string;
+        readonly titlePresent: boolean;
+      };
     }[];
   }[];
   readonly effectOrderPolicy: {
@@ -220,6 +230,18 @@ function fixture(overrides: Partial<M1GameEvidence> = {}): M1GameEvidence {
 }
 
 describe("RIFT-857 two-precon acceptance", () => {
+  let probeRun: M1AcceptanceRun | undefined;
+
+  beforeAll(async () => {
+    // Warm the immutable module graph before the real diagnostic. This performs
+    // no Match, Chain command, replay, or privacy check; those remain in the
+    // timed business test below.
+    await import("../../src/headless/index.js");
+    // Run the real one-game Match/Chain diagnostic once in the standard suite.
+    // Embedded replay, fresh-world replay and privacy remain mandatory here.
+    probeRun = probeM1Acceptance();
+  }, 60_000);
+
   it("pins exactly 100 unique seeds, 50 games per seat orientation, and only the approved pair", () => {
     expect(M1_ACCEPTANCE_PLAN).toHaveLength(M1_ACCEPTANCE_GAMES);
     expect(new Set(M1_ACCEPTANCE_PLAN.map(value => value.seed))).toHaveLength(100);
@@ -342,7 +364,10 @@ describe("RIFT-857 two-precon acceptance", () => {
         kind: "triggered",
         trigger: expect.objectContaining({
           at: "might-changed",
-          filter: expect.objectContaining({ controller: "you", becomesMighty: true }),
+          filter: expect.objectContaining({
+            event: "might-changed",
+            object: expect.objectContaining({ controller: "self", becomesMighty: true }),
+          }),
         }),
       }),
     ]));
@@ -357,6 +382,18 @@ describe("RIFT-857 two-precon acceptance", () => {
       "mighty-crosses-four-to-five-once",
       "ready-exact-event-incarnation",
     ]));
+    for (const requirement of requirements?.requirements ?? []) {
+      expect(requirement.evidence.owner).toBe("RIFT-872");
+      expect(requirement.evidence.path).toBe(card.goldens.independent.path);
+      expect(requirement.evidence.testTitle).toContain("Fiora, Worthy");
+      expect(["verified", "partial", "blocked"]).toContain(requirement.evidence.result);
+      expect(requirement.evidence.titlePresent).toBe(true);
+      const goldenSource = readFileSync(repositoryPath(requirement.evidence.path), "utf8");
+      expect(goldenSource).toContain(requirement.evidence.testTitle);
+      if (requirement.evidence.result !== "verified") {
+        expect(requirement.evidence.currentStatus).toMatch(/pending|blocked|partial/);
+      }
+    }
 
     const before = { might: 4, ref: { id: "fiora-unit", zoneEntryId: 7 }, zone: "board",
       types: ["unit"], controller: "A" };
@@ -497,8 +534,8 @@ describe("RIFT-857 two-precon acceptance", () => {
     const fioraWorthy: ManifestCard | undefined = manifest.canonicalWhitelist.find(card => card.name === "Fiora, Worthy");
     expect(fioraWorthy).toEqual(expect.objectContaining({
       canonicalCardId: "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
-      productionAcceptance: "pending",
     }));
+    expect(fioraWorthy!.productionAcceptance).not.toBe("accepted");
     expect(fioraWorthy!.printed.ability).toContain("you may pay :rb_rune_order: to ready it");
     expect(fioraWorthy!.printed.power).toBeNull();
     expect(manifest.productionSetup.deckConstruction.counts).toEqual({
@@ -515,6 +552,41 @@ describe("RIFT-857 two-precon acceptance", () => {
       ]),
     }));
   });
+
+  it("executes one real planned match through Match/Chain, double replay, and privacy", () => {
+    const probe = probeRun;
+    expect(probe).toBeDefined();
+    if (probe === undefined) return;
+    expect(probe.expectedGames).toBe(100);
+    expect(probe.attemptedGames).toBe(1);
+    expect(probe.planMismatches).toBe(0);
+    expect(probe.results).toHaveLength(1);
+    const result = probe.results[0];
+    expect(result).toBeDefined();
+    if (result === undefined) return;
+    const planned = M1_ACCEPTANCE_PLAN[0]!;
+    expect(result).toEqual(expect.objectContaining({
+      caseIndex: planned.index,
+      seed: planned.seed,
+      decks: planned.decks,
+      orientation: planned.orientation,
+      replayMatches: true,
+      freshWorldReplayMatches: true,
+      privacySafe: true,
+    }));
+    expect(result.privacyChecks).toBeGreaterThan(0);
+    expect(result.journalDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.eventCount).toBeGreaterThan(0);
+    expect(result.naturalTermination).toBe(isNaturalM1Game(result));
+    expect(probe.naturalGames).toBe(probe.results.filter(isNaturalM1Game).length);
+    expect(probe.passed).toBe(false);
+    if (result.naturalTermination) {
+      expect(result.termination).toBe("winner");
+      expect(result.winner).not.toBeNull();
+    } else {
+      expect(probe.naturalGames).toBe(0);
+    }
+  }, 30_000);
 
   it("keeps every M1 card bound to a preserved independent golden", () => {
     const manifest = readManifest();

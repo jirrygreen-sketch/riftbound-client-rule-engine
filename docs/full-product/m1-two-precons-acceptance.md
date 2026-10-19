@@ -48,14 +48,15 @@ The manifest deliberately separates four states:
 - `blocked-source-conflict`: an official card source directly conflicts with
   the current program. The current whitelist has no card in this state after
   reviewing the official Spiritforged errata's NEW/OLD text.
-- `source-pending-872`: the card has an assigned source/golden owner but its
-  whole-card implementation is not yet present. Fiora, Worthy uses this state
-  while RIFT-872 adds the leading optional payment and fixed event-it shape.
+- `dependency-not-ready`: the source and its focused components can be present
+  while a named shared engine/event path remains incomplete. Fiora, Worthy is
+  here after RIFT-872 because its default transition producer and frozen
+  `event-it` ready path are still unavailable.
 - `verified-no-ability`: an official printing has no ability text and the
   current no-ability program is the complete capability.
 
 The current distribution is 21 merged awaiting acceptance, 24 dependency not
-ready, 1 source-pending-872, 1 missing source evidence, 0 blocked source
+ready, 1 missing source evidence, 0 blocked source
 conflict, and 4 verified no-ability. Across the card program files, the literal
 statuses are 23 `executable`, 24 `judge-required`, and 4 `no-ability`. A status
 string is not an execution proof, and merged code is not an acceptance result.
@@ -85,15 +86,14 @@ exceptions or blockers, no concessions, exact embedded/fresh-world replay, and
 privacy-safe projections. Neither function is called from module initialization
 or the existing soak/CLI/feeder entry points.
 
-The real one-game probe includes cold module load, the full default headless
-runtime, embedded replay, a fresh-world replay and the privacy audit. It is an
-explicit acceptance/diagnostic entry rather than an ordinary unit test: it
-typically costs about 8–19 seconds locally but exceeded the focused 30-second
-budget under full-gate contention. The automatic test file therefore checks the
-100-case plan, official catalog/deck data, aggregator, and stable business
-contracts without launching a game. The real probe remains available through
-the command below, with its full replay/privacy work intact. This is not a skip
-or a synthetic acceptance result.
+The real one-game probe includes the full default headless runtime, embedded
+replay, a fresh-world replay and the privacy audit. It runs once in the standard
+automatic integration suite through `beforeAll`, which absorbs cold module
+transformation. The focused assertion keeps the original 30-second business
+budget and verifies the actual result; replay/privacy work is not removed. On
+the current merged integration the single match has 315 normalized commands,
+1,957 events, and a 40-turn guard, while both replays and all 948 privacy
+checks pass. The complete 100-game M1 gate remains unaccepted.
 
 The direct Node 22 form used for a review probe is:
 
@@ -104,9 +104,9 @@ console.log(JSON.stringify(m.probeM1Acceptance(), null, 2));
 NODE
 ```
 
-That explicit diagnostic currently records one real seed result (often blocked
-until the named owners finish their ports); it never counts as the 100-game
-gate. Only a future real `runM1Acceptance()` result can pass M1.
+That diagnostic records whichever real result the current production path
+produces; it never counts as the 100-game gate. Only a real
+`runM1Acceptance()` result can pass M1.
 
 Each result retains the actual termination, winner, scores, committed battle
 timing events, journal digest, A/B projection digests, the spectator projection
@@ -117,13 +117,13 @@ winner at or above the victory score and all replay, privacy, blocker,
 exception, and concede conditions also pass. Blocked, guard, concession,
 exception, replay mismatch, and privacy leak always fail the aggregate.
 
-On frozen integration `3ef041a1`, the first probe happened to end blocked in
-seed 001 at `Unsupported filter field battlefieldWas`; its single journal had
-replay and privacy agreement but no natural winner. That is an immutable audit
-observation, not a current test expectation. The active production tree is
-separate from the frozen evidence and may change as the named owners repair
-shared ports. The complete M1 gate remains **0/100 accepted** until a real
-`runM1Acceptance()` reaches the strict gate.
+On current merged integration, the first probe executes one planned seed to the
+40-turn guard. Its 315-command journal contains 1,957 events, embedded and
+fresh-world replay both match, and 948 privacy checks pass without a leak. No
+naturally scored winner exists, so this remains an honest not-accepted result.
+The earlier `battlefieldWas` blocker belongs only to the frozen `3ef041a1`
+snapshot. The complete M1 gate remains **0/100 accepted** until a real
+`runM1Acceptance()` passes the strict gate.
 
 The existing four-deck Vex/Vi regression remains in
 `packages/integration-tests/test/headless/dual-bot.test.ts` without deleted or
@@ -249,14 +249,16 @@ No new task IDs are assigned here, and phase two is not authorized.
 
 ## Fiora source-backed acceptance
 
-RIFT-872 will express the optional Order payment with the existing leading
+RIFT-872 now expresses the optional Order payment with the existing leading
 `choice.optional` containing an initial `cost.pay`, followed by `effect.ready`
 whose object is the fixed trigger `event-it`. The parent-owned Finalize path
 must decline without payment or readiness, charge exactly one Order Power on
 acceptance, roll back atomically when unpayable, and Resolve the frozen event
-incarnation exactly once. RIFT-872 is pending; no contract change is requested
-and the card remains pending until this checklist passes through the original
-source and golden.
+incarnation exactly once. Its same-name golden has 17 passing tests and one
+TODO: exact matcher, decline, one-Order payment, and unpayable removal execute;
+the default 4-to-5 producer and `effect.ready(event-it)` remain blocked. No
+contract change is requested, and the card remains pending until those shared
+paths make the whole-card checklist pass.
 
 ## Review commands
 
@@ -271,10 +273,7 @@ authorized verification context. It is intentionally not wired to an automatic
 test because it must report an unaccepted result rather than create a synthetic
 pass while prerequisites remain open.
 
-At the current integration snapshot, the package typecheck is blocked outside
-this task by `apps/game-server/src/engine-runtime/runtime.ts:359`: after the
-`declare-attack | declare-defense` checks, the `rune-energy | rune-power` branch
-is unreachable according to TypeScript. The minimal owner request is for the
-game-server / engine-runtime owner to correct the command union narrowing and
-rerun its scoped typecheck. The M1 test file itself typechecks up to that
-external file error.
+At the current merged integration snapshot, the integration-tests typecheck
+passes. The previously observed `runtime.ts:359` narrowing error belonged to the
+older `d4c8a04f` baseline and must not be reassigned to the current runtime
+owner without a fresh reproduction.

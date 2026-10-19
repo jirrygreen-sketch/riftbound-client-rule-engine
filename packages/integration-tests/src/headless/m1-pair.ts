@@ -6,6 +6,7 @@ import type {
   HeadlessStats,
 } from "./duel.js";
 import type { M1PreconId } from "./decks.js";
+import { performance } from "node:perf_hooks";
 
 const { replayHeadlessJournal, runHeadlessGame } = await import(
   new URL("./duel.ts", import.meta.url).href,
@@ -96,6 +97,12 @@ export interface M1FailureDiagnostic {
   readonly judgeReason: string | null;
 }
 
+export interface M1ProbeTiming {
+  readonly importMs: number;
+  readonly executionMs: number;
+  readonly totalMs: number;
+}
+
 export interface M1AcceptanceRun {
   readonly expectedGames: number;
   readonly attemptedGames: number;
@@ -115,6 +122,7 @@ export interface M1AcceptanceRun {
   readonly battleStats: HeadlessBattleStats;
   readonly results: readonly M1GameEvidence[];
   readonly failure: M1FailureDiagnostic | null;
+  readonly timing?: M1ProbeTiming;
 }
 
 type NaturalEvidence = Pick<M1GameEvidence,
@@ -269,7 +277,8 @@ function executePlan(plan: readonly M1AcceptanceCase[]): M1AcceptanceRun {
       concedeCommands: stats.actionCoverage.commands.concede,
       naturalTermination: false,
     };
-    results.push(Object.freeze({ ...result, naturalTermination: isNaturalM1Game(result) }));
+    const evidence = Object.freeze({ ...result, naturalTermination: isNaturalM1Game(result) });
+    results.push(evidence);
     if (stats.termination === "exception") {
       return failedRun(results, {
         phase: "execution", caseIndex: acceptance.index, seed: acceptance.seed,
@@ -291,7 +300,13 @@ function executePlan(plan: readonly M1AcceptanceCase[]): M1AcceptanceRun {
  * cost; callers use this entry or the separately gated runM1Acceptance().
  */
 export function probeM1Acceptance(): M1AcceptanceRun {
-  return executePlan(M1_ACCEPTANCE_PLAN.slice(0, 1));
+  const startedAt = performance.now();
+  const run = executePlan(M1_ACCEPTANCE_PLAN.slice(0, 1));
+  const finishedAt = performance.now();
+  return Object.freeze({
+    ...run,
+    timing: Object.freeze({ importMs: 0, executionMs: Math.round(finishedAt - startedAt), totalMs: Math.round(finishedAt - startedAt) }),
+  });
 }
 
 /** Explicit full gate. Nothing invokes this at module load or from the existing soak/CLI entry points. */
