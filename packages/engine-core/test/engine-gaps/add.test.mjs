@@ -6,7 +6,8 @@ import { activateReactionAddDuringPayment, AddWindowError } from '../../dist/cha
 import { AwaitChoice } from '../../dist/effects/contract.js';
 import { world } from '../../dist/effects/testing/test-kernel.js';
 import { bindResolveContext, createActionPipelineHost } from '../../dist/events/action-adapter.js';
-import { activatedAddAbilities, describeAddActivation, triggeredAddAbilities } from '../../dist/programs/add.js';
+import { activatedAddAbilities, describeAddActivation, describeTriggeredAdd, triggeredAddAbilities } from '../../dist/programs/add.js';
+import { triggerRegistrations } from '../../dist/programs/triggers.js';
 import akaliBrash from '../../../card-dsl/dist/cards/rad/akali-brash.js';
 import { createProgramBinding } from '../../dist/programs/index.js';
 import daughterOfTheVoid from '../../../card-dsl/dist/cards/ogn/daughter-of-the-void.js';
@@ -202,6 +203,92 @@ test('raw triggered Add IR is classified without promoting its unresolved event 
   assert.deepEqual(records[0].ability.body[0].args.power.value, ['rainbow']);
   assert.equal(akaliBrash.status, 'judge-required');
   assert.equal(f.engine.items.length, 0);
+});
+
+test('the original Akali trigger registration becomes an immediate Add draft without rewriting its event or body', () => {
+  const f = scene(akaliBrash);
+  const source = f.kernel.getObject('source');
+  const [registration] = triggerRegistrations(f.binding.registry, source);
+  assert.ok(registration);
+  const trigger = {
+    id: registration.id,
+    controller: registration.controller,
+    source: registration.source,
+    registration,
+    event: {
+      type: 'task-resolved',
+      seq: 1,
+      eventId: 1,
+      turnNumber: 1,
+      activePlayerId: 'A',
+      taskId: 'test:object-moved',
+      sourceCardId: akaliBrash.canonicalCardId,
+      reason: 'object-moved',
+      autoResolved: true,
+      timingPoint: 'object-moved',
+    },
+  };
+  const draft = describeTriggeredAdd({
+    id: `trigger:${registration.id}`,
+    controller: registration.controller,
+    source,
+    body: registration.body,
+    trigger,
+    ...(registration.cost === undefined ? {} : { cost: registration.cost }),
+    ...(registration.targets === undefined ? {} : { targets: registration.targets }),
+    ...(registration.mayAtFinalize === undefined ? {} : { mayAtFinalize: registration.mayAtFinalize }),
+  });
+  assert.equal(draft.kind, 'add');
+  assert.deepEqual(draft.trigger, trigger);
+  assert.deepEqual(draft.body, registration.body);
+  assert.equal(akaliBrash.status, 'judge-required');
+  assert.equal(f.engine.items.length, 0);
+});
+
+test('the original Akali trigger registration settles immediately through the real Add chain while rainbow remains negated', () => {
+  const f = scene(akaliBrash);
+  const source = f.kernel.getObject('source');
+  const [registration] = triggerRegistrations(f.binding.registry, source);
+  assert.ok(registration);
+  const trigger = {
+    id: registration.id,
+    controller: registration.controller,
+    source: registration.source,
+    registration,
+    event: {
+      type: 'task-resolved',
+      seq: 1,
+      eventId: 1,
+      turnNumber: 1,
+      activePlayerId: 'A',
+      taskId: 'test:object-moved',
+      sourceCardId: akaliBrash.canonicalCardId,
+      reason: 'object-moved',
+      autoResolved: true,
+      timingPoint: 'object-moved',
+    },
+  };
+  const draft = describeTriggeredAdd({
+    id: `trigger:${registration.id}`,
+    controller: registration.controller,
+    source,
+    body: registration.body,
+    trigger,
+    ...(registration.cost === undefined ? {} : { cost: registration.cost }),
+    ...(registration.targets === undefined ? {} : { targets: registration.targets }),
+    ...(registration.mayAtFinalize === undefined ? {} : { mayAtFinalize: registration.mayAtFinalize }),
+  });
+  f.engine.enqueue(draft);
+  f.engine.advance();
+  assert.deepEqual(f.engine.trace
+    .filter(event => event.item === draft.id && ['pending', 'finalized', 'resolved', 'removed'].includes(event.step))
+    .map(event => `${event.step}${event.reason === undefined ? '' : `:${event.reason}`}`), [
+    'pending', 'finalized', 'resolved', 'removed:resolved',
+  ]);
+  assert.deepEqual(f.kernel.player('A').power, []);
+  assert.equal(f.kernel.player('A').energy, 0);
+  assert.equal(f.engine.items.length, 0);
+  assert.equal(f.engine.trace.some(event => event.item === draft.id && event.step === 'priority-granted'), false);
 });
 
 test('a stale source identity fails closed before the Chain can issue an Add item', () => {
