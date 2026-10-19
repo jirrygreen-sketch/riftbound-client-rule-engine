@@ -1760,16 +1760,18 @@
         "ability": "When a unit you control becomes [Mighty], you may pay :rb_rune_order: to ready it. (A unit is Mighty while it has 5+ :rb_might:.)"
       },
       "programStatus": "executable",
-      "verificationStatus": "contract-request-required",
+      "verificationStatus": "source-pending-872",
       "productionAcceptance": "pending",
       "program": {
         "path": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
-        "sha256": "1a1cc1e25845c56e853d1d22e0db1eae727060d97771ab0b14fb1f5fc37064f6"
+        "sha256": "1a1cc1e25845c56e853d1d22e0db1eae727060d97771ab0b14fb1f5fc37064f6",
+        "evidenceKind": "frozen-audit-snapshot"
       },
       "goldens": {
         "independent": {
           "path": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
-          "sha256": "f0daebf7e7408e961810e77036f6e847d77c333cc0a1fe61f72b07db166d4813"
+          "sha256": "f0daebf7e7408e961810e77036f6e847d77c333cc0a1fe61f72b07db166d4813",
+          "evidenceKind": "frozen-audit-snapshot"
         },
         "templates": []
       },
@@ -1823,12 +1825,14 @@
         },
         {
           "key": "triggered-optional-order-power-finalize",
-          "owner": "parent-and-engine-core",
-          "state": "contract-request-required",
+          "owner": "RIFT-872 Fiora source/golden owner plus engine-core Finalize owner",
+          "state": "source-pending-872",
           "paths": [
-            "packages/card-dsl/src/ir/types.ts",
-            "packages/engine-core/src/programs/triggers.ts",
+            "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+            "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+            "packages/engine-core/src/programs/trigger-adapters/leading-choice.ts",
             "packages/engine-core/src/programs/trigger-adapters/finalize-cost.ts",
+            "packages/engine-core/src/programs/triggers.ts",
             "packages/engine-core/src/chain/engine.ts"
           ],
           "gapLabels": [
@@ -1836,7 +1840,7 @@
             "EG-COSTCHOICE",
             "EG-FINALIZE"
           ],
-          "reason": "Current costPayArgsToCostSpec accepts a pure Order Power leading cost.pay shape, but original CardProgram has no choice.optional/cost.pay and TriggeredAbility has no cost field. Parent must approve/add the IR field (or adopt the leading-choice shape) before the engine-core Finalize consumer can execute decline/pay/rollback.",
+          "reason": "Parent selected the existing leading choice.optional -> cost.pay -> effect.ready shape, with the original card program carrying a fixed event-it selector on every workflow. Do not add TriggeredAbility.cost. Source and golden changes by RIFT-872 are legitimate and require re-audit, not a failure of the acceptance suite.",
           "evidence": {
             "programPath": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
             "programSha256": "1a1cc1e25845c56e853d1d22e0db1eae727060d97771ab0b14fb1f5fc37064f6",
@@ -1847,26 +1851,26 @@
             "missingPaymentInstruction": true,
             "triggeredAbilityCostFieldPresent": false
           },
-          "contractRequest": {
-            "type": "additive-ir-and-wire-contract",
-            "requestedBy": "RIFT-857",
-            "status": "requested-not-approved",
-            "targetOwners": [
-              "parent-contract-owner",
-              "engine-core-finalize-owner"
-            ],
-            "proposedShape": {
-              "field": "TriggeredAbility.cost?: CostSpec",
-              "flow": "translate to TriggerRegistration.cost; ask/decline/pay at Finalize; preserve rollback; do not change old schemas or replays"
-            },
-            "compatibility": "Additive optional field only; old journals/profiles 1-9 and existing CardPrograms remain unchanged.",
-            "minimumAcceptance": [
-              "decline pays nothing",
-              "chosen Order Power paid exactly once",
-              "unpayable payment rolls back atomically",
-              "Resolve never re-prompts for cost"
+          "requiredProgramShape": {
+            "trigger": "might-changed",
+            "filter": "friendly unit becomesMighty true",
+            "body": [
+              {
+                "op": "choice.optional",
+                "nestedFirst": "cost.pay Order Power"
+              },
+              {
+                "op": "effect.ready",
+                "object": "fixed event-it"
+              }
             ]
-          }
+          },
+          "acceptance": [
+            "decline Finalize pays nothing and cancels the whole trigger",
+            "accept Finalize pays exactly one Order Power before Resolve",
+            "Resolve readies the exact frozen event.it incarnation",
+            "unpayable payment rolls back without readiness/receipt/frequency consumption"
+          ]
         }
       ],
       "ir": {
@@ -1889,9 +1893,10 @@
         "pass": 4,
         "fail": 0,
         "todo": 1,
-        "wholeCardStatus": "unproven"
+        "wholeCardStatus": "unproven",
+        "immutableSnapshot": true
       },
-      "evidenceGap": "Mapped shared dependency remains executable-unproven: might-changed-becomes-mighty-trigger-binding, event-it-authoritative-bridge, triggered-optional-order-power-finalize"
+      "evidenceGap": "Fiora 872 source/golden work is pending; current source is frozen audit evidence only. No new TriggeredAbility.cost field is required."
     },
     {
       "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
@@ -5157,8 +5162,7 @@
     "verificationStatus": {
       "dependency-not-ready": 24,
       "merged-awaiting-acceptance": 21,
-      "contract-request-required": 1,
-      "blocked-source-conflict": 0,
+      "source-pending-872": 1,
       "verified-no-ability": 4,
       "missing-source-evidence": 1
     },
@@ -5177,7 +5181,7 @@
       "legion-history-condition": 1
     },
     "dependencyMappingCount": 35,
-    "contractChangeRequests": 1,
+    "contractChangeRequests": 0,
     "executionVerificationStatus": {
       "unproven": 47,
       "verifiedNoAbility": 4,
@@ -5485,17 +5489,32 @@
       "privacySafe": true,
       "privacyChecks": 312,
       "exceptions": [],
-      "observedAt": "2026-10-19T11:19:28.750Z",
+      "observedAt": "2026-10-19T14:24:40.981Z",
       "evidencePath": "/tmp/RIFT-857-m1-two-precons-acceptance/probe-current.json",
       "kind": "last-observed-diagnostic",
       "releaseGate": false,
-      "note": "Diagnostic output is recorded for review only. Tests do not require a blocked outcome; only runM1Acceptance can establish M1 acceptance."
+      "note": "Diagnostic output is recorded for review only. Tests do not require a blocked outcome; only runM1Acceptance can establish M1 acceptance.",
+      "evidenceKind": "explicit-diagnostic-not-gate",
+      "elapsedMs": 18482
     },
     "existingRegression": {
       "preserved": true,
       "path": "packages/integration-tests/test/headless/dual-bot.test.ts",
       "currentFocusedResult": "10 failed, 10 passed, 1 todo when privacy+dual-bot are run together; failures originate in runHeadlessGame initialization on the current judge-required programs",
       "policy": "No deletion, skip, weakened assertion, or four-deck matrix change was made by this task."
+    },
+    "performance": {
+      "defaultAutomaticRun": false,
+      "promotedFromVitest": true,
+      "reason": "A complete real single-game diagnostic costs roughly 8-19 seconds locally and exceeded the 30-second test budget under the full gate; it is an explicit acceptance/diagnostic entry, not a cheap unit test.",
+      "explicitProbeCommand": "node --experimental-strip-types --input-type=module -e \"const { probeM1Acceptance } = await import('./packages/integration-tests/src/headless/m1-pair.ts'); console.log(JSON.stringify(probeM1Acceptance(), null, 2))\"",
+      "businessTestBudget": "30 seconds retained for explicit business acceptance runs",
+      "coldSetupPolicy": "Never combine cold import/system contention with the 30-second business budget; do not remove embedded replay, fresh-world replay, or privacy auditing.",
+      "results": [
+        "import",
+        "game runtime including embedded replay/privacy",
+        "fresh-world replay"
+      ]
     }
   },
   "followUpPlan": {
@@ -5960,10 +5979,11 @@
           {
             "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
             "name": "Fiora, Worthy",
-            "verificationStatus": "contract-request-required",
+            "verificationStatus": "source-pending-872",
             "programStatus": "executable",
             "program": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
-            "golden": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs"
+            "golden": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+            "productionAcceptance": "pending"
           },
           {
             "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
@@ -6078,12 +6098,14 @@
           },
           {
             "key": "triggered-optional-order-power-finalize",
-            "owner": "parent-and-engine-core",
-            "state": "contract-request-required",
+            "owner": "RIFT-872 Fiora source/golden owner plus engine-core Finalize owner",
+            "state": "source-pending-872",
             "paths": [
-              "packages/card-dsl/src/ir/types.ts",
-              "packages/engine-core/src/programs/triggers.ts",
+              "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+              "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+              "packages/engine-core/src/programs/trigger-adapters/leading-choice.ts",
               "packages/engine-core/src/programs/trigger-adapters/finalize-cost.ts",
+              "packages/engine-core/src/programs/triggers.ts",
               "packages/engine-core/src/chain/engine.ts"
             ],
             "gapLabels": [
@@ -6100,7 +6122,27 @@
                 "templateGoldens": []
               }
             ],
-            "reason": "Finalize accepts a pure Order Power shape, but Fiora original IR has no choice.optional/cost.pay and TriggeredAbility has no shared cost field; parent owns the additive IR decision."
+            "reason": "Parent selected the existing leading choice.optional -> cost.pay -> effect.ready shape, with the original card program carrying a fixed event-it selector on every workflow. Do not add TriggeredAbility.cost. Source and golden changes by RIFT-872 are legitimate and require re-audit, not a failure of the acceptance suite.",
+            "requiredProgramShape": {
+              "trigger": "might-changed",
+              "filter": "friendly unit becomesMighty true",
+              "body": [
+                {
+                  "op": "choice.optional",
+                  "nestedFirst": "cost.pay Order Power"
+                },
+                {
+                  "op": "effect.ready",
+                  "object": "fixed event-it"
+                }
+              ]
+            },
+            "acceptance": [
+              "decline Finalize pays nothing and cancels the whole trigger",
+              "accept Finalize pays exactly one Order Power before Resolve",
+              "Resolve readies the exact frozen event.it incarnation",
+              "unpayable payment rolls back without readiness/receipt/frequency consumption"
+            ]
           },
           {
             "key": "combat-event-payload-location-hold",
@@ -7321,9 +7363,8 @@
     "frozenIntegrationCommit": "3ef041a1e78cc964b2d4c23d3af95f5c7d6302bd",
     "lifecycle": {
       "path": "packages/engine-core/src/programs/lifecycle.ts",
-      "sourceSha256": "9172c97c4fcda86998e5ac6d98810ccb56724fdf1d3bd181919270a48512adbd",
       "testPath": "packages/engine-core/test/engine-gaps/lifecycle.test.mjs",
-      "testSha256": "1f485460f8dc6921fa331c32a83284e978d72ee3a33575945a3ad689953d2153"
+      "evidenceKind": "active-path-only"
     },
     "deckConstruction": {
       "counts": {
@@ -7357,7 +7398,9 @@
       "privacyChecks": 312,
       "exceptions": [],
       "journalDigest": "ed4c6572043d6f72db8c3652efa14d6f7edcdbe4b0302184db32b9322cff57df",
-      "reason": "The one permitted seed reached a real blocked termination at default trigger binding (Unsupported filter field battlefieldWas); it did not reach a natural winner, so seeds 002-100 were not attempted."
+      "reason": "The one permitted seed reached a real blocked termination at default trigger binding (Unsupported filter field battlefieldWas); it did not reach a natural winner, so seeds 002-100 were not attempted.",
+      "evidenceKind": "last-observed-diagnostic",
+      "releaseGate": false
     },
     "owner": "engine-core",
     "remainingDependencies": [
@@ -7370,7 +7413,9 @@
         "sourceSha256": "9172c97c4fcda86998e5ac6d98810ccb56724fdf1d3bd181919270a48512adbd",
         "testSha256": "1f485460f8dc6921fa331c32a83284e978d72ee3a33575945a3ad689953d2153"
       },
-      "note": "Historical audit evidence; not a live checksum requirement."
+      "note": "Historical audit hashes only. Source changes by assigned owners may legitimately drift; the stable suite reports re-audit need instead of freezing old code.",
+      "evidenceKind": "immutable-audit-snapshot",
+      "activeSourceContract": false
     },
     "liveSourcePolicy": {
       "mode": "report-only",
@@ -7684,15 +7729,17 @@
       },
       "triggered-optional-order-power-finalize": {
         "key": "triggered-optional-order-power-finalize",
-        "owner": "parent-contract-owner-and-engine-core-finalize-owner",
-        "state": "contract-request-required",
+        "owner": "RIFT-872 Fiora source/golden owner plus engine-core Finalize owner",
+        "state": "source-pending-872",
         "paths": [
-          "packages/card-dsl/src/ir/types.ts",
-          "packages/engine-core/src/programs/triggers.ts",
+          "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+          "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+          "packages/engine-core/src/programs/trigger-adapters/leading-choice.ts",
           "packages/engine-core/src/programs/trigger-adapters/finalize-cost.ts",
+          "packages/engine-core/src/programs/triggers.ts",
           "packages/engine-core/src/chain/engine.ts"
         ],
-        "reason": "Pure Order Power conversion exists, but original IR has no payment node and the shared TriggeredAbility cost contract is unapproved.",
+        "reason": "Parent selected the existing leading choice.optional -> cost.pay -> effect.ready shape, with the original card program carrying a fixed event-it selector on every workflow. Do not add TriggeredAbility.cost. Source and golden changes by RIFT-872 are legitimate and require re-audit, not a failure of the acceptance suite.",
         "affectedCards": [
           {
             "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
@@ -7706,8 +7753,22 @@
           "383.3.b",
           "383.3.b.1"
         ],
-        "acceptance": "Parent-approved additive IR representation is authored on the original card; default Finalize permits decline, pays exactly one Order Power on acceptance, and rolls back unpayable cases.",
-        "observation": "Frozen integration 3ef041a1 code inspection plus current default probe/golden runs; this is an implementation dependency record, not a pass assertion."
+        "acceptance": "Original Fiora source/golden (RIFT-872) uses leading choice.optional + Cost.pay(Order Power) + effect.ready(event-it). Default production proves decline, exact payment, one 4-to-5 transition, frozen-incarnation readiness, and rollback.",
+        "observation": "Frozen integration 3ef041a1 code inspection plus current default probe/golden runs; this is an implementation dependency record, not a pass assertion.",
+        "requiredProgramShape": {
+          "trigger": "might-changed",
+          "filter": "friendly unit becomesMighty true",
+          "body": [
+            {
+              "op": "choice.optional",
+              "nestedFirst": "cost.pay Order Power"
+            },
+            {
+              "op": "effect.ready",
+              "object": "fixed event-it"
+            }
+          ]
+        }
       },
       "mighty-query-consumer": {
         "key": "mighty-query-consumer",
@@ -9207,14 +9268,18 @@
         }
       ],
       "evidenceStatus": {
-        "decline": "engine Finalize/payment infrastructure merged; original Fiora IR payment path pending",
-        "pay": "pure Order conversion and exact payment primitives merged; original Fiora IR payment node pending",
-        "transition": "matcher/producer and default event binding merged; original card whole-path pending",
-        "incarnation": "event:it production bridge merged; original Fiora whole-path pending",
-        "rollback": "cost transaction path exists; original Fiora payment continuation pending"
+        "source": "current frozen audit source lacks this shape; RIFT-872 pending",
+        "finalize": "leading-choice adapter and cost.pay production primitives exist",
+        "eventIt": "production Chain installs trigger eventObject binding",
+        "wholeCard": "pending RIFT-872 source/golden"
       },
-      "owner": "existing Fiora card/golden owners plus engine-core 835 payment-continuation owner",
-      "acceptanceCommand": "M1 acceptance will report 100/100 only after all five requirements pass"
+      "owner": "RIFT-872 Fiora source/golden owner plus engine-core Finalize owner",
+      "acceptanceCommand": "M1 acceptance will report 100/100 only after all five requirements pass",
+      "implementationShape": {
+        "approach": "existing leading choice.optional -> cost.pay -> effect.ready(event-it)",
+        "newTriggeredAbilityCostField": false
+      },
+      "driftPolicy": "Fiora source/golden hash drift after RIFT-872 is expected; re-audit path and behavior, not fail the stable test on old audit hash."
     }
   ]
 }

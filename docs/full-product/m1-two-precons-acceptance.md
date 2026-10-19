@@ -48,14 +48,14 @@ The manifest deliberately separates four states:
 - `blocked-source-conflict`: an official card source directly conflicts with
   the current program. The current whitelist has no card in this state after
   reviewing the official Spiritforged errata's NEW/OLD text.
-- `contract-request-required`: the card needs an additive shared contract before
-  its real semantics can be represented. Fiora, Worthy uses this state because
-  its triggered optional Order Power cost has no IR field or payment node.
+- `source-pending-872`: the card has an assigned source/golden owner but its
+  whole-card implementation is not yet present. Fiora, Worthy uses this state
+  while RIFT-872 adds the leading optional payment and fixed event-it shape.
 - `verified-no-ability`: an official printing has no ability text and the
   current no-ability program is the complete capability.
 
 The current distribution is 21 merged awaiting acceptance, 24 dependency not
-ready, 1 contract-request-required, 1 missing source evidence, 0 blocked source
+ready, 1 source-pending-872, 1 missing source evidence, 0 blocked source
 conflict, and 4 verified no-ability. Across the card program files, the literal
 statuses are 23 `executable`, 24 `judge-required`, and 4 `no-ability`. A status
 string is not an execution proof, and merged code is not an acceptance result.
@@ -85,6 +85,16 @@ exceptions or blockers, no concessions, exact embedded/fresh-world replay, and
 privacy-safe projections. Neither function is called from module initialization
 or the existing soak/CLI/feeder entry points.
 
+The real one-game probe includes cold module load, the full default headless
+runtime, embedded replay, a fresh-world replay and the privacy audit. It is an
+explicit acceptance/diagnostic entry rather than an ordinary unit test: it
+typically costs about 8–19 seconds locally but exceeded the focused 30-second
+budget under full-gate contention. The automatic test file therefore checks the
+100-case plan, official catalog/deck data, aggregator, and stable business
+contracts without launching a game. The real probe remains available through
+the command below, with its full replay/privacy work intact. This is not a skip
+or a synthetic acceptance result.
+
 The direct Node 22 form used for a review probe is:
 
 ```sh
@@ -93,6 +103,10 @@ const m = await import("./packages/integration-tests/src/headless/m1-pair.ts");
 console.log(JSON.stringify(m.probeM1Acceptance(), null, 2));
 NODE
 ```
+
+That explicit diagnostic currently records one real seed result (often blocked
+until the named owners finish their ports); it never counts as the 100-game
+gate. Only a future real `runM1Acceptance()` result can pass M1.
 
 Each result retains the actual termination, winner, scores, committed battle
 timing events, journal digest, A/B projection digests, the spectator projection
@@ -122,7 +136,8 @@ the two-precon gate.
 ## Production setup and frozen evidence
 
 The audit snapshot `3ef041a1e78cc964b2d4c23d3af95f5c7d6302bd` records lifecycle
-source/test hashes under `productionSetup.frozenEvidence`. Those hashes identify
+source/test hashes under `productionSetup.frozenEvidence`. The ordinary
+`productionSetup.lifecycle` entry holds only active path metadata. Those hashes identify
 the evidence that was reviewed; they do not require active `lifecycle.ts` or
 its tests to remain byte-identical. A drift check may report that the manifest
 needs a fresh review, but a legitimate implementation fix must not fail the
@@ -135,7 +150,11 @@ chosen Champion, 39 Main Deck, 3 Battlefield, and 12 Rune shape. The live setup
 and probe may advance independently of the frozen audit snapshot.
 
 Fiora, Worthy has a source-backed acceptance checklist instead of a requirement
-that the implementation remain incomplete:
+that the implementation remain incomplete. RIFT-872 owns only the card source
+and its same-name golden; the parent has selected the existing leading
+`choice.optional` → first `cost.pay` (one Order Power) → `effect.ready` shape,
+with every path fixed to the original trigger's `event-it`. No new
+`TriggeredAbility.cost` field is requested.
 
 - declining Finalize pays no Order and does not ready;
 - accepting pays exactly one Order before Resolve;
@@ -147,11 +166,11 @@ that the implementation remain incomplete:
   frequency consumption, or a pending item.
 
 The production Mighty matcher/producer, event-object binding, Finalize cost
-mechanics, and pure Order conversion have progressed in integration. The
-original Fiora CardProgram and its payment continuation still need their own
-owners to make the whole-card checklist pass. The card remains pending; a
-successful repair can add payment IR and change the observed IR without making
-this test fail.
+mechanics, and pure Order conversion have progressed in integration. RIFT-872
+has not yet produced the original card change, so the whole-card checklist is
+still pending. A successful repair may change the Fiora source/golden hashes and
+append/reshape the payment IR without making the stable test fail. The frozen
+old hashes call for re-audit, not preservation of incomplete behavior.
 
 ## Official effect order and source precedence
 
@@ -228,29 +247,34 @@ ruleset profile.
 
 No new task IDs are assigned here, and phase two is not authorized.
 
-## Contract change request
+## Fiora source-backed acceptance
 
-The manifest requests one additive contract from the parent contract owner:
-`TriggeredAbility.cost?: CostSpec`. The current type has no triggered-cost
-field, so Fiora, Worthy's printed optional one Order Power payment cannot be
-represented by the existing program even though the card file comments claim
-it. The matching engine change is to translate that cost into
-`TriggerRegistration.cost` and ask, decline, pay, or roll back at Finalize
-before Resolve. The field must be optional, old profiles 1–9 and old journals
-must remain unchanged, and no replay/schema version may be silently upgraded.
-Minimum acceptance is: decline pays nothing; a chosen Order Power is paid once;
-an unpayable payment rolls back atomically; and Resolve never re-prompts for a
-cost already locked or declined at Finalize. This request is recorded, not
-approved by this task.
+RIFT-872 will express the optional Order payment with the existing leading
+`choice.optional` containing an initial `cost.pay`, followed by `effect.ready`
+whose object is the fixed trigger `event-it`. The parent-owned Finalize path
+must decline without payment or readiness, charge exactly one Order Power on
+acceptance, roll back atomically when unpayable, and Resolve the frozen event
+incarnation exactly once. RIFT-872 is pending; no contract change is requested
+and the card remains pending until this checklist passes through the original
+source and golden.
 
 ## Review commands
 
 ```sh
 pnpm --filter @riftbound/integration-tests typecheck
 pnpm --filter @riftbound/integration-tests exec vitest run --config vitest.config.ts test/headless/m1-pair.test.ts
+node --experimental-strip-types -e "const m=await import('./packages/integration-tests/src/headless/m1-pair.ts'); console.log(JSON.stringify(m.probeM1Acceptance(), null, 2))"
 ```
 
 The full explicit gate is available only by calling `runM1Acceptance()` from an
 authorized verification context. It is intentionally not wired to an automatic
 test because it must report an unaccepted result rather than create a synthetic
 pass while prerequisites remain open.
+
+At the current integration snapshot, the package typecheck is blocked outside
+this task by `apps/game-server/src/engine-runtime/runtime.ts:359`: after the
+`declare-attack | declare-defense` checks, the `rune-energy | rune-power` branch
+is unreachable according to TypeScript. The minimal owner request is for the
+game-server / engine-runtime owner to correct the command union narrowing and
+rerun its scoped typecheck. The M1 test file itself typechecks up to that
+external file error.

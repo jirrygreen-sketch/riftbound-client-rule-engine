@@ -8,7 +8,6 @@ import {
   M1_ACCEPTANCE_PLAN,
   aggregateM1Evidence,
   isNaturalM1Game,
-  probeM1Acceptance,
   type M1GameEvidence,
 } from "../../src/headless/m1-pair.js";
 import { buildM1Deck } from "../../src/headless/decks.js";
@@ -58,6 +57,23 @@ interface ManifestCard {
     readonly paths: readonly string[];
     readonly contractRequest?: { readonly type: string; readonly targetOwners: readonly string[] };
   }[];
+}
+
+interface FioraCaseSource {
+  readonly default: {
+    readonly sourceText: string;
+    readonly abilities: readonly {
+      readonly kind: string;
+      readonly trigger?: { readonly at?: string; readonly filter?: Record<string, unknown> };
+      readonly body: readonly { readonly op: string }[];
+    }[];
+  };
+}
+
+async function loadFioraCaseSource(): Promise<FioraCaseSource> {
+  return import(
+    new URL("../../../../packages/card-dsl/dist/cards/sfd/fiora-worthy.js", import.meta.url).href
+  ) as Promise<FioraCaseSource>;
 }
 
 interface ManifestDeck {
@@ -114,6 +130,10 @@ interface Manifest {
   };
   readonly sourceBackedAcceptance: readonly {
     readonly canonicalCardId: string;
+    readonly implementationShape: {
+      readonly approach: string;
+      readonly newTriggeredAbilityCostField: boolean;
+    };
     readonly requirements: readonly {
       readonly id: string;
       readonly ruleRefs: readonly string[];
@@ -314,14 +334,8 @@ describe("RIFT-857 two-precon acceptance", () => {
     const card = manifest.canonicalWhitelist.find(value => value.name === "Fiora, Worthy");
     expect(card).toBeDefined();
     if (card === undefined) return;
-    const program = await import(
-      new URL("../../../../packages/card-dsl/dist/cards/sfd/fiora-worthy.js", import.meta.url).href
-    );
-    const abilities = program.default.abilities as readonly {
-      readonly kind: string;
-      readonly trigger?: { readonly at?: string; readonly filter?: Record<string, unknown> };
-      readonly body: readonly { readonly op: string }[];
-    }[];
+    const program = await loadFioraCaseSource();
+    const abilities = program.default.abilities;
     expect(program.default.sourceText).toBe(card.printed.ability);
     expect(abilities).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -333,6 +347,10 @@ describe("RIFT-857 two-precon acceptance", () => {
       }),
     ]));
     const requirements = manifest.sourceBackedAcceptance.find(entry => entry.canonicalCardId === card.canonicalCardId);
+    expect(requirements?.implementationShape).toEqual(expect.objectContaining({
+      approach: "existing leading choice.optional -> cost.pay -> effect.ready(event-it)",
+      newTriggeredAbilityCostField: false,
+    }));
     expect(requirements?.requirements.map(item => item.id)).toEqual(expect.arrayContaining([
       "decline-pays-nothing",
       "pay-exactly-one-order",
@@ -497,23 +515,6 @@ describe("RIFT-857 two-precon acceptance", () => {
       ]),
     }));
   });
-
-  it("runs one explicit bounded diagnostic without predicting the current production outcome", () => {
-    const probe = probeM1Acceptance();
-    expect(probe.expectedGames).toBe(100);
-    expect(probe.attemptedGames).toBe(1);
-    expect(probe.results).toHaveLength(1);
-    const result = probe.results[0];
-    expect(result).toBeDefined();
-    if (result === undefined) return;
-    expect(result.caseIndex).toBe(0);
-    expect(result.seed).toBe("RIFT-857-m1-seed-001");
-    expect(result.decks).toEqual({ A: "rumble-sfd", B: "fiora-sfd" });
-    expect(result.orientation).toBe("rumble-a");
-    expect(result.naturalTermination).toBe(isNaturalM1Game(result));
-    expect(probe.naturalGames).toBe(probe.results.filter(isNaturalM1Game).length);
-    expect(probe.passed).toBe(false);
-  }, 30_000);
 
   it("keeps every M1 card bound to a preserved independent golden", () => {
     const manifest = readManifest();

@@ -283,7 +283,13 @@ function executePlan(plan: readonly M1AcceptanceCase[]): M1AcceptanceRun {
   return aggregateM1Evidence(results);
 }
 
-/** Explicit one-game diagnostic. It never advances to a second seed after a thrown setup error. */
+/**
+ * Explicit one-game diagnostic. It never advances to a second seed after a
+ * thrown setup error and returns the actual termination without predicting a
+ * permanent blocker. It is intentionally not part of the automatic unit-test
+ * configuration because a full runtime/replay/privacy probe has acceptance
+ * cost; callers use this entry or the separately gated runM1Acceptance().
+ */
 export function probeM1Acceptance(): M1AcceptanceRun {
   return executePlan(M1_ACCEPTANCE_PLAN.slice(0, 1));
 }
