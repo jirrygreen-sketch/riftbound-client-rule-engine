@@ -38,7 +38,8 @@
  *   non-targeting selection (picks, queries, linked values). Invalid refs are
  *   dropped like stale targets; zero surviving refs plus no from-selection is
  *   `ignored`.
- * - from?: { zone: ZoneId; owner?: "controller" | "source-owner"; amount: Expr }
+ * - from?: { zone: ZoneId; owner?: "controller" | "source-owner" |
+ *   "opponents" | "all"; amount: Expr }
  *   — the v1.5 417.6 form. Cards are filtered by zone (+ optional owner) via
  *   ctx.query, then the instructed player chooses `min(amount, available)`
  *   of them through a replayable `select-objects` ChoiceRequest
@@ -66,7 +67,7 @@ export interface RecycleFromArgs {
   /** Zone the cards are recycled from ("Recycle X from your trash"). */
   readonly zone: ZoneId;
   /** Owner filter; defaults to the ability controller ("Recycle N from YOUR trash"). */
-  readonly owner?: "controller" | "source-owner";
+  readonly owner?: "controller" | "source-owner" | "opponents" | "all";
   /** Requested count; evaluated at resolution time (417.4: shortfall recycles less). */
   readonly amount: Expr;
 }
@@ -78,6 +79,8 @@ export interface RecycleArgs {
   readonly objects?: Expr;
   /** Non-targeting "Recycle X from [Zone]" form (417.6). */
   readonly from?: RecycleFromArgs;
+  /** Stable link key for the actual recycle receipt. */
+  readonly linkKey?: Expr;
 }
 
 const ZONES: readonly ZoneId[] = [
@@ -115,7 +118,8 @@ function parseArgs(value: unknown): RecycleArgs {
   const args: {
     target?: string;
     objects?: Expr;
-    from?: { zone: ZoneId; owner?: "controller" | "source-owner"; amount: Expr };
+    from?: { zone: ZoneId; owner?: "controller" | "source-owner" | "opponents" | "all"; amount: Expr };
+    linkKey?: Expr;
   } = {};
   if (value.target !== undefined) {
     if (typeof value.target !== "string" || value.target.length === 0) {
@@ -136,8 +140,9 @@ function parseArgs(value: unknown): RecycleArgs {
     if (!ZONES.includes(value.from.zone as ZoneId)) {
       throw new Error(`effect.recycle from.zone must be one of ${ZONES.join(", ")}`);
     }
-    if (value.from.owner !== undefined && value.from.owner !== "controller" && value.from.owner !== "source-owner") {
-      throw new Error('effect.recycle from.owner must be "controller" or "source-owner"');
+    if (value.from.owner !== undefined &&
+      !["controller", "source-owner", "opponents", "all"].includes(String(value.from.owner))) {
+      throw new Error('effect.recycle from.owner must be "controller", "source-owner", "opponents", or "all"');
     }
     if (!isExpr(value.from.amount)) {
       throw new Error("effect.recycle from.amount must be a card-dsl Expr");
@@ -145,8 +150,16 @@ function parseArgs(value: unknown): RecycleArgs {
     args.from = {
       zone: value.from.zone as ZoneId,
       amount: value.from.amount,
-      ...(value.from.owner === undefined ? {} : { owner: value.from.owner as "controller" | "source-owner" })
+      ...(value.from.owner === undefined ? {} : { owner: value.from.owner as RecycleFromArgs["owner"] })
     };
+  }
+  if (value.linkKey !== undefined) {
+    if (isExpr(value.linkKey)) args.linkKey = value.linkKey;
+    else if (typeof value.linkKey === "string" && value.linkKey.length > 0) {
+      args.linkKey = { kind: "constant", value: value.linkKey };
+    } else {
+      throw new Error("effect.recycle linkKey must be a non-empty string or card-dsl Expr");
+    }
   }
   if (args.target === undefined && args.objects === undefined && args.from === undefined) {
     throw new Error("effect.recycle requires at least one of target, objects, or from");
@@ -172,14 +185,15 @@ function flattenObjectRefs(value: unknown): ObjectRef[] {
   if (value === null || value === undefined) return [];
   if (isObjectRef(value)) return [value];
   if (Array.isArray(value)) return value.flatMap(flattenObjectRefs);
+  if (isRecord(value) && Array.isArray(value.objects)) return value.objects.flatMap(flattenObjectRefs);
   throw new Error("effect.recycle objects must evaluate to an ObjectRef or an array of ObjectRefs");
 }
 
 function requestAmount(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new Error("effect.recycle from.amount must evaluate to a finite number");
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error("effect.recycle from.amount must evaluate to a non-negative safe integer");
   }
-  return Math.max(0, Math.floor(value));
+  return value;
 }
 
 /** Live (still valid) references among the candidates, in the given order. */
@@ -193,9 +207,13 @@ function liveObjects(ctx: ResolveContext, candidates: readonly ObjectRef[]): Obj
 }
 
 function chooseFromZone(ctx: ResolveContext, from: RecycleFromArgs): ObjectRef[] {
-  const owner: PlayerId = from.owner === "source-owner" ? ctx.source.owner : ctx.controller;
   const requested = requestAmount(ctx.evaluate(from.amount));
-  const candidates = ctx.query({ zone: from.zone, owner });
+  const owner: PlayerId = from.owner === "source-owner" ? ctx.source.owner : ctx.controller;
+  const candidates = ctx.query({ zone: from.zone }).filter(object => {
+    if (from.owner === "all") return true;
+    if (from.owner === "opponents") return object.owner !== ctx.controller;
+    return object.owner === owner;
+  });
   const count = Math.min(requested, candidates.length); // 417.4: recycle as many as possible.
   if (count === 0) return [];
   const options = candidates.map((snapshot) => ({
@@ -205,7 +223,7 @@ function chooseFromZone(ctx: ResolveContext, from: RecycleFromArgs): ObjectRef[]
   const chosen = ctx.choose<ObjectRef[]>({
     id: `effect.recycle:${from.zone}:${from.owner ?? "controller"}:${requested}`,
     type: "select-objects",
-    chooser: owner,
+    chooser: ctx.controller,
     visibility: "chooser-only",
     options,
     min: count,
@@ -243,28 +261,31 @@ function execute(ctx: ResolveContext, args: RecycleArgs): InstructionResult {
 
   const events: GameEvent[] = [];
   const recycled: ObjectRef[] = [];
+  let failure: "replaced" | "impossible" | undefined;
   for (const snapshot of live) {
     // 417.1.a/b: the kernel derives Main vs. Rune deck from the object's types.
     // 417.1.c: each object recycles to its OWNER's deck, whoever was instructed.
     const outcome = ctx.perform({ type: "recycle", object: snapshot.ref });
     events.push(...outcome.events);
     if (outcome.status !== "done") {
-      return {
-        status: "negated",
-        reason: outcome.status === "replaced" ? "replaced" : "impossible",
-        events
-      };
+      failure ??= outcome.status === "replaced" ? "replaced" : "impossible";
+      continue;
     }
     recycled.push(snapshot.ref);
   }
 
   const recycledRefs = recycled.map((ref) => ({ id: ref.id, zoneEntryId: ref.zoneEntryId }));
-  ctx.link("recycled", recycledRefs);
-  ctx.link("recycledCount", recycled.length);
+  const linkKeyValue = args.linkKey === undefined ? "recycled" : ctx.evaluate(args.linkKey);
+  if (typeof linkKeyValue !== "string" || linkKeyValue.length === 0) {
+    throw new Error("effect.recycle linkKey must evaluate to a nonempty string");
+  }
+  ctx.link(linkKeyValue, recycledRefs);
+  ctx.link(linkKeyValue + "Count", recycled.length);
+  if (failure) return { status: "negated", reason: failure, events };
   return {
     status: "executed",
     events,
-    linkedValues: { recycled: recycledRefs, recycledCount: recycled.length }
+    linkedValues: { [linkKeyValue]: recycledRefs, [linkKeyValue + "Count"]: recycled.length }
   };
 }
 

@@ -1,6 +1,7 @@
-import type { Expr, ObjectRef, Value } from "@riftbound/card-dsl";
+import type { Expr, ObjectFilter, ObjectRef, Value } from "@riftbound/card-dsl";
+import { OBJECT_FILTER_ANCHORS } from "@riftbound/card-dsl";
 import type {
-  GameEvent, InstructionDef, InstructionResult, ObjectSnapshot, ResolveContext, Schema, ZoneId
+  ActionOutcome, GameEvent, InstructionDef, InstructionResult, ObjectSnapshot, ResolveContext, Schema, ZoneId
 } from "../contract.js";
 
 /**
@@ -22,6 +23,8 @@ import type {
  * 公开展示分别由 effect.recycle / effect.order / effect.draw / effect.reveal 执行。
  *
  * choose 为 boolean，启用 select-objects；chooseCount 为 { min, max }。
+ * filter 为可选 ObjectFilter 表达式，仅限制本次实际查看集合中的选择，
+ * 通过共享查询器消费类型、关系等谓词，不改变已查看的有序结果。
  * 同一区域的多个查看指令应传各自唯一、稳定的 choiceId，默认值为
  * effect.inspect:select:<viewer>:<owner>:<zone>。链接参数指定写入 ctx.link 的键：
  * linkedKey（默认 inspected）记录实际查看张数，pickedKey（默认 inspected-picked）
@@ -29,9 +32,8 @@ import type {
  * 空范围执行并链接 0 / 空列表，除非强制选择不可能。动作 replaced / prevented /
  * impossible 则 negated；目标全部失效则 ignored。
  *
- * 契约缺口：query() 不保证顺序，ObjectSnapshot 无牌库位置。非零 top 查看须由上游
- * 提供有序 picksSpecId；缺少时明确阻断（negated/impossible），不截取 query() 近似，
- * 也不读取 TestWorld 专属能力。自动发现牌库顶 N 张前，须由协调者补充有序查询/选择契约。
+ * query() 不保证顺序。非零 top 查看须由上游 PickSpec.zoneSlice 在 Finalize
+ * 锁定有序 picksSpecId；缺少时明确阻断（negated/impossible），不截取 query() 近似。
  */
 export type InspectScope = "top" | "zone" | "picks";
 
@@ -44,6 +46,8 @@ export interface InspectArgs {
   readonly picksSpecId?: Expr;
   readonly choose?: Expr;
   readonly chooseCount?: Expr;
+  /** Optional restriction applied only to the result-set choice. */
+  readonly filter?: Expr;
   readonly choiceId?: Expr;
   readonly linkedKey?: Expr;
   readonly pickedKey?: Expr;
@@ -52,7 +56,7 @@ export interface InspectArgs {
 
 const ARG_NAMES = [
   "player", "zone", "scope", "amount", "targetSpecId", "picksSpecId", "choose",
-  "chooseCount", "choiceId", "linkedKey", "pickedKey", "choosePicksKey"
+  "chooseCount", "filter", "choiceId", "linkedKey", "pickedKey", "choosePicksKey"
 ] as const;
 const ZONES: readonly ZoneId[] = ["hand", "deck", "rune-deck", "trash", "banishment"];
 
@@ -80,17 +84,30 @@ function isString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
-function isExpr(value: unknown): value is Expr {
+function isSelector(value: unknown): boolean {
+  return value === "self" || value === "source" || isRef(value) ||
+    isRecord(value) && Object.keys(value).length === 1 &&
+      ["target", "pick", "linked"].some(key => isString(value[key]));
+}
+
+/** Keep symbolic IR expressions intact until the scoped interpreter evaluates them. */
+export function isInspectExpression(value: unknown): value is Expr {
   if (!isRecord(value)) return false;
   switch (value.kind) {
     case "constant": case "literal": return "value" in value && isValue(value.value);
-    case "object-property": return isRef(value.object) && isString(value.property);
-    case "object-attribute": return isRef(value.object) && isString(value.attribute);
+    case "object-property": return isSelector(value.object) && isString(value.property);
+    case "object-attribute": return isSelector(value.object) && isString(value.attribute);
     case "linked": case "linked-value":
       return isString(value.instructionId) && (value.key === undefined || isString(value.key));
     case "count":
       return isString(value.subject) &&
         (value.filter === undefined || (isRecord(value.filter) && isValue(value.filter)));
+    case "arithmetic": {
+      if (!Array.isArray(value.operands) || !value.operands.every(isInspectExpression)) return false;
+      if (["add", "mul", "multiply", "min", "max"].includes(String(value.operator))) return value.operands.length > 0;
+      if (["sub", "subtract", "div", "divide"].includes(String(value.operator))) return value.operands.length === 2;
+      return value.operator === "neg" && value.operands.length === 1;
+    }
     default: return false;
   }
 }
@@ -101,10 +118,10 @@ function invalid(message: string): never {
 
 const argsSchema: Schema<InspectArgs> = {
   parse(value: unknown): InspectArgs {
-    if (!isRecord(value) || !isExpr(value.player)) invalid("player must be an Expr");
+    if (!isRecord(value) || !isInspectExpression(value.player)) invalid("player must be an Expr");
     for (const [key, expr] of Object.entries(value)) {
       if (!(ARG_NAMES as readonly string[]).includes(key)) invalid(`unknown argument ${key}`);
-      if (expr !== undefined && !isExpr(expr)) invalid(`${key} must be an Expr`);
+      if (expr !== undefined && !isInspectExpression(expr)) invalid(`${key} must be an Expr`);
     }
     if (value.targetSpecId !== undefined && value.picksSpecId !== undefined) {
       invalid("targets and picks cannot both supply the inspect range");
@@ -130,6 +147,92 @@ function count(value: unknown, name: string): number {
 function string(value: unknown, name: string): string {
   if (!isString(value)) invalid(`${name} must evaluate to a nonempty string`);
   return value;
+}
+
+/** Validate the query vocabulary here; all matching stays in the shared query
+ * implementation. Unknown descriptive card text must never widen a query. */
+export function inspectFilter(value: unknown, label = "effect.inspect"): ObjectFilter {
+  const reject = (message: string): never => { throw new TypeError(`${label}: ${message}`); };
+  if (!isRecord(value)) return reject("filter must evaluate to an ObjectFilter");
+  const anchors = new Set<string>(OBJECT_FILTER_ANCHORS);
+  const allowed = new Set([
+    ...anchors, "other", "self", "role", "here", "relation",
+    "object.id", "objectId", "id", "cardId", "canonicalCardId", "type", "types",
+    "controller", "owner", "zone", "zoneEntryId", "location", "locationType",
+    "tags", "tag", "states", "state", "characteristics", "keyword", "keywords", "hasKeyword",
+    "damaged", "buffed", "empowered", "mightLt", "mightLessThan",
+    "mightLessThanTarget", "mightLte", "mightAtMost", "mightGte", "mightAtLeast",
+    "mightGt", "mightGreaterThan", "mightEq", "energyMax", "printedEnergyMax",
+    "energyAtMost", "powerMax", "printedPowerMax", "powerAtMost",
+    "printedCostNoMoreThanKilledUnit", "killedUnit", "killed", "costReference"
+  ]);
+  const output: Record<string, unknown> = {};
+  const put = (key: string, entry: unknown): void => {
+    if (key in output && JSON.stringify(output[key]) !== JSON.stringify(entry)) reject(`Conflicting filter field ${key}`);
+    output[key] = entry;
+  };
+  const append = (key: string, entry: unknown): void => {
+    const values = Array.isArray(entry) ? entry : [entry];
+    output[key] = [...new Set([...(Array.isArray(output[key]) ? output[key] as unknown[] : []), ...values])];
+  };
+  for (const [key, entry] of Object.entries(value)) {
+    if (!allowed.has(key)) reject(`Unsupported filter field ${key}`);
+    const symbolic = (selector: unknown): boolean => isSelector(selector) && !isRef(selector);
+    if (anchors.has(key) && !symbolic(entry)) reject(`invalid filter selector ${key}`);
+    if ((key === "self" || key === "other" || key === "here") && entry !== true) {
+      reject(`Unsupported filter ${key}: ${String(entry)}`);
+    }
+    if (key === "role" && !["self", "other-friendly"].includes(String(entry))) {
+      reject(`Unsupported filter role ${String(entry)}`);
+    }
+    if (key === "self") put("object", "self");
+    else if (key === "other") put("exclude", "self");
+    else if (key === "here") put("sameLocationAs", "self");
+    else if (key === "role") {
+      if (entry === "self") put("object", "self");
+      else {
+        put("controller", "self");
+        put("exclude", "self");
+      }
+    } else if (key === "object.id" || key === "id" || key === "objectId") {
+      if (entry === "self" || entry === "source") put("object", entry);
+      else put("objectId", entry);
+    } else if (key === "types") put("type", entry);
+    else if (key === "tag" || key === "tags") append("tags", entry);
+    else if (key === "state" || key === "states") append("states", entry);
+    else if (key === "controller" || key === "owner") {
+      put(key, entry === "controller" || entry === "you" ? "self" : entry === "their" ? "opponent" : entry);
+    } else if (key === "zoneEntryId" && (!Number.isSafeInteger(entry) || (entry as number) < 0)) {
+      reject("Invalid zoneEntryId filter");
+    } else if (key === "location") {
+      if (entry === "here" || entry === "source-location") put("sameLocationAs", entry === "here" ? "self" : "source");
+      else if (typeof entry === "string") put("location", ["base", "battlefield"].includes(entry) ? entry : { type: "battlefield", id: entry });
+      else if (entry === null) put("location", null);
+      else {
+        const location = isRecord(entry) ? entry : reject("Unsupported structured location filter");
+        const fields = location.type === "base" ? ["type", "player"] : location.type === "battlefield" ? ["type", "id"] : [];
+        if (!fields.length || Object.keys(location).some(field => !fields.includes(field)) ||
+            location.player !== undefined && (typeof location.player !== "string" || ["self", "controller", "you", "opponent", "their"].includes(location.player)) ||
+            location.id !== undefined && typeof location.id !== "string") {
+          reject("Unsupported structured location filter");
+        }
+        put("location", { ...(location as Record<string, unknown>) });
+      }
+    } else if (key === "locationType" && entry !== "base" && entry !== "battlefield") {
+      reject(`Unsupported location type ${String(entry)}`);
+    } else if (key === "relation") {
+      if (!isRecord(entry) ||
+          !["same-location", "different-location", "same-controller", "different-controller",
+            "same-owner", "different-owner", "another", "other"].includes(String(entry.relation)) ||
+          Object.keys(entry).some(field => !["relation", "object", "other"].includes(field)) ||
+          entry.object === undefined && entry.other === undefined ||
+          entry.object !== undefined && !symbolic(entry.object) ||
+          entry.other !== undefined && !symbolic(entry.other)) reject("Unsupported object relation filter");
+      put("relation", { ...(entry as Record<string, unknown>) });
+    } else put(key, entry);
+  }
+  if (output.characteristics !== undefined && !isRecord(output.characteristics)) reject("invalid characteristics filter");
+  return output as ObjectFilter;
 }
 
 function resolveArgs(ctx: ResolveContext, args: InspectArgs, targetSpecId: string | null) {
@@ -160,6 +263,11 @@ function resolveArgs(ctx: ResolveContext, args: InspectArgs, targetSpecId: strin
   const min = bounds === null ? 0 : count(bounds.min, "chooseCount.min");
   const max = bounds === null ? null : count(bounds.max, "chooseCount.max");
   if (max !== null && min > max) invalid("chooseCount.min exceeds max");
+  let selectionFilter;
+  if (args.filter !== undefined) {
+    const filterValue = ctx.evaluate(args.filter);
+    selectionFilter = inspectFilter(filterValue);
+  }
   const linkedKey = string(evalOr(args.linkedKey, "inspected"), "linkedKey");
   const pickedKey = string(evalOr(args.pickedKey, "inspected-picked"), "pickedKey");
   const choosePicksKey = string(evalOr(args.choosePicksKey, "inspected-pick"), "choosePicksKey");
@@ -168,7 +276,7 @@ function resolveArgs(ctx: ResolveContext, args: InspectArgs, targetSpecId: strin
   }
   return {
     player, owner, zone: zone as ZoneId, scope, amount, targetSpecId, picksSpecId,
-    choose, min, max, linkedKey, pickedKey, choosePicksKey,
+    choose, min, max, selectionFilter, linkedKey, pickedKey, choosePicksKey,
     choiceId: string(evalOr(args.choiceId, `effect.inspect:select:${player}:${owner}:${zone}`), "choiceId")
   };
 }
@@ -176,6 +284,20 @@ function resolveArgs(ctx: ResolveContext, args: InspectArgs, targetSpecId: strin
 const refsValue = (refs: readonly ObjectRef[]): Value =>
   refs.map(ref => ({ id: ref.id, zoneEntryId: ref.zoneEntryId }));
 const refKey = (ref: ObjectRef): string => JSON.stringify([ref.id, ref.zoneEntryId]);
+
+/** A disclosure receipt may narrow a request, but can never widen it or invent identities. */
+export function disclosedRefs(requested: readonly ObjectRef[], outcome: Extract<ActionOutcome, { status: "done" }>): ObjectRef[] {
+  const actual = outcome.result === undefined ? requested : outcome.result;
+  const allowed = new Set(requested.map(refKey));
+  if (!Array.isArray(actual) || !actual.every(isRef) ||
+      new Set(actual.map(refKey)).size !== actual.length || !actual.every(ref => allowed.has(refKey(ref)))) {
+    invalid("invalid disclosure receipt");
+  }
+  const disclosed = new Set(actual.map(refKey));
+  // Ordered picks retain their captured source order across a later shuffle.
+  // The receipt determines membership; it must not reorder that binding.
+  return requested.filter(ref => disclosed.has(refKey(ref))).map(ref => ({ id: ref.id, zoneEntryId: ref.zoneEntryId }));
+}
 
 export default {
   op: "effect.inspect",
@@ -209,7 +331,7 @@ export default {
       seen.add(refKey(ref));
       return true;
     });
-    const inspected = args.scope === "top" ? candidates.slice(0, args.amount ?? 0) : candidates;
+    let inspected = args.scope === "top" ? candidates.slice(0, args.amount ?? 0) : candidates;
     const events: GameEvent[] = [];
     if (inspected.length > 0) {
       const outcome = ctx.perform({ type: "look", objects: inspected, player: args.player });
@@ -221,26 +343,32 @@ export default {
           events
         };
       }
+      inspected = disclosedRefs(inspected, outcome);
     }
 
     let chosen: ObjectRef[] = [];
     if (args.choose) {
-      const max = Math.min(args.max ?? inspected.length, inspected.length);
+      const allowedByFilter = args.selectionFilter === undefined
+        ? null
+        : new Set(ctx.query(args.selectionFilter).map(object => refKey(object.ref)));
+      const available = inspected.filter(ref => inRange(ctx.object(ref)) &&
+        (allowedByFilter === null || allowedByFilter.has(refKey(ref))));
+      const max = Math.min(args.max ?? available.length, available.length);
       if (args.min > max) return { status: "negated", reason: "impossible", events };
       if (max > 0) {
         const answer = ctx.choose<unknown>({
           id: args.choiceId, type: "select-objects", chooser: args.player,
-          visibility: "chooser-only", options: inspected, min: args.min, max
+          visibility: "chooser-only", options: available, min: args.min, max
         });
-        const options = new Set(inspected.map(refKey));
+        const options = new Set(available.map(refKey));
         if (!Array.isArray(answer) || !answer.every(isRef) || answer.length < args.min ||
           answer.length > max || new Set(answer.map(refKey)).size !== answer.length ||
           !answer.every(ref => options.has(refKey(ref)))) invalid("invalid choice answer");
         chosen = answer;
       }
     }
-    // look 完成表示查看了提交的全部引用；参考内核不像 draw 那样返回数字结果。
-    // 查看不会改变区域或对象身份。
+    // Bind the actual disclosure, including its order, rather than assuming
+    // that a successful action disclosed every requested object.
     const linkedValues: Record<string, Value> = {
       [args.linkedKey]: inspected.length,
       [args.pickedKey]: refsValue(inspected)

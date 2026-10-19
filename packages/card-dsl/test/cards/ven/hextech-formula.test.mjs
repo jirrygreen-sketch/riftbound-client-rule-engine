@@ -9,6 +9,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // layout instead of the package name.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { queryObjects } from "../../../../engine-core/dist/effects/interpreter/selectors.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -87,7 +88,7 @@ test("ven-062-166 Hextech Formula: identity, ruleset, status, judgeReason and ve
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /replacement/);
   assert.match(program.judgeReason, /359\.2\.d/);
-  assert.match(program.judgeReason, /Unsupported filter field other/);
+  assert.match(program.judgeReason, /Unsupported filter field exclude/);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
@@ -132,7 +133,7 @@ test("ven-062-166 Hextech Formula: the exhaust-cost ability empowers exactly one
     type: "gear",
     controller: "self",
     zone: "board",
-    other: true
+    exclude: "self"
   });
   assert.equal(gearTarget.min, 1);
   assert.equal(gearTarget.max, 1);
@@ -192,7 +193,7 @@ test("ven-062-166 Hextech Formula golden: without a finalized legal gear the abi
       location: { type: "base", player: "A" }
     })
     .build();
-  // The declared filter carries "other: true" (740.1.a), so the source can
+  // The declared filter carries exclude: "self" (740.1.a), so the source can
   // never be its own target; with nothing locked the instruction is ignored
   // (359.3.e.2) and the source's own Empowered state is untouched.
   const kernel = productionContext(base);
@@ -202,7 +203,7 @@ test("ven-062-166 Hextech Formula golden: without a finalized legal gear the abi
   assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
     ["hextech-formula.empower-another-gear", "ignored"]
   ]);
-  assert.equal(gearTarget.filter.other, true);
+  assert.equal(gearTarget.filter.exclude, "self");
   assert.equal(kernel.getObject("hextech-formula").empowered, 0);
   assert.deepEqual(kernel.events, []);
 });
@@ -210,7 +211,7 @@ test("ven-062-166 Hextech Formula golden: without a finalized legal gear the abi
 test("ven-062-166 Hextech Formula golden: the merged replacement rewrites a real board entry", () => {
   // Bind the replacement directly to the pre-entry source, as the production
   // replacement registration contract requires. This exercises replacement.enter
-  // itself; the unsupported other:true target filter remains a separate TODO.
+  // itself; the unsupported exclude target filter remains a separate TODO.
   const kernel = world()
     .unit("hextech-formula", {
       types: ["gear"],
@@ -262,7 +263,7 @@ test("ven-062-166 Hextech Formula golden: the merged replacement rewrites a real
   assert.deepEqual(kernel.events.map((event) => event.action), ["move-zone", "exhaust", "move-zone"]);
 });
 
-test("ven-062-166 Hextech Formula probe: the production binding rejects 'other' before any target is chosen", () => {
+test("ven-062-166 Hextech Formula probe: the production binding rejects exclude before any target is chosen", () => {
   const binding = createProgramBinding({
     cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
   });
@@ -281,14 +282,64 @@ test("ven-062-166 Hextech Formula probe: the production binding rejects 'other' 
   const kernel = base.clone({ source: base.ref("hextech-formula"), sourceSnapshot: base.getObject("hextech-formula") });
   assert.throws(
     () => binding.describeActivate(kernel.getObject("hextech-formula"), "A", 0),
-    error => error.code === "judge-required" && /Unsupported filter field other/.test(error.message)
+    error => error.code === "judge-required" && /Unsupported filter field exclude/.test(error.message)
   );
-  // The reference kernel's own filter matcher ignores the anchor rather than
-  // excluding the source, so "another" cannot be honoured there either.
+  // The reference kernel's own production-style filter matcher ignores the
+  // anchor rather than excluding the source, so "another" cannot be honoured there either.
   assert.equal(matchesObjectFilter(gearTarget.filter, kernel.getObject("hextech-formula")), true);
 });
+
+test("ven-062-166 Hextech Formula query: the merged interpreter excludes the source from another-gear candidates", () => {
+  const kernel = world()
+    .unit("hextech-formula", {
+      types: ["gear"],
+      owner: "A",
+      controller: "A",
+      zone: "board",
+      location: { type: "base", player: "A" }
+    })
+    .unit("friendly-gear", {
+      types: ["gear"],
+      owner: "A",
+      controller: "A",
+      zone: "board",
+      location: { type: "base", player: "A" }
+    })
+    .unit("enemy-gear", {
+      types: ["gear"],
+      owner: "B",
+      controller: "B",
+      zone: "board",
+      location: { type: "base", player: "B" }
+    })
+    .build();
+  const context = kernel.clone({
+    source: kernel.ref("hextech-formula"),
+    sourceSnapshot: kernel.getObject("hextech-formula"),
+    controller: "A"
+  });
+  // The reference kernel compares the symbolic controller literally. Bind
+  // "self" to the acting player in its query; this is the same normalization
+  // used by the chain query adapter and leaves the card IR unchanged.
+  const query = filter => context.query({
+    ...filter,
+    ...(filter.controller === "self" ? { controller: "A" } : {})
+  });
+  const matched = queryObjects(gearTarget.filter, {
+    context,
+    host: context.source.ref,
+    query,
+    linked: () => undefined,
+    canLookBack: () => false,
+    isIgnored: () => false
+  }).map(object => object.ref.id);
+
+  // The source is excluded and the enemy gear fails controller:self. The
+  // interpreter path consumes the same contract anchor as the card IR.
+  assert.deepEqual(matched, ["friendly-gear"]);
+});
 test.todo(
-  "ven-062-166 Hextech Formula: once the other:true anchor is consumed, the production binding must select exactly " +
+  "ven-062-166 Hextech Formula: once the exclude: self anchor is consumed, the production binding must select exactly " +
     "one friendly gear other than the source (CR 355.7/355.9.a.1/740.1.a); the empower body and exhaust cost are " +
     "already exercised with caller-supplied finalized targets"
 );

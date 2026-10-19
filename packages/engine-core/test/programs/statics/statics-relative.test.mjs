@@ -80,20 +80,20 @@ test('region board includes both Bases and Battlefields through the production b
   assert.equal(f.engine.layers.snapshot(f.kernel.ref('hand-unit')).might, 4);
 });
 
-test('unconsumed kinds fail before registration even with a declared layer', () => {
+test('unconsumed generic layers fail closed while dedicated adapters retain their routes', () => {
   const f = fixture();
   const binder = createEngineStaticBinder(f.engine);
   for (const kind of [
-    'continuous.bonus-damage', 'continuous.lethal-threshold', 'continuous.grant-ability',
-    'continuous.grant-abilities', 'continuous.modify-might-reduction',
-    'continuous.cost-modification', 'cost.additional', 'cost.modify', 'target.tax',
-    'cost.hidden', 'requirement', 'applied-cost',
+    'continuous.grant-abilities',
   ]) {
     for (const layer of [undefined, 'ability', 'arithmetic']) {
       assert.throws(() => binder.bindStatic({ kind: 'static', effect: { kind, layer } }, f.kernel.getObject('source')),
         error => error instanceof ProgramBindingError && error.code === 'judge-required' && /has no layer mapping/.test(error.message), kind);
       assert.equal(f.engine.layers.registry.list().length, 0);
     }
+  }
+  for (const kind of ['continuous.bonus-damage', 'continuous.lethal-threshold', 'continuous.modify-might-reduction']) {
+    assert.throws(() => layerFor({ kind }), error => error.code === 'judge-required' && /has no layer mapping/.test(error.message));
   }
 });
 
@@ -116,14 +116,25 @@ test('rule-query controller filters read the stolen host controller rather than 
   assert.equal(applies('new-ally', 'A'), 1);
 });
 
-test('rule-query filters without exclusion or keyword consumers remain judge-required', () => {
-  const f = fixture();
-  for (const filter of [{ sameLocationAs: 'self', location: BF2 }, { other: true }, { region: 'board' }, { keyword: 'shield' }]) {
-    assert.throws(() => createEngineStaticBinder(f.engine).bindStatic({ kind: 'static', effect: {
+test('rule-query filters keep the merged live consumers and fail closed on unsupported fields', () => {
+  const supported = [
+    { sameLocationAs: 'self', location: BF2 },
+    { other: true },
+    { region: 'board' },
+    { keyword: 'shield' },
+  ];
+  for (const filter of supported) {
+    const f = fixture();
+    assert.doesNotThrow(() => createEngineStaticBinder(f.engine).bindStatic({ kind: 'static', effect: {
       kind: 'continuous.restrict', actions: ['reveal'], filter,
-    } }, f.kernel.getObject('source')), error => error.code === 'judge-required' && /rule-filter consumer/.test(error.message));
-    assert.equal(f.engine.layers.registry.list().length, 0);
+    } }, f.kernel.getObject('source')), JSON.stringify(filter));
+    assert.equal(f.engine.layers.registry.list().length, 1, JSON.stringify(filter));
   }
+  const f = fixture();
+  assert.throws(() => createEngineStaticBinder(f.engine).bindStatic({ kind: 'static', effect: {
+    kind: 'continuous.restrict', actions: ['reveal'], filter: { unsupportedRuleFilter: true },
+  } }, f.kernel.getObject('source')), error => error.code === 'judge-required');
+  assert.equal(f.engine.layers.registry.list().length, 0);
 });
 
 test('rule-query opponent aliases follow the live host controller independently of the querying actor', () => {
@@ -177,12 +188,14 @@ test('rule-query here follows the current host location and applies to both play
   assert.equal(applies('new-neighbor'), 1);
 });
 
-test('unconsumed string movement permissions remain judge-required', () => {
-  const f = fixture();
-  assert.throws(() => createEngineStaticBinder(f.engine).bindStatic({ kind: 'static', effect: {
+test('string movement permissions reach the merged movement query', () => {
+  const f = fixture({ cards: [{ id: 'mover', types: ['unit'], might: 2 }] });
+  board(f, 'mover');
+  createEngineStaticBinder(f.engine).bindStatic({ kind: 'static', effect: {
     kind: 'continuous.movement', permission: 'battlefield-to-battlefield', addsPermission: true,
-  } }, f.kernel.getObject('source')), error => error.code === 'judge-required' && /structured movement-permission consumer/.test(error.message));
-  assert.equal(f.engine.layers.registry.list().length, 0);
+  } }, f.kernel.getObject('mover'));
+  const entry = f.engine.layers.registry.list()[0];
+  assert.deepEqual(entry.effect.effect.permission, { routes: ['battlefield-to-battlefield'] });
 });
 
 test('trait mappings transform characteristics through real layer consumers', () => {

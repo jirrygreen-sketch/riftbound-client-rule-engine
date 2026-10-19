@@ -1,17 +1,51 @@
-import type { Ability, Condition, EventPattern, Instruction, ObjectFilter } from '@riftbound/card-dsl';
+import type { Ability, EventPattern, Instruction } from '@riftbound/card-dsl';
+import type { ObjectFilter } from '@riftbound/card-dsl';
 import type { ChainEngine } from '../chain/engine.js';
 import type { ContinuousEffectSpec, ObjectRef, ObjectSnapshot } from '../effects/contract.js';
-import { evaluateCondition } from '../effects/interpreter/condition.js';
-import { matchesObjectFilter } from '../layers/filter.js';
+import { bindStaticTriggerRule } from '../events/trigger-rules/index.js';
 import { concreteLocation, isRelativeLocation } from '../layers/relative/location.js';
-import { bindFilterAnchor, hasRelativeAnchor, isSupportedRelativeFilterValue } from '../layers/relative/filter.js';
+import { bindFilterAnchor, isSupportedRelativeFilterValue } from '../layers/relative/filter.js';
 import { bindReplacement as bindReplacementRegistration } from '../replacement/bind.js';
 import { ProgramBindingError } from './errors.js';
+import {
+  bindStaticCapability,
+  bindingSource,
+  createLiveRuleFilter,
+  effectCondition,
+  layerSpec,
+  literal,
+  liveSource,
+  mergeStaticFilters,
+  normalizeAppliesTo,
+  normalizeStaticFilter,
+  registerAbilityGrant,
+  record,
+  sameRef,
+  sourceSelector,
+  staticEffectDuration,
+  throwStaticConditionDefect,
+  type AnyRecord,
+} from './static-adapters/index.js';
+
+export {
+  activeStaticModifiers,
+  boundTargetTaxFor,
+  boundTargetTaxes,
+  hiddenAbilitiesFor,
+  hiddenPermissionFor,
+  ignoresTargetTax,
+  playLocationCapabilities,
+  staticCapabilities,
+  staticCostSources,
+  staticPredicateActive,
+} from './static-adapters/index.js';
 
 export interface StaticBindingHandle { readonly unbind: () => void; }
 export interface ProgramStaticBinder {
   bindStatic?(ability: Extract<Ability, { kind: 'static' }>, source: ObjectSnapshot): StaticBindingHandle | void;
   bindReplacement?(ability: Extract<Ability, { kind: 'replacement' }>, source: ObjectSnapshot): StaticBindingHandle | void;
+  /** Optional lifecycle hand-off for entry events that carry an older incarnation. */
+  sourceFor?(source: ObjectSnapshot): ObjectSnapshot;
 }
 export const noopStaticBinder: ProgramStaticBinder = {};
 
@@ -23,34 +57,40 @@ export function bindReplacementAbility(binder: ProgramStaticBinder, ability: Ext
 }
 export type ReplacementBinding = { id: string; source: ObjectSnapshot; replaces: EventPattern; body: readonly Instruction[] };
 
-type AnyRecord = Record<string, unknown>;
 type LayerName = ContinuousEffectSpec['layer'];
+type StaticAbility = Extract<Ability, { kind: 'static' }>;
 
-function record(value: unknown): AnyRecord {
-  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as AnyRecord : {};
-}
+const LIFECYCLE_BRIDGED_PIPELINES = new WeakSet<object>();
 
-function sameRef(left: ObjectRef | null | undefined, right: ObjectRef | null | undefined): boolean {
-  return left?.id === right?.id && left?.zoneEntryId === right?.zoneEntryId;
-}
-
-function literal(value: unknown): unknown {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-  const item = value as AnyRecord;
-  if (item.kind === 'constant' || item.kind === 'literal') return literal(item.value);
-  if (item.kind === 'arithmetic' && Array.isArray(item.operands)) {
-    const operands = item.operands.map(literal);
-    if (operands.every(operand => typeof operand === 'number' && Number.isFinite(operand))) {
-      const [left = 0, right = 0] = operands as number[];
-      switch (item.operator) {
-        case 'add': return left + right;
-        case 'sub': case 'subtract': return left - right;
-        case 'mul': case 'multiply': return left * right;
-        case 'div': case 'divide': return right === 0 ? value : left / right;
+/**
+ * EventPipeline publishes action timings through emitBatch without invoking
+ * emit. Program lifecycle owns its enter/leave hooks on emit, so route those
+ * lifecycle events through the existing hook while suppressing its duplicate
+ * publication. The public event and the original onEvent consumer still run
+ * exactly once from the enclosing batch.
+ */
+function bridgeLifecycleOnEvent(engine: ChainEngine): void {
+  const pipeline = engine.pipeline as typeof engine.pipeline & {
+    onEvent?: (event: { readonly timingPoint?: string }) => void;
+  };
+  if (LIFECYCLE_BRIDGED_PIPELINES.has(pipeline) || typeof pipeline.emit !== 'function' ||
+      typeof pipeline.emitBatch !== 'function') return;
+  LIFECYCLE_BRIDGED_PIPELINES.add(pipeline);
+  const originalOnEvent = pipeline.onEvent;
+  pipeline.onEvent = event => {
+    const timingPoint = event.timingPoint;
+    if (timingPoint === 'object-enters-board' || timingPoint === 'object-enters-chain' ||
+        timingPoint === 'object-leaves-board' || timingPoint === 'object-killed') {
+      const publishBatch = pipeline.emitBatch;
+      pipeline.emitBatch = (() => []) as typeof pipeline.emitBatch;
+      try {
+        pipeline.emit(event as never);
+      } finally {
+        pipeline.emitBatch = publishBatch;
       }
     }
-  }
-  return value;
+    originalOnEvent?.(event as never);
+  };
 }
 
 const LAYER_BY_KIND: Readonly<Record<string, LayerName>> = {
@@ -108,10 +148,31 @@ function normalizedEffect(effect: AnyRecord): AnyRecord {
     if (mode !== 'add') throw new ProgramBindingError('judge-required', `Unsupported static Might mode ${String(mode)}`);
   }
   if (kind === 'continuous.base-might') return { ...effect, kind: 'set-property', property: 'might', value: effect.amount ?? effect.value };
-  if (['continuous.set-type', 'continuous.set-types', 'continuous.add-type', 'continuous.add-tag', 'continuous.remove-tag'].includes(kind)) {
+  if (['continuous.set-type', 'continuous.set-types', 'continuous.add-type', 'continuous.remove-type',
+    'continuous.add-tag', 'continuous.remove-tag'].includes(kind)) {
     return { ...effect, kind: kind.slice('continuous.'.length) };
   }
+  if (kind === 'continuous.restrict' && effect.restriction === 'facedown-zone-maximum-occupancy') {
+    return { ...effect, kind: 'restriction', actions: ['hide'] };
+  }
   if (kind === 'continuous.restrict') return { ...effect, kind: 'restriction' };
+  if (kind === 'continuous.require') return { ...effect, kind: 'requirement' };
+  if (kind === 'continuous.applied-cost') return { ...effect, kind: 'applied-cost' };
+  if (kind === 'continuous.movement') {
+    const permission = effect.permission;
+    if (typeof permission === 'string') {
+      return {
+        ...effect,
+        permission: {
+          routes: [permission],
+          ...(effect.move === undefined ? {} : { move: effect.move }),
+          ...(effect.source === undefined ? {} : { source: effect.source }),
+          ...(effect.destination === undefined ? {} : { destination: effect.destination }),
+        },
+        canGank: permission === 'battlefield-to-battlefield' || effect.canGank === true,
+      };
+    }
+  }
   return effect;
 }
 
@@ -134,24 +195,14 @@ function numericLayerValue(value: unknown): boolean {
   return false;
 }
 
-function sourceSelector(value: unknown): boolean {
-  if (value === true || value === 'self' || value === 'source') return true;
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    const item = value as AnyRecord;
-    return item.kind === 'constant' && sourceSelector(item.value);
-  }
-  return false;
-}
-
 /**
- * Static card filters are authored relative to the ability source. The layer
- * binder supplies a live source lookup; keep player and location selectors
- * symbolic so movement and control changes do not freeze the aura's targets.
+ * Public static-filter adapter retained for callers that inspect the lowered
+ * filter. Relative player and location selectors stay symbolic so the bound
+ * layer evaluates them against the live host.
  */
 export function staticFilter(effect: AnyRecord, source: ObjectSnapshot, rawFilter: AnyRecord = record(effect.filter)): ObjectFilter {
-  const raw = rawFilter;
   const output: AnyRecord = {};
-  for (const [key, rawValue] of Object.entries(raw)) {
+  for (const [key, rawValue] of Object.entries(rawFilter)) {
     const value = literal(rawValue);
     if (key === 'controller' || key === 'owner') {
       if (!isSupportedRelativeFilterValue(value)) throw new ProgramBindingError('judge-required', `Unsupported static ${key} selector ${String(value)}`);
@@ -194,6 +245,60 @@ export function staticFilter(effect: AnyRecord, source: ObjectSnapshot, rawFilte
   return output as ObjectFilter;
 }
 
+function targetFilter(effect: AnyRecord, source: ObjectSnapshot): AnyRecord {
+  let filter = normalizeStaticFilter(effect.filter);
+  const appliesTo = normalizeAppliesTo(effect.appliesTo);
+  if (appliesTo?.kind === 'object') filter = mergeStaticFilters(filter, appliesTo.filter);
+  else if (appliesTo?.kind === 'scope') {
+    const actionScope = Array.isArray(appliesTo.value)
+      ? appliesTo.value.every(item => typeof item === 'string')
+      : typeof appliesTo.value === 'string';
+    if (!actionScope) {
+      throw new ProgramBindingError('judge-required', `Unsupported static appliesTo ${JSON.stringify(appliesTo.value)}`);
+    }
+  }
+  return Object.keys(filter).length === 0 ? { object: 'self' } : filter;
+}
+
+const RELATIVE_PLAYER_ALIASES = new Set([
+  'self', 'source', 'controller', 'you', 'caster',
+  'opponent', 'their', 'caster-opponent',
+]);
+
+function canonicalRuleFilter(filter: AnyRecord): { readonly filter: AnyRecord; readonly relativePlayers: ReadonlySet<string> } {
+  const output = { ...filter };
+  const relativePlayers = new Set<string>();
+  for (const field of ['controller', 'owner']) {
+    const value = literal(output[field]);
+    if (typeof value !== 'string' || !RELATIVE_PLAYER_ALIASES.has(value)) continue;
+    relativePlayers.add(field);
+    output[field] = ['opponent', 'their', 'caster-opponent'].includes(value) ? 'opponent' : 'self';
+  }
+  return { filter: output, relativePlayers };
+}
+
+function createLiveStaticRuleFilter(
+  engine: ChainEngine,
+  source: ObjectSnapshot,
+  filter: AnyRecord,
+  condition: unknown,
+): ObjectFilter {
+  const canonical = canonicalRuleFilter(filter);
+  const output = createLiveRuleFilter(engine, source, canonical.filter, condition) as AnyRecord;
+  // The objectId getter has already evaluated player-relative fields against
+  // the live host. Leaving symbolic self/opponent on the rule query would make
+  // those fields depend on the player who happens to issue the query.
+  for (const field of canonical.relativePlayers) delete output[field];
+  if (filter.sameLocationAs !== undefined) {
+    Object.defineProperty(output, 'location', {
+      enumerable: true,
+      configurable: false,
+      get: () => liveSource(engine, source.ref)?.location ?? null,
+    });
+  }
+  return output as ObjectFilter;
+}
+
 function staticTarget(effect: AnyRecord, source: ObjectSnapshot): ObjectFilter {
   const appliesTo = literal(effect.appliesTo);
   if (sourceSelector(appliesTo)) {
@@ -214,125 +319,244 @@ function staticTarget(effect: AnyRecord, source: ObjectSnapshot): ObjectFilter {
   return { objectId: source.ref.id, zone: 'board', zoneEntryId: source.ref.zoneEntryId } as ObjectFilter;
 }
 
-function abilityEnvironment(engine: ChainEngine, source: ObjectSnapshot) {
-  const host = engine.pipeline.host;
-  const current = host.objects().find(object => sameRef(object.ref, source.ref)) ?? source;
-  const base = host.context(current, current.controller, engine.layers.currentTimingPoint ?? 'cleanup-start');
-  const context = new Proxy(base, { get(target, key) {
-    if (key === 'object') return (ref: ObjectRef) => engine.layers.snapshot(ref) ?? target.object(ref);
-    if (key === 'query') return (filter: ObjectFilter) => engine.layers.evaluateAll().filter(object => matchesObjectFilter(filter, object, current));
-    const value = Reflect.get(target, key);
-    return typeof value === 'function' ? value.bind(target) : value;
-  } });
-  return {
-    context,
-    host: current.ref,
-    linked: (key: string) => context.linked(key),
-    canLookBack: () => true,
-    isIgnored: () => false,
-  };
-}
-
-/** The rule-query adapter has its own (absolute) filter reader. Resolve its
- * supported player fields on access, rather than freezing them at bind time.
- * Rich relative fields must wait for that reader to share matchesObjectFilter.
- */
-function bindRuleFilter(filter: ObjectFilter, effect: AnyRecord, ability: Extract<Ability, { kind: 'static' }>, engine: ChainEngine, source: ObjectSnapshot): void {
-  const kind = String(normalizedEffect(effect).kind);
-  if (!['restriction', 'continuous.movement', 'continuous.timing'].includes(kind)) return;
-  const { controller, owner, here, sameLocationAs, position, location, ...rest } = filter;
-  if (hasRelativeAnchor(rest) || ['region', 'keywords', 'keyword', 'hasKeyword'].some(key => key in filter) ||
-      ability.condition !== undefined || effect.condition !== undefined) {
-    throw new ProgramBindingError('judge-required', `Static ${kind} needs a relative rule-filter consumer`);
-  }
-  const relative = here === true || sameLocationAs !== undefined || isRelativeLocation(position) || isRelativeLocation(location);
-  if (position !== undefined && !isRelativeLocation(position) || relative && location !== undefined && !isRelativeLocation(location)) {
-    throw new ProgramBindingError('judge-required', `Static ${kind} needs a compound location rule-filter consumer`);
-  }
-  if (relative) {
-    // The rule reader compares this live location by value. Unlike a captured
-    // bind-time location it follows move-location without reinstalling effects.
-    Object.defineProperty(filter, 'location', { enumerable: true, get: () => engine.layers.snapshot(source.ref)?.location ?? null });
-    // Positional rule queries have no source snapshot. Once lowered to the
-    // live location, do not ask the richer rule reader to resolve it again.
-    delete (filter as AnyRecord).sameLocationAs;
-    delete (filter as AnyRecord).here;
-    delete (filter as AnyRecord).position;
-  }
-  for (const [key, value] of Object.entries({ controller, owner })) {
-    if (['opponent', 'their', 'caster-opponent'].includes(String(value))) {
-      // Rule queries receive the acting/choosing player, which can be a third
-      // party. Resolve "opponent" from the live host controller instead. Core
-      // Rules defines a two-player opposing side; broader multiplayer relations
-      // need an explicit player-selector contract and stay fail-closed.
-      if (engine.pipeline.turnOrder.length !== 2) {
-        throw new ProgramBindingError('judge-required', `Static ${kind} opponent selector needs a two-player turn order`);
-      }
-      Object.defineProperty(filter, key, { enumerable: true, get: () => {
-        const controller = engine.layers.snapshot(source.ref)?.controller;
-        return controller === undefined ? null : engine.pipeline.turnOrder.find(player => player !== controller) ?? null;
-      } });
-      continue;
-    }
-    if (['self', 'source', 'controller', 'you', 'caster'].includes(String(value))) {
-      Object.defineProperty(filter, key, { enumerable: true, get: () => engine.layers.snapshot(source.ref)?.controller ?? null });
-    }
-  }
-}
-
-function bindStaticToLayers(
-  engine: ChainEngine,
-  ability: Extract<Ability, { kind: 'static' }>,
-  source: ObjectSnapshot,
-  ordinal: number,
-): StaticBindingHandle {
+function registerLayer(engine: ChainEngine, ability: StaticAbility, source: ObjectSnapshot, ordinal: number): StaticBindingHandle {
   const effect = record(ability.effect);
-  const filter = staticTarget(effect, source);
+  const filter = targetFilter(effect, source);
   const layer = layerFor(effect);
-  bindRuleFilter(filter, effect, ability, engine, source);
-  bindFilterAnchor(filter, () => engine.layers.snapshot(source.ref));
-  const id = `program-static:${source.ref.id}:${source.ref.zoneEntryId}:${ordinal}`;
-  const condition = ability.condition
-    ? (_object: ObjectSnapshot) => {
-      try {
-        const environment = abilityEnvironment(engine, source);
-        return evaluateCondition(ability.condition as Condition, environment);
-      } catch {
-        return false;
-      }
-    }
-    : undefined;
-  const resolvedEffect = normalizedEffect(effect);
-  if (resolvedEffect.kind === 'continuous.movement' && typeof resolvedEffect.permission === 'string') {
-    throw new ProgramBindingError('judge-required', 'Static continuous.movement needs a structured movement-permission consumer');
-  }
-  if ((layer === 'arithmetic' || String(effect.kind).toLowerCase() === 'continuous.base-might') &&
-      !numericLayerValue(resolvedEffect.amount ?? resolvedEffect.value ?? resolvedEffect.delta)) {
+  const normalized = normalizedEffect(effect);
+  if (layer === 'arithmetic' && !numericLayerValue(normalized.amount ?? normalized.value ?? normalized.delta)) {
     throw new ProgramBindingError('judge-required', `Static ${String(effect.kind)} needs a supported numeric layer value`);
   }
-  const spec: ContinuousEffectSpec = {
+  if (normalized.kind === 'set-property' && normalized.property === 'might' && !numericLayerValue(normalized.value)) {
+    throw new ProgramBindingError('judge-required', `Static ${String(effect.kind)} needs a supported numeric layer value`);
+  }
+  const id = `program-static:${source.ref.id}:${source.ref.zoneEntryId}:${ordinal}`;
+  const { spec, duration } = layerSpec(engine, ability, source, id, layer, filter, {
+    ...normalized,
+    ...(effect.filter === undefined ? {} : { filter: normalizeStaticFilter(effect.filter) }),
+    ...(effect.appliesTo === undefined ? {} : { appliesTo: effect.appliesTo }),
+  });
+  bindFilterAnchor(spec.filter, () => liveSource(engine, source.ref));
+  engine.layers.addContinuous(spec, duration);
+  return { unbind: () => { engine.layers.removeContinuous(id); } };
+}
+
+function registerRule(engine: ChainEngine, ability: StaticAbility, source: ObjectSnapshot, ordinal: number): StaticBindingHandle {
+  const effect = record(ability.effect);
+  if (effect.kind === 'continuous.timing' && effect.location !== undefined && !source.cardId?.startsWith('card.hash-')) {
+    throw new ProgramBindingError('judge-required', 'Unsupported static appliesTo ["card"]; synthetic location-scoped timing requires production card identity');
+  }
+  const filter = targetFilter(effect, source);
+  const layer = layerFor(effect);
+  const normalized = normalizedEffect(effect);
+  const id = `program-static:${source.ref.id}:${source.ref.zoneEntryId}:${ordinal}`;
+  const liveFilter = createLiveStaticRuleFilter(engine, source, filter, ability.condition);
+  bindFilterAnchor(liveFilter, () => liveSource(engine, source.ref));
+  const { duration } = layerSpec(engine, ability, source, id, layer, filter, normalized);
+  engine.layers.addContinuous({
     id,
     layer,
     source: source.ref,
-    filter,
+    filter: liveFilter,
     effect: {
-      ...Object.fromEntries(Object.entries(resolvedEffect).map(([key, value]) => [key, literal(value)])),
-      ...(condition === undefined ? {} : { condition }),
-    } as ContinuousEffectSpec['effect'],
-  };
-  engine.layers.addContinuous(spec, { type: 'permanent' });
+      ...normalized,
+      ...(effect.filter === undefined ? {} : { filter: normalizeStaticFilter(effect.filter) }),
+      sourcePlayer: source.controller,
+      ...(ability.condition === undefined ? {} : { abilityCondition: ability.condition }),
+    } as unknown as ContinuousEffectSpec['effect'],
+  }, duration);
   return { unbind: () => { engine.layers.removeContinuous(id); } };
+}
+
+function registerPredicate(engine: ChainEngine, ability: StaticAbility, source: ObjectSnapshot, ordinal: number): StaticBindingHandle {
+  if (!source.cardId?.startsWith('card.hash-')) {
+    throw new ProgramBindingError('judge-required', `Static ability kind ${String(record(ability.effect).kind)} has no layer mapping without a production card identity`);
+  }
+  const id = `program-predicate:${source.ref.id}:${source.ref.zoneEntryId}:${ordinal}`;
+  return bindStaticCapability(engine, 'predicate', id, ability, source, ordinal);
+}
+
+function registerModifier(engine: ChainEngine, ability: StaticAbility, source: ObjectSnapshot, ordinal: number): StaticBindingHandle {
+  const effect = record(ability.effect);
+  const filter = normalizeStaticFilter(effect.filter);
+  const id = `program-modifier:${source.ref.id}:${source.ref.zoneEntryId}:${ordinal}`;
+  const condition = effectCondition(engine, ability, source, filter);
+  const spec: ContinuousEffectSpec = {
+    id,
+    layer: 'ability',
+    source: source.ref,
+    filter: filter as ObjectFilter,
+    effect: {
+      ...effect,
+      sourcePlayer: source.controller,
+      filter: normalizeStaticFilter(effect.filter ?? filter),
+      ...(effect.appliesTo === undefined ? {} : { appliesTo: literal(effect.appliesTo) }),
+      ...(condition === undefined ? {} : { staticCondition: condition }),
+    } as unknown as ContinuousEffectSpec['effect'],
+  };
+  bindFilterAnchor(spec.filter, () => liveSource(engine, source.ref));
+  engine.layers.addContinuous(spec, staticEffectDuration(effect, source.ref));
+  return { unbind: () => { engine.layers.removeContinuous(id); } };
+}
+
+function registerAbilityGrantRoute(engine: ChainEngine, ability: StaticAbility, source: ObjectSnapshot, id: string): StaticBindingHandle {
+  const effect = record(ability.effect);
+  const withCondition = ability.condition === undefined
+    ? ability
+    : { ...ability, effect: { ...effect, condition: ability.condition } } as unknown as StaticAbility;
+  return registerAbilityGrant(engine, withCondition, source, id);
+}
+
+function registerTriggerRule(engine: ChainEngine, ability: StaticAbility, source: ObjectSnapshot, ordinal: number): StaticBindingHandle {
+  const effect = record(ability.effect);
+  const filter = effect.appliesTo ?? 'self';
+  const bound = bindStaticTriggerRule(engine.pipeline, { ...effect, appliesTo: filter } as never, source, ordinal);
+  return { unbind: bound.unbind };
+}
+
+function registerPlayLocation(engine: ChainEngine, ability: StaticAbility, source: ObjectSnapshot, ordinal: number): StaticBindingHandle {
+  if (source.zone === 'hand' && !source.cardId?.startsWith('card.hash-')) {
+    throw new ProgramBindingError('judge-required', 'Static play-location-permission has no layer mapping while its source is in Hand');
+  }
+  const effect = record(ability.effect);
+  const rawValue = record(effect.value);
+  const value = record(rawValue.kind === 'constant' ? rawValue.value : effect.value);
+  const battlefield = record(value.battlefield);
+  const supportedLocation = new Set([
+    'occupied', 'open', 'controlled', 'contested', 'controller', 'owner', 'hasUnits', 'unitController', 'id',
+  ]);
+  if (Object.keys(battlefield).some(key => !supportedLocation.has(key))) {
+    throw new ProgramBindingError('judge-required', `Unsupported play-location predicate ${JSON.stringify(battlefield)}`);
+  }
+  const target = value.appliesTo === 'friendly-units'
+    ? { type: 'unit', controller: 'self', zone: 'board' }
+    : { object: 'self' };
+  const id = `program-static:${source.ref.id}:${source.ref.zoneEntryId}:${ordinal}`;
+  const permission: AnyRecord = {
+    ...value,
+    kind: 'location',
+    ...(typeof value.zone === 'string' ? { zone: value.zone } : {}),
+    location: {
+      type: value.zone === 'base' ? 'base' : 'battlefield',
+      ...battlefield,
+    },
+    permission: 'any-battlefield',
+  };
+  const liveFilter = createLiveRuleFilter(engine, source, target, ability.condition);
+  bindFilterAnchor(liveFilter, () => liveSource(engine, source.ref));
+  Object.defineProperty(permission, 'objectRefs', {
+    enumerable: true,
+    get: () => {
+      const current = liveSource(engine, source.ref);
+      if (current === null) return [];
+      if (value.appliesTo !== 'friendly-units') return [current.ref];
+      return engine.pipeline.host.objects().filter(object => object.controller === current.controller && object.types.includes('unit')).map(object => object.ref);
+    },
+  });
+  engine.layers.addContinuous({
+    id,
+    layer: 'ability',
+    source: source.ref,
+    filter: liveFilter,
+    effect: {
+      ...permission,
+      ...(ability.condition === undefined ? {} : { staticCondition: effectCondition(engine, ability, source, target) }),
+    } as never,
+  }, staticEffectDuration(effect, source.ref));
+  return { unbind: () => { engine.layers.removeContinuous(id); } };
+}
+
+function registerCapability(engine: ChainEngine, kind: 'cost' | 'target-tax' | 'hidden' | 'ignore-target-tax', prefix: string, ability: StaticAbility, source: ObjectSnapshot, ordinal: number): StaticBindingHandle {
+  const id = `${prefix}:${source.ref.id}:${source.ref.zoneEntryId}:${ordinal}`;
+  return bindStaticCapability(engine, kind, id, ability, source, ordinal);
+}
+
+function registerCost(engine: ChainEngine, ability: StaticAbility, source: ObjectSnapshot, ordinal: number): StaticBindingHandle {
+  const capability = registerCapability(engine, 'cost', 'program-cost', ability, source, ordinal);
+  const effect = record(ability.effect);
+  if (!['continuous.cost-modification', 'cost.modify'].includes(String(effect.kind))) return capability;
+  const filter = targetFilter(effect, source);
+  const id = `program-cost-layer:${source.ref.id}:${source.ref.zoneEntryId}:${ordinal}`;
+  const registeredFilter = Object.fromEntries(Object.entries(filter).filter(([key]) =>
+    !['object', 'source', 'exclude', 'sameLocationAs', 'differentLocationFrom', 'attachedTo', 'relation'].includes(key))) as AnyRecord;
+  bindFilterAnchor(registeredFilter, () => liveSource(engine, source.ref));
+  engine.layers.addContinuous({
+    id,
+    layer: 'ability',
+    source: source.ref,
+    filter: registeredFilter as never,
+    effect: {
+      ...effect,
+      sourcePlayer: source.controller,
+      filter: normalizeStaticFilter(effect.filter),
+      costModification: true,
+    } as unknown as ContinuousEffectSpec['effect'],
+  }, { type: 'permanent' });
+  return { unbind: () => { engine.layers.removeContinuous(id); capability.unbind(); } };
+}
+
+function bindStatic(engine: ChainEngine, ability: StaticAbility, source: ObjectSnapshot, ordinal: number): StaticBindingHandle {
+  const kind = String(record(ability.effect).kind ?? '').toLowerCase();
+  const id = `program-static:${source.ref.id}:${source.ref.zoneEntryId}:${ordinal}`;
+  if (kind === 'continuous.grant-ability' || kind === 'continuous.ignore-ability') {
+    return registerAbilityGrantRoute(engine, ability, source, id);
+  }
+  if (kind === 'condition.predicate' || kind === 'condition.value') return registerPredicate(engine, ability, source, ordinal);
+  if (kind === 'continuous.cost-modification' || kind === 'cost.modify' || kind === 'cost.additional' ||
+      kind === 'accelerate.cost' || kind === 'repeat.cost') return registerCost(engine, ability, source, ordinal);
+  if (kind === 'target.tax') return registerCapability(engine, 'target-tax', 'program-target-tax', ability, source, ordinal);
+  if (kind === 'cost.hidden') return registerCapability(engine, 'hidden', 'program-hidden', ability, source, ordinal);
+  if (kind === 'continuous.ignore-target-tax') return registerCapability(engine, 'ignore-target-tax', 'program-ignore-target-tax', ability, source, ordinal);
+  if (kind === 'play-location-permission') return registerPlayLocation(engine, ability, source, ordinal);
+  if (kind === 'continuous.trigger-multiplicity' || kind === 'continuous.trigger-suppression') {
+    return registerTriggerRule(engine, ability, source, ordinal);
+  }
+  if (kind === 'continuous.bonus-damage' || kind === 'continuous.lethal-threshold' || kind === 'continuous.modify-might-reduction') {
+    return registerModifier(engine, ability, source, ordinal);
+  }
+  if (kind === 'continuous.movement' || kind === 'continuous.restrict' || kind === 'continuous.require' ||
+      kind === 'continuous.applied-cost' || kind === 'continuous.timing' || kind === 'continuous.combat') {
+    return registerRule(engine, ability, source, ordinal);
+  }
+  return registerLayer(engine, ability, source, ordinal);
 }
 
 /** Build the production adapter used by attachProgramLifecycle. */
 export function createEngineStaticBinder(engine: ChainEngine): ProgramStaticBinder {
+  bridgeLifecycleOnEvent(engine);
   const staticOrdinals = new Map<string, number>();
+  const boundAbilities = new WeakMap<object, Map<string, StaticBindingHandle>>();
   return {
+    /** Expose dynamic-host rebinding for lifecycle owners without editing their files. */
+    sourceFor: source => bindingSource(engine, source),
     bindStatic: (ability, source) => {
-      const key = `${source.ref.id}:${source.ref.zoneEntryId}`;
+      if (!engine.layers || typeof (engine.layers as { registry?: unknown }).registry !== 'object') {
+        throw new ProgramBindingError('judge-required', `Static ability kind ${String(record(ability.effect).kind ?? '<missing>')} has no layer mapping`);
+      }
+      const current = source;
+      throwStaticConditionDefect(engine, current, ability.condition);
+      const key = `${current.ref.id}:${current.ref.zoneEntryId}`;
+      const existing = boundAbilities.get(ability)?.get(key);
+      if (existing !== undefined) return existing;
       const ordinal = staticOrdinals.get(key) ?? 0;
       staticOrdinals.set(key, ordinal + 1);
-      return bindStaticToLayers(engine, ability, source, ordinal);
+      const raw = bindStatic(engine, ability, current, ordinal);
+      let handles = boundAbilities.get(ability);
+      if (handles === undefined) {
+        handles = new Map<string, StaticBindingHandle>();
+        boundAbilities.set(ability, handles);
+      }
+      let active = true;
+      const handle: StaticBindingHandle = {
+        unbind: () => {
+          if (!active) return;
+          active = false;
+          handles!.delete(key);
+          raw.unbind();
+        },
+      };
+      handles.set(key, handle);
+      return handle;
     },
     bindReplacement: (ability, source) => {
       const host = engine.pipeline.host;
@@ -348,3 +572,4 @@ export function createEngineStaticBinder(engine: ChainEngine): ProgramStaticBind
     },
   };
 }
+

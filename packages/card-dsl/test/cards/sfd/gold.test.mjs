@@ -1,4 +1,8 @@
 // Golden test for the Gold gear token (sfd-t03).
+// RIFT-654 template execution evidence: ../templates/activated-activated-effect-resources-654.test.mjs
+// (whole-card activation is pending; the original 'Kill this, Exhaust this' payment, original [A] body,
+// exhausted-source and spent-source boundaries execute as partial evidence). The card stays judge-required for the
+// [A] Universal Power add and for the kind=add activation bridge into 430.2.a/430.3.
 //
 // The activated ability's two real halves — the nonstandard `kill` + `exhaust`
 // cost payment through the merged cost plan and the card-program binding
@@ -66,9 +70,10 @@ test("sfd-t03 Gold: identity, ruleset, status, judgeReason and verbatim sourceTe
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /Universal/);
   assert.match(program.judgeReason, /gain-universal-power/);
-  // The merged payment and timing halves are no longer recorded as gaps; the
-  // golden below drives the real binding and the real payment.
+  // The merged payment half is executed, but the kind=add activation bridge for
+  // the 430.2.a/430.3 Add timing paths is still an open gap and must stay named.
   assert.match(program.judgeReason, /describeActivate/);
+  assert.match(program.judgeReason, /activateAddDuringPayment/);
   assert.doesNotMatch(program.judgeReason, /RIFT-261|未合入 HEAD/);
   assert.doesNotMatch(program.judgeReason, /golden 实测 buildCostPlan/);
 });
@@ -226,6 +231,10 @@ test("sfd-t03 golden: a second activation cannot be paid once the token is in th
   assert.deepEqual(kernel.player("A").power, []);
 });
 
+// The previous "[A] cannot be paid" boundary asserted that the missing
+// Universal Power representation is still missing; it is restored under the
+// tightened review rule and stays aligned with the TODO entry below, while the
+// real cost plan and the card-program binding keep their positive goldens above.
 test("sfd-t03 boundary: [A] cannot be paid either, so the gap stays a contract request", () => {
   // 135.2.e.5 / 163.2.b: [A] is Universal Power. The merged payer rejects the
   // descriptive spelling outright instead of substituting a domain (cost/README
@@ -250,11 +259,6 @@ test("sfd-t03 boundary: [A] cannot be paid either, so the gap stays a contract r
   assert.equal(context.player("A").energy, 10);
 });
 
-// The Universal Power addition itself is a judged gap: the closed six-domain
-// union has no [A] value and effect.resources must never approximate one, so the
-// executed scenario deliberately stops at the cost half. It stays a TODO rather
-// than a test that asserts today's refusal (contract 3.1 / README section 4: a
-// dependency landing must not break this file).
 test.todo(
   "sfd-t03 Gold: adding Universal Power ([A], CR 135.2.e.5 / 163.2.b) needs a contract representation — the " +
     "closed six-domain union and the gain-power action have no universal value"

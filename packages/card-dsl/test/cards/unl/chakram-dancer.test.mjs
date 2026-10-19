@@ -11,6 +11,9 @@ import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js"
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 
+// Execution evidence for the supported card-played/grant body:
+// templates/keyword-triggered-card-played-continuous-704.test.mjs.
+
 const CANONICAL =
   "card.hash-932827b7cff5b4083f49ad39fa73a27896d400178b231d5a1952c9016f9dbaf3";
 const SOURCE_TEXT =

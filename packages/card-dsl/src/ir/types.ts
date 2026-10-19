@@ -84,7 +84,16 @@ export type ObjectSelector =
   | "source"
   | { readonly target: string }
   | { readonly pick: string }
-  | { readonly linked: string };
+  | { readonly linked: string }
+  /**
+   * The immutable object role captured from the triggering event. This is a
+   * referent (CR v1.5 359.3.f.3), never an object choice or target. Runtime
+   * validation requires this to be the sole key.
+   */
+  | { readonly event: EventObjectRole; readonly [key: string]: string };
+
+/** Event roles that a resolving instruction may name without choosing them. */
+export type EventObjectRole = "it";
 
 /** Object-valued anchors, distinct from scalar filter fields such as objectId. */
 export const OBJECT_FILTER_ANCHORS = ["object", "source", "target", "it", "host", "attachedTo", "sameLocationAs", "differentLocationFrom", "exclude"] as const;
@@ -382,10 +391,14 @@ export interface PickZoneSlice {
 export interface PickSpec {
   readonly id: string;
   readonly options: readonly Value[];
-  /** Explicit ordered sources use options: [], ordered: true, selection: "all". */
+  /** Explicit zoneSlice sources use options: [], ordered: true, selection: "all". */
   readonly ordered?: boolean;
   readonly zoneSlice?: PickZoneSlice;
-  /** Resolve-time binding to an actual preceding instruction result, in result order. */
+  /**
+   * Resolve-time binding to one actual preceding instruction result, in result
+   * order. Explicit linked picks use options: [], ordered: true; `selection`
+   * and filter/bounds constrain only that receipt and never query globally.
+   */
   readonly linked?: LinkedValueExpr | LinkedExpr;
   /** Subtract an actual result list from linked, retaining the remaining order. */
   readonly exclude?: LinkedValueExpr | LinkedExpr;

@@ -41,6 +41,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   gear.”）。两者语义不同（区域/用途限制），目录未说明应按印刷号分别执行还是按官方
  *   勘误统一；本程序按任务指定的 rad-143-167 原文书写，差异本身不是本卡可裁定的（见
  *   docs/plans/survey/unclassified-rad-sfd.md 第 4 条）。
+ * - Legend Zone（107.4.a–d）：ZoneId/ZoneDestination 没有 legend-zone，费用支付只接受
+ *   board/rune-zone 的横置对象（415.4/415.5），传奇无法在真实区域支付 :rb_exhaust:；
+ *   golden 的 Board 装置只是部分证据。
  * 已合入并已有执行证据的部分：effect.banish 的 Banish 动作本身与横置费用形状，见 golden。
  */
 const abilities: Ability[] = [
@@ -102,6 +105,8 @@ const program = {
     "restricted-power 一类消费键），programs/play.ts 的 translateRestriction 只接受 condition/value 形状" +
     "（本卡的 descriptive kind 会抛 “needs a rules adapter”）；430.3 的 Add Reaction 支付窗口" +
     "（chain/engine.ts 的 activateAddDuringPayment）没有接入本卡 Add 能力的生产调用方。" +
+    "(4) 缺 CR 107.4.a–d 的 Legend Zone：ZoneId/ZoneDestination 没有 legend-zone，费用支付只接受 board/rune-zone 的横置对象" +
+    "（415.4/415.5），传奇无法在真实区域支付 :rb_exhaust:；golden 的 Board 装置只是部分证据。" +
     "另外同身份的 rad-170-167 删去了 “only”，两种印刷语义不同且目录未给出按印刷号执行还是" +
     "勘误统一的依据，本卡按任务指定的 rad-143-167 原文书写。已合入并有执行证据：effect.banish 的 Banish 动作与横置费用形状，见 golden。不近似实现。",
   abilities,
