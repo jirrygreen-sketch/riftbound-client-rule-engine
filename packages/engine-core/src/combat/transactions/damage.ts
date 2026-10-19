@@ -40,6 +40,8 @@ export interface CombatDamageRuntime {
   readonly replacementCount: number;
   /** Damage the controller cannot apply because the Unit is Stunned (424.1.b). */
   readonly zeroDamageSourceIds: readonly string[];
+  /** Stunned Units still need their full current Might assigned as lethal damage (424.1.c). */
+  readonly fullMightLethalTargetIds: readonly string[];
 }
 
 const ASSIGNMENT_MODIFIER_KINDS = new Set([
@@ -61,7 +63,7 @@ function assignmentRules(runtime: CombatDamageRuntime): DuelBaseCombatAssignment
   const units = runtime.units.filter(unit => unit.object.zone === 'board' &&
     unit.object.types.includes('unit') && unit.object.location?.type === 'battlefield' &&
     unit.object.location.id === runtime.fieldId);
-  const byUID = new Map<string, { uid: string; tank: boolean; backline: boolean }>();
+  const byUID = new Map<string, { uid: string; tank: boolean; backline: boolean; lethalDamage?: number }>();
   for (const unit of units) byUID.set(unit.object.ref.id, {
     uid: unit.object.ref.id,
     tank: false,
@@ -98,11 +100,25 @@ function assignmentRules(runtime: CombatDamageRuntime): DuelBaseCombatAssignment
     }
   }
 
-  const rules: DuelBaseCombatAssignmentRule[] = [...byUID.values()].map(unit => Object.freeze({
-    uid: unit.uid,
-    ...(unit.tank ? { tank: true } : {}),
-    ...(unit.backline ? { backline: true } : {}),
-  }));
+  const lethalMight = new Map<string, number>();
+  for (const unit of units) {
+    if (!runtime.fullMightLethalTargetIds.includes(unit.object.ref.id)) continue;
+    runtime.layers.setObjects(runtime.units.map(candidate => candidate.object));
+    const snapshot = runtime.layers.evaluate(unit.object.ref);
+    if (snapshot === null || snapshot.might === null || !Number.isSafeInteger(snapshot.might) || snapshot.might < 0) {
+      throw new TypeError(`Stunned Combat Unit ${unit.object.ref.id} has no authoritative Might`);
+    }
+    lethalMight.set(unit.object.ref.id, snapshot.might);
+  }
+  const rules: DuelBaseCombatAssignmentRule[] = [...byUID.values()].map(unit => {
+    const lethalDamage = lethalMight.get(unit.uid);
+    return Object.freeze({
+      uid: unit.uid,
+      ...(unit.tank ? { tank: true } : {}),
+      ...(unit.backline ? { backline: true } : {}),
+      ...(lethalDamage === undefined ? {} : { lethalDamage }),
+    });
+  });
   return Object.freeze({ status: 'validated' as const, units: Object.freeze(rules) });
 }
 
@@ -170,9 +186,9 @@ export function createCombatDamagePlan(runtime: CombatDamageRuntime): DuelBaseCo
   return planDuelBaseCombatDamage({ stateVersion: runtime.stateVersion, board, unitMeta }, runtime.fieldId, facts);
 }
 
-export function combatDamageEventDetails(plan: DuelBaseCombatPlan): Readonly<Record<string, unknown>> {
+export function combatDamageEventDetails(plan: DuelBaseCombatPlan, combatId: string): Readonly<Record<string, unknown>> {
   return Object.freeze({
-    combatId: `combat:${plan.fieldId}:${plan.basedOnStateVersion}`,
+    combatId,
     battlefieldId: plan.fieldId,
     attackerId: plan.sideIDs[0],
     defenderId: plan.sideIDs[1],

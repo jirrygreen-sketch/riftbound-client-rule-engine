@@ -262,17 +262,35 @@ test('EG-COMBAT zero-Might damage is not applied while the allocation still comp
 test('EG-COMBAT a Stunned attacker contributes no damage while the opposing side still deals normally', () => {
   const f = combatFixture({
     attacker: { id: 'attacker', might: 4, cardId: null, keywords: [], stunned: true },
-    defender: { id: 'defender', might: 3, cardId: null, keywords: [] },
+    defender: { id: 'defender', might: 5, cardId: null, keywords: [] },
   });
+  f.kernel.addObject({
+    ...f.kernel.getObject('defender'), ref: { id: 'attacker2', zoneEntryId: 1 },
+    owner: 'A', controller: 'A', cardId: 'attacker2', name: 'attacker2', might: 2,
+    power: null, keywords: [], stunned: false, location: field('bf1'),
+  }, 'board');
   f.started();
   f.closeShowdown();
   const plan = f.flow.prepareDamage();
-  assert.equal(plan.attacker.budget, 0);
-  assert.equal(plan.defender.budget, 3);
-  f.flow.submitAttackerDamage('A', []);
-  f.flow.submitDefenderDamage('B', [{ uid: 'attacker', amount: 3 }]);
+  assert.equal(plan.attacker.budget, 2,
+    'the non-Stunned ally contributes while the Stunned attacker contributes no Might');
+  assert.equal(plan.defender.budget, 5);
+  assert.equal(plan.defender.targets[0].lethalDamage, 4,
+    'a Stunned Unit still needs damage equal to its full Might');
+  f.flow.submitAttackerDamage('A', [{ uid: 'defender', amount: 2 }]);
+  assert.throws(() => f.flow.submitDefenderDamage('B', [
+    { uid: 'attacker', amount: 3 }, { uid: 'attacker2', amount: 2 },
+  ]),
+    /lethal/);
+  assert.equal(f.kernel.getObject('attacker').damage, 0);
+  assert.equal(f.kernel.getObject('attacker2').damage, 0);
   assert.equal(f.kernel.getObject('defender').damage, 0);
-  assert.equal(f.kernel.getObject('attacker').damage, 3);
+  f.flow.submitDefenderDamage('B', [
+    { uid: 'attacker', amount: 4 }, { uid: 'attacker2', amount: 1 },
+  ]);
+  assert.equal(f.kernel.getObject('defender').damage, 2);
+  assert.equal(f.kernel.getObject('attacker').damage, 4);
+  assert.equal(f.kernel.getObject('attacker2').damage, 1);
 });
 
 test('EG-COMBAT default CardProgram assembly runs Dune Drake attack IR and changes the live layer Might', () => {
@@ -356,6 +374,7 @@ test('EG-COMBAT legal choices commit both sides in one damage batch; an illegal 
   const damageEvents = f.chain.pipeline.events.filter(event => event.timingPoint === 'damage-dealt');
   assert.equal(damageEvents.length, 2);
   assert.ok(damageEvents.every(event => event.batchId === result.batchId));
+  assert.ok(damageEvents.every(event => event.details.combatId === result.combatId));
   assert.deepEqual(damageEvents.map(event => [event.target.ref.id, event.amount]),
     [['defender', 4], ['attacker', 3]]);
   assert.equal(f.events('combat-damage-before').length, 1);

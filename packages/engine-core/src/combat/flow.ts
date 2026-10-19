@@ -465,6 +465,8 @@ export class CombatFlow {
       }).replacements?.size ?? 0,
       zeroDamageSourceIds: Object.freeze(this.units(active.field)
         .filter(unit => unit.stunned).map(unit => unit.ref.id)),
+      fullMightLethalTargetIds: Object.freeze(this.units(active.field)
+        .filter(unit => unit.stunned).map(unit => unit.ref.id)),
     });
   }
   /** Freeze one live allocation plan after the Combat Showdown has closed. */
@@ -520,7 +522,7 @@ export class CombatFlow {
         const version = this.chain.pipeline.events.length;
         const defender = validateDuelBaseCombatAllocation(active.damage.plan, actor, orderedUIDAmounts, version);
         const complete = completeDuelBaseCombatAllocation(active.damage.attacker, defender, version);
-        const details = combatDamageEventDetails(active.damage.plan);
+        const details = combatDamageEventDetails(active.damage.plan, active.combatId);
         const batchId = `${active.combatId}:damage`;
         const before = this.units(active.field);
         const sourceFor = (player: PlayerId): ObjectSnapshot => {
