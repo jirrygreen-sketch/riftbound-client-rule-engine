@@ -5,7 +5,7 @@ import { CONTRACT_ACTION_CAPABILITY_VERSION } from '../effects/contract.js';
 import type { ExecutionOutcome } from '../effects/interpreter.js';
 import { resolveChainBody } from './interpreter-adapter.js';
 import { buildCostPlan } from '../cost/cost-plan.js';
-import { payCostPlan } from '../cost/payment.js';
+import { assessCostPayment, payCostPlan } from '../cost/payment.js';
 import { CostPlanError, type CostComponentInput, type CostPlan, type CostPlanInput, type CostPaymentReceipt } from '../cost/plan-types.js';
 import { finalizeTargetPlan, resolveTargetPlan, TargetSelectionError, type TargetFinalizeOptions, type TargetPlan, type TargetRequirement } from '../target/target-plan.js';
 import { LayerEngine } from '../layers/engine.js';
@@ -74,6 +74,82 @@ export interface FinalizeInstructionExtension {
   readonly op: string;
   evaluate(input: FinalizeExtensionContext): FinalizeExtensionResult;
 }
+/** Authoritative identity for one parent Pay Costs suspension point. */
+export interface PaymentContinuationSnapshot {
+  readonly contract: 'riftbound.chain.payment-continuation.v1';
+  readonly itemId: string;
+  readonly epoch: number;
+  readonly payer: PlayerId;
+  readonly source: ObjectRef;
+  readonly costPlanId: string;
+}
+
+/** Opaque in-process authority. JSON clones are deliberately not restartable. */
+export interface PaymentContinuation {
+  readonly snapshot: PaymentContinuationSnapshot;
+}
+
+export interface PaymentContinuationExecutionOptions<A> {
+  /** Exact current player and source incarnation supplied by the authority owner. */
+  readonly payer: PlayerId;
+  readonly source: ObjectRef;
+  /** A Reaction Add draft. Resume revalidates its actor/source against the handle. */
+  readonly add: ChainDraft;
+  /** Must reload the handle's checkpoint before applying the Add. */
+  readonly restore: () => void;
+  /** Execute inside the parent Pay Costs action after the suspended Add completes. */
+  readonly parent: (resume: () => A) => A;
+  /** Complete parent Pay Costs in this same external call. */
+  readonly payParent?: boolean;
+}
+
+export interface PaymentContinuationResult<A> {
+  readonly value: A;
+  readonly handle?: PaymentContinuation;
+  readonly payment?: CostPaymentReceipt;
+  readonly add: ExecutionOutcome;
+}
+
+interface PaymentContinuationBinding {
+  readonly itemId: string;
+  readonly epoch: number;
+  readonly payer: PlayerId;
+  readonly source: ObjectRef;
+  readonly costPlanId: string;
+  readonly checkpoint: unknown;
+  state: 'live' | 'resumed' | 'invalidated';
+}
+
+const PAYMENT_CONTINUATION_BINDING_KEY = Symbol('payment-continuation-binding');
+let paymentContinuationSequence = 0;
+
+function paymentContinuationAuthority(input: {
+  readonly itemId: string;
+  readonly payer: PlayerId;
+  readonly source: ObjectRef;
+  readonly costPlanId: string;
+  readonly checkpoint: unknown;
+}): PaymentContinuation {
+  const epoch = ++paymentContinuationSequence;
+  if (!Number.isSafeInteger(epoch)) throw new RangeError('Payment continuation epoch exhausted');
+  const snapshot = Object.freeze({
+    contract: 'riftbound.chain.payment-continuation.v1' as const,
+    itemId: input.itemId, epoch, payer: input.payer,
+    source: Object.freeze({ id: input.source.id, zoneEntryId: input.source.zoneEntryId }),
+    costPlanId: input.costPlanId,
+  });
+  const handle = Object.freeze(Object.defineProperty({ snapshot }, PAYMENT_CONTINUATION_BINDING_KEY, {
+    value: Object.freeze({ ...snapshot, checkpoint: input.checkpoint, state: 'live' as const }), enumerable: false,
+  })) as PaymentContinuation;
+  return handle;
+}
+
+function paymentContinuationBinding(handle: unknown): PaymentContinuationBinding | null {
+  if (handle === null || typeof handle !== 'object') return null;
+  const binding = (handle as { readonly [PAYMENT_CONTINUATION_BINDING_KEY]?: PaymentContinuationBinding })[PAYMENT_CONTINUATION_BINDING_KEY];
+  return binding === undefined || binding === null ? null : binding;
+}
+
 export interface ChainItem extends ChainDraft {
   status: 'pending' | 'finalized';
   object: ObjectRef;
@@ -125,6 +201,8 @@ export class ChainEngine {
   private transactionDepth = 0;
   private readonly choiceMemory = new ChoiceMemory();
   private finalizeAnswers = new Map<string, unknown>();
+  private paymentContinuation: PaymentContinuation | null = null;
+  private paymentContinuationCheckpoint: unknown = null;
   private phase: string;
   constructor(private readonly options: ChainEngineOptions) {
     this.phase = options.phase ?? 'main';
@@ -210,6 +288,7 @@ export class ChainEngine {
       origin: this.origin, priorityPasses: this.priorityPasses, focusPasses: this.focusPasses, triggerSequence: this.triggerSequence,
       delayedSequence: this.delayedSequence, phase: this.phase, busy: this.busy, choiceMemorySnapshot: this.choiceMemory.snapshot(),
       finalizeAnswers: new Map([...this.finalizeAnswers].map(([key, value]) => [key, structuredClone(value)] as const)),
+      paymentContinuation: this.paymentContinuation,
     };
     this.transactionDepth++;
     try { return run(); }
@@ -654,6 +733,91 @@ export class ChainEngine {
     this.append(draft);
     const item = this.entries.at(-1)!;
     this.finalize(item); this.resolve(item); this.busy = 'finalize';
+  }
+
+  /** Snapshot the only parent whose Pay Costs may accept an external Reaction Add. */
+  suspendPaymentContinuation(): PaymentContinuation {
+    if (this.busy !== 'finalize' || this.transactionDepth <= 0) throw new Error('Pay Costs continuation requires the active Finalize transaction');
+    const pending = this.entries.filter(item => item.status === 'pending').at(-1);
+    const finalized = this.entries.filter(item => item.status === 'finalized').at(-1);
+    const item = finalized;
+    if (pending !== undefined || item === undefined || item.costPlan === undefined) throw new Error('Pay Costs continuation requires one finalized parent');
+    if (item.controller !== item.costPlan.player) throw new Error('Pay Costs continuation payer mismatch');
+    const handle = paymentContinuationAuthority({
+      itemId: item.id, payer: item.controller, source: item.source.ref, costPlanId: item.costPlan.id,
+    });
+    this.paymentContinuation = handle;
+    return handle;
+  }
+
+  /**
+   * Resume one exact suspended Pay Costs step. The authority owner must reload
+   * its verified checkpoint in `restore`; serialized or cloned handles have no
+   * authority and can never resume.
+   */
+  resumePaymentContinuation<A>(handle: PaymentContinuation, options: PaymentContinuationExecutionOptions<A>): PaymentContinuationResult<A> {
+    const binding = paymentContinuationBinding(handle);
+    if (binding === null || binding.state !== 'live' || this.paymentContinuation !== handle) throw new Error('Payment continuation handle is stale or not authoritative');
+    const snapshot = handle.snapshot;
+    if (snapshot.itemId !== binding.itemId || snapshot.epoch !== binding.epoch || snapshot.costPlanId !== binding.costPlanId) throw new Error('Payment continuation identity mismatch');
+    if (options.payer !== snapshot.payer || options.source.id !== snapshot.source.id || options.source.zoneEntryId !== snapshot.source.zoneEntryId) throw new Error('Payment continuation actor or source incarnation mismatch');
+    if (options.add.controller !== snapshot.payer || options.add.source.ref.id !== snapshot.source.id || options.add.source.ref.zoneEntryId !== snapshot.source.zoneEntryId) throw new Error('Payment continuation Add actor or source incarnation mismatch');
+    if (options.add.kind !== 'add' || options.add.speed !== 'reaction') throw new Error('Only Reaction Add is allowed during payment');
+    binding.state = 'resumed';
+    this.paymentContinuation = null;
+    try {
+      options.restore();
+      return this.atomic(() => {
+        if (this.busy !== 'finalize') throw new Error('Payment continuation is no longer at Pay Costs');
+        const parent = this.entries.find(item => item.id === snapshot.itemId && item.status === 'finalized');
+        if (parent === undefined || parent.controller !== snapshot.payer || parent.source.ref.id !== snapshot.source.id ||
+            parent.source.ref.zoneEntryId !== snapshot.source.zoneEntryId || parent.costPlan?.id !== snapshot.costPlanId) {
+          throw new Error('Payment continuation parent, actor, source or cost plan no longer matches');
+        }
+        if (!this.playDestinationIsLegal(parent)) throw new Error('Play destination is no longer legally allowed');
+        for (const plan of parent.targetPlans) {
+          const resolution = resolveTargetPlan(this.context(parent, 'chain-item-finalize', [], parent.choicePlan), plan, {
+            isPending: ref => this.isPending(ref), isLegal: snapshot => this.targetIsLegal(snapshot, parent.controller),
+          });
+          if (resolution.invalid.length > 0) throw new TargetSelectionError('invalid-target-choice', 'A parent target is no longer legal before Pay Costs');
+        }
+        const paymentContext = this.context(parent, 'chain-item-finalize', parent.targetPlans, parent.choicePlan);
+        const current = assessCostPayment(paymentContext, parent.costPlan!, {
+          transaction: run => this.atomic(run),
+        });
+        if (!current.payable) throw new Error('Parent cost is no longer payable before the Reaction Add');
+        this.activateAddDuringPayment(options.add);
+        const after = assessCostPayment(this.context(parent, 'chain-item-finalize', parent.targetPlans, parent.choicePlan), parent.costPlan!, {
+          transaction: run => this.atomic(run),
+        });
+        if (!after.payable) throw new Error('Parent cost remains unpayable after the Reaction Add');
+        let payment: CostPaymentReceipt | undefined;
+        const resume = () => {
+          payment = this.payFinalizedParent(parent);
+          return payment as A;
+        };
+        const value = options.parent(resume);
+        if (options.payParent === true && payment === undefined) throw new Error('Payment continuation parent callback did not pay the frozen cost');
+        return {
+          value,
+          ...(options.payParent === true ? { payment } : { handle: this.suspendPaymentContinuation() }),
+          add: { status: 'executed', results: [], linkedValues: {}, events: [] },
+        };
+      });
+    } catch (error) {
+      binding.state = 'invalidated';
+      throw error;
+    }
+  }
+
+  private payFinalizedParent(item: ChainItem): CostPaymentReceipt {
+    if (item.costPlan === undefined) throw new Error('Parent has no finalized cost plan');
+    const context = this.context(item, 'chain-item-finalize', item.targetPlans, item.choicePlan);
+    const receipt = payCostPlan(context, item.costPlan, { transaction: run => this.atomic(run) });
+    const persisted = this.entries.find(candidate => candidate.id === item.id);
+    if (persisted === undefined) throw new Error('Parent disappeared during Pay Costs');
+    persisted.payment = receipt;
+    return receipt;
   }
   advance(): void {
     if (this.busy !== 'idle') throw new Error('HOT FEPR is not reentrant');
