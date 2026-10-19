@@ -36,6 +36,8 @@ type AppliedArithmetic = {
   readonly effect: AnyRecord;
 };
 
+const SYNTHETIC_KEYWORD_EFFECTS = new WeakSet<RegisteredContinuousEffect>();
+
 const EMPTY_MOVEMENT: MovementPermissions = Object.freeze({
   allowed: true,
   canMove: true,
@@ -58,11 +60,13 @@ function unique<T>(values: readonly T[]): readonly T[] {
 
 function cloneSnapshot(source: ObjectSnapshot): LayeredObjectSnapshot {
   const input = source as ObjectSnapshot & Partial<LayeredObjectSnapshot> & AnyRecord;
+  const cardId = input.cardId === null ? null : input.cardId ?? input.ref.id;
   const movement = input.movement ?? EMPTY_MOVEMENT;
   const actionTimings = array(input.actionTimings ?? input.availableTimings ?? DEFAULT_TIMINGS);
   const printed = input.printed ?? source;
   return Object.freeze({
     ...source,
+    cardId,
     types: array(source.types),
     tags: array(source.tags),
     keywords: array(source.keywords.map(keyword => Object.freeze({ ...keyword }))),
@@ -515,18 +519,23 @@ export class LayerEngine {
       (typeof keyword.value === "number" && Number.isSafeInteger(keyword.value) && keyword.value >= 0 ? keyword.value : 1), 0);
     const expanded = shieldKeyword.expand({ value, host: { canonicalCardId: target.cardId ?? target.ref.id } })[0];
     if (expanded?.kind !== "static") return [];
-    return [{
+    const generated: RegisteredContinuousEffect = {
       effect: {
         id: `default-keyword:shield:${target.ref.id}:${target.ref.zoneEntryId}`,
         layer: "arithmetic",
         source: target.ref,
         filter: { objectId: target.ref.id, zoneEntryId: target.ref.zoneEntryId, zone: target.zone },
-        effect: expanded.effect,
+        // The synthetic entry is already gated by combatRole above. A no-op
+        // callback keeps the generic evaluator from re-entering this object's
+        // layer group through the authored designation expression.
+        effect: { ...expanded.effect, condition: () => true },
       },
       duration: { type: "permanent" },
       timestamp: 0,
       sequence: 0,
-    }];
+    };
+    SYNTHETIC_KEYWORD_EFFECTS.add(generated);
+    return [generated];
   }
 
   private resolveCopy(ref: ObjectRef): LayeredObjectSnapshot | null {
@@ -714,7 +723,11 @@ export class LayerEngine {
             // entries. Avoid double-applying Shield when that owner is present.
             const keywordEngineOwnsShield = layer === "arithmetic" && effects.some(item =>
               item.effect.id.startsWith("program-keyword:") && sameRef(item.effect.source, target.ref));
-            if (layer === "arithmetic" && !keywordEngineOwnsShield) candidates.push(...this.shieldEffects(target));
+            if (layer === "arithmetic" && !keywordEngineOwnsShield) {
+              for (const shieldEffect of this.shieldEffects(target)) {
+                if (!disqualified.has(shieldEffect.effect.id)) candidates.push(shieldEffect);
+              }
+            }
             while ((entry = this.nextEffect(candidates, target))) {
               candidates.splice(candidates.indexOf(entry), 1);
               const appliedEntry = entry.effect.layer === "arithmetic" ? this.appliedArithmetic(entry, target) : { effect: this.materialize(entry, target) };
@@ -738,6 +751,7 @@ export class LayerEngine {
             // must not disqualify its promotion/threshold condition. Legacy
             // scalar callbacks retain their historical application snapshot.
             if (this.legacyScalar(item.entry)) continue;
+            if (SYNTHETIC_KEYWORD_EFFECTS.has(item.entry)) continue;
             const before = this.beforeEffect(key, done, id);
             if (!this.withSnapshot(before, () => this.layerMatches(item.entry, before))) {
               done.delete(id);

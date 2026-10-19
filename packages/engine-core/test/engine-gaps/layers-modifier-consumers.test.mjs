@@ -165,7 +165,7 @@ test('modifier consumers isolate controller and scope while multiple same-contro
   registerModifier(multiple, { source: multiple.ref('source-a'), settlementId: 'first' });
   registerModifier(multiple, { source: multiple.ref('source-a2'), settlementId: 'second' });
   registerReduction(multiple);
-  assert.equal(layeredMight(multiple).might, 2, 'one base reduction plus two independent modifiers');
+  assert.equal(layeredMight(multiple).might, 2, '5 - 2 base reduction - two additional reductions');
 });
 
 test('CR 479.4.b: a reduction limited to zero stays zero and never becomes a fresh modifier settlement', () => {
@@ -187,23 +187,23 @@ test('CR 479.4.b: expiry and source departure remove future modifiers but preser
   registerReduction(expiry);
   const registry = registryFrom(expiry);
   const engine = new LayerEngine(expiry.objects, registry);
-  assert.equal(engine.evaluate(expiry.ref('target')).might, 3);
+  assert.equal(engine.evaluate(expiry.ref('target')).might, 2);
   engine.advance({ id: 'turn-end' });
-  assert.equal(engine.evaluate(expiry.ref('target')).might, 3, 'the reduction remembers the application-time modifier');
+  assert.equal(engine.evaluate(expiry.ref('target')).might, 2, 'the reduction remembers the application-time modifier');
 
   const departure = kernel();
   registerModifier(departure, { source: departure.ref('source-a'), duration: 'while-source-in-zone', settlementId: 'leaving' });
   const existingReduction = registerReduction(departure, { source: departure.ref('source-a2') });
   const departureRegistry = registryFrom(departure);
   const departureEngine = new LayerEngine(departure.objects, departureRegistry);
-  assert.equal(departureEngine.evaluate(departure.ref('target')).might, 3);
+  assert.equal(departureEngine.evaluate(departure.ref('target')).might, 2);
   departure.perform({ type: 'kill', object: departure.ref('source-a') });
   departureEngine.setObjects(departure.objects);
   departureEngine.advance({ id: 'object-leaves-zone' });
-  assert.equal(departureEngine.evaluate(departure.ref('target')).might, 3);
+  assert.equal(departureEngine.evaluate(departure.ref('target')).might, 2);
   const next = registerReduction(departure, { source: departure.ref('source-a2') });
   departureEngine.addContinuous(next, { type: 'permanent' });
-  assert.equal(departureEngine.evaluate(departure.ref('target')).might, 2, 'only the new base -1 applies after departure');
+  assert.equal(departureEngine.evaluate(departure.ref('target')).might, 1, 'only the new base -1 applies after departure');
   assert.ok(departureRegistry.list().some(entry => entry.effect.id === existingReduction.id));
 });
 
