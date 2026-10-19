@@ -1764,7 +1764,8 @@
       "sourceConflictAndSupersession": [
         "No Fiora, Worthy entry appears in the cached SFD errata article; the printed text remains the card text.",
         "No official ruling found that replaces CR709/710/711 for this interaction.",
-        "The current executable status conflicts with the parent production probe and must not be treated as accepted."
+        "The current executable status conflicts with the parent production probe and must not be treated as accepted.",
+        "Parent RIFT-857 review candidate c9f768d8 explicitly rejects the card as executable because becomesMighty translation fails and the optional Order Power is only described in comments."
       ],
       "missingEvidence": [
         "Production EventPattern/condition binding for the below-5 to 5-or-greater transition.",
