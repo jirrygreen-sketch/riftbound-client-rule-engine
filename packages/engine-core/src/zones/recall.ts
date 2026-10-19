@@ -153,6 +153,15 @@ function stateUnchanged(ctx: ResolveContext, before: ObjectSnapshot, ref: Object
     sameLocation(after.location, before.location) && samePersistentState(before, after);
 }
 
+function recallStateUnchanged(
+  ctx: ResolveContext,
+  before: ObjectSnapshot,
+  ref: ObjectRef,
+  historyCount: number,
+): boolean {
+  return stateUnchanged(ctx, before, ref) && ctx.history({}) === historyCount;
+}
+
 function blockedAtomicRecall(ref: ObjectRef, from: LocationRef | null): RecallOutcome {
   return {
     status: "impossible", events: [], count: 0, object: refOf(ref), from, to: null,
@@ -193,6 +202,7 @@ export function performRecall(ctx: ResolveContext, ref: ObjectRef, options: Reca
       blockedReason: "RecallAction consumer unavailable (RIFT-849/810/835/837)"
     };
   }
+  const historyCount = ctx.history({});
   let outcome: ActionOutcome;
   try {
     const execute = () => {
@@ -200,10 +210,10 @@ export function performRecall(ctx: ResolveContext, ref: ObjectRef, options: Reca
       const after = ctx.object(refOf(ref));
       if (candidate.status === "done") {
         if (!committedRecall(recall, before!, after, candidate)) {
-          if (after !== null && !stateUnchanged(ctx, before!, refOf(ref))) throw new RecallAtomicityError();
+          if (!recallStateUnchanged(ctx, before!, refOf(ref), historyCount)) throw new RecallAtomicityError();
           throw new InvalidRecallCommit();
         }
-      } else if (!stateUnchanged(ctx, before!, refOf(ref))) {
+      } else if (!recallStateUnchanged(ctx, before!, refOf(ref), historyCount)) {
         throw new RecallAtomicityError();
       }
       return candidate;
@@ -211,25 +221,30 @@ export function performRecall(ctx: ResolveContext, ref: ObjectRef, options: Reca
     outcome = ctx.transaction === undefined ? execute() : ctx.transaction(execute);
   } catch (error) {
     if (error instanceof InvalidRecallCommit) {
-      if (!stateUnchanged(ctx, before!, refOf(ref))) throw new RecallAtomicityError();
+      if (!recallStateUnchanged(ctx, before!, refOf(ref), historyCount)) throw new RecallAtomicityError();
       return {
         status: "impossible", events: [], count: 0, object: refOf(ref), from, to: null,
         blockedReason: "RecallAction consumer did not commit a preserved Recall with an independent observation",
       };
     }
     if (error instanceof RecallAtomicityError) {
-      if (ctx.transaction !== undefined && stateUnchanged(ctx, before!, refOf(ref))) {
+      if (ctx.transaction !== undefined && recallStateUnchanged(ctx, before!, refOf(ref), historyCount)) {
         return blockedAtomicRecall(ref, from);
       }
       throw error;
     }
     if (error instanceof TypeError || error instanceof Error && /Unknown action type: recall/.test(error.message)) {
+      if (!recallStateUnchanged(ctx, before!, refOf(ref), historyCount)) throw new RecallAtomicityError();
       return {
         status: "impossible", events: [], count: 0, object: refOf(ref), from, to: null,
         blockedReason: "RecallAction consumer unavailable (RIFT-849/810/835/837)"
       };
     }
     throw error;
+  }
+  if (outcome.status !== "done" &&
+      !recallStateUnchanged(ctx, before!, refOf(ref), historyCount)) {
+    throw new RecallAtomicityError();
   }
   const after = outcome.status === "done" ? ctx.object(refOf(ref)) : null;
   const moved = committedRecall(recall, before!, after, outcome);
