@@ -65,6 +65,8 @@ export interface DuelDerivedMightCompleteV2 {
   readonly appliedSources: readonly DuelDerivedMightSourceEvidenceV2[];
   readonly appliedSourceUIDs: readonly string[];
   readonly tokenEvidence?: DuelDerivedMightTokenEvidenceV2;
+  /** Present when a host layer evaluator supplied the final current value. */
+  readonly layerValidated?: true;
   readonly head: {
     readonly matchId: string;
     readonly stateVersion: number;
@@ -90,6 +92,17 @@ export interface DuelDerivedMightRequestV2 {
   readonly journal: DuelPhaseSourceClosureJournalV2;
   /** The registry is the exact facade created from the verified official catalog. */
   readonly officialPrograms: DuelOfficialProgramRegistry;
+  /**
+   * Optional authoritative layer read.  Source closure remains responsible for
+   * proving the program; this callback only supplies the final current layer
+   * value (including active continuous effects) at the same state head.
+   */
+  readonly currentLayerMight?: (request: {
+    readonly uid: string;
+    readonly baseMight: number;
+    readonly sourceMight: number;
+    readonly match: DuelCanonicalPlayingStateV2;
+  }) => number | null | undefined;
 }
 
 export interface DuelDerivedMightEvaluatorV2 {
@@ -364,10 +377,26 @@ function evaluate(request: DuelDerivedMightRequestV2): DuelDerivedMightResultV2 
     if (next === null) return blocked(uid, 'might-overflow', baseMight);
     current = next;
   }
+  let layerValidated = false;
+  if (request.currentLayerMight !== undefined) {
+    if (typeof request.currentLayerMight !== 'function') return blocked(uid, 'current-layer-might-invalid', baseMight);
+    let layered: number | null | undefined;
+    try {
+      layered = request.currentLayerMight({ uid, baseMight, sourceMight: current, match });
+    } catch {
+      return blocked(uid, 'current-layer-might-invalid', baseMight);
+    }
+    if (typeof layered !== 'number' || !Number.isSafeInteger(layered) || layered < 0) {
+      return blocked(uid, 'current-layer-might-invalid', baseMight);
+    }
+    current = layered;
+    layerValidated = true;
+  }
   return Object.freeze({ status: 'complete', uid, baseMight, currentMight: current,
     targetZoneEpoch: object.zoneEpoch, targetControllerPlayerId: object.controllerPlayerId,
     appliedSources: Object.freeze(appliedSources), appliedSourceUIDs: Object.freeze(appliedSources.map(source => source.uid)),
     ...(tokenEvidence ? { tokenEvidence: Object.freeze(tokenEvidence) } : {}),
+    ...(layerValidated ? { layerValidated: true as const } : {}),
     head: Object.freeze({ matchId: match.matchId, stateVersion: match.stateVersion,
       eventSeq: match.eventSeq, turn: match.frame.turnNumber }) });
 }

@@ -26,6 +26,9 @@ function withSource(builder, id = 'source') {
 
 function chainScene(builder, options = {}) {
   const kernel = builder.build();
+  const objects = () => options.stripEmpowered
+    ? kernel.objects.map(({ empowered, empoweredCount, ...object }) => object)
+    : kernel.objects;
   const answers = new Map(Object.entries(options.answers ?? {}));
   const asked = [];
   const choose = request => {
@@ -41,7 +44,7 @@ function chainScene(builder, options = {}) {
   const host = createActionPipelineHost({
     checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
     restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
-    objects: () => kernel.objects,
+    objects,
     perform: action => kernel.perform(action),
     choose: decide,
     context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose: decide })
@@ -126,13 +129,23 @@ test('dynamic cost choices reject an unavailable required selection before payme
   assert.equal(context.player('A').energy, 2);
 });
 
-test('banish uses current control and disempower stays judge-required without contract state', () => {
+test('banish uses current control and disempower consumes exactly one authoritative status', () => {
   const context = withSource(world().player('A').unit('source', { types: ['unit'] }), 'source');
+  context.perform({ type: 'empower', object: context.ref('source'), amount: 2 });
   const disempower = buildCostPlan(context, { id: 'disempower', cost: { payments: [{ kind: 'disempower', object: 'self' }] } });
   assert.equal(disempower.total.actions[0].action.type, 'disempower');
   const banish = buildCostPlan(context, { id: 'banish', cost: { payments: [{ kind: 'banish', object: 'self' }] } });
   assert.equal(banish.total.actions[0].action.type, 'banish');
-  assert.throws(() => payCostPlan(context, disempower), failure('judge-required'));
+  payCostPlan(context, disempower);
+  assert.equal(context.object(context.ref('source')).empowered, 1);
+  assert.equal(context.object(context.ref('source')).buffs, 0);
+  payCostPlan(context, buildCostPlan(context, {
+    id: 'disempower-last', cost: { payments: [{ kind: 'disempower', object: 'self' }] }
+  }));
+  assert.equal(context.object(context.ref('source')).empowered, 0);
+  assert.throws(() => payCostPlan(context, buildCostPlan(context, {
+    id: 'disempower-zero', cost: { payments: [{ kind: 'disempower', object: 'self' }] }
+  })), failure('cannot-pay-cost'));
   payCostPlan(context, banish);
   assert.equal(context.object(context.ref('source')).zone, 'banishment');
 });
@@ -281,29 +294,27 @@ test('cost payment rejects a stale locked object with exact diagnostics and no c
 });
 
 test('default Chain rechecks each locked cost object immediately before its action', () => {
-  const kernel = world().player('A', { energy: 5 }).player('B')
-    .hand('source', { types: ['spell'], energy: 0, power: [] }).unit('first', { types: ['unit'] }).unit('second', { types: ['unit'] }).build();
-  const context = kernel.clone({ sourceSnapshot: kernel.getObject('source') });
-  const locked = [kernel.ref('first'), kernel.ref('second')];
-  context.setAnswers({ 'cost:stale-second:pick:pick': locked });
-  context.setPicks('pick', locked);
-  const plan = buildCostPlan(context, { id: 'cost:stale-second', cost: { energy: literal(1), payments: [{ kind: 'kill', choice: {
-    id: 'pick', options: ['placeholder'], filter: { zone: 'board', type: 'unit', controller: 'self' }, min: 2, max: 2
-  } }] } });
-  const before = context.snapshot();
-  context.addReplacement((action, transaction) => {
+  const f = chainScene(world().player('A', { energy: 5 }).player('B')
+    .unit('source', { types: ['unit'], energy: 0, power: [] }).unit('first', { types: ['unit'] }).unit('second', { types: ['unit'] }));
+  const locked = [f.kernel.ref('first'), f.kernel.ref('second')];
+  f.answers.set('cost:stale-object:pick:pick', locked);
+  const before = f.kernel.snapshot();
+  f.kernel.addReplacement((action, transaction) => {
     if (action.type === 'kill' && action.object.id === 'first') transaction.perform({ type: 'move-zone', object: locked[1], to: 'hand' });
     return null;
   });
-  const transactional = context.clone({ transaction: run => {
-    const saved = context.snapshot();
-    try { return run(); } catch (error) { context.restore(saved); throw error; }
-  } });
-  assert.throws(() => payCostPlan(transactional, plan), error => error instanceof CostPlanError && /Locked cost object second:1/.test(error.message) && /Finalize incarnation/.test(error.message));
-  const after = context.snapshot();
-  assert.deepEqual({ ...after, replacements: [] }, before);
-  assert.equal(context.player('A').energy, 5);
-  assert.equal(context.getObject('first').zone, 'board');
+  assert.throws(() => f.engine.execute({
+    id: 'stale-object', controller: 'A', source: f.kernel.getObject('source'), kind: 'activated', speed: 'reaction', body: [],
+    cost: { id: 'cost:stale-object', cost: { energy: literal(1), payments: [{ kind: 'kill', choice: {
+      id: 'pick', options: ['placeholder'], filter: { zone: 'board', type: 'unit', controller: 'self' }, min: 2, max: 2
+    } }] } }
+  }), error => error instanceof CostPlanError && /Locked cost object second:1/.test(error.message) && /Finalize incarnation/.test(error.message));
+  assert.deepEqual({ ...f.kernel.snapshot(), replacements: [] }, before);
+  assert.equal(f.kernel.player('A').energy, 5);
+  assert.equal(f.kernel.getObject('first').zone, 'board');
+  assert.equal(f.kernel.getObject('second').zone, 'board');
+  assert.equal(f.engine.items.length, 0);
+  assert.equal(f.engine.pipeline.events.length, 0);
 });
 
 test('banish checks the current controller while preserving owner differences', () => {
@@ -334,6 +345,63 @@ test('default Chain handles optional additional acceptance and decline', () => {
     assert.deepEqual(f.engine.items[0].costPlan.selectedAdditional.map(cost => cost.id), selected ? ['extra'] : []);
     assert.deepEqual(f.engine.items[0].costPlan.declinedAdditional, selected ? [] : ['extra']);
   }
+});
+
+test('default Chain accepts or declines a Disempower additional cost without touching Buffs', () => {
+  for (const selected of [true, false]) {
+    const builder = world().player('A', { energy: 2 }).player('B')
+      .unit('source', { types: ['unit'], energy: 0, power: [] });
+    const f = chainScene(builder);
+    f.kernel.addObject({ ...f.kernel.getObject('source'), ref: { id: 'target', zoneEntryId: 1 }, name: 'target', zone: 'board', location: { type: 'battlefield', id: 'battlefield-1' }, buffs: 3 }, 'board');
+    f.kernel.perform({ type: 'empower', object: f.kernel.ref('target'), amount: 2 });
+    const draft = {
+      id: 'disempower-extra', controller: 'A', source: f.kernel.getObject('source'), kind: 'activated', speed: 'reaction', body: [],
+      cost: {
+        id: 'cost:disempower-extra', cost: { energy: literal(1) },
+        optionalAdditional: [{ id: 'disempower', kind: 'additional', cost: { payments: [{ kind: 'disempower', object: f.kernel.ref('target') }] } }]
+      }
+    };
+    f.answers.set('cost:disempower-extra:optional:disempower', selected);
+    f.engine.execute(draft);
+    assert.equal(f.kernel.player('A').energy, 1);
+    assert.equal(f.kernel.getObject('target').empowered, selected ? 1 : 2);
+    assert.equal(f.kernel.getObject('target').buffs, 3);
+  }
+});
+
+test('default Chain rejects zero or missing Empowered state before charging', () => {
+  for (const stripEmpowered of [false, true]) {
+    const f = chainScene(world().player('A', { energy: 2 }).player('B')
+      .unit('source', { types: ['unit'], energy: 0, power: [] })
+      .unit('target', { types: ['unit'] }), { stripEmpowered });
+    const before = f.kernel.snapshot();
+    assert.throws(() => f.engine.execute({
+      id: 'disempower-zero', controller: 'A', source: f.kernel.getObject('source'), kind: 'activated', speed: 'reaction', body: [],
+      cost: { id: 'cost:disempower-zero', cost: { energy: literal(1), payments: [{ kind: 'disempower', object: f.kernel.ref('target') }] } }
+    }), error => error instanceof CostPlanError || error?.name === 'ChainContractBlockedError');
+    assert.deepEqual(f.kernel.snapshot(), before);
+    assert.equal(f.kernel.player('A').energy, 2);
+  }
+});
+
+test('default Chain rolls back resources and earlier actions when Disempower loses its status', () => {
+  const f = chainScene(world().player('A', { energy: 2 }).player('B')
+    .hand('source', { types: ['spell'], energy: 0, power: [] })
+    .unit('target', { types: ['unit'], buffs: 2 }));
+  f.kernel.perform({ type: 'empower', object: f.kernel.ref('target'), amount: 1 });
+  const target = f.kernel.ref('target');
+  const before = f.kernel.snapshot();
+  assert.throws(() => f.engine.execute({
+    id: 'disempower-late-failure', controller: 'A', source: f.kernel.getObject('source'), kind: 'spell', speed: 'normal', body: [],
+    cost: { id: 'cost:disempower-late-failure', cost: { energy: literal(1), payments: [
+      { kind: 'disempower', object: target },
+      { kind: 'disempower', object: target }
+    ] } }
+  }), error => error instanceof CostPlanError && error.reason === 'cannot-pay-cost');
+  assert.deepEqual(f.kernel.snapshot(), before);
+  assert.equal(f.kernel.player('A').energy, 2);
+  assert.equal(f.kernel.getObject('target').empowered, 1);
+  assert.equal(f.kernel.getObject('target').buffs, 2);
 });
 
 test('cost.pay-any does not ask when no Energy is available', () => {

@@ -93,9 +93,7 @@ test("EG-ZONES original Blind Fury linked pick chooses and banishes exactly one 
   // Bind the printed each-opponent source to one explicit opponent for this
   // single-player seam; the raw banish/pick/filter shapes stay unchanged.
   reveal.picks[0].zoneSlice.player = c("B");
-  const program = wrapBody("test:eg-zones-blind-fury", [reveal, banishInstruction]);
   const f = fixture({
-    programs: [program],
     setup(builder) {
       builder.deck(["b-top", "b-second"], { owner: "B", types: ["spell"] });
       builder.unit("a-source", { location: field("one") });
@@ -107,26 +105,14 @@ test("EG-ZONES original Blind Fury linked pick chooses and banishes exactly one 
   assert.equal(f.engine.items.length, 1);
   assert.equal(f.engine.items[0].pickPlans[0].refs.length, 1);
   f.engine.pass("A");
-  try { f.engine.pass("B"); } catch (error) {
-    if (!(error instanceof AwaitChoice)) throw error;
-    f.answers.set(error.request.id, error.request.options);
-    f.engine.pass("B");
-  }
+  f.engine.pass("B");
   settle(f.engine);
   const revealed = f.kernel.linked("blind-fury.reveal-top-card-of-each-opponent.revealed");
   assert.deepEqual(revealed.map(ref => ref.id), ["b-top"]);
-  // The shared PickSpec lifecycle currently leaves an options-based linked
-  // pick empty; execute the unchanged banish instruction with that finalized
-  // pick bound directly, then assert the production primitive's new receipt.
   const selected = revealed[0];
-  const probe = runInstruction(
-    banish,
-    banishInstruction.args,
-    { world: f.kernel, picks: { "blind-fury.chosen-card": [selected] } },
-  );
-  assert.equal(probe.result.status, "executed");
-  assert.deepEqual(probe.linked.banished.objects.map(ref => ref.id), ["b-top"]);
-  assert.notDeepEqual(probe.linked.banished.objects[0], selected);
+  assert.equal(f.kernel.getObject("b-top").zone, "banishment");
+  assert.deepEqual(f.kernel.linked("blind-fury.banish-chosen.banished").objects.map(ref => ref.id), ["b-top"]);
+  assert.notDeepEqual(f.kernel.linked("blind-fury.banish-chosen.banished").objects[0], selected);
 });
 
 test("EG-ZONES original Reinforce choose + filter consumes the ordered top-five pick and leaves the rest recyclable", () => {

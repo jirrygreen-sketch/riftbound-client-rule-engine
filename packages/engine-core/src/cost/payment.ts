@@ -9,6 +9,7 @@ import {
   type PreparedCostAction, type PreparedCostPayment
 } from './plan-types.js';
 import { count, freezeCost, invalid, orderedById } from './plan-values.js';
+import { disempowerTransition, tryReadEmpowered } from '../zones/empower-state.js';
 
 function cannotPay(message: string, action?: PreparedCostAction): never {
   throw new CostPlanError('cannot-pay-cost', message, action);
@@ -97,10 +98,12 @@ function checkAction(ctx: ResolveContext, payment: PreparedCostAction): void {
     if (object.controller !== ctx.controller || object.zone === 'banishment') cannotPay('A banish cost requires an object controlled by the paying player outside Banishment', payment);
   } else if (action.type === 'disempower') {
     if (object.controller !== ctx.controller || !['board', 'rune-zone'].includes(object.zone)) cannotPay('A disempower cost requires a controlled object on the Board', payment);
-    // ObjectSnapshot has no authoritative Empowered carrier. Reading an
-    // adapter-specific property here would let a host with no contract support
-    // silently turn the cost into a no-op or reset every status (CR 443.1.b).
-    throw new CostPlanError('judge-required', 'Disempower payment requires an authoritative stacking Empowered state in ObjectSnapshot', payment);
+    const empowered = tryReadEmpowered(object);
+    if (empowered === null) {
+      throw new CostPlanError('judge-required', 'Disempower payment requires an authoritative Empowered state in ObjectSnapshot', payment);
+    }
+    if (empowered === 0) cannotPay('A disempower cost requires an Empowered object', payment);
+    if (!disempowerTransition(empowered).changed) cannotPay('A disempower cost can remove exactly one Empowered status', payment);
   } else if (action.type === 'kill') {
     if (object.controller !== ctx.controller || object.zone !== 'board') cannotPay('A kill cost requires a controlled permanent on the Board', payment);
   } else if (action.type === 'spend-buff') {

@@ -4,13 +4,18 @@ import type { KeywordDef } from '../effects/keyword-contract.js';
 import { keywordDefinitionsById } from '../effects/keywords/registry.generated.js';
 import { evaluateCondition } from '../effects/interpreter/condition.js';
 import { evaluateExpression } from '../effects/interpreter/expr.js';
+import { queryObjects } from '../effects/interpreter/selectors.js';
 import { ContinuousEffectRegistry } from '../layers/duration.js';
 import { LayerEngine } from '../layers/engine.js';
 import { matchesObjectFilter } from '../layers/filter.js';
 import { refKey, sameRef, type LayeredObjectSnapshot, type RegisteredContinuousEffect, type TimingEvent } from '../layers/types.js';
 import { ProgramBindingError } from './errors.js';
+import { expandProgram } from './keywords.js';
+import { translateObjectFilter } from './filters.js';
 
-type Keyword = ObjectSnapshot['keywords'][number];
+type Keyword = ObjectSnapshot['keywords'][number] & {
+  readonly params?: Extract<Ability, { kind: 'keyword' }>['params'];
+};
 type RecordValue = Record<string, unknown>;
 export interface KeywordChange {
   readonly kind: 'grant' | 'remove';
@@ -19,6 +24,7 @@ export interface KeywordChange {
 export interface EffectiveKeywordExpansion {
   readonly keywords: readonly Keyword[];
   readonly abilities: readonly Ability[];
+  readonly entries: readonly { readonly id: string; readonly ability: Ability }[];
 }
 type AppliedKeywordChanges = ReadonlyMap<string, ReadonlyMap<string, KeywordChange>>;
 interface PreGrantView {
@@ -65,7 +71,7 @@ export function expandEffectiveKeywords(source: ObjectSnapshot, changes: readonl
     groups.set(key, [...(groups.get(key) ?? []), keyword]);
   }
   const keywords: Keyword[] = [];
-  const abilities: Ability[] = [];
+  const entries: { id: string; ability: Ability }[] = [];
   for (const group of groups.values()) {
     const def = definition(group[0]!.id);
     if (!def.valued && group.some(keyword => keyword.value !== undefined)) {
@@ -74,17 +80,32 @@ export function expandEffectiveKeywords(source: ObjectSnapshot, changes: readonl
     const values = def.stacking === 'sum'
       ? [def.valued ? keywordNumber(group.reduce((sum, entry) => sum + (entry.value ?? 1), 0)) : undefined]
       : def.stacking === 'single' ? [group[0]!.value] : group.map(entry => entry.value);
-    for (const value of values) {
-      keywords.push(Object.freeze({ id: def.keyword, ...(value === undefined ? {} : { value }) }));
-      abilities.push(...def.expand({ value, host: { canonicalCardId: source.cardId ?? source.ref.id } }));
+    for (const [index, value] of values.entries()) {
+      const params = def.stacking === 'sum'
+        ? group.find(keyword => keyword.params !== undefined)?.params
+        : group[index]?.params;
+      const keyword = Object.freeze({ id: def.keyword, ...(value === undefined ? {} : { value }),
+        ...(params === undefined ? {} : { params }) });
+      keywords.push(keyword);
+      const instance = def.stacking === 'separate' ? params?.instanceId ?? `printed-${index}` : 'effective';
+      const instanceParams = def.stacking === 'separate' && values.length > 1 && params?.instanceId === undefined
+        ? { ...params, instanceId: `keyword:${def.keyword.toLowerCase()}:${source.cardId ?? source.ref.id}:${index}` } : params;
+      // Share the printed-ability expander, including parameter validation and
+      // legacy single-instance ids. Track each grant independently of array
+      // positions so another keyword's expiry cannot rename a live trigger.
+      const { expanded } = expandProgram({ canonicalCardId: source.cardId ?? source.ref.id,
+        rulesetVersion: 'core-1.5', status: 'executable', sourceText: '[effective keyword expansion]', abilities: [],
+      }, { ...source, keywords: [{ ...keyword, ...(instanceParams === undefined ? {} : { params: instanceParams }) }] });
+      entries.push(...expanded.map((ability, ordinal) => ({ id: `${def.keyword.toLowerCase()}:${String(instance)}:${ordinal}`, ability })));
     }
   }
+  const abilities = entries.map(entry => entry.ability);
   const validation = validateCardProgram({
     canonicalCardId: source.cardId ?? source.ref.id, rulesetVersion: 'core-1.5', status: 'executable',
     sourceText: '[effective keyword expansion]', abilities,
   });
   if (!validation.ok) blocked(`Effective keyword expansion is invalid: ${JSON.stringify(validation.issues)}`);
-  return { keywords: Object.freeze(keywords), abilities: Object.freeze(abilities) };
+  return { keywords: Object.freeze(keywords), abilities: Object.freeze(abilities), entries: Object.freeze(entries) };
 }
 
 export interface KeywordGrantLayerOptions {
@@ -147,15 +168,8 @@ export class KeywordGrantLayerEngine extends LayerEngine {
         return object ? alias(object) : null;
       };
       if (key === 'query') return (filter: Parameters<ResolveContext['query']>[0]) => {
-        const normalized = { ...filter };
-        for (const field of ['controller', 'owner']) {
-          if (normalized[field] === 'self') normalized[field] = source.controller;
-          if (normalized[field] === 'opponent') normalized[field] = 'any';
-        }
         return [...this.view.values()].filter(object =>
-          (filter.controller !== 'opponent' || object.controller !== source.controller) &&
-          (filter.owner !== 'opponent' || object.owner !== source.controller) &&
-          matchesObjectFilter(normalized, object)).map(alias);
+          matchesObjectFilter(filter, object, { controller: source.controller, anchor: source })).map(alias);
       };
       const value = Reflect.get(target, key);
       return typeof value === 'function' ? value.bind(target) : value;
@@ -169,12 +183,9 @@ export class KeywordGrantLayerEngine extends LayerEngine {
   }
 
   private matches(entry: RegisteredContinuousEffect, object: LayeredObjectSnapshot): boolean {
-    const filter = record(entry.effect.filter);
-    if (filter.zoneEntryId !== undefined && filter.zoneEntryId !== object.ref.zoneEntryId) return false;
-    const location = record(filter.location);
-    if (location.type !== undefined && (object.location?.type !== location.type ||
-      (location.type === 'battlefield' ? record(object.location).id !== location.id : record(object.location).player !== location.player))) return false;
-    return matchesObjectFilter({ ...filter, ...(location.type === undefined ? {} : { location: undefined }) }, object);
+    const filter = translateObjectFilter(record(record(entry.effect.effect).filter ?? entry.effect.filter));
+    const source = entry.effect.source === undefined ? object : this.view.get(refKey(entry.effect.source));
+    return queryObjects(filter, this.environment(source ?? object)).some(candidate => sameRef(candidate.ref, object.ref));
   }
 
   private condition(effect: RecordValue, object: LayeredObjectSnapshot, source: ObjectSnapshot): boolean {
@@ -220,7 +231,8 @@ export class KeywordGrantLayerEngine extends LayerEngine {
           // value in the ability-layer registration.
           const companion = companions.find(other => other.effect.id === entry.effect.id + ':value:' + index);
           const value = this.value(companion ? record(companion.effect.effect).amount : declaration.value, source);
-          return { id, ...(value === undefined ? {} : { value: keywordNumber(value) }) };
+          return { id, ...(value === undefined ? {} : { value: keywordNumber(value) }),
+            ...(declaration.params === undefined ? {} : { params: declaration.params as Keyword['params'] }) };
         });
         const kind = String(effect.kind);
         changes.set(entry.effect.id, { kind: kind.includes('remove') || kind.includes('lose') ? 'remove' : 'grant', keywords });

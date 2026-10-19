@@ -7,7 +7,7 @@ import {
   type PlayerId,
   type ResolveContext,
 } from '../effects/contract.js';
-import type { PipelineHost, TimingEmission } from './pipeline-types.js';
+import type { ActionExecution, PipelineHost, TimingEmission } from './pipeline-types.js';
 import { type TimingPointId } from './timing-points.js';
 import { deriveMightChangedEmissions } from './producers/might-change.js';
 import { deriveZoneChangeEmissions } from './producers/zone-change.js';
@@ -61,6 +61,11 @@ export interface ActionStatePort extends Omit<PipelineHost, 'execute'> {
   /** Optional rule-level cause (for example `move` versus `recall`). */
   cause?: (action: GameAction) => string | undefined;
 }
+
+/** Static seam until the 810-owned optional PipelineHost field is merged. */
+export type ContractActionPipelineHost = PipelineHost & {
+  executeContract(action: import('../effects/contract.js').ContractGameAction): ActionExecution;
+};
 
 const GAME_ACTION_TYPES = new Set<GameAction['type']>([
   'draw', 'discard', 'move-zone', 'recycle', 'banish', 'mill', 'shuffle',
@@ -258,13 +263,13 @@ function payloadContext(
   };
 }
 
-function contractActionId(action: import('../effects/contract.js').ContractGameAction): string {
+function contractActionId(action: import('../effects/contract.js').ContractGameAction, sequence: number): string {
   return action.type === 'batch' && action.transactionId !== undefined
     ? action.transactionId
-    : `contract:${action.type}`;
+    : `contract:${action.type}:${sequence}`;
 }
 
-export function createActionPipelineHost(port: ActionStatePort): PipelineHost {
+export function createActionPipelineHost(port: ActionStatePort): ContractActionPipelineHost {
   let sequence = 0;
   let active: ActiveEffectContext | undefined;
 
@@ -394,15 +399,6 @@ export function createActionPipelineHost(port: ActionStatePort): PipelineHost {
     return { outcome, emissions };
   };
 
-  const actionPort = (): ContractActionBridgePort => ({
-    checkpoint,
-    restore,
-    objects: () => port.objects(),
-    perform: leaf => port.perform(leaf),
-    ...(port.performContract === undefined ? {} : { performContract: leaf => port.performContract!(leaf) }),
-    ...(port.performBatchLeaf === undefined ? {} : { performBatchLeaf: (leaf, batchId) => port.performBatchLeaf!(leaf, batchId) }),
-  });
-
   const contractActions: ContractActionCapability = {
     version: CONTRACT_ACTION_CAPABILITY_VERSION,
     perform(action) {
@@ -442,11 +438,19 @@ export function createActionPipelineHost(port: ActionStatePort): PipelineHost {
     },
     choose: <T>(request: ChoiceRequest<T>): T => port.choose(request),
     testTrigger: port.testTrigger ? (registration, event, source) => port.testTrigger!(registration, event, source) : undefined,
+    executeContract(action) {
+      const actionId = contractActionId(action, ++sequence);
+      const batchId = action.type === 'batch' ? action.transactionId ?? actionId : actionId;
+      return executeContract(action, actionId, batchId);
+    },
     execute(action) {
       const beforeList = port.objects();
       const contractAction = action as unknown as import('../effects/contract.js').ContractGameAction;
       const contract = isContractAction(action)
-        ? executeContract(contractAction, contractActionId(contractAction), contractActionId(contractAction))
+        ? (() => {
+            const actionId = contractActionId(contractAction, ++sequence);
+            return executeContract(contractAction, actionId, actionId);
+          })()
         : undefined;
       if (contract !== undefined) return contract;
       const before = new Map(beforeList.map(object => [object.ref.id, object]));
