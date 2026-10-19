@@ -18,6 +18,12 @@ export interface MatchChoiceAnswer {
   readonly answer: V2ChoiceAnswer;
 }
 
+/** Stable continuation identity used by CommandResult and later replay. */
+export interface MatchChoiceCursor {
+  readonly version: number;
+  readonly choiceId: string;
+}
+
 export interface MatchPendingChoice {
   readonly commandId: string;
   readonly playerId: PlayerId;
@@ -41,6 +47,7 @@ export interface MatchCommandSnapshot {
 export interface MatchReplayResult {
   readonly recordCount: number;
   readonly stateVersion: number;
+  readonly choiceCursor: MatchChoiceCursor | null;
 }
 
 export interface MatchCommandAdapter {
@@ -101,11 +108,13 @@ class MatchCommand implements MatchCommandAdapter {
   private cursor: ChoiceRequest<unknown> | null = null;
   private answers: Map<string, unknown> | null = null;
   private readonly records: MatchCommandRecord[] = [];
+  private readonly originalRecords: MatchCommandRecord[] = [];
   private readonly onCommand?: MatchCommandAdapterOptions['onCommand'];
   private readonly host: Match['flow']['chain']['pipeline']['host'];
   private readonly chainHost: Match['flow']['chain']['pipeline']['host'];
   private readonly originalContext: ContextChoice;
   private originalChainContext: Match['flow']['chain']['pipeline']['host']['context'];
+  private readonly lifecycle: ReturnType<NonNullable<Match['programBinding']>['attachLifecycle']>;
 
   constructor(private readonly match: Match, stateVersion: number, onCommand?: MatchCommandAdapterOptions['onCommand']) {
     if (!Number.isSafeInteger(stateVersion) || stateVersion < 0) throw new TypeError('stateVersion must be a non-negative integer');
@@ -118,6 +127,7 @@ class MatchCommand implements MatchCommandAdapter {
     this.originalChainContext = this.chainHost.context;
     this.host.context = (source, controller, timingPoint) => this.context(this.originalContext, source, controller, timingPoint);
     this.chainHost.context = (source, controller, timingPoint) => this.context(this.originalChainContext, source, controller, timingPoint);
+    this.lifecycle = this.match.programBinding!.attachLifecycle(this.match.flow.chain, error => { throw error; });
   }
 
   get stateVersion(): number { return this.version; }
@@ -159,10 +169,18 @@ class MatchCommand implements MatchCommandAdapter {
   }
 
   replay(records: readonly MatchCommandRecord[]): MatchReplayResult {
+    this.originalRecords.splice(0, this.originalRecords.length, ...structuredClone(records));
     for (const record of records) {
       this.execute(record.playerId, { ...structuredClone(record.command), stateVersion: this.version });
     }
-    return { recordCount: this.records.length, stateVersion: this.version };
+    return {
+      recordCount: this.originalRecords.length,
+      stateVersion: this.version,
+      choiceCursor: this.pending === null || !this.originalRecords.some(record => record.command.type === 'choose') ? null : {
+        version: this.version,
+        choiceId: this.pending.request.id,
+      },
+    };
   }
 
   detach(): void {
@@ -170,6 +188,7 @@ class MatchCommand implements MatchCommandAdapter {
     this.chainHost.context = this.originalChainContext;
     this.cursor = null;
     this.answers = null;
+    this.lifecycle.detach();
   }
 
   private context(base: ContextChoice, source: Parameters<ContextChoice>[0], controller: PlayerId, timingPoint: Parameters<ContextChoice>[2]): ResolveContext {
@@ -190,37 +209,24 @@ class MatchCommand implements MatchCommandAdapter {
     });
   }
 
-  private run(playerId: PlayerId, command: V2Command, lockedAnswers?: Map<string, unknown>): GameCommandExecution {
+  private run(playerId: PlayerId, command: V2Command): GameCommandExecution {
     const binding = this.match.programBinding!;
     this.cursor = null;
-    this.answers = lockedAnswers ?? this.pending?.answers ?? new Map();
+    this.answers = new Map();
     try {
       const receipt = executeGameCommand({ match: this.match, stateVersion: this.version, binding }, playerId, command);
       this.version += 1;
-      const record = { playerId, command: structuredClone(command) };
-      this.records.push(record);
-      this.onCommand?.(structuredClone(record), receipt);
+      this.record(playerId, command, receipt);
       this.answers = null;
-      if (this.pending !== null && command.type === 'choose') {
-        // A single choose may answer only the cursor it was sent for. Any
-        // further request remains represented by the resumed original command.
-        this.pending = null;
-      }
       return receipt;
     } catch (error) {
       if (error instanceof AwaitChoice) {
         const request = this.cursor ?? error.request;
-        this.pending = command.type === 'choose'
-          ? { command: this.pending?.command ?? command, playerId, request: request as ChoiceRequest<unknown>, answers: this.answers ?? new Map() }
-          : { command, playerId, request: request as ChoiceRequest<unknown>, answers: this.answers ?? new Map() };
+        const receipt = this.pendingReceipt(command);
+        this.record(playerId, command, receipt);
+        this.pending = { command, playerId, request: request as ChoiceRequest<unknown>, answers: this.answers ?? new Map() };
         this.cursor = null;
-        return {
-          commandId: command.commandId,
-          type: command.type,
-          previousEventSeq: this.match.events().length,
-          eventSeq: this.match.events().length,
-          winnerPlayerId: this.match.result().winner,
-        };
+        return receipt;
       }
       this.cursor = null;
       this.answers = null;
@@ -239,7 +245,53 @@ class MatchCommand implements MatchCommandAdapter {
     pending.answers.set(pending.request.id, structuredClone(normalized.value));
     this.answers = pending.answers;
     this.pending = null;
-    return this.run(playerId, pending.command, pending.answers);
+    this.cursor = null;
+    try {
+      const receipt = executeGameCommand({
+        match: this.match,
+        stateVersion: this.version,
+        binding: this.match.programBinding!,
+      }, playerId, pending.command);
+      this.version += 1;
+      this.record(playerId, command, receipt);
+      this.answers = null;
+      return receipt;
+    } catch (error) {
+      if (error instanceof AwaitChoice) {
+        const request = this.cursor ?? error.request;
+        const receipt = this.pendingReceipt(command);
+        this.record(playerId, command, receipt);
+        this.pending = {
+          command: pending.command,
+          playerId: pending.playerId,
+          request: request as ChoiceRequest<unknown>,
+          answers: pending.answers,
+        };
+        this.cursor = null;
+        return receipt;
+      }
+      this.cursor = null;
+      this.answers = null;
+      this.pending = pending;
+      throw error;
+    }
+  }
+
+  private record(playerId: PlayerId, command: V2Command, receipt: GameCommandExecution): void {
+    const record = { playerId, command: structuredClone(command) };
+    this.records.push(record);
+    this.onCommand?.(structuredClone(record), receipt);
+  }
+
+  private pendingReceipt(command: V2Command): GameCommandExecution {
+    const eventSeq = this.match.events().length;
+    return {
+      commandId: command.commandId,
+      type: command.type,
+      previousEventSeq: eventSeq,
+      eventSeq,
+      winnerPlayerId: this.match.result().winner,
+    };
   }
 }
 

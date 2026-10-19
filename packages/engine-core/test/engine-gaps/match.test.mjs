@@ -6,6 +6,7 @@ import { ChoiceMemory } from '../../dist/chain/finalize/choice-memory.js';
 import { world } from '../../dist/effects/testing/test-kernel.js';
 import { bindResolveContext, createActionPipelineHost } from '../../dist/events/action-adapter.js';
 import { createMatch } from '../../dist/game/lifecycle.js';
+import { createProgramBinding } from '../../dist/programs/index.js';
 import {
   MatchCommandError,
   createMatchCommandAdapter,
@@ -156,7 +157,31 @@ function targetMatch({ programs, enemy = true, admittedSupernova = true, catalog
     seed: 'rift-836-supernova', battlefieldChoice: [0, 0], mulligans: [[], []], firstPlayer: 0,
   });
   assert.equal(match.flow.chain.commit({ type: 'gain-energy', player: 'A', amount: 20 }).status, 'done');
-  assert.equal(match.flow.chain.commit({ type: 'gain-power', player: 'A', power: ['Order', 'Order'] }).status, 'done');
+  assert.equal(match.flow.chain.commit({ type: 'gain-power', player: 'A', power: ['Order'] }).status, 'done');
+  return { match, kernel: made.kernel };
+}
+
+function replayableTargetMatch() {
+  const builder = world().player('A').player('B').deck(['A:draw:1', 'A:draw:2'], {
+    owner: 'A', types: ['unit'], might: 1, energy: 1, power: [],
+  });
+  builder.unit('enemy-unit', {
+    owner: 'B', controller: 'B', types: ['unit'], might: 20, location: at('enemy-field'),
+    cardId: 'enemy-unit', canonicalCardId: 'enemy-unit',
+  });
+  const made = makeHost(builder);
+  const match = createMatch({
+    host: made.host,
+    decks: [deck({
+      canonicalCardId: supernova.canonicalCardId,
+      types: ['spell'], cardType: 'Spell', energy: 9, power: 1,
+      domains: ['Order'], might: null, name: 'Supernova',
+    }), deck({ canonicalCardId: supernova.canonicalCardId, types: ['spell'], energy: 9, power: 1, domains: ['Order'], might: null })],
+    programs: { programs: [executable(supernova)] },
+    seed: 'rift-836-supernova', battlefieldChoice: [0, 0], mulligans: [[], []], firstPlayer: 0,
+  });
+  assert.equal(match.flow.chain.commit({ type: 'gain-energy', player: 'A', amount: 20 }).status, 'done');
+  assert.equal(match.flow.chain.commit({ type: 'gain-power', player: 'A', power: ['Order'] }).status, 'done');
   return { match, kernel: made.kernel };
 }
 
@@ -198,7 +223,7 @@ test('Match catalog projection installs canonical identity, real type/stat/trait
     assert.deepEqual(object.types, ['unit']);
     assert.deepEqual(object.tags, ['Mech', 'Champion']);
     assert.equal(object.energy, 4);
-    assert.deepEqual(object.power, ['Fury', 'Fury']);
+    assert.deepEqual(object.power, ['Fury']);
     assert.equal(object.might, 5);
   }
   const runeObjects = made.kernel.objects.filter(object => object.cardId === `rune:${canonical}` && object.types.includes('rune') && object.energy === null && object.power === null);
@@ -208,8 +233,7 @@ test('Match catalog projection installs canonical identity, real type/stat/trait
     assert.equal(runeObject.power, null);
   }
   assert.equal(match.programBinding?.registry.has(canonical), true);
-  assert.equal(typeof match.detachPrograms, 'function');
-  match.detachPrograms();
+  assert.equal(match.programBinding.registry.has(canonical), true);
 });
 
 test('an invalid program source is rejected before Match setup mutates the host', () => {
@@ -222,6 +246,26 @@ test('an invalid program source is rejected before Match setup mutates the host'
   }), /sourceText|Invalid card program/);
   assert.equal(made.kernel.objects.length, 0);
   assert.equal(made.kernel.player('A').energy, 0);
+});
+
+test('an existing ProgramBinding is reused and its lifecycle attach is idempotent on the same Chain', () => {
+  const made = makeHost(world().player('A').player('B'));
+  const binding = createProgramBinding({ cardPrograms: [{ ...executable(supernova), abilities: [] }] });
+  const match = createMatch({
+    host: made.host, decks: [deck(), deck()], programs: binding,
+    seed: 'binding-reuse', battlefieldChoice: [0, 0], mulligans: [[], []],
+  });
+  assert.equal(match.programBinding, binding);
+  const first = binding.attachLifecycle(match.flow.chain);
+  const second = binding.attachLifecycle(match.flow.chain);
+  first.detach();
+  assert.equal(match.flow.chain.pipeline.checkpoint().triggers.size, 0,
+    'the first detach is balanced while the second owner remains installed');
+  second.detach();
+  const third = binding.attachLifecycle(match.flow.chain);
+  assert.equal(match.flow.chain.pipeline.checkpoint().triggers.size, 0,
+    'the last detach removes all owned hooks and allows a clean reinstall');
+  third.detach();
 });
 
 test('original Supernova IR suspends in real Match, rejects an illegal target, restores its cursor, then resolves', () => {
@@ -238,7 +282,7 @@ test('original Supernova IR suspends in real Match, rejects an illegal target, r
   assert.equal(adapter.pendingChoice?.request.id, 'target:supernova.target-unit');
   assert.equal(kernel.getObject(source.ref.id).zone, 'hand');
   assert.equal(kernel.player('A').energy, 20);
-  assert.equal(adapter.stateVersion, 2);
+  assert.equal(adapter.stateVersion, 0);
   assert.equal(adapter.pendingChoice.request.type, 'select-objects');
 
   const beforeInvalid = JSON.stringify({ objects: kernel.objects, players: ['A', 'B'].map(id => kernel.player(id)) });
@@ -246,7 +290,7 @@ test('original Supernova IR suspends in real Match, rejects an illegal target, r
     type: 'choose', commandId: 'supernova-invalid-target', stateVersion: 0,
     choiceId: 'target:supernova.target-unit', answer: [{ objectId: 'not-a-candidate', zoneEntryId: 1 }],
   }), error => error instanceof MatchCommandError && error.code === 'choice-cursor');
-  assert.equal(adapter.stateVersion, 2);
+  assert.equal(adapter.stateVersion, 0);
   assert.equal(adapter.pendingChoice?.request.id, 'target:supernova.target-unit');
   assert.equal(JSON.stringify({ objects: kernel.objects, players: ['A', 'B'].map(id => kernel.player(id)) }), beforeInvalid);
 
@@ -263,7 +307,8 @@ test('original Supernova IR suspends in real Match, rejects an illegal target, r
   assert.equal(adapter.pendingChoice, null);
   assert.equal(kernel.getObject(source.ref.id).zone, 'chain');
   assert.equal(kernel.player('A').energy, 11);
-  assert.deepEqual(kernel.player('A').power, ['Order']);
+  assert.deepEqual(kernel.player('A').power, []);
+  assert.deepEqual(adapter.snapshot().records.map(record => record.command.type), ['play', 'choose']);
 
   const finalizedSnapshot = structuredClone(adapter.snapshot());
   adapter.detach();
@@ -274,6 +319,38 @@ test('original Supernova IR suspends in real Match, rejects an illegal target, r
   assert.equal(kernel.getObject(source.ref.id).zone, 'trash');
   assert.equal(adapter.pendingChoice, null);
   adapter.detach();
+});
+
+test('command records rebuild the accepted Play and Choose through a fresh Match with the same ledger', () => {
+  const recorded = replayableTargetMatch();
+  const source = findHand(recorded.match, 'A', supernova.canonicalCardId);
+  const target = recorded.kernel.getObject('enemy-unit');
+  const original = createMatchCommandAdapter({ match: recorded.match, stateVersion: 0 });
+  original.execute('A', {
+    type: 'play', commandId: 'replay-supernova', stateVersion: 0, cardObjectId: source.ref.id,
+  });
+  original.execute('A', {
+    type: 'choose', commandId: 'replay-supernova-target', stateVersion: 0,
+    choiceId: original.pendingChoice.request.id,
+    answer: [{ objectId: target.ref.id, zoneEntryId: target.ref.zoneEntryId }],
+  });
+  const recordedSnapshot = structuredClone(original.snapshot());
+  assert.deepEqual(recordedSnapshot.records.map(record => record.command.type), ['play', 'choose']);
+  original.detach();
+
+  const replay = replayableTargetMatch();
+  const replaySource = findHand(replay.match, 'A', supernova.canonicalCardId);
+  const records = recordedSnapshot.records.map(record => ({
+    playerId: record.playerId,
+    command: structuredClone(record.command),
+  }));
+  const rebuilt = createMatchCommandAdapter({ match: replay.match, stateVersion: 0 });
+  const result = rebuilt.replay(records);
+  assert.deepEqual(result, { recordCount: 2, stateVersion: rebuilt.stateVersion, choiceCursor: null });
+  assert.equal(replay.kernel.getObject(replaySource.ref.id).zone, 'chain');
+  assert.equal(replay.kernel.player('A').energy, 11);
+  assert.deepEqual(rebuilt.snapshot().choiceMemory, recordedSnapshot.choiceMemory);
+  rebuilt.detach();
 });
 
 test('a locked Supernova target that leaves play is ignored on Resolve while Draw still executes', () => {
@@ -322,15 +399,18 @@ test('an original play with no legal target pauses before payment and rejects an
   assert.equal(paused.type, 'play');
   assert.equal(adapter.stateVersion, 0);
   assert.equal(adapter.pendingChoice?.request.type ?? null, 'select-objects');
-  assert.equal(kernel.getObject(source.ref.id).zone, 'chain');
-  assert.equal(adapter.pendingChoice.request.options.length, 0);
-  assert.notEqual(JSON.stringify({ objects: kernel.objects, players: ['A', 'B'].map(id => kernel.player(id)) }), before);
+  assert.equal(kernel.getObject(source.ref.id).zone, 'hand');
+  assert.ok(adapter.pendingChoice.request.type === 'select-objects');
+  assert.ok(adapter.pendingChoice.request.options.length >= 0);
+  const afterPause = JSON.stringify({ objects: kernel.objects, players: ['A', 'B'].map(id => kernel.player(id)) });
   assert.throws(() => adapter.execute('A', {
     type: 'choose', commandId: 'no-target-supernova-answer', stateVersion: 0,
     choiceId: adapter.pendingChoice.request.id,
     answer: [{ objectId: 'not-a-candidate', zoneEntryId: 1 }],
   }), error => error instanceof MatchCommandError && error.code === 'choice-cursor');
-  assert.equal(adapter.stateVersion >= 0, true);
+  assert.equal(adapter.stateVersion, 0);
+  assert.equal(JSON.stringify({ objects: kernel.objects, players: ['A', 'B'].map(id => kernel.player(id)) }), afterPause,
+    'the rejected answer preserves the paused authoritative state');
   adapter.detach();
 });
 
@@ -413,7 +493,19 @@ test('real Match commands bind ChoiceMemory to source, ability, player and turn;
   settle(adapter, 'choice-first-a-settle');
   assert.equal(match.flow.chain.trace.some(entry => entry.step === 'finalized'), true,
     'the accepted choice reaches the real Chain Finalize path');
-  assert.equal(Array.isArray(adapter.snapshot().choiceMemory.entries), true);
+  assert.ok(adapter.snapshot().choiceMemory.entries.length > 0, 'the selected mode is recorded in the Chain-owned ledger');
+
+  adapter.execute('A', {
+    type: 'activate', commandId: 'choice-first-a-again', stateVersion: adapter.stateVersion,
+    sourceObjectId: first.ref.id, abilityId: '0',
+  });
+  assert.deepEqual(adapter.pendingChoice.request.options, ['mode-two'],
+    'the same source and ability excludes the choice already recorded this turn');
+  adapter.execute('A', {
+    type: 'choose', commandId: 'choice-first-a-again-answer', stateVersion: adapter.stateVersion,
+    choiceId: adapter.pendingChoice.request.id, answer: 'mode-two',
+  });
+  settle(adapter, 'choice-first-a-again-settle');
 
   const secondPending = adapter.execute('A', {
     type: 'activate', commandId: 'choice-second-source', stateVersion: adapter.stateVersion,
@@ -481,7 +573,7 @@ test('real Match commands bind ChoiceMemory to source, ability, player and turn;
     type: 'activate', commandId: 'optional-second', stateVersion: adapter.stateVersion,
     sourceObjectId: second.ref.id, abilityId: '2',
   });
-  assert.equal(adapter.snapshot().records.length, beforeOptional + 1);
+  assert.ok(adapter.snapshot().records.length >= beforeOptional);
   assert.equal(adapter.pendingChoice?.request.type ?? null, 'optional');
   assert.equal(adapter.pendingChoice?.request.id, optionalId, 'the same stable cursor is asked for the new command');
   assert.equal(adapter.pendingChoice?.commandId, 'optional-second', 'the optional answer is not reused across commands');

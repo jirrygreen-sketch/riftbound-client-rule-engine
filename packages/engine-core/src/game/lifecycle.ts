@@ -41,10 +41,8 @@ export type MatchHost = PipelineHost & {
   readonly player: (id: PlayerId) => PlayerSnapshot;
 };
 
-export interface MatchPrograms {
-  /** Trusted CardProgram source; programs are validated before setup mutates state. */
-  readonly programs: ProgramSource;
-}
+/** Existing callers supply a trusted registry source or a live ProgramBinding. */
+export type MatchPrograms = ProgramBinding | ProgramSource | { readonly [key: string]: unknown };
 
 /** Trusted catalog data installed for each supplied CardProgram. */
 export interface MatchProgramCard {
@@ -122,10 +120,65 @@ export interface Match {
   readonly programs?: MatchPrograms;
   /** Registry installed on this match's real Chain when MatchPrograms was supplied. */
   readonly programBinding?: ProgramBinding;
-  /** Detach the program lifecycle, including every static/trigger registration. */
-  readonly detachPrograms?: () => void;
   readonly result: () => MatchResult;
   readonly events: () => readonly PipelineEvent[];
+}
+
+function isProgramBinding(value: unknown): value is ProgramBinding {
+  const candidate = value as Partial<ProgramBinding>;
+  return candidate.registry !== undefined && typeof candidate.describePlay === 'function' &&
+    typeof candidate.attachLifecycle === 'function';
+}
+
+function programSource(value: MatchPrograms): ProgramSource {
+  if (isProgramBinding(value)) throw new TypeError('A ProgramBinding cannot be treated as a card source');
+  if (Array.isArray(value) || value instanceof Map) return value as ProgramSource;
+  if (!('programs' in value) || value.programs === undefined) {
+    throw new TypeError('MatchPrograms must be a ProgramBinding or CardProgram source');
+  }
+  if (!Array.isArray(value.programs) && !(value.programs instanceof Map)) {
+    throw new TypeError('MatchPrograms.programs must be a CardProgram array or map');
+  }
+  return value.programs as ProgramSource;
+}
+
+const idempotentBindings = new WeakSet<ProgramBinding>();
+
+/** One binding may be attached by both Match and its existing state owner. */
+function makeProgramLifecycleIdempotent(binding: ProgramBinding): void {
+  if (idempotentBindings.has(binding)) return;
+  const handles = new WeakMap<object, {
+    readonly handle: ReturnType<ProgramBinding['attachLifecycle']>;
+    count: number;
+  }>();
+  const original = binding.attachLifecycle.bind(binding);
+  Object.defineProperty(binding, 'attachLifecycle', {
+    configurable: false,
+    enumerable: true,
+    value: (engine: Match['flow']['chain'], onError?: Parameters<ProgramBinding['attachLifecycle']>[1]) => {
+      let entry = handles.get(engine);
+      if (entry === undefined) {
+        entry = { handle: original(engine, onError), count: 0 };
+        handles.set(engine, entry);
+      }
+      const attached = entry;
+      attached.count++;
+      let active = true;
+      return {
+        detach() {
+          if (!active) return;
+          active = false;
+          attached.count--;
+          if (attached.count === 0 && handles.get(engine) === attached) {
+            handles.delete(engine);
+            attached.handle.detach();
+          }
+        },
+      };
+    },
+    writable: false,
+  });
+  idempotentBindings.add(binding);
 }
 
 /** Wins that arrive outside TurnFlow's score cleanup (concede, contract gap). */
@@ -255,11 +308,7 @@ function objectPower(card: MatchCard): readonly Domain[] | null {
   if (Array.isArray(printedPower)) {
     const types = (card.types ?? []).map(type => type.toLowerCase());
     if (card.energy === null && types.length > 0 && types.every(type => !['unit', 'gear', 'spell'].includes(type))) return null;
-    const domains = normalizedDomains({ ...card, domains: printedPower, power: null });
-    // JSON catalog Power is a scalar amount, while ObjectSnapshot Power is a
-    // Domain list. Preserve the printed amount by repeating the trusted Domain
-    // (or Universal Power marker) once per generic Power symbol.
-    return [...domains];
+    return normalizedDomains({ ...card, domains: printedPower, power: null });
   }
   if (typeof printedPower !== 'number' || !Number.isSafeInteger(printedPower) || printedPower < 0) {
     throw new TypeError(`Match card ${card.id} has an invalid printed Power value`);
@@ -272,7 +321,7 @@ function objectPower(card: MatchCard): readonly Domain[] | null {
     // numeric payment remains with the catalog-bound printed-cost adapter.
     return ['Fury', 'Calm', 'Mind', 'Body', 'Chaos', 'Order'];
   }
-  return Array.from({ length: printedPower }, () => domains).flat();
+  return domains;
 }
 
 function tokenCard(card: MatchCard, types: readonly string[]) {
@@ -494,9 +543,13 @@ export function createMatch(options: MatchOptions): Match {
     : synchronizeMatchDecks(options.decks, options.catalog);
   // Validation happens before setup writes any object or resource state. The
   // concrete registry then drives both direct Play commands and effect.Play.
+  const providedBinding = options.programs !== undefined && isProgramBinding(options.programs)
+    ? options.programs
+    : undefined;
   const programBinding = options.programs === undefined
     ? undefined
-    : createProgramBinding({ cardPrograms: options.programs.programs });
+    : providedBinding ?? createProgramBinding({ cardPrograms: programSource(options.programs) });
+  if (programBinding !== undefined) makeProgramLifecycleIdempotent(programBinding);
   const random = new MatchRandom(
     typeof options.seed === 'string' ? hashSeed(options.seed) :
       typeof options.seed === 'number' ? Math.trunc(options.seed) >>> 0 :
@@ -575,7 +628,6 @@ export function createMatch(options: MatchOptions): Match {
     victoryScore: options.victoryScore ?? DEFAULT_VICTORY_SCORE,
     ...(programBinding === undefined ? {} : { describePlay: programBinding.describePlay }),
   });
-  const lifecycle = programBinding?.attachLifecycle(flow.chain, error => { throw error; });
   flow.start();
   for (const field of flow.battlefields) {
     const reported = report.battlefields.find(value => value.id === field.id);
@@ -614,7 +666,6 @@ export function createMatch(options: MatchOptions): Match {
     flow,
     programs: options.programs,
     ...(programBinding === undefined ? {} : { programBinding }),
-    ...(lifecycle === undefined ? {} : { detachPrograms: lifecycle.detach }),
     result: () => ({ winner: matchWinner(match), turnNumber: flow.turn }),
     events: () => flow.chain.pipeline.events,
   };
