@@ -6,7 +6,7 @@ import type {
   V2ConcedeCommand, V2CostSelection, V2DeclareAttackCommand,
   V2DeclareDefenseCommand, V2MoveCommand, V2MoveDestination, V2MulliganCommand,
   V2ObjectRef, V2PassCommand, V2Pick, V2PlayCommand, V2PowerPayment,
-  V2Target
+  V2RuneResourceCommand, V2Target
 } from "./commands.js";
 
 type Data = Record<string, unknown>;
@@ -191,6 +191,19 @@ export function isV2DeclareDefenseCommand(value: unknown): value is V2DeclareDef
 
 export function isV2ConcedeCommand(value: unknown): value is V2ConcedeCommand {
   return data(value) && base(value, "concede", []) && exact(value, ["type", "commandId", "stateVersion"]);
+}
+
+/**
+ * Strict guard for the staged rune intents. There is deliberately no branch
+ * for these types in `isV2Command`: old V2 consumers must continue rejecting
+ * them until the matching authoritative runtime handler is enabled.
+ */
+export function isV2RuneResourceCommand(value: unknown): value is V2RuneResourceCommand {
+  return data(value) &&
+    (value.type === "rune-energy" || value.type === "rune-power") &&
+    base(value, value.type, ["runeObjectId", "zoneEntryId"]) &&
+    exact(value, ["type", "commandId", "stateVersion", "runeObjectId", "zoneEntryId"]) &&
+    text(value.runeObjectId) && count(value.zoneEntryId);
 }
 
 export function isV2Command(value: unknown): value is V2Command {
