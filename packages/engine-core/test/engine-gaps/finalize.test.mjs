@@ -22,7 +22,7 @@ const constant = value => ({ kind: 'constant', value });
 const field = id => ({ type: 'battlefield', id });
 const admitted = program => ({ ...program, status: 'executable', judgeReason: undefined });
 
-function scene(builder, programs = [], answers = {}, hooks = {}) {
+function scene(builder, programs = [], answers = {}, hooks = {}, engineOptions = {}) {
   const kernel = builder.build();
   const answerMap = new Map(Object.entries(answers));
   const asked = [];
@@ -53,6 +53,7 @@ function scene(builder, programs = [], answers = {}, hooks = {}) {
   engine = new ChainEngine({
     turnOrder: ['A', 'B'], turnPlayer: 'A', phase: 'main', host, cleanup: () => false,
     describePlay: binding.describePlay,
+    ...engineOptions,
   });
   return { kernel, host, binding, engine, answers: answerMap, asked };
 }
@@ -534,4 +535,152 @@ test('original repeat-with-target IR remains precisely blocked without an instru
   );
   assert.equal(f.engine.items.length, 0);
   assert.equal(overtOperation.status, 'judge-required');
+});
+
+test('Finalize extension hook freezes selected nested instances once and replays on the original Resolve path', () => {
+  const calls = [];
+  const f = scene(
+    world().player('A').player('B')
+      .unit('source', { location: field('one') })
+      .unit('enemy', { owner: 'B', controller: 'B', location: field('one') }),
+    [],
+    {
+      'named-outer/optional': true,
+      'named-outer/inner-choice/mode%3A0': 'named-mode',
+      'target:damaged-unit': [{ id: 'enemy', zoneEntryId: 1 }],
+    },
+    {},
+    { finalizeExtensions: [{ op: 'sequence', evaluate: input => {
+      calls.push({ ...input, context: undefined, source: input.source.ref });
+      return { receipts: [{ key: `${input.instanceKey}.nameReceipt.primary`, value: input.instanceKey }] };
+    } }] },
+  );
+  const body = [{
+    id: 'named-outer', op: 'choice.optional', args: { body: constant([
+      { id: 'named-a', op: 'sequence', args: { body: constant([]) } },
+      { id: 'extension-a', op: 'sequence', args: { body: constant([]) } },
+      { id: 'damage', op: 'effect.damage', args: { amount: constant(1), target: constant('damaged-unit') }, targets: [
+        { id: 'damaged-unit', filter: { type: 'unit', controller: 'opponent', zone: 'board' }, min: 1, max: 1, selection: 'one' },
+      ] },
+      { id: 'inner-choice', op: 'choice.mode', args: {
+        count: constant(1), different: constant(true),
+        modes: constant([{ id: 'named-mode', body: [{ id: 'named-inside-mode', op: 'sequence', args: { body: constant([]) } }] }]),
+      } },
+    ]) },
+  }];
+  f.engine.execute({ id: 'named-chain', controller: 'A', source: f.kernel.getObject('source'), kind: 'activated', speed: 'action', body });
+  const [item] = f.engine.items;
+  assert.equal(item.status, 'finalized');
+  assert.deepEqual(calls.map(call => call.instanceKey), [
+    'named-outer/named-a',
+    'named-outer/extension-a',
+    'named-outer/inner-choice/named-mode/0/named-inside-mode',
+  ]);
+  assert.deepEqual(Object.keys(item.finalizeLinks).sort(), [
+    'named-outer/extension-a',
+    'named-outer/inner-choice/named-mode/0/named-inside-mode',
+    'named-outer/named-a',
+  ]);
+  const asks = f.asked.length;
+  assert.equal(Object.values(f.engine.finalizeInstanceLinks(item, ['named-outer', 'named-a']) ?? {})[0], 'named-outer/named-a');
+  assert.equal(Object.values(f.engine.finalizeInstanceLinks(item, ['named-outer', 'inner-choice', 'named-mode', '0', 'named-inside-mode']) ?? {})[0],
+    'named-outer/inner-choice/named-mode/0/named-inside-mode');
+  f.engine.pass('A'); f.engine.pass('B');
+  assert.equal(calls.length, 3, 'Resolve never reevaluates a Finalize extension');
+  assert.equal(f.asked.length, asks);
+});
+
+test('Finalize extension rollback restores answers and links before a corrected retry', () => {
+  let calls = 0;
+  const f = scene(
+    world().player('A').player('B').unit('source'), [], {},
+    {},
+    { finalizeExtensions: [{ op: 'sequence', evaluate: () => {
+      calls++;
+      if (calls === 1) throw new Error('extension failure');
+      return { receipts: [{ key: 'value', value: 'retry' }] };
+    } }] },
+  );
+  const draft = {
+    id: 'extension-retry', controller: 'A', source: f.kernel.getObject('source'), kind: 'activated', speed: 'action',
+    body: [{ id: 'extension-value', op: 'sequence', args: { body: constant([]) } }],
+  };
+  assert.throws(() => f.engine.execute(draft), /extension failure/);
+  assert.equal(f.engine.items.length, 0);
+  f.engine.execute(draft);
+  assert.equal(calls, 2);
+  assert.deepEqual(Object.values(f.engine.items[0].finalizeLinks['extension-value']), ['retry']);
+});
+
+test('Finalize extension keys are isolated by repeat iteration and duplicate receipts fail closed', () => {
+  const seen = [];
+  const f = scene(
+    world().player('A').player('B').unit('source'), [], {},
+    {},
+    { finalizeExtensions: [{ op: 'sequence', evaluate: input => {
+      seen.push(input.instanceKey);
+      return { receipts: [{ key: `${input.instanceKey}.nameReceipt.primary`, value: input.instanceKey }] };
+    } }] },
+  );
+  f.engine.execute({
+    id: 'repeated-extension', controller: 'A', source: f.kernel.getObject('source'), kind: 'activated', speed: 'action',
+    body: [{ id: 'repeat-choice', op: 'repeat', args: {
+      count: constant(2), body: constant([{ id: 'nested-name', op: 'sequence', args: { body: constant([]) } }]),
+    } }],
+  });
+  const [item] = f.engine.items;
+  assert.deepEqual(seen, ['repeat-choice/0/nested-name', 'repeat-choice/1/nested-name']);
+  assert.deepEqual(Object.values(f.engine.finalizeInstanceLinks(item, ['repeat-choice', '0', 'nested-name']) ?? {}),
+    ['repeat-choice/0/nested-name']);
+  assert.deepEqual(Object.values(f.engine.finalizeInstanceLinks(item, ['repeat-choice', '1', 'nested-name']) ?? {}),
+    ['repeat-choice/1/nested-name']);
+
+  const duplicate = scene(
+    world().player('A').player('B').unit('source'), [], {},
+    {},
+    { finalizeExtensions: [
+      { op: 'sequence', evaluate: input => ({ receipts: [{ key: `${input.instanceKey}.receipt`, value: input.instanceKey }] }) },
+    ] },
+  );
+  duplicate.engine.execute({
+    id: 'duplicate-extension-second', controller: 'A', source: duplicate.kernel.getObject('source'), kind: 'activated', speed: 'action',
+    body: [{ id: 'one-name', op: 'sequence', args: { body: constant([]) } }],
+  });
+  const one = duplicate.engine.items[0];
+  assert.equal(Object.keys(one.finalizeLinks).length, 1);
+  duplicate.engine.pass('A'); duplicate.engine.pass('B');
+  duplicate.engine.execute({
+    id: 'duplicate-extension', controller: 'A', source: duplicate.kernel.getObject('source'), kind: 'activated', speed: 'action',
+    body: [{ id: 'two-name', op: 'sequence', args: { body: constant([]) } }],
+  });
+  assert.equal(duplicate.engine.items.length, 1);
+  assert.notDeepEqual(duplicate.engine.items[0].finalizeLinks, one.finalizeLinks);
+  assert.notDeepEqual(Object.keys(Object.values(duplicate.engine.items[0].finalizeLinks)[0]),
+    Object.keys(Object.values(one.finalizeLinks)[0]));
+});
+
+test('Finalize extension receipts are bound to their chain item and not reused by a later item', () => {
+  const f = scene(
+    world().player('A').player('B').unit('source'), [], {},
+    {},
+    { finalizeExtensions: [{ op: 'sequence', evaluate: () => ({ receipts: [{ key: 'name.receipt.primary', value: 'Poro' }] }) }] },
+  );
+  const source = f.kernel.getObject('source');
+  f.engine.execute({
+    id: 'first-name', controller: 'A', source, kind: 'activated', speed: 'action',
+    body: [{ id: 'first-instance', op: 'sequence', args: { body: constant([]) } }],
+  });
+  const first = f.engine.items[0];
+  assert.equal(Object.values(f.engine.finalizeInstanceLinks(first, ['first-instance']) ?? {})[0], 'Poro');
+  f.engine.pass('A'); f.engine.pass('B');
+  f.engine.execute({
+    id: 'second-name', controller: 'A', source: f.kernel.getObject('source'), kind: 'activated', speed: 'action',
+    body: [{ id: 'second-instance', op: 'sequence', args: { body: constant([]) } }],
+  });
+  const second = f.engine.items[0];
+  assert.notEqual(second.id, first.id);
+  assert.equal(Object.values(f.engine.finalizeInstanceLinks(second, ['second-instance']) ?? {})[0], 'Poro');
+  assert.notDeepEqual(second.finalizeLinks, first.finalizeLinks);
+  assert.deepEqual(Object.values(f.engine.finalizeInstanceLinks(first, ['first-instance']) ?? {}), ['Poro']);
+  assert.deepEqual(Object.values(f.engine.finalizeInstanceLinks(second, ['second-instance']) ?? {}), ['Poro']);
 });

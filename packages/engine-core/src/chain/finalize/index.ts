@@ -1,5 +1,6 @@
 import type { CostSpec, Instruction, PickSpec } from '@riftbound/card-dsl';
 import type { ResolveContext } from '../../effects/contract.js';
+import type { Value } from '../../effects/contract.js';
 import {
   costChoiceLocks,
   finalizeCostChoiceLock,
@@ -21,6 +22,85 @@ export * from './add-window.js';
 export * from './choice-memory.js';
 export * from './choices.js';
 export * from './target-tax.js';
+
+export interface FinalizeInstructionInstance {
+  readonly instruction: Instruction;
+  readonly instancePath: readonly string[];
+}
+
+/** Walk selected control branches with a stable instruction-and-repeat instance path. */
+export function finalizeInstructionInstances(body: readonly Instruction[], plan: ChoicePlan): readonly FinalizeInstructionInstance[] {
+  const instances: FinalizeInstructionInstance[] = [];
+  const samePath = (left: readonly string[], right: readonly string[]): boolean =>
+    left.length === right.length && left.every((segment, index) => segment === right[index]);
+  const visit = (instructions: readonly Instruction[], executionPath: readonly string[], modePath: readonly string[], repeatIndex?: number): void => {
+    for (const instruction of instructions) {
+      const currentPath = [...executionPath, instruction.id];
+      if (instruction.op === 'choice.mode') {
+        const selection = plan.selectedModes.find(candidate =>
+          candidate.instructionId === instruction.id && samePath(candidate.modePath, modePath) && candidate.repeatIndex === repeatIndex);
+        const modes = instruction.args.modes;
+        if (selection === undefined || modes === undefined ||
+            (modes.kind !== 'constant' && modes.kind !== 'literal') || !Array.isArray(modes.value)) continue;
+        for (const mode of modes.value as unknown as readonly { readonly id?: unknown; readonly body?: unknown }[]) {
+          if (typeof mode.id !== 'string' || !Array.isArray(mode.body)) continue;
+          const copies = selection.selected.filter(selected => selected === mode.id).length;
+          for (let copy = 0; copy < copies; copy++) {
+            visit(mode.body as readonly Instruction[], [...currentPath, mode.id, String(copy)], [...modePath, mode.id], repeatIndex);
+          }
+        }
+        continue;
+      }
+      if (instruction.op === 'choice.optional') {
+        const choice = plan.optionalChoices.find(candidate =>
+          candidate.instructionId === instruction.id && samePath(candidate.modePath, modePath) && candidate.repeatIndex === repeatIndex);
+        // A pure optional remains Resolve-time under the legacy Chain surface;
+        // extension planning only descends into branches owned by ChoicePlan.
+        if (choice?.accepted === true) {
+          const nested = controlBodies(instruction)[0];
+          if (nested !== undefined) visit(nested, currentPath, modePath, repeatIndex);
+        }
+        continue;
+      }
+      if (instruction.op === 'repeat') {
+        const selected = plan.repeats.find(candidate =>
+          candidate.instructionId === instruction.id && samePath(candidate.modePath, modePath));
+        const count = selected?.count ?? 0;
+        const nested = controlBodies(instruction)[0];
+        if (nested !== undefined) for (let index = 0; index < count; index++) {
+          visit(nested, [...currentPath, String(index)], modePath, index);
+        }
+        continue;
+      }
+      instances.push(Object.freeze({ instruction, instancePath: Object.freeze([...currentPath]) }));
+      if (instruction.op === 'sequence') {
+        const nested = controlBodies(instruction)[0];
+        if (nested !== undefined) visit(nested, currentPath, modePath, repeatIndex);
+      }
+    }
+  };
+  visit(body, [], []);
+  return Object.freeze(instances);
+}
+
+export function instancePathKey(path: readonly string[]): string {
+  return path.map(segment => encodeURIComponent(segment)).join('/');
+}
+export type FinalizePlanLinkMap = Readonly<Record<string, Readonly<Record<string, Value>>>>;
+export function withFinalizePlanLinks(context: ResolveContext, links: FinalizePlanLinkMap): ResolveContext {
+  const exact = new Map<string, Value>();
+  for (const values of Object.values(links)) {
+    for (const [key, value] of Object.entries(values)) exact.set(key, value);
+  }
+  return new Proxy(context, { get(target, key) {
+    if (key === 'linked') return (id: string, alias?: string) => {
+      if (alias === undefined && exact.has(id)) return exact.get(id);
+      return target.linked(alias === undefined ? id : `${id}.${alias}`);
+    };
+    const value = Reflect.get(target, key);
+    return typeof value === 'function' ? value.bind(target) : value;
+  } });
+}
 
 interface CostChoiceDeclaration {
   readonly choice: PickSpec;
@@ -168,8 +248,9 @@ export function finalizeInstructionChoices(
   return finalizeChoicePlan(context, body, options);
 }
 
-export function hasFinalizeChoices(body: readonly Instruction[]): boolean {
+export function hasFinalizeChoices(body: readonly Instruction[], extensionOps: ReadonlySet<string> = new Set()): boolean {
   const visit = (instructions: readonly Instruction[], insideChoice = false): boolean => instructions.some(instruction => {
+    if (extensionOps.has(instruction.op)) return true;
     if (instruction.op === 'choice.mode') return true;
     if (instruction.op === 'repeat') {
       if ((instruction.targets?.length ?? 0) > 0 || visit(controlBodies(instruction).flat(), insideChoice)) return true;

@@ -18,9 +18,14 @@ import { bindResolveContext } from '../events/action-adapter.js';
 import { finalizeOrderedPickPlans, lockedOrderedPicks, type OrderedPickPlan } from './picks/plan.js';
 import { choicePlanAnswers, ChoicePlanError, type ChoicePlan } from './finalize/choices.js';
 import { ChoiceMemory } from './finalize/choice-memory.js';
-import { controlNodeTargetRequirements, finalizeCostPlanInput, finalizeInstructionChoices, hasChoiceMemory, hasFinalizeChoices } from './finalize/index.js';
+import { controlNodeTargetRequirements, finalizeCostPlanInput, finalizeInstructionChoices, finalizeInstructionInstances, hasChoiceMemory, hasFinalizeChoices, instancePathKey, withFinalizePlanLinks } from './finalize/index.js';
 import { collectTargetTaxes } from '../target/tax/index.js';
 import { boundTargetTaxes, ignoresTargetTax } from '../programs/static-adapters/capabilities.js';
+
+function chainDraftPrefix(item: ChainDraft, turn: number): string {
+  const source = item.trigger?.source.ref ?? item.source.ref;
+  return [item.id, turn, item.controller, source.id, source.zoneEntryId].join('\u0000');
+}
 
 export type ChainSpeed = 'normal' | 'action' | 'reaction';
 export type ChainKind = 'spell' | 'unit' | 'gear' | 'activated' | 'triggered' | 'add';
@@ -40,6 +45,35 @@ export interface ChainDraft {
   readonly trigger?: TriggerSnapshot;
   readonly mayAtFinalize?: boolean;
 }
+export interface FinalizeExtensionContext {
+  readonly chainItemId: string;
+  readonly turn: number;
+  readonly controller: PlayerId;
+  readonly source: ObjectSnapshot;
+  /** Instruction path plus repeat index, encoded as UTF-8 URI path segments. */
+  readonly instancePath: readonly string[];
+  readonly instanceKey: string;
+  readonly context: ResolveContext;
+  /** Stable root for every request/result owned by this instance. */
+  readonly receiptPrefix: string;
+}
+export interface FinalizeExtensionReceipt {
+  readonly key: string;
+  readonly value: Value;
+}
+export interface FinalizeExtensionResult {
+  /** Each receipt key is owned by this exact instruction/repeat instance. */
+  readonly receipts?: readonly FinalizeExtensionReceipt[];
+}
+  /**
+   * Additive semantic adapter owned by the named/ShowOff primitive owner.
+   * Chain supplies only scope, rollback and replay; the extension owns all
+   * trusted catalogs, receipts and object-condition semantics.
+   */
+export interface FinalizeInstructionExtension {
+  readonly op: string;
+  evaluate(input: FinalizeExtensionContext): FinalizeExtensionResult;
+}
 export interface ChainItem extends ChainDraft {
   status: 'pending' | 'finalized';
   object: ObjectRef;
@@ -48,7 +82,7 @@ export interface ChainItem extends ChainDraft {
   costPlan?: CostPlan;
   payment?: CostPaymentReceipt;
   choicePlan?: ChoicePlan;
-  finalizeLinks?: Readonly<Record<string, Value>>;
+  finalizeLinks?: Readonly<Record<string, Readonly<Record<string, Value>>>>;
   costInput?: CostPlanInput;
 }
 export interface ChainTrace {
@@ -67,6 +101,7 @@ export interface ChainEngineOptions {
   readonly cleanup: (engine: ChainEngine) => boolean;
   readonly layers?: LayerEngine;
   readonly describePlay?: (action: Extract<GameAction, { type: 'play' }>, source: ObjectSnapshot) => ChainDraft;
+  readonly finalizeExtensions?: readonly FinalizeInstructionExtension[];
 }
 
 /** The new rules layer. Legacy duel runtimes deliberately do not call it yet. */
@@ -291,7 +326,7 @@ export class ChainEngine {
     const source = item.trigger?.source ?? item.source;
     const base = this.options.host.context(source, item.controller, at);
     const answers = choicePlan === undefined ? undefined : choicePlanAnswers(choicePlan);
-    const answerPrefix = this.finalizeAnswerPrefix(item, at);
+    const answerPrefix = this.finalizeAnswerPrefix(item);
     const targets = new Map<string, ObjectRef[]>();
     const overrides: Partial<ResolveContext> = {
       source, controller: item.controller, timingPoint: at,
@@ -348,9 +383,12 @@ export class ChainEngine {
     }
     return context;
   }
-  private finalizeAnswerPrefix(item: ChainDraft, _at: TimingPointId): string {
-    const source = item.trigger?.source.ref ?? item.source.ref;
-    return [item.id, this.pipeline.clock.turn, item.controller, source.id, source.zoneEntryId].join('\u0000');
+  private finalizeAnswerPrefix(item: ChainDraft): string {
+    return chainDraftPrefix(item, this.pipeline.clock.turn);
+  }
+  /** Exact instance receipt for one path; the preferred adapter read. */
+  finalizeInstanceLinks(item: Pick<ChainItem, 'id' | 'controller' | 'source' | 'trigger' | 'finalizeLinks'>, instancePath: readonly string[]): Readonly<Record<string, Value>> | undefined {
+    return item.finalizeLinks?.[instancePathKey(instancePath)];
   }
   private lockFinalizeAnswers(prefix: string): void {
     const locked = new Map<string, unknown>();
@@ -378,7 +416,8 @@ export class ChainEngine {
   private finalize(item: ChainItem): void {
     this.atomic(() => {
       this.busy = 'finalize'; this.record({ step: 'finalize-start', item: item.id });
-      const controlPlanRequired = hasFinalizeChoices(item.body);
+      const controlPlanRequired = hasFinalizeChoices(item.body, new Set(this.options.finalizeExtensions?.map(extension => extension.op) ?? [])) ||
+        item.body.some(instruction => this.options.finalizeExtensions?.some(extension => extension.op === instruction.op));
       assertFinalizationSurface(item.body, controlPlanRequired);
       let context = this.context(item);
       if (!this.playDestinationIsLegal(item)) throw new Error('Play destination is not legally allowed');
@@ -391,7 +430,7 @@ export class ChainEngine {
       if ([...(item.requirements ?? []), ...(item.restrictions ?? [])].some(condition => !context.test(condition))) throw new Error('Finalize legality failed');
       if (item.conditionalReaction && item.speed !== 'reaction' && this.entries.length > 1 && !context.test(item.conditionalReaction)) throw new Error('Conditional Reaction no longer applies');
       const targetTaxes: CostComponentInput[] = [];
-      const answerPrefix = this.finalizeAnswerPrefix(item, 'chain-item-finalize');
+      const answerPrefix = this.finalizeAnswerPrefix(item);
       try {
         if (controlPlanRequired) {
           const rememberModes = hasChoiceMemory(item.body);
@@ -471,6 +510,44 @@ export class ChainEngine {
             });
             item.targetPlans.push(plan);
           }
+        }
+        const extensionInstances = item.choicePlan !== undefined
+          ? finalizeInstructionInstances(item.body, item.choicePlan)
+          : this.options.finalizeExtensions === undefined
+            ? []
+            : item.body.map(instruction => ({ instruction, instancePath: Object.freeze([instruction.id]) }));
+        for (const instance of extensionInstances) {
+          const extension = this.options.finalizeExtensions?.find(candidate => candidate.op === instance.instruction.op);
+          if (extension === undefined) continue;
+          const instanceKey = instancePathKey(instance.instancePath);
+          const receiptPrefix = `${chainDraftPrefix(item, this.pipeline.clock.turn)}\u0000${instanceKey}\u0000`;
+          const result = extension.evaluate({
+            chainItemId: item.id,
+            turn: this.pipeline.clock.turn,
+            controller: item.controller,
+            source: item.trigger?.source ?? item.source,
+            instancePath: instance.instancePath,
+            instanceKey,
+            receiptPrefix,
+            context,
+          });
+          const receipts = result.receipts ?? [];
+          if (receipts.some(receipt => receipt.key.trim().length === 0) ||
+              new Set(receipts.map(receipt => receipt.key)).size !== receipts.length) {
+            throw new ChainContractBlockedError(`Finalize extension ${instanceKey} returned duplicate receipt keys`);
+          }
+          const qualified = receipts.map(receipt => ({
+            key: `${receiptPrefix}${encodeURIComponent(receipt.key)}`,
+            value: structuredClone(receipt.value),
+          }));
+          const links = Object.freeze(Object.fromEntries(qualified.map(receipt => [receipt.key, receipt.value])));
+          const duplicate = qualified.find(receipt =>
+            Object.values(item.finalizeLinks ?? {}).some(values => Object.hasOwn(values, receipt.key)));
+          if (duplicate !== undefined) {
+            throw new ChainContractBlockedError(`Finalize extension receipt key ${duplicate.key} was reused`);
+          }
+          item.finalizeLinks = Object.freeze({ ...(item.finalizeLinks ?? {}), [instanceKey]: links });
+          context = withFinalizePlanLinks(context, item.finalizeLinks);
         }
         this.collectBoundTargetTaxes(item, context, targetTaxes);
         item.pickPlans = finalizeOrderedPickPlans(context, item.body);
@@ -604,7 +681,8 @@ export class ChainEngine {
   private resolve(item: ChainItem): ExecutionOutcome {
     return this.atomic(() => {
       this.busy = 'resolve'; this.record({ step: 'resolve-start', item: item.id });
-      const context = this.context(item, 'chain-item-resolve', item.targetPlans, item.choicePlan);
+      const initializedContext = this.context(item, 'chain-item-resolve', item.targetPlans, item.choicePlan);
+      const context = item.finalizeLinks === undefined ? initializedContext : withFinalizePlanLinks(initializedContext, item.finalizeLinks);
       if (item.kind === 'unit' || item.kind === 'gear') {
         const ready = item.kind === 'gear' || item.costPlan?.selectedAdditional.some(cost => cost.kind === 'accelerate');
         const state = this.pipeline.commit({ type: ready ? 'ready' : 'exhaust', object: item.object });
