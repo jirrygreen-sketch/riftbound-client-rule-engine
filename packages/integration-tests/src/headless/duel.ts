@@ -52,6 +52,13 @@ export interface HeadlessGameOptions {
   readonly deckPair?: HeadlessDeckPair;
 }
 
+interface HeadlessNoProgressCache {
+  before: string | null;
+  readonly peek: (context: HeadlessContext) => string;
+  readonly refresh: (context: HeadlessContext) => string;
+  readonly invalidate: () => void;
+}
+
 export interface HeadlessGamesOptions extends HeadlessGameOptions {}
 
 export interface HeadlessMatrixOptions {
@@ -209,6 +216,8 @@ interface HeadlessWorld {
   readonly counters: MutableCounters;
   readonly projectionInput: (match?: Match, events?: readonly unknown[]) => Parameters<typeof projectFor>[0];
   readonly invalidateProjection: () => void;
+  readonly primeCheckpoint: (checkpoint: HeadlessWorldCheckpoint) => void;
+  readonly invalidateCheckpoint: () => void;
 }
 
 export interface HeadlessWorldCheckpoint {
@@ -231,6 +240,10 @@ export interface HeadlessJournal {
   readonly final: Readonly<Record<string, unknown>>;
   /** Digest of all replay inputs. Older journals without it remain replayable. */
   readonly integrity?: string;
+}
+
+interface FinalStateCheckpointSink {
+  checkpoint?: HeadlessWorldCheckpoint;
 }
 
 type DraftableCard = ObjectSnapshot & { readonly cardId: string };
@@ -381,6 +394,27 @@ class BotRandom {
   }
 }
 
+/**
+ * Guard no progress from a fresh logical engine digest. Accepted commands
+ * invalidate the cached value before they can mutate authoritative state, so
+ * the next read proves the resulting state; rejected commands leave it intact.
+ */
+function createNoProgressCache(): HeadlessNoProgressCache {
+  let stateDigest: string | null = null;
+  const calculate = (context: HeadlessContext): string => {
+    const sink: FinalStateCheckpointSink = {};
+    stateDigest = digest(finalState(context, false, sink));
+    context.state.primeCheckpoint(sink.checkpoint!);
+    return stateDigest;
+  };
+  return {
+    before: null,
+    peek: context => stateDigest ?? calculate(context),
+    refresh: calculate,
+    invalidate: () => { stateDigest = null; },
+  };
+}
+
 function makeWorld(seed: string): HeadlessWorld {
   const builder = world(stableSeed(`${seed}:kernel`)).player("A").player("B");
   const kernel = builder.build();
@@ -411,12 +445,20 @@ function makeWorld(seed: string): HeadlessWorld {
     actionCoverage: emptyActionCoverage(),
   };
   const checkpoints = createHeadlessCheckpointManager(kernel);
+  let primedCheckpoint: HeadlessWorldCheckpoint | undefined;
+  const checkpoint = () => {
+    const primed = primedCheckpoint;
+    primedCheckpoint = undefined;
+    return primed ?? checkpoints.checkpoint();
+  };
+  const invalidateCheckpoint = () => { primedCheckpoint = undefined; checkpoints.invalidate(); };
   const choiceRandom = new BotRandom(`${seed}:choices`);
   const choose = <T>(request: Parameters<PipelineHost["choose"]>[0]): T => botChoice(choiceRandom, request, counters) as T;
   const hostBase = createActionPipelineHost({
-    checkpoint: checkpoints.checkpoint,
+    checkpoint,
     restore: snapshot => {
       checkpoints.restore(snapshot);
+      primedCheckpoint = undefined;
       objectRevision += 1;
       invalidateProjection();
     },
@@ -449,6 +491,8 @@ function makeWorld(seed: string): HeadlessWorld {
     counters,
     projectionInput,
     invalidateProjection,
+    primeCheckpoint: value => { primedCheckpoint = value; checkpoints.invalidate(); },
+    invalidateCheckpoint,
   };
 }
 
@@ -519,6 +563,8 @@ export function headlessProjectionLeaks(projection: ProjectionV2, hiddenRefs: re
 
 function projectionBaseInputForKernel(kernel: TestWorld, match?: Match): Parameters<typeof projectFor>[0] {
   const players = ["A", "B"] as const;
+  const objects = kernel.objects;
+  const objectsById = new Map(objects.map(object => [object.ref.id, object]));
   return {
     phase: match?.flow.phase ?? "playing",
     turn: match?.flow.turn,
@@ -528,7 +574,7 @@ function projectionBaseInputForKernel(kernel: TestWorld, match?: Match): Paramet
     players: players.map(id => {
       const player = kernel.player(id);
       const cards = (zone: Parameters<TestWorld["objectsInZone"]>[1]) => kernel.objectsInZone(id, zone).map(ref => {
-        const object = kernel.getObject(ref.id)!;
+        const object = objectsById.get(ref.id)!;
         return {
           id: object.ref.id,
           ref: object.ref,
@@ -558,7 +604,7 @@ function projectionBaseInputForKernel(kernel: TestWorld, match?: Match): Paramet
         runeZone: cards("rune-zone"),
       };
     }),
-    objects: kernel.objects.map(object => ({
+    objects: objects.map(object => ({
       id: object.ref.id,
       ref: object.ref,
       zone: object.zone,
@@ -659,8 +705,6 @@ function chooseMulligans(seed: string, openingHands: readonly [readonly string[]
   return [choose(openingHands[0]), choose(openingHands[1])];
 }
 
-const defaultPrograms = createProgramBinding({ cardPrograms: cardPrograms as unknown as readonly CardProgram[] });
-
 const DEFAULT_DECK_PAIR: HeadlessDeckPair = Object.freeze({ A: "rumble-sfd", B: "fiora-sfd" });
 
 function deckPairFromIds(ids: readonly [M1PreconId, M1PreconId]): HeadlessDeckPair {
@@ -674,7 +718,7 @@ function createHeadlessContext(
   pair: HeadlessDeckPair = DEFAULT_DECK_PAIR,
 ): HeadlessContext {
   const decks = [cloneDeck(buildM1Deck(pair.A, "A"), "A"), cloneDeck(buildM1Deck(pair.B, "B"), "B")] as const;
-  const programs = defaultPrograms;
+  const programs = createProgramBinding({ cardPrograms: cardPrograms as unknown as readonly CardProgram[] });
   const mulligans = requestedMulligans ?? chooseMulligans(seed, openingHandsFor(seed, decks));
   const state = makeWorld(seed);
   const match = setupMatch(seed, state, programs, decks, mulligans);
@@ -753,6 +797,16 @@ function executeCommand(context: HeadlessContext, command: HeadlessCommand): voi
   }
 }
 
+function executeGuardedCommand(
+  context: HeadlessContext,
+  command: HeadlessCommand,
+  noProgress: HeadlessNoProgressCache,
+): void {
+  noProgress.invalidate();
+  try { executeCommand(context, command); }
+  finally { context.state.invalidateCheckpoint(); }
+}
+
 /** Candidates are timing/permission filtered; the public command still owns final legality and cost checks. */
 function enumerateCandidates(context: HeadlessContext, sequence: number): readonly HeadlessCommand[] {
   const { match, state, programs } = context;
@@ -802,14 +856,20 @@ function enumerateCandidates(context: HeadlessContext, sequence: number): readon
   return commands;
 }
 
-function finalState(context: HeadlessContext, includeProjections = true): Readonly<Record<string, unknown>> {
+function finalState(
+  context: HeadlessContext,
+  includeProjections = true,
+  checkpointSink?: FinalStateCheckpointSink,
+): Readonly<Record<string, unknown>> {
   const { match, state } = context;
+  const checkpoint = checkpointHeadlessWorld(state.kernel);
+  if (checkpointSink) checkpointSink.checkpoint = checkpoint;
   return {
     ...match.result(), scoreA: state.kernel.player("A").score, scoreB: state.kernel.player("B").score,
     victoryScore: match.flow.victoryScore, phase: match.flow.phase, turnPlayer: match.flow.turnPlayer,
     priority: match.flow.chain.priority, focus: match.flow.chain.focus,
     battlefields: match.flow.battlefields, combat: match.flow.combat.current,
-    stateDigest: digest(state.kernel.snapshot()), linkedDigest: digest(state.kernel.linkedSnapshot()), chainDigest: digest(match.flow.chain.items),
+    stateDigest: digest(checkpoint.state), linkedDigest: digest(checkpoint.links.linkedSnapshot()), chainDigest: digest(match.flow.chain.items),
     traceDigest: digest(match.flow.chain.trace),
     ...(includeProjections ? { projections: Object.fromEntries((["A", "B", "spectator"] as const)
       .map(viewer => [viewer, digest(projectionForKernel(state, viewer, match))])) } : {}),
@@ -860,9 +920,10 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
   let auditedEventCount = 0;
   const checkPrivacy = () => {
     const unauditedEvents = state.kernel.events.slice(auditedEventCount);
+    const objects = state.kernel.objects;
     for (const viewer of ["A", "B", "spectator"] as const) {
       privacyChecks++;
-      const hidden = state.kernel.objects.filter(object => object.zone === "deck" || object.zone === "rune-deck" ||
+      const hidden = objects.filter(object => object.zone === "deck" || object.zone === "rune-deck" ||
         object.zone === "hand" && object.owner !== viewer).map(object => object.ref);
       if (headlessProjectionLeaks(projectionForKernel(state, viewer, match, unauditedEvents), hidden).length) privacySafe = false;
     }
@@ -870,10 +931,11 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
   };
   checkPrivacy();
   const rejected = new Set<string>();
+  const noProgress = createNoProgressCache();
   while (!match.result().winner) {
     if (match.flow.turn > maxTurns) { guardReason = "turn-limit"; break; }
     if (commands.length >= maxActions) { guardReason = "action-limit"; break; }
-    const before = digest(finalState(context, false));
+    noProgress.before = noProgress.peek(context);
     const candidates = enumerateCandidates(context, commands.length).filter(command => !rejected.has(commandKey(command)));
     const movements = candidates.filter(command => command.type === "move" && command.to.type === "battlefield");
     const command = movements.length ? movements[random.next(movements.length)]! : candidates.length
@@ -886,7 +948,7 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
         : { type: "advance" as const };
     let failure: HeadlessFailure | null = null;
     let fatal = false;
-    try { executeCommand(context, command); }
+    try { executeGuardedCommand(context, command, noProgress); }
     catch (error) {
       failure = failureOf(error);
       if (isBlocked(error)) { blockers.push(failure); termination = "blocked"; fatal = true; }
@@ -900,12 +962,14 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
     if (fatal) break;
     if (!failure) {
       rejected.clear();
-      if (digest(finalState(context, false)) === before) { guardReason = "no-progress"; break; }
+      const after = noProgress.refresh(context);
+      if (after === noProgress.before) { guardReason = "no-progress"; break; }
     }
   }
   if (match.result().winner) termination = "winner";
+  const events = match.events();
   const content: Omit<HeadlessJournal, "integrity"> = { seed, decks, mulligans: context.mulligans, commands,
-    events: structuredClone(match.events()), final: finalState(context) };
+    events: structuredClone(events), final: finalState(context) };
   const journal: HeadlessJournal = { ...content, integrity: digest(content) };
   options.onJournal?.(structuredClone(journal));
   const projections = { A: projectionForKernel(state, "A", match), B: projectionForKernel(state, "B", match) };
@@ -913,11 +977,11 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
   return {
     seed, decks, ...match.result(), termination, guardReason, blockers,
     scores: { A: state.kernel.player("A").score, B: state.kernel.player("B").score },
-    victoryScore: match.flow.victoryScore, battleStats: battleStats(match.events()), privacyChecks, exceptions,
+    victoryScore: match.flow.victoryScore, battleStats: battleStats(events), privacyChecks, exceptions,
     judgeRequiredRejections: state.counters.judgeRequiredRejections,
     judgeRequiredCards: judgeRequiredCardIds(cards), judgeRequiredCardCounts: cards, judgeRequiredTop: cards.slice(0, 10),
     actionCoverage: { commands: { ...state.counters.actionCoverage.commands }, choices: { ...state.counters.actionCoverage.choices } },
-    eventCount: match.events().length, journalDigest: digest(journal),
+    eventCount: events.length, journalDigest: digest(journal),
     projectionDigests: { A: digest(projections.A), B: digest(projections.B) },
     replayMatches: replayHeadlessJournal(journal), privacySafe,
   };
