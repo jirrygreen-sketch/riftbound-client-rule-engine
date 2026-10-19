@@ -391,10 +391,14 @@ export interface PickZoneSlice {
 export interface PickSpec {
   readonly id: string;
   readonly options: readonly Value[];
-  /** Explicit ordered sources use options: [], ordered: true, selection: "all". */
+  /** Explicit zoneSlice sources use options: [], ordered: true, selection: "all". */
   readonly ordered?: boolean;
   readonly zoneSlice?: PickZoneSlice;
-  /** Resolve-time binding to an actual preceding instruction result, in result order. */
+  /**
+   * Resolve-time binding to one actual preceding instruction result, in result
+   * order. Explicit linked picks use options: [], ordered: true; `selection`
+   * and filter/bounds constrain only that receipt and never query globally.
+   */
   readonly linked?: LinkedValueExpr | LinkedExpr;
   /** Subtract an actual result list from linked, retaining the remaining order. */
   readonly exclude?: LinkedValueExpr | LinkedExpr;
@@ -402,6 +406,17 @@ export interface PickSpec {
   readonly min?: number;
   readonly max?: number | null;
   readonly selection?: "one" | "any" | "all" | "up-to";
+  /**
+   * Legacy descriptive chooser metadata accepted by the pre-revision default
+   * schema. It is not consumed by the linked Resolve picker and does not grant
+   * executable player-choice semantics.
+   */
+  readonly chooser?: string;
+  /**
+   * Legacy cost-choice descriptive predicate. It remains judge-required until
+   * a cost-choice consumer implements current-Might filtering.
+   */
+  readonly mighty?: boolean;
   readonly [key: string]: unknown;
 }
 

@@ -91,6 +91,26 @@ function copyValue(value: PickValue): PickValue {
   return value;
 }
 
+function isLinkedExpression(value: unknown): value is NonNullable<PickSpec["linked"]> {
+  return isRecord(value) && (value.kind === "linked" || value.kind === "linked-value");
+}
+
+/**
+ * Original card IR spells a linked Resolve source as the sole option, for
+ * example `options: [{ kind: "linked-value", instructionId, key }]`. Keep that
+ * spelling distinct from ordinary static options and from the later explicit
+ * `linked` field. Only a complete single-link declaration is executable.
+ */
+export function linkedPickExpression(spec: PickSpec): NonNullable<PickSpec["linked"]> | undefined {
+  if (!Array.isArray(spec.options) || spec.options.length !== 1) return undefined;
+  const candidate = spec.options[0];
+  if (!isLinkedExpression(candidate) || typeof candidate.instructionId !== "string" ||
+      candidate.instructionId.length === 0 || typeof candidate.key !== "string" || candidate.key.length === 0) {
+    return undefined;
+  }
+  return candidate;
+}
+
 function assertPick(spec: PickSpec): void {
   if (!isRecord(spec) || typeof spec.id !== "string" || spec.id.length === 0 || !Array.isArray(spec.options)) {
     throw new PickSelectionError("invalid-pick", "PickSpec requires an id and an options array");
@@ -100,6 +120,19 @@ function assertPick(spec: PickSpec): void {
   }
   if (own(spec, "zoneSlice") && own(spec, "linked")) {
     throw new PickSelectionError("invalid-pick", "A pick cannot use both zoneSlice and linked sources");
+  }
+  const markedOptions = spec.options.filter(isLinkedExpression);
+  if (markedOptions.length > 0 && linkedPickExpression(spec) === undefined) {
+    throw new PickSelectionError(
+      "invalid-pick",
+      `${spec.id} linked options require exactly one linked-value with instructionId and key`
+    );
+  }
+  if (linkedPickExpression(spec) !== undefined && (own(spec, "zoneSlice") || own(spec, "linked") || own(spec, "exclude"))) {
+    throw new PickSelectionError(
+      "invalid-pick",
+      `${spec.id} linked options must be the sole source; zoneSlice/linked/exclude cannot also be declared`
+    );
   }
 }
 
@@ -144,11 +177,28 @@ function evaluateResult(context: ResolveContext, expression: PickSpec["linked"] 
   }
   if (value === null) throw new PickSelectionError("missing-result", `${id} linked result is unavailable`);
   if (!Array.isArray(value)) throw new PickSelectionError("invalid-result", `${id} must link an array result`);
-  return value.map(item => copyValue(item as PickValue));
+  const result: PickValue[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!isObjectRef(item) && !(typeof item === "string" && item.length > 0)) {
+      throw new PickSelectionError(
+        "invalid-result",
+        `${id} linked result must contain only complete object references or non-empty player strings`
+      );
+    }
+    const copied = copyValue(item as PickValue);
+    const key = valueKey(copied);
+    if (seen.has(key)) throw new PickSelectionError("invalid-result", `${id} linked duplicate result identities`);
+    seen.add(key);
+    result.push(copied);
+  }
+  return result;
 }
 
 function sourceValues(context: ResolveContext, spec: PickSpec, options: PickCandidateOptions): PickValue[] {
   if (spec.linked !== undefined) return evaluateResult(context, spec.linked, spec.id);
+  const linkedOption = linkedPickExpression(spec);
+  if (linkedOption !== undefined) return evaluateResult(context, linkedOption, spec.id);
   if (options.source !== undefined) return options.source.map(copyValue);
   if (spec.zoneSlice !== undefined) {
     throw new PickSelectionError("missing-source", `${spec.id} requires a Finalize zoneSlice binding`);
@@ -179,7 +229,7 @@ function filteredByObjectFilter(
   for (const value of values) {
     if (isObjectRef(value)) {
       const snapshot = context.object(value);
-      const legalByFilter = queried === undefined ? true : queried.has(refKey(value));
+      const legalByFilter = queried === undefined || queried.has(refKey(value));
       const legalByCallback = options.isLegal?.(value, snapshot, options.phase ?? "resolve") ?? true;
       if (snapshot === null || !legalByFilter || !legalByCallback) {
         invalid.push(value);

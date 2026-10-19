@@ -662,13 +662,100 @@ function validateTarget(value: unknown, path: string, context: ValidationContext
   return valid;
 }
 
-function validatePick(value: unknown, path: string, context: ValidationContext): value is PickSpec {
+type PickValidationMode = "instruction" | "cost-payment";
+
+// Fields present in the pre-revision default PickSpec schema. They remain
+// descriptive unless their owning consumer explicitly reads them; they do not
+// alter a linked source's receipt or turn it into a target/query.
+const LEGACY_PICK_EXTENSION_FIELDS = new Set(["chooser", "mighty"]);
+
+const LEGACY_COST_CHOICE_FILTER_FIELDS = new Set([
+  "type", "types", "zone", "owner", "controller", "location", "locationType",
+  "states", "state", "tags", "tag", "keyword", "keywords", "hasKeyword",
+  "damaged", "buffed", "empowered"
+]);
+
+function validateCostChoiceFilterField(
+  key: string,
+  value: unknown,
+  path: string,
+  context: ValidationContext
+): boolean {
+  if (["type", "types", "zone", "states", "state", "tags", "tag", "keyword", "keywords", "hasKeyword"].includes(key)) {
+    if (typeof value !== "string" && (!Array.isArray(value) || value.some(item => typeof item !== "string"))) {
+      addIssue(context, path, "invalid-cost-choice-filter", "Expected a string or string list for this legacy cost choice field.");
+      return false;
+    }
+    return true;
+  }
+  if (["damaged", "buffed", "empowered"].includes(key)) {
+    if (typeof value !== "boolean") {
+      addIssue(context, path, "invalid-cost-choice-filter", "Expected a boolean for this legacy cost choice field.");
+      return false;
+    }
+    return true;
+  }
+  if (["owner", "controller"].includes(key)) {
+    if (typeof value !== "string" || value.length === 0) {
+      addIssue(context, path, "invalid-cost-choice-filter", "Expected a player selector string for this legacy cost choice field.");
+      return false;
+    }
+    return true;
+  }
+  if (key === "location") {
+    return (typeof value === "string" && value.length > 0) || value === null ||
+      (isRecord(value) && typeof value.type === "string") ||
+      (addIssue(context, path, "invalid-cost-choice-filter", "Expected a location id or location filter."), false);
+  }
+  if (key === "locationType") {
+    if (value !== "base" && value !== "battlefield") {
+      addIssue(context, path, "invalid-cost-choice-filter", "Expected base or battlefield.");
+      return false;
+    }
+    return true;
+  }
+  return true;
+}
+
+function validatePick(
+  value: unknown,
+  path: string,
+  context: ValidationContext,
+  mode: PickValidationMode = "instruction"
+): value is PickSpec {
   if (!isRecord(value)) {
     addIssue(context, path, "invalid-pick", "Expected a pick specification.");
     return false;
   }
   let valid = validateString(value.id, `${path}.id`, context, "Expected a pick id.", SYMBOL_PATTERN);
+  const allowedFields = new Set([
+    "id", "options", "ordered", "zoneSlice", "linked", "exclude", "filter", "min", "max", "selection"
+  ]);
+  for (const key of Object.keys(value)) {
+    if (!allowedFields.has(key) && (mode === "cost-payment" || LEGACY_PICK_EXTENSION_FIELDS.has(key))) {
+      // The pre-revision cost-choice shape allowed descriptive extension fields
+      // such as `type`, `zone`, `controller`, and known-but-not-yet-consumed
+      // predicates like `mighty`. Preserve that default-schema compatibility
+      // only here; instruction picks retain the closed PickSpec vocabulary.
+      if (LEGACY_COST_CHOICE_FILTER_FIELDS.has(key)) {
+        valid = validateCostChoiceFilterField(key, value[key], `${path}.${key}`, context) && valid;
+      } else {
+        valid = validateValue(value[key], `${path}.${key}`, context) && valid;
+      }
+    } else if (!allowedFields.has(key)) {
+      addIssue(context, `${path}.${key}`, "unknown-field", "PickSpec does not allow this field.");
+      valid = false;
+    }
+  }
   const orderedSource = hasOwn(value, "zoneSlice") || hasOwn(value, "linked");
+  if (hasOwn(value, "linked")) {
+    for (const key of Object.keys(value)) {
+      if (!allowedFields.has(key)) {
+        addIssue(context, `${path}.${key}`, "invalid-linked-pick-extension", "Linked Resolve picks do not accept descriptive extension fields.");
+        valid = false;
+      }
+    }
+  }
   if (!Array.isArray(value.options) || (!orderedSource && value.options.length === 0)) {
     addIssue(context, `${path}.options`, "invalid-pick-options", "Expected at least one non-target pick option.");
     valid = false;
@@ -677,6 +764,15 @@ function validatePick(value: unknown, path: string, context: ValidationContext):
       valid = validateValue(option, `${path}.options[${index}]`, context) && valid;
     });
   }
+  if (Array.isArray(value.options) && value.options.some(option =>
+    isRecord(option) && (option.kind === "linked" || option.kind === "linked-value"))) {
+    const linkedOptions = value.options.length === 1 && isRecord(value.options[0]) &&
+      ["linked", "linked-value"].includes(String(value.options[0].kind));
+    if (!linkedOptions || ["zoneSlice", "linked", "exclude"].some(key => hasOwn(value, key))) {
+      addIssue(context, `${path}.options`, "ambiguous-linked-pick-source", "A linked-value option must be the sole source and cannot mix zoneSlice, explicit linked, exclude, or static options.");
+      valid = false;
+    }
+  }
   valid = validateSelectionBounds(value, path, context) && valid;
   if (hasOwn(value, "filter")) valid = validateFilter(value.filter, `${path}.filter`, context) && valid;
   if (hasOwn(value, "ordered") && typeof value.ordered !== "boolean") {
@@ -684,14 +780,25 @@ function validatePick(value: unknown, path: string, context: ValidationContext):
     valid = false;
   }
   if (orderedSource) {
-    if (value.ordered !== true || value.selection !== "all" || !Array.isArray(value.options) || value.options.length !== 0 ||
-      hasOwn(value, "filter") || hasOwn(value, "min") || hasOwn(value, "max")) {
-      addIssue(context, path, "invalid-ordered-pick-source", "An ordered source requires options: [], ordered: true, selection: all, and no filter or selection bounds; perform subset choices in the resolving instruction.");
+    if (value.ordered !== true || !Array.isArray(value.options) || value.options.length !== 0) {
+      addIssue(context, path, "invalid-ordered-pick-source", "An explicit source requires options: [], ordered: true, and exactly one source.");
       valid = false;
     }
     if (hasOwn(value, "zoneSlice") && hasOwn(value, "linked")) {
       addIssue(context, path, "ambiguous-pick-source", "Use exactly one zone slice or linked result source.");
       valid = false;
+    }
+    if (hasOwn(value, "zoneSlice") && (value.selection !== "all" || hasOwn(value, "filter") ||
+      hasOwn(value, "min") || hasOwn(value, "max"))) {
+      addIssue(context, path, "invalid-ordered-pick-source", "A zone slice is a Finalize source and requires selection: all with no filter or bounds; Resolve restrictions belong to linked sources.");
+      valid = false;
+    }
+    if (hasOwn(value, "linked") && isRecord(value.linked) && hasOwn(value.linked, "key")) {
+      const key = value.linked.key;
+      if (typeof key !== "string" || key.trim().length === 0) {
+        addIssue(context, `${path}.linked.key`, "invalid-linked-source-key", "A linked Resolve source requires a non-empty result key.");
+        valid = false;
+      }
     }
   }
   if (hasOwn(value, "zoneSlice")) valid = validatePickZoneSlice(value.zoneSlice, `${path}.zoneSlice`, context) && valid;
@@ -802,7 +909,7 @@ function validateCost(value: unknown, path: string, context: ValidationContext):
         if (hasOwn(payment, "id")) valid = validateString(payment.id, `${paymentPath}.id`, context, "Expected a payment id.", SYMBOL_PATTERN) && valid;
         if (hasOwn(payment, "amount")) valid = validateExpr(payment.amount, `${paymentPath}.amount`, context) && valid;
         if (hasOwn(payment, "value")) valid = validateExpr(payment.value, `${paymentPath}.value`, context) && valid;
-        if (hasOwn(payment, "choice")) valid = validatePick(payment.choice, `${paymentPath}.choice`, context) && valid;
+        if (hasOwn(payment, "choice")) valid = validatePick(payment.choice, `${paymentPath}.choice`, context, "cost-payment") && valid;
         if (hasOwn(payment, "source") && (typeof payment.source !== "string" || payment.source.length === 0)) {
           addIssue(context, `${paymentPath}.source`, "invalid-payment-source", "Expected a payment source name.");
           valid = false;
