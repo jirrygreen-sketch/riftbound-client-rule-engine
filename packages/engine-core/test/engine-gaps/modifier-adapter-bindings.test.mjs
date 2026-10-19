@@ -18,7 +18,8 @@ const program = (canonicalCardId, ability) => ({
 function assembly(ability, { choose, setup } = {}) {
   const sourceProgram = program('card.rift-847', ability);
   const binding = createProgramBinding({ cardPrograms: [sourceProgram] });
-  const f = fixture({ choose, describePlay: binding.describePlay, cards: [{ id: 'source', cardId: sourceProgram.canonicalCardId, types: ['unit'], zone: 'board', location: { type: 'base', player: 'A' }, might: 2 }] });
+  const f = fixture({ choose, describePlay: binding.describePlay });
+  f.kernel.addObject({ ...f.kernel.getObject('source'), cardId: sourceProgram.canonicalCardId }, 'board');
   setup?.(f);
   return { ...f, binding, sourceProgram };
 }
@@ -38,17 +39,17 @@ test('modifier IR preserves target Exprs, decodes only schema literals, and is c
     {
       id: 'bonus', op: 'continuous.bonus-damage',
       args: { amount: c(2), appliesTo: c('deal-actions'), filter: c({ type: 'unit', zone: 'board', controller: 'opponent' }), target: c('bonus-target') },
-      targets: [{ id: 'bonus-target', filter: { type: 'unit', zone: 'board', controller: 'opponent' }, min: 1, max: 1, selection: 'one' }],
+      targets: [{ id: 'bonus-target', filter: { type: 'unit', zone: 'board', controller: 'opponent', objectId: 'foe' }, min: 1, max: 1, selection: 'one' }],
     },
     {
       id: 'threshold', op: 'continuous.lethal-threshold',
       args: { amount: c(1), appliesTo: c({ damageController: 'controller', target: 'enemy-units' }), filter: c({ type: 'unit', zone: 'board' }), target: c('threshold-target') },
-      targets: [{ id: 'threshold-target', filter: { type: 'unit', zone: 'board', controller: 'opponent' }, min: 1, max: 1, selection: 'one' }],
+      targets: [{ id: 'threshold-target', filter: { type: 'unit', zone: 'board', controller: 'opponent', objectId: 'foe' }, min: 1, max: 1, selection: 'one' }],
     },
     {
       id: 'reduction', op: 'continuous.modify-might-reduction',
       args: { mode: c('additional'), amount: c(-1), appliesTo: c('controller-spells-and-abilities'), filter: c({ type: 'unit', zone: 'board' }), target: c('reduction-target') },
-      targets: [{ id: 'reduction-target', filter: { type: 'unit', zone: 'board', controller: 'opponent' }, min: 1, max: 1, selection: 'one' }],
+      targets: [{ id: 'reduction-target', filter: { type: 'unit', zone: 'board', controller: 'opponent', objectId: 'foe' }, min: 1, max: 1, selection: 'one' }],
     },
   ];
   const f = assembly(activated(body), {
@@ -62,7 +63,7 @@ test('modifier IR preserves target Exprs, decodes only schema literals, and is c
   assert.deepEqual(effects.map(effect => effect.amount), [2, 1, -1]);
   assert.equal(effects.every(effect => effect.targetRefs[0].id === 'foe'), true);
   assert.deepEqual(effects[1].appliesTo, { damageController: 'controller', target: 'enemy-units' });
-  assert.equal(effects[0].filter.objectId, 'foe');
+  assert.equal(effects[0].targetRefs[0].id, 'foe');
   assert.equal(f.kernel.getObject('source').exhausted, true);
 });
 
@@ -70,7 +71,7 @@ test('shield-value reads the selected unit through default chain TargetSpec bind
   const body = [{
     id: 'shield', op: 'effect.shield-value',
     args: { object: c({ target: 'shield-target' }), linkKey: c('shieldValue') },
-    targets: [{ id: 'shield-target', filter: { type: 'unit', zone: 'board', controller: 'self' }, min: 1, max: 1, selection: 'one' }],
+    targets: [{ id: 'shield-target', filter: { type: 'unit', zone: 'board', controller: 'self', objectId: 'shielded' }, min: 1, max: 1, selection: 'one' }],
   }];
   const f = assembly(activated(body), {
     setup: f => f.kernel.addObject({ ref: { id: 'shielded', zoneEntryId: 1 }, cardId: 'card:shielded', name: 'shielded', types: ['unit'], owner: 'A', controller: 'A', zone: 'board', location: { type: 'base', player: 'A' }, might: 2, keywords: [{ id: 'Shield', value: 2 }, { id: 'Shield' }] }),
@@ -83,7 +84,7 @@ test('a targetless grant uses the authored TargetSpec as its default object sele
   const body = [{
     id: 'grant', op: 'continuous.grant-keyword',
     args: { keyword: c('Shield'), value: c(2), duration: c('end-of-turn') },
-    targets: [{ id: 'friendly', filter: { type: 'unit', zone: 'board', controller: 'self' }, min: 1, max: 1, selection: 'one' }],
+    targets: [{ id: 'friendly', filter: { type: 'unit', zone: 'board', controller: 'self', objectId: 'friend' }, min: 1, max: 1, selection: 'one' }],
   }];
   const f = assembly(activated(body), {
     setup: f => f.kernel.addObject({ ref: { id: 'friend', zoneEntryId: 1 }, cardId: 'card:friend', name: 'friend', types: ['unit'], owner: 'A', controller: 'A', zone: 'board', location: { type: 'base', player: 'A' }, might: 3 }),
@@ -99,7 +100,7 @@ test('explicit grant selectors are not replaced, and multi-target or appliesTo f
   const explicit = [{
     id: 'grant', op: 'continuous.grant-keyword',
     args: { keyword: c('Shield'), objects: c({ kind: 'target', id: 'friend' }) },
-    targets: [{ id: 'friend', filter: { type: 'unit', zone: 'board' }, min: 1, max: 1, selection: 'one' }],
+    targets: [{ id: 'friend', filter: { type: 'unit', zone: 'board', objectId: 'friend' }, min: 1, max: 1, selection: 'one' }],
   }];
   const f = assembly(activated(explicit), {
     setup: f => f.kernel.addObject({ ref: { id: 'friend', zoneEntryId: 1 }, cardId: 'card:friend', name: 'friend', types: ['unit'], owner: 'A', controller: 'A', zone: 'board', location: { type: 'base', player: 'A' }, might: 3 }),
@@ -109,11 +110,11 @@ test('explicit grant selectors are not replaced, and multi-target or appliesTo f
 
   for (const [id, instruction] of [
     ['multi-target', { id: 'grant', op: 'continuous.grant-keyword', args: { keyword: c('Shield') }, targets: [
-      { id: 'a', filter: { type: 'unit', zone: 'board' }, min: 1, max: 1, selection: 'one' },
-      { id: 'b', filter: { type: 'unit', zone: 'board' }, min: 1, max: 1, selection: 'one' },
+      { id: 'a', filter: { type: 'unit', zone: 'board', objectId: 'friend' }, min: 1, max: 1, selection: 'one' },
+      { id: 'b', filter: { type: 'unit', zone: 'board', objectId: 'friend' }, min: 1, max: 1, selection: 'one' },
     ] }],
     ['applies-to', { id: 'grant', op: 'continuous.grant-keyword', args: { keyword: c('Shield'), appliesTo: c('self') }, targets: [
-      { id: 'a', filter: { type: 'unit', zone: 'board' }, min: 1, max: 1, selection: 'one' },
+      { id: 'a', filter: { type: 'unit', zone: 'board', objectId: 'friend' }, min: 1, max: 1, selection: 'one' },
     ] }],
   ]) {
     const g = assembly(activated([instruction]), {
@@ -127,19 +128,19 @@ test('explicit grant selectors are not replaced, and multi-target or appliesTo f
 test('effect.stun keeps all three authored selector keys and rejects missing or cross-item selections', () => {
   const target = {
     id: 'stun-target', op: 'effect.stun', args: { target: c('stun-unit') },
-    targets: [{ id: 'stun-unit', filter: { type: 'unit', zone: 'board', controller: 'opponent' }, min: 1, max: 1, selection: 'one' }],
+    targets: [{ id: 'stun-unit', filter: { type: 'unit', zone: 'board', controller: 'opponent', objectId: 'foe' }, min: 1, max: 1, selection: 'one' }],
   };
   const f = assembly(activated([target]), {
     setup: f => f.kernel.addObject({ ref: { id: 'foe', zoneEntryId: 1 }, cardId: 'card:foe', name: 'foe', types: ['unit'], owner: 'B', controller: 'B', zone: 'board', location: { type: 'base', player: 'B' }, might: 2 }),
   });
   resolveActivation(f);
   assert.equal(f.kernel.getObject('foe').stunned, true);
-  assert.equal(f.kernel.linked('stun.stunned.count'), 1);
+  assert.equal(f.kernel.linked('stun-target.stunned.count'), 1);
 
   for (const [id, instruction] of [
     ['missing', { id: 'stun', op: 'effect.stun', args: {} }],
-    ['cross-pick', { id: 'stun', op: 'effect.stun', args: { pick: c('foreign-pick') } }],
-    ['cross-link', { id: 'stun', op: 'effect.stun', args: { target: c({ linked: 'foreign' }) } }],
+    ['cross-pick', { id: 'stun', op: 'effect.stun', args: { pick: c('foreign-pick') }, picks: [] }],
+    ['cross-link', { id: 'stun', op: 'effect.stun', args: { target: c('stun-unit'), amount: { kind: 'linked', instructionId: 'foreign' } }, targets: [{ id: 'stun-unit', filter: { objectId: 'foe' }, min: 1, max: 1 }] }],
   ]) {
     const g = assembly(activated([instruction]), {
       setup: f => f.kernel.addObject({ ref: { id: 'foe', zoneEntryId: 1 }, cardId: 'card:foe', name: 'foe', types: ['unit'], owner: 'B', controller: 'B', zone: 'board', location: { type: 'base', player: 'B' }, might: 2 }),
@@ -161,11 +162,16 @@ test('AwaitChoice rolls back modifier registration and activation cost, then rep
   assert.throws(() => resolveActivation(f), error => { request = error.request; return error instanceof AwaitChoice; });
   assert.equal(request.id.endsWith('/stun-choice'), true);
   assert.equal(registrations(f).length, 0);
-  assert.equal(f.kernel.getObject('source').exhausted, false);
+  // Finalize has already paid the activation cost before Resolve asks for the
+  // stun choice. The Resolve transaction itself must still roll back its
+  // registration and result writes, and the retry must not pay again.
+  assert.equal(f.kernel.getObject('source').exhausted, true);
   assert.equal(f.kernel.getObject('foe').stunned, false);
   assert.equal(f.kernel.linked('stun.stunned'), undefined);
   f.answers.set(request.id, [f.kernel.ref('foe')]);
-  f.engine.pass('A');
+  const priority = f.engine.priority;
+  assert.ok(priority);
+  f.engine.pass(priority);
   resolveAll(f.engine);
   assert.equal(registrations(f).length, 1);
   assert.equal(f.kernel.getObject('source').exhausted, true);
