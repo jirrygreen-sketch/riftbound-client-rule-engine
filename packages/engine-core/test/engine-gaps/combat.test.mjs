@@ -11,6 +11,17 @@ import { TurnFlow } from '../../dist/turn/flow.js';
 import ahriInquisitive from '../../../card-dsl/dist/cards/ogn/ahri-inquisitive.js';
 import duneDrake from '../../../card-dsl/dist/cards/ogn/dune-drake.js';
 import sunlitGuardian from '../../../card-dsl/dist/cards/ogn/sunlit-guardian.js';
+import yuumiMagicalCat from '../../../card-dsl/dist/cards/unl/yuumi-magical-cat.js';
+
+// Official interaction evidence used by this suite:
+// - CR v1.5 (updated 2026-10-09):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance official rulings (effective 2026-10-16), including the
+//   Chronobreak example for controller-selected internal order and Turn Order:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// The assertions exercise the default Combat/Chain production path. Synthetic
+// Units in primitive-only cases have no canonical card id; original-IR cases
+// record the exact canonicalCardId on the individual test below.
 
 const field = id => ({ type: 'battlefield', id });
 const admitted = program => ({ ...program, status: 'executable', judgeReason: undefined });
@@ -141,6 +152,11 @@ test('EG-COMBAT opens a real Combat Showdown, preserves Focus, designates both s
   assert.equal(f.chain.turnState, 'showdown-open');
   assert.equal(f.chain.focus, 'A');
   assert.equal(f.chain.priority, 'A');
+  // CR 347.1 / 347.2: the Focus holder may play a legally timed Action or
+  // Pass; the non-Focus player cannot act in this open Showdown window.
+  assert.equal(f.chain.canAct('A', 'action'), true);
+  assert.equal(f.chain.canAct('B', 'action'), false);
+  assert.equal(f.chain.canAct('A', 'normal'), false);
   assert.deepEqual(f.flow.lifecycle, {
     phase: 'showdown', field: 'bf1', combatId: 'combat:bf1:1', attacker: 'A', defender: 'B',
   });
@@ -333,6 +349,10 @@ test('EG-COMBAT a Stunned attacker contributes no damage while the opposing side
 });
 
 test('EG-COMBAT default CardProgram assembly runs Dune Drake attack IR and changes the live layer Might', () => {
+  // CR v1.5 383.4.e / 466.2.c; canonicalCardId
+  // card.hash-129e18f9d31400f8fce66c0a8cb60d4ca43ce586a107ec18cb24bee9d79e81d9.
+  // Timeline: combat-start -> attack-declared -> Pending trigger -> Finalize
+  // -> Resolve -> live continuous.might layer, with printed Might unchanged.
   const f = combatFixture({
     attacker: { id: 'dune', might: 5, cardId: duneDrake.canonicalCardId, keywords: [] },
     programs: [duneDrake],
@@ -355,6 +375,10 @@ test('EG-COMBAT default CardProgram assembly runs Dune Drake attack IR and chang
 });
 
 test('EG-COMBAT original Ahri IR registers both attack and defense subscriptions without admitting the card', () => {
+  // CR v1.5 383.4.e / 383.4.f / 466.2.c; canonicalCardId
+  // card.hash-c68ef91624a369cffdc5c5e3f81ab2700878a51de07b1cde21bbfc25db8dea10.
+  // Timeline: attack-declared enters a real Pending trigger while the source
+  // remains judge-required; the defense subscription is registered separately.
   const f = combatFixture({
     attacker: { id: 'ahri', might: 3, cardId: ahriInquisitive.canonicalCardId, keywords: [] },
     defender: { id: 'enemy', might: 2, cardId: null, keywords: [] },
@@ -371,7 +395,57 @@ test('EG-COMBAT original Ahri IR registers both attack and defense subscriptions
   assert.equal(ahriInquisitive.status, 'judge-required');
 });
 
+test('EG-COMBAT CR 466.2.d.1 places Attacker triggers before Defender triggers despite Turn Order', () => {
+  // CR v1.5 383.3.d.1 / 466.2.d.1 and the official Radiance ruling effective
+  // 2026-10-16 (Chronobreak): each controller chooses its own trigger order,
+  // while Combat designation places Attacker first, non-Defenders in Turn
+  // Order, then Defender. Yuumi, Magical Cat canonicalCardId
+  // card.hash-aae7ffb0cf04d0753642ceccd3901394849fd519821df46ff303c0e450bc6e2d.
+  // Timeline: combat-start -> attack/defense designation snapshot -> Pending
+  // Attacker items -> Pending Defender items; no chain-wide FIFO/LIFO rule.
+  const f = combatFixture({
+    attacker: { id: 'attacker', might: 4, cardId: null, keywords: [] },
+    defender: { id: 'yuumi', might: 1, cardId: yuumiMagicalCat.canonicalCardId, keywords: [] },
+    programs: [yuumiMagicalCat],
+    choose: request => {
+      if (request.type === 'mode' && request.id.endsWith(':A:order:0')) return request.options[0];
+      if (request.type === 'mode' && request.id.endsWith(':B:order:0')) return request.options[0];
+      return undefined;
+    },
+  });
+  assert.equal(yuumiMagicalCat.status, 'judge-required');
+  f.binding.registerProgramTriggers(f.chain, f.kernel.getObject('yuumi'));
+  f.chain.pipeline.registerTrigger({
+    id: 'attacker-observer', source: f.kernel.getObject('attacker'), controller: 'A',
+    spec: { at: 'attack-declared', filter: { event: 'attack-declared' } }, body: [],
+  });
+  f.chain.pipeline.registerTrigger({
+    id: 'defender-observer', source: f.kernel.getObject('yuumi'), controller: 'B',
+    spec: { at: 'defense-declared', filter: { event: 'defense-declared' } }, body: [],
+  });
+  f.chain.pipeline.registerTrigger({
+    id: 'attacker-observer-2', source: f.kernel.getObject('attacker'), controller: 'A',
+    spec: { at: 'attack-declared', filter: { event: 'attack-declared' } }, body: [],
+  });
+  const declaredOrder = [];
+  const appendToChain = f.chain.pipeline.onTrigger;
+  f.chain.pipeline.onTrigger = snapshot => {
+    declaredOrder.push(snapshot.registration.id);
+    appendToChain(snapshot);
+  };
+  f.started();
+  // startCombat advances the new Chain, so inspect the collected designation
+  // wave instead of treating finalize/resolve progress as declaration order.
+  assert.deepEqual(declaredOrder,
+    ['attacker-observer', 'attacker-observer-2', 'program:yuumi:1:1', 'defender-observer']);
+  assert.equal(yuumiMagicalCat.status, 'judge-required');
+});
+
 test('EG-COMBAT original Sunlit Guardian Tank IR enforces assignment order through the live combat transaction', () => {
+  // CR v1.5 467.2.c.6 / 815.1.b; canonicalCardId
+  // card.hash-0386094f508d9cbd2f5fca31e0757380fa1c42cf0e9124b48b8a32d75b9fddc4.
+  // Timeline: original Tank IR binds -> Combat opens -> live damage plan gives
+  // Tank first assignment priority -> illegal zero assignment is rejected.
   const f = combatFixture({
     attacker: { id: 'attacker', might: 4, cardId: null, keywords: [] },
     defender: { id: 'tank', might: 3, cardId: sunlitGuardian.canonicalCardId,
@@ -548,4 +622,38 @@ test('EG-COMBAT no-result when both sides are removed produces neither Conquer n
   assert.equal(f.events('score').length, 0);
   assert.equal(f.kernel.player('A').score, 0);
   assert.equal(f.flow.active, false);
+});
+
+test('EG-COMBAT CR 468.3.d.1 restages Showdown and Combat when both sides survive a No Result', () => {
+  // CR v1.5 468.3.d / 468.3.d.1 / 468.5. Timeline: simultaneous damage ->
+  // Combat Cleanup -> combat-result(noResult) -> combat-end -> staged rematch.
+  // The next open remains a real Combat Showdown and does not establish control.
+  const f = combatFixture({
+    attacker: { id: 'attacker', might: 4, cardId: null, keywords: [] },
+    defender: { id: 'defender', might: 4, cardId: null, keywords: [] },
+    cleanup: 'none',
+  });
+  f.started();
+  f.closeShowdown();
+  f.flow.prepareDamage();
+  f.flow.submitAttackerDamage('A', [{ uid: 'defender', amount: 4 }]);
+  f.flow.submitDefenderDamage('B', [{ uid: 'attacker', amount: 4 }]);
+  f.chain.advance();
+  f.flow.advance();
+  f.flow.advance();
+  f.flow.advance();
+  assert.equal(f.events('combat-result')[0].details.noResult, true);
+  assert.equal(f.flow.battlefields[0].staged, 'combat');
+  assert.equal(f.flow.battlefields[0].contestedBy, 'A');
+  assert.equal(f.events('conquer').length, 0);
+  assert.equal(f.events('score').length, 0);
+
+  f.chain.advance();
+  f.flow.advance();
+  assert.equal(f.flow.active, true);
+  assert.equal(f.flow.lifecycle?.attacker, 'A');
+  assert.equal(f.flow.lifecycle?.defender, 'B');
+  assert.equal(f.chain.turnState.startsWith('showdown'), true);
+  assert.equal(f.events('combat-start').length, 2);
+  assert.equal(f.kernel.player('A').score, 0);
 });

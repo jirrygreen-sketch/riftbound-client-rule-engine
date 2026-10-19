@@ -1,7 +1,6 @@
 import type { ChainEngine } from '../chain/engine.js';
 import type { ObjectRef, ObjectSnapshot, PlayerId } from '../effects/contract.js';
-import type { PipelineHost } from '../events/pipeline-types.js';
-import type { TimingEmission } from '../events/pipeline-types.js';
+import type { PipelineHost, TimingEmission, TriggerSnapshot } from '../events/pipeline-types.js';
 import { TurnCombatBlockedError } from '../turn/flow.js';
 import {
   completeDuelBaseCombatAllocation,
@@ -179,6 +178,44 @@ export class CombatFlow {
   private emit(timingPoint: Parameters<ChainEngine['emit']>[0]['timingPoint'], field: string, player?: string, object?: ObjectSnapshot): void {
     this.chain.emit({ timingPoint, player, object, details: { battlefieldId: field } });
   }
+  /**
+   * CR 466.2.d.1 gives the Attacker precedence over the ordinary Turn Order
+   * used by the shared trigger scanner. Buffer this designation-only wave and
+   * flush each controller's already-chosen internal order in rule order.
+   */
+  private emitDesignationWave(
+    attacker: PlayerId,
+    defender: PlayerId,
+    units: readonly ObjectSnapshot[],
+    details: Readonly<Record<string, unknown>>,
+    combatId: string,
+  ): void {
+    const pipeline = this.chain.pipeline;
+    const original = pipeline.onTrigger;
+    const captured: TriggerSnapshot[] = [];
+    pipeline.onTrigger = snapshot => { captured.push(snapshot); };
+    try {
+      emitCombatWave(this.chain, this, units.map(unit => ({
+        timingPoint: this.role(unit) === 'attacker' ? 'attack-declared' as const : 'defense-declared' as const,
+        player: unit.controller,
+        object: unit,
+        details,
+      })), combatId);
+    } finally {
+      pipeline.onTrigger = original;
+    }
+    const order = [attacker,
+      ...pipeline.turnOrder.filter(player => player !== attacker && player !== defender), defender];
+    const flushed = new Set<TriggerSnapshot>();
+    for (const controller of order) {
+      for (const snapshot of captured) {
+        if (snapshot.controller !== controller) continue;
+        flushed.add(snapshot);
+        original(snapshot);
+      }
+    }
+    for (const snapshot of captured) if (!flushed.has(snapshot)) original(snapshot);
+  }
   /** CR 468.1.a.1: heal every Unit only in this Combat Special Cleanup. */
   private healCombatUnits(): void {
     const active = this.engagement;
@@ -287,17 +324,10 @@ export class CombatFlow {
       const units = this.establishRoles(field.id);
       this.markDesignated(units);
       const details = { combatId, battlefieldId: field.id, attackerId: attacker, defenderId: defender };
-      const openings: TimingEmission[] = [
-        { timingPoint: 'combat-start', player: attacker, details },
-        ...units.map(unit => ({
-          timingPoint: this.role(unit) === 'attacker' ? 'attack-declared' as const : 'defense-declared' as const,
-          player: unit.controller,
-          object: unit,
-          details,
-        })),
-      ];
       this.chain.openShowdown(attacker);
-      emitCombatWave(this.chain, this, openings, combatId);
+      emitCombatWave(this.chain, this,
+        [{ timingPoint: 'combat-start', player: attacker, details }], `${combatId}:start`);
+      this.emitDesignationWave(attacker, defender, units, details, `${combatId}:designation`);
       this.chain.requestCleanup('combat-opened');
       return Object.freeze({ field: field.id, combatId, attacker, defender, focus: attacker });
     });
@@ -482,15 +512,9 @@ export class CombatFlow {
     const units = this.establishRoles(fieldId);
     this.markDesignated(units);
     const details = { combatId, battlefieldId: fieldId, attackerId: attacker, defenderId: defender, focus: existingFocus };
-    emitCombatWave(this.chain, this, [
-      { timingPoint: 'combat-start', player: attacker, details },
-      ...units.map(unit => ({
-        timingPoint: this.role(unit) === 'attacker' ? 'attack-declared' as const : 'defense-declared' as const,
-        player: unit.controller,
-        object: unit,
-        details,
-      })),
-    ], combatId);
+    emitCombatWave(this.chain, this,
+      [{ timingPoint: 'combat-start', player: attacker, details }], `${combatId}:start`);
+    this.emitDesignationWave(attacker, defender, units, details, `${combatId}:designation`);
     this.chain.requestCleanup('showdown-converted');
     return Object.freeze({ field: fieldId, combatId, attacker, defender, focus: existingFocus });
   }
@@ -749,6 +773,17 @@ export class CombatFlow {
     if (!result.noResult && controllers.length === 1 && field.controller !== controllers[0]) {
       active.step = 'control'; active.scorer = controllers[0]!;
       this.conquer(active.scorer, field.id); active.queued = true;
+      return;
+    }
+    if (result.noResult && controllers.length === 2) {
+      // CR 468.3.d.1: a contested No Result with both sides still present
+      // stages the next Showdown and Combat. Keep Contested and let the normal
+      // Cleanup/advance path open the rematch instead of establishing control.
+      field.contestedBy = active.attacker!;
+      field.staged = 'combat';
+      this.engagement = null;
+      // finishCombat runs after Cleanup has reached neutral-open. Requesting a
+      // second Cleanup here would block the immediate 468.3.d.1 rematch.
       return;
     }
     if (controllers.length === 0 && field.controller !== null) field.controller = null;
