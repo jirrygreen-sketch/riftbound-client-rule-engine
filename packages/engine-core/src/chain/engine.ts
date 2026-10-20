@@ -1009,7 +1009,9 @@ export class ChainEngine {
     if (journalNotice !== undefined && !paymentContinuationNoticeEqual(journalNotice, handle.snapshot)) {
       throw new Error('Payment continuation journal notice does not match this authoritative Chain');
     }
-    if (this.consumedPaymentContinuations.has(handle.snapshot.continuationId)) throw new Error('Payment continuation was already consumed');
+    if (this.consumedPaymentContinuations.has(handle.snapshot.continuationId)) {
+      throw new Error('Payment continuation handle is stale or not authoritative: already consumed');
+    }
     const binding = paymentContinuationBinding(handle);
     if (binding === null) throw new Error('Payment continuation handle is stale or not authoritative');
     if (binding.state === 'live') throw new Error('Payment continuation requires authoritative journal replay');
@@ -1029,7 +1031,7 @@ export class ChainEngine {
       throw new Error('Payment continuation handle belongs to another authoritative Chain');
     }
     if (binding !== null && this.consumedPaymentContinuations.has(handle.snapshot.continuationId)) {
-      throw new Error('Payment continuation was already consumed');
+      throw new Error('Payment continuation handle is stale or not authoritative: already consumed');
     }
     if (binding !== null && this.suspendedPaymentContinuations.get(handle.snapshot.continuationId) !== handle &&
         this.paymentContinuation !== handle) {
@@ -1040,7 +1042,9 @@ export class ChainEngine {
       throw new Error('Payment continuation handle is stale or not authoritative');
     }
     const key = handle.snapshot.continuationId;
-    if (this.consumedPaymentContinuations.has(key)) throw new Error('Payment continuation was already consumed');
+    if (this.consumedPaymentContinuations.has(key)) {
+      throw new Error('Payment continuation handle is stale or not authoritative: already consumed');
+    }
     const snapshot = handle.snapshot;
     if (snapshot !== binding.notice || (current !== null && snapshot !== current.snapshot)) throw new Error('Payment continuation identity mismatch');
     if (options.payer !== snapshot.payer || options.source.id !== snapshot.source.id || options.source.zoneEntryId !== snapshot.source.zoneEntryId) throw new Error('Payment continuation actor or source incarnation mismatch');
