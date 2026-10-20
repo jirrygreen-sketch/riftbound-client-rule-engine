@@ -132,12 +132,17 @@ function isSelfAnchor(filter: unknown, depth = 0): boolean {
   return markers === 1;
 }
 
-function sameTriggerShape(left: TriggeredAbility, right: TriggeredAbility): boolean {
-  const sameFilter = JSON.stringify(left.trigger.filter) === JSON.stringify(right.trigger.filter) ||
-    isSelfAnchor(left.trigger.filter) && isSelfAnchor(right.trigger.filter);
-  return left.optional === right.optional && sameFilter &&
-    JSON.stringify(left.trigger.condition) === JSON.stringify(right.trigger.condition) &&
-    left.trigger.once === right.trigger.once;
+function sameTriggerShape(boundary: TriggeredAbility, printed: TriggeredAbility): boolean {
+  const sameFilter = JSON.stringify(boundary.trigger.filter) === JSON.stringify(printed.trigger.filter) ||
+    isSelfAnchor(boundary.trigger.filter) && isSelfAnchor(printed.trigger.filter);
+  // The keyword boundary never carries a condition of its own. A printed
+  // past-tense condition ("If I was Mighty", CR 808.1.c.2) belongs to the one
+  // Deathknell trigger and is checked when that trigger is collected; any other
+  // condition mismatch keeps the abilities separate.
+  const compatibleCondition = boundary.trigger.condition === undefined ||
+    JSON.stringify(boundary.trigger.condition) === JSON.stringify(printed.trigger.condition);
+  return boundary.optional === printed.optional && sameFilter && compatibleCondition &&
+    boundary.trigger.once === printed.trigger.once;
 }
 
 function keywordBoundary(ability: Ability): TriggeredAbility | null {
@@ -187,6 +192,9 @@ export function bindPrintedDeathknellBodies(
     const boundaryInstruction = boundary.body[0]!;
     replacements.set(boundaries[instance]!.index, {
       ...boundary,
+      trigger: payload.trigger.condition === undefined
+        ? boundary.trigger
+        : { ...boundary.trigger, condition: payload.trigger.condition },
       body: [boundaryInstruction, ...gatePayload(payload.body, boundaryInstruction.id)]
     });
     consumed.add(payload);

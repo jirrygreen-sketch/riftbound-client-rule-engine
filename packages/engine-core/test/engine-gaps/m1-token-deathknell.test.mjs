@@ -13,6 +13,7 @@ import plunderingPoro from "../../../card-dsl/dist/cards/sfd/plundering-poro.js"
 import treasureHoard from "../../../card-dsl/dist/cards/sfd/treasure-hoard.js";
 import wagesOfPain from "../../../card-dsl/dist/cards/sfd/wages-of-pain.js";
 import watchfulSentry from "../../../card-dsl/dist/cards/ogn/watchful-sentry.js";
+import unsungHero from "../../../card-dsl/dist/cards/sfd/unsung-hero.js";
 
 const base = player => ({ type: "base", player });
 const battlefield = { type: "battlefield", id: "battlefield-1" };
@@ -189,3 +190,26 @@ test("Treasure Hoard's original optional Gold branch pays Energy and then fails 
   assert.equal(kernel.objects.filter(object => object.isToken).length, 0);
   assert.equal(kernel.pendingItems.length, 0);
 });
+
+// Unsung Hero (sfd-167-221, executable): "[Deathknell] - If I was [Mighty],
+// draw 2." Its IR declares the keyword and a conditional self-death trigger.
+// The condition is past tense (CR 808.1.c.2), so it is checked when the single
+// Deathknell trigger is collected; it must not leave a second, body-less
+// keyword trigger behind or ask the controller to order two triggers.
+for (const [might, draws] of [[5, 2], [4, 0]]) {
+  test(`Unsung Hero's conditional Deathknell is one trigger: Might ${might} dies and draws ${draws}`, () => {
+    const f = fixture({
+      programs: [unsungHero],
+      setup: w => w.unit("hero", { cardId: unsungHero.canonicalCardId, types: ["unit"], might, location: battlefield })
+        .deck("d1").deck("d2").deck("d3"),
+    });
+    assert.equal(f.engine.commit({ type: "kill", object: f.ref("hero") }).status, "done");
+    assert.equal(f.engine.items.length, draws > 0 ? 1 : 0,
+      "one Deathknell trigger when the past-tense condition held, none otherwise");
+    if (draws > 0) assert.deepEqual(f.engine.items[0].body.map(instruction => instruction.op), ["trigger.leave", "effect.draw"]);
+    f.engine.advance();
+    while (f.engine.items.length) f.engine.pass(f.engine.priority);
+    assert.equal(f.kernel.player("A").handCount, draws);
+    assert.equal(f.get("hero").zone, "trash");
+  });
+}
