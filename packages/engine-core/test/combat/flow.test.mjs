@@ -104,7 +104,6 @@ test('combat-move-to-enemy-opens-combat-showdown / illegal commands roll back: d
   f.flow.start();
   f.flow.execute(f.draft('move-to-enemy', [move('move', { type: 'battlefield', id: 'bf1' })]));
   settle(f.flow);
-
   assert.deepEqual(f.kernel.getObject('source').location, { type: 'battlefield', id: 'bf1' });
   assert.equal(f.kernel.getObject('source').exhausted, false);
   assert.deepEqual(f.flow.battlefields[0], {
@@ -204,12 +203,12 @@ test('RIFT-124 regression: Control and Conquer commit in one wave and roll back 
   assert.equal(timings(f.flow).filter(id => id === 'control-established').length, 1);
 });
 
-test('RIFT-124 regression: unsupported Score replacement rolls back before its alternative Draw', () => {
+test('RIFT-124 regression: Score replacement completes Scoring without awarding its point', () => {
   const f = fixture({ fields: [{ id: 'bf1', controller: 'A' }, { id: 'bf2', controller: null }],
     setup: w => w.unit('guard', { location: { type: 'battlefield', id: 'bf1' } }) });
   f.flow.chain.pipeline.registerReplacement({ id: 'point-to-draw', matches: action => action.type === 'score',
     apply: action => ({ status: 'replace', actions: [{ type: 'draw', player: action.player, amount: 1 }] }) });
-  assert.throws(() => f.flow.start(), error => error.status === 'blocked' && error.code === 'replaced-scoring');
-  assert.equal(f.kernel.player('A').score, 0); assert.equal(f.kernel.player('A').handCount, 0);
-  assert.deepEqual(f.flow.scored('A'), []); assert.equal(timings(f.flow).includes('hold'), false);
+  f.flow.start();
+  assert.equal(f.kernel.player('A').score, 0); assert.equal(f.kernel.player('A').handCount, 2);
+  assert.deepEqual(f.flow.scored('A'), ['bf1']); assert.equal(timings(f.flow).includes('hold'), true);
 });
