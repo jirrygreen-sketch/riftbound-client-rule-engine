@@ -137,7 +137,9 @@ function optionalDecision(raw: AnyRecord, program: CardProgram, keyword: string 
   }
   const keywordOptional = keyword === 'accelerate' || keyword === 'repeat' ? true : undefined;
   if (keywordOptional === true && declared === false) judgeRequired(`${label} keyword cost cannot be mandatory`);
-  const sourceOptional = sourceSaysMay(program.sourceText);
+  // Accelerate (CR 805) and Repeat (CR 820.1.b) are optional additional costs by
+  // rule. Their reminder prose is not a second, weaker signal to reconcile.
+  const sourceOptional = keywordOptional === undefined ? sourceSaysMay(program.sourceText) : undefined;
   const values = [declared, stageOptional, keywordOptional, sourceOptional].filter((value): value is boolean => typeof value === 'boolean');
   if (values.length === 0) judgeRequired(`${label} does not say whether the additional cost is optional`);
   if (new Set(values).size !== 1) judgeRequired(`${label} has conflicting optional-cost evidence`);

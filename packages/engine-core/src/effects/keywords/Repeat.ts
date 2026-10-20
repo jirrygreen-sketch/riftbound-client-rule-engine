@@ -29,17 +29,10 @@ import type { CardContextRef, KeywordDef } from "../keyword-contract.js";
  * 结果记到链项上；结算时由打出管线用解释器内建 repeat 指令按付费实例数
  * 重新执行链项正文（见下方依赖说明）。
  *
- * 依赖尚未合入的部分（本文件只按契约写出展开结构，不近似实现）：
- * - 附加费用的声明/收取：cost.additional / cost.pay 指令原语与
- *   Finalize 阶段对静态费用效果的应用由 RIFT-89~91（cost.*）实现中；
- *   repeat.cost 这一 ContinuousEffect kind 的消费方也在该批。
- * - 结算端把“已付费 Repeat 实例数”接到解释器内建 repeat 指令上的打出
- *   管线（cardplay/chain）尚未合入；数值边界（0/1/N 个已付费实例 →
- *   额外执行 0/1/N 次）由 engine-core 解释器内建 repeat 指令承担，
- *   其本身已在解释器测试内验证（本文件测试覆盖 repeat 指令的形状与
- *   重选目标语义，不重复全量解释器测试）。
- * - choice.optional（支付与否的选择）已由解释器内建支持；测试内以此
- *   模拟 Finalize 的付费选择。
+ * 消费边界：CardProgram 的原始 Repeat 参数先由 play / cost adapter 规范为
+ * optionalAdditional；Finalize 的冻结 plan 与付款 receipt 再由 chain
+ * interpreter adapter 按实例 id 交叉校验。每个已付实例只贡献一次额外执行，
+ * Resolve 不重新决定支付，也不把 Repeat 当成再次打出。
  *
  * 契约缺口：无。820.1.c 的费用描述以 ContractExpr 常量形式挂在
  * repeat.cost 的 cost 键上，形状与 CostSpec 兼容。

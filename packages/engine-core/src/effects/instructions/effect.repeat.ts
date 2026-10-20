@@ -10,6 +10,48 @@ import type {
   Value
 } from "../contract.js";
 
+type CostRecord = Readonly<Record<string, unknown>>;
+
+function costRecord(value: unknown): CostRecord | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as CostRecord : undefined;
+}
+
+/**
+ * Read the exact paid Repeat instances attached to this chain item's frozen
+ * cost plan and receipt. The plan and receipt are evidence, not a source of
+ * new decisions: an id must appear in both, be marked paid, and the receipt
+ * must remain bound to the same plan id. A declined optional cost can produce
+ * a successful receipt with no additional entries; that is an exact zero, not
+ * missing payment evidence.
+ */
+export function paidRepeatInstanceIds(cost: unknown): readonly string[] | undefined {
+  const binding = costRecord(cost);
+  const plan = costRecord(binding?.plan);
+  const receipt = costRecord(binding?.receipt);
+  if (binding === undefined) return undefined;
+  if (plan === undefined || receipt === undefined) {
+    throw new TypeError("Repeat payment requires both the frozen Finalize plan and receipt");
+  }
+  if (!Array.isArray(plan.selectedAdditional) || !Array.isArray(receipt.additional)) {
+    throw new TypeError("Repeat payment plan and receipt must expose additional entries");
+  }
+  if (typeof plan.id !== "string" || plan.id.length === 0 || receipt.planId !== plan.id || receipt.paid !== true) {
+    throw new TypeError("Repeat payment receipt is not bound to its frozen Finalize plan");
+  }
+  const selected = plan.selectedAdditional.filter(entry => costRecord(entry)?.kind === "repeat").map(entry => costRecord(entry)!.id);
+  const paid = receipt.additional.filter(entry => costRecord(entry)?.kind === "repeat").map(entry => costRecord(entry)!);
+  if (selected.some(id => typeof id !== "string" || id.length === 0) ||
+      paid.some(entry => typeof entry.id !== "string" || entry.id.length === 0 || entry.paid !== true) ||
+      new Set(selected).size !== selected.length || new Set(paid.map(entry => entry.id)).size !== paid.length) {
+    throw new TypeError("Repeat payment contains duplicate or malformed instance ids");
+  }
+  const paidIds = paid.map(entry => entry.id as string).sort();
+  if (JSON.stringify([...selected].sort()) !== JSON.stringify(paidIds)) {
+    throw new TypeError("Repeat paid instances do not match the frozen Finalize selection");
+  }
+  return Object.freeze(paidIds);
+}
+
 /**
  * Repeat performs the already-resolved spell effect again during resolution.
  *
