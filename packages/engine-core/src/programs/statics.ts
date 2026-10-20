@@ -3,6 +3,7 @@ import type { ObjectFilter } from '@riftbound/card-dsl';
 import type { ChainEngine } from '../chain/engine.js';
 import type { ContinuousEffectSpec, ObjectRef, ObjectSnapshot } from '../effects/contract.js';
 import { bindStaticTriggerRule } from '../events/trigger-rules/index.js';
+import { isDurationActive } from '../layers/duration.js';
 import { concreteLocation, isRelativeLocation } from '../layers/relative/location.js';
 import { bindFilterAnchor, isSupportedRelativeFilterValue } from '../layers/relative/filter.js';
 import { bindReplacement as bindReplacementRegistration } from '../replacement/bind.js';
@@ -148,7 +149,19 @@ function keywordAbilityRegistration(
  */
 function installKeywordReexpansion(engine: ChainEngine): void {
   const pipeline = engine.pipeline;
-  const registry = new Map<string, KeywordLifecycleBinding>();
+  const effectRegistry = engine.layers?.registry;
+  if (effectRegistry === undefined) return;
+  const lifecycleRegistry = new Map<string, KeywordLifecycleBinding>();
+  type LifecycleRuleRegistry = typeof engine.layers.registry & {
+    lifecycleRuleEffects?: () => readonly import('../layers/types.js').RegisteredContinuousEffect[];
+  };
+  const lifecycleEffectRegistry = effectRegistry as LifecycleRuleRegistry;
+  const allRuleEffects = lifecycleEffectRegistry.list.bind(lifecycleEffectRegistry);
+  lifecycleEffectRegistry.list = (() =>
+    allRuleEffects().filter(entry => !entry.effect.id.startsWith('program-keyword:'))) as typeof effectRegistry.list;
+  lifecycleEffectRegistry.active = ((event, object) => allRuleEffects().filter(entry =>
+    isDurationActive(entry.duration, event, object))) as typeof effectRegistry.active;
+  lifecycleEffectRegistry.lifecycleRuleEffects = allRuleEffects;
   const installedIds = new Set<string>();
   KEYWORD_LIFECYCLE_TRIGGER_IDS.set(engine, installedIds);
   let generated: readonly ContinuousEffectSpec[] = [];
@@ -202,7 +215,7 @@ function installKeywordReexpansion(engine: ChainEngine): void {
   };
   const syncObject = (ref: ObjectRef) => {
     const key = `${ref.id}:${ref.zoneEntryId}`;
-    const previous = registry.get(key);
+    const previous = lifecycleRegistry.get(key);
     let registrations: readonly Parameters<typeof pipeline.registerTrigger>[0][];
     try { registrations = keywordRegistrations(ref); }
     catch (error) {
@@ -222,9 +235,9 @@ function installKeywordReexpansion(engine: ChainEngine): void {
       if (!pipeline.hasTriggerRegistration(registration.id)) pipeline.registerTrigger(registration);
       installedIds.add(registration.id);
     }
-    registry.set(key, { ids: registrations.map(registration => registration.id) });
+    lifecycleRegistry.set(key, { ids: registrations.map(registration => registration.id) });
   };
-  const exp: KeywordGrantLayerEngine = new KeywordGrantLayerEngine(engine.layers.objectsView(), {
+  const exp: KeywordGrantLayerEngine = new KeywordGrantLayerEngine(engine.pipeline.host.objects(), {
     context: source => engine.pipeline.host.context(source, source.controller, engine.layers.currentTimingPoint ?? 'cleanup-start'),
     registry: engine.layers.registry,
     grantedOnly: true,
@@ -234,7 +247,7 @@ function installKeywordReexpansion(engine: ChainEngine): void {
     onKeywordEffects: setEffects,
     onKeywordAbilities: () => {},
   });
-  const keywordEngine = new KeywordGrantLayerEngine(engine.layers.objectsView(), {
+  const keywordEngine = new KeywordGrantLayerEngine(engine.pipeline.host.objects(), {
     context: source => engine.pipeline.host.context(source, source.controller, engine.layers.currentTimingPoint ?? 'cleanup-start'),
     registry: engine.layers.registry,
     grantedOnly: true,
@@ -244,7 +257,7 @@ function installKeywordReexpansion(engine: ChainEngine): void {
     onKeywordEffects: setEffects,
     onKeywordAbilities: () => {},
   });
-  keywordEngine.setObjects(engine.layers.objectsView());
+  keywordEngine.setObjects(engine.pipeline.host.objects());
   const keywordTriggerRegistrations = (ref: ObjectRef) => {
     const source = liveSource(engine, ref);
     if (source === null) return [];
@@ -283,10 +296,10 @@ function installKeywordReexpansion(engine: ChainEngine): void {
     return removed;
   }) as typeof engine.layers.removeContinuous;
   const detach = () => {
-    for (const binding of registry.values()) unregister(binding.ids);
+    for (const binding of lifecycleRegistry.values()) unregister(binding.ids);
     for (const id of installedIds) if (pipeline.hasTriggerRegistration(id)) pipeline.unregisterTrigger(id);
     for (const effect of generated) if (engine.layers.registry.get(effect.id) !== undefined) engine.layers.removeContinuous(effect.id);
-    registry.clear(); installedIds.clear(); generated = [];
+    lifecycleRegistry.clear(); installedIds.clear(); generated = [];
   };
   KEYWORD_LIFECYCLE_BINDINGS.set(engine, {
     detach,
@@ -306,9 +319,9 @@ function installKeywordReexpansion(engine: ChainEngine): void {
       }
       if (liveSource(engine, ref) === null) {
         const key = `${ref.id}:${ref.zoneEntryId}`;
-        const previous = registry.get(key);
+        const previous = lifecycleRegistry.get(key);
         if (previous) unregister(previous.ids);
-        registry.delete(key);
+        lifecycleRegistry.delete(key);
         return;
       }
       // The object just entered an active zone. Refresh its exact keyword

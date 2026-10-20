@@ -20,7 +20,7 @@ import test from 'node:test';
 import { AwaitChoice, world } from '../../dist/effects/testing/index.js';
 import { ChainEngine } from '../../dist/chain/engine.js';
 import { bindResolveContext, createActionPipelineHost } from '../../dist/events/action-adapter.js';
-import { movement } from '../../dist/layers/rules/query.js';
+import { activeRuleEffects, movement } from '../../dist/layers/rules/query.js';
 import { createProgramBinding } from '../../dist/programs/index.js';
 import { boundTargetTaxes } from '../../dist/programs/statics.js';
 import { collectTargetTaxes } from '../../dist/target/tax/index.js';
@@ -151,10 +151,15 @@ for (const role of ['attacker', undefined, 'defender']) {
       .unit('rumble', { cardId: rumbleHotheaded.canonicalCardId, types: ['unit'], tags: ['Mech'], controller: 'A', owner: 'A', might: 3, combatRole: role, energy: null, power: null });
     const f = runtime(builder, [rumbleHotheaded]);
     assert.equal(f.enter('rumble').status, 'done');
+    const arithmetic = activeRuleEffects(f.engine.layers.registry).find(entry =>
+      entry.effect.id.startsWith('program-keyword:') && entry.effect.effect.kind === 'continuous.might');
+    assert.ok(arithmetic, 'the lifecycle-derived Assault rule remains consumable by rule queries');
+    assert.equal(f.engine.layers.registry.list().some(entry => entry.effect.id.startsWith('program-keyword:')), false,
+      'derived lifecycle rules do not pollute the explicit registration inventory');
     if (role !== undefined) {
       const current = f.kernel.getObject('rumble');
       const designated = { ...current, combatRole: role };
-      const registration = f.engine.layers.registry.list().find(entry => entry.effect.id.startsWith('program-keyword:'));
+      const registration = arithmetic;
       const conditioned = registration?.effect.effect.condition;
       assert.equal(typeof conditioned, 'function');
       assert.equal(conditioned(designated), role === 'attacker', 'Assault condition reads the current designation');
