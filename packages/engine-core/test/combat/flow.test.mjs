@@ -171,11 +171,16 @@ test('combat-damage-dealt-simultaneously-shared-deathknell: block unsupported tr
   assert.deepEqual(f.kernel.snapshot(), before); assert.deepEqual(f.flow.chain.pipeline.events, events);
 });
 
-test('movement-standard-move-base-to-battlefield: blocked before Exhaust cost can be partially paid', () => {
+test('movement-standard-move-base-to-battlefield: commits Exhaust and Move together through TurnFlow', () => {
   const f = fixture(); f.flow.start(); const before = f.flow.chain.pipeline.events;
-  assert.throws(() => f.flow.move('A', f.kernel.ref('source'), 'bf1'), error => error.code === 'standard-move-transaction');
-  assert.equal(f.kernel.getObject('source').exhausted, false); assert.equal(f.kernel.getObject('source').location.type, 'base');
-  assert.deepEqual(f.flow.chain.pipeline.events, before);
+  const result = f.flow.move('A', f.kernel.ref('source'), 'bf1');
+  assert.deepEqual(result.receipt.actions, [
+    { type: 'exhaust', status: 'done' }, { type: 'move-location', status: 'done' },
+  ]);
+  assert.equal(f.kernel.getObject('source').exhausted, true);
+  assert.deepEqual(f.kernel.getObject('source').location, { type: 'battlefield', id: 'bf1' });
+  assert.ok(f.flow.chain.pipeline.events.length > before.length);
+  assert.ok(f.flow.chain.pipeline.events.some(event => event.timingPoint === 'object-moved'));
 });
 
 test('scoring-control-lost-at-open-cleanup-no-score: moving out causes real cleanup to lose control', () => {

@@ -6,7 +6,7 @@ import type { PlayerId } from '../../effects/contract.js';
 import type { ProgramBinding } from '../../programs/index.js';
 import { TurnCombatBlockedError } from '../../turn/flow.js';
 import { concede } from '../lifecycle.js';
-import { controlledObject, currentObjects, GameCommandError, moveUnits, requireActor, type GameCommandContext } from './movement.js';
+import { controlledObject, currentObjects, GameCommandError, moveUnits, requireActor, type GameCommandContext, type StandardMoveExecution } from './movement.js';
 
 export { GameCommandError, inspectStandardMove, moveUnits } from './movement.js';
 export type { GameCommandContext, StandardMoveInspection } from './movement.js';
@@ -45,7 +45,7 @@ function commandDraft(command: V2Command, draft: ChainDraft): ChainDraft {
   return { ...draft, id, ...(draft.cost ? { cost: { ...draft.cost, id: `cost:${id}` } } : {}) };
 }
 
-export function move(context: GameCommandContext, actor: PlayerId, command: V2MoveCommand): never {
+export function move(context: GameCommandContext, actor: PlayerId, command: V2MoveCommand): StandardMoveExecution {
   validate(context, actor, command, 'move');
   return moveUnits(context, actor, [command.objectId], command.to);
 }
@@ -89,7 +89,7 @@ export function executeGameCommand(context: GameCommandExecutionContext, actor: 
   const { match } = context;
   const previousEventSeq = match.events().length;
   switch (command.type) {
-    case 'move': move(context, actor, command);
+    case 'move': move(context, actor, command); break;
     case 'declare-attack': declareAttack(context, actor, command);
     case 'declare-defense': declareDefense(context, actor, command);
     case 'choose':
