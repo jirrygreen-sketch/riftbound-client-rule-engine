@@ -15,6 +15,7 @@ import type { DuelDerivedMightEvaluatorV2 } from "../combat/derived-might.js";
 import { matchesObjectFilter, objectRefFrom } from "./filter.js";
 import { ContinuousEffectRegistry } from "./duration.js";
 import { copyCharacteristics } from "./copy.js";
+import { EQUIPMENT_MIGHT_BONUS_EFFECT_KIND, isAttachedEquipmentBonus } from "./ops/index.js";
 import {
   LAYER_ORDER,
   refKey,
@@ -344,7 +345,8 @@ function applyArithmetic(
   } else if (kind.includes("decrease") || kind.includes("subtract") || kind.includes("debuff") || amount < 0) {
     const reduction = typeof effect.snapshottedReduction === "number" ? effect.snapshottedReduction : amount;
     if (target.might !== null) target.might -= Math.abs(reduction);
-  } else if (kind.includes("increase") || kind.includes("add") || kind.includes("buff") || kind.includes("might")) {
+  } else if (kind === EQUIPMENT_MIGHT_BONUS_EFFECT_KIND ||
+    kind.includes("increase") || kind.includes("add") || kind.includes("buff") || kind.includes("might")) {
     if (target.might !== null) target.might += amount;
   }
   if (kind === "add-buff" || kind === "buff") target.buffs += amount;
@@ -379,6 +381,7 @@ export class LayerEngine {
   private copyFrames: string[][] = [];
   private copyGroups = new Map<string, Set<string>>();
   private registryRevision = -1;
+  private attachmentRevision?: string;
   private depth = 0;
   private frames: string[][] = [];
   private groups = new Map<string, Set<string>>();
@@ -397,6 +400,9 @@ export class LayerEngine {
    * remembered value (CR 479.4.b).
    */
   private readonly arithmeticSnapshots = new WeakMap<RegisteredContinuousEffect, Map<string, number>>();
+  /** Synthetic registrations for printed Equipment Might Bonuses (CR 137.3). */
+  private readonly attachmentBonuses = new Map<string, RegisteredContinuousEffect>();
+  private readonly bonusOwnerRefs = new WeakMap<RegisteredContinuousEffect, ObjectRef>();
 
   constructor(
     objects: readonly ObjectSnapshot[] | ReadonlyMap<string, ObjectSnapshot>,
@@ -411,6 +417,7 @@ export class LayerEngine {
     this.registry = registry;
     this.derivedMight = options.derivedMight;
     this.timingPoint = options.timingPoint;
+    this.rebuildAttachmentBonuses();
   }
 
   addContinuous(effect: ContinuousEffectSpec, duration: Duration, timestamp?: number): RegisteredContinuousEffect {
@@ -433,7 +440,40 @@ export class LayerEngine {
     this.objects.clear();
     if (objects instanceof Map) for (const [key, object] of objects) this.objects.set(key, object);
     else for (const object of objects as readonly ObjectSnapshot[]) this.objects.set(refKey(object.ref), object);
+    this.rebuildAttachmentBonuses();
     this.invalidate();
+    this.attachmentRevision = this.attachmentSignature();
+  }
+
+  private rebuildAttachmentBonuses(): void {
+    const live = new Set<string>();
+    for (const object of this.objects.values()) {
+      if (!object.types.includes("gear") || !object.tags.includes("Equipment") || object.might === null) continue;
+      const id = `equipment-might-bonus:${refKey(object.ref)}`;
+      live.add(id);
+      const existing = this.attachmentBonuses.get(id);
+      const owner = existing === undefined ? undefined : this.bonusOwnerRefs.get(existing);
+      if (existing !== undefined && owner !== undefined && refKey(owner) === refKey(object.ref) &&
+        (existing.effect.effect as AnyRecord).amount === object.might) continue;
+      const entry = Object.freeze({
+        effect: Object.freeze({
+          id,
+          layer: "arithmetic" as const,
+          source: object.ref,
+          filter: {},
+          effect: Object.freeze({ kind: EQUIPMENT_MIGHT_BONUS_EFFECT_KIND, amount: object.might }),
+        }),
+        duration: Object.freeze({ type: "permanent" as const }),
+        timestamp: 0,
+        sequence: 0,
+      });
+      this.attachmentBonuses.set(id, entry);
+      this.bonusOwnerRefs.set(entry, object.ref);
+    }
+    for (const [id, entry] of this.attachmentBonuses) {
+      const owner = this.bonusOwnerRefs.get(entry);
+      if (owner === undefined || id !== `equipment-might-bonus:${refKey(owner)}`) this.attachmentBonuses.delete(id);
+    }
   }
 
   private invalidate(): void {
@@ -498,6 +538,11 @@ export class LayerEngine {
   }
 
   private layerMatches(entry: RegisteredContinuousEffect, target: LayeredObjectSnapshot): boolean {
+    if (this.isAttachmentBonus(entry)) {
+      if (!target.types.includes("unit")) return false;
+      const source = entry.effect.source === undefined ? null : this.resolve(entry.effect.source);
+      return source !== null && isAttachedEquipmentBonus(source, target);
+    }
     const source = entry.effect.source === undefined ? target : this.raw(entry.effect.source);
     if (!matchesObjectFilter(entry.effect.filter, target, { controller: source?.controller, anchor: source ?? undefined })) return false;
     return conditionMatches(record(entry.effect.effect), target, this.layerEnvironment(entry, target));
@@ -644,7 +689,22 @@ export class LayerEngine {
     return entries;
   }
 
+  /** Printed Equipment bonuses join the same arithmetic dependency pass. */
+  private arithmeticEffects(): readonly RegisteredContinuousEffect[] {
+    return Object.freeze([...this.attachmentBonuses.values(), ...this.activeEffects()]);
+  }
+
+  private isAttachmentBonus(entry: RegisteredContinuousEffect): boolean {
+    return this.attachmentBonuses.get(entry.effect.id) === entry;
+  }
+
   private apply(target: MutableSnapshot, layer: typeof LAYER_ORDER[number], effect: AnyRecord): void {
+    if (effectKind(effect) === EQUIPMENT_MIGHT_BONUS_EFFECT_KIND) {
+      if (target.might !== null && target.types.includes("unit")) {
+        target.might += numberValue(effect, target, ref => this.resolve(ref));
+      }
+      return;
+    }
     if (layer === "copy") applyCopy(target, effect, ref => {
       // Within a copy loop all members use the same copy-layer input. A copy
       // from outside the loop still receives the completed copyable traits.
@@ -672,6 +732,13 @@ export class LayerEngine {
   }
 
   private signature(entry: RegisteredContinuousEffect, target: LayeredObjectSnapshot): string {
+    if (this.isAttachmentBonus(entry)) {
+      return JSON.stringify({ effect: entry.effect.effect,
+        attached: target.types.includes("unit") && (() => {
+          const source = entry.effect.source === undefined ? null : this.resolve(entry.effect.source);
+          return source !== null && isAttachedEquipmentBonus(source, target);
+        })() });
+    }
     return this.withSnapshot(target, () => {
       if (!this.layerMatches(entry, target)) return "inapplicable";
       const effect = this.materialize(entry, target);
@@ -691,6 +758,7 @@ export class LayerEngine {
       // they did before expression IR was integrated. Game-action Double/Swap
       // already arrive here as immutable, snapshotted additive registrations.
       const legacy = candidates.find(entry => {
+        if (this.isAttachmentBonus(entry)) return false;
         const effect = record(entry.effect.effect);
         const kind = effectKind(effect);
         return effect.snapshotDelta === undefined && (kind.includes("multiply") || kind.includes("double") ||
@@ -709,6 +777,9 @@ export class LayerEngine {
       if (this.legacyScalar(dependent) || this.legacyScalar(prerequisite)) return false;
       const after = { ...target } as MutableSnapshot;
       this.apply(after, prerequisite.effect.layer, this.materialize(prerequisite, target));
+      if (this.isAttachmentBonus(dependent) && this.isAttachmentBonus(prerequisite)) {
+        return dependent.sequence < prerequisite.sequence;
+      }
       return signatures.get(dependent) !== this.signature(dependent, after);
     };
     // CR 481.1: mutual dependencies use timestamp order, just like a cycle of
@@ -760,7 +831,7 @@ export class LayerEngine {
   }
 
   private evaluateGroup(keys: readonly string[]): void {
-    const effects = this.activeEffects();
+    const effects = this.arithmeticEffects();
     const current = new Map<string, MutableSnapshot>();
     const applied = new Map<string, Map<string, AppliedEffect>>();
     const removed = new Map<string, Set<string>>();
@@ -890,6 +961,15 @@ export class LayerEngine {
 
   evaluate(ref: ObjectRef): LayeredObjectSnapshot | null {
     if (this.depth > 0) return this.evaluateDependency(ref);
+    const attachmentRevision = this.attachmentSignature();
+    if (this.attachmentRevision !== attachmentRevision) {
+      this.cache.clear();
+      this.copyCache.clear();
+      this.groups.clear();
+      this.copyGroups.clear();
+      this.rebuildAttachmentBonuses();
+      this.attachmentRevision = attachmentRevision;
+    }
     if (this.registryRevision !== this.registry.revision) {
       this.invalidate();
       this.registryRevision = this.registry.revision;
@@ -914,6 +994,13 @@ export class LayerEngine {
     } finally {
       this.depth--;
     }
+  }
+
+  /** Identity, type, and attachment facts that can change bonus eligibility. */
+  private attachmentSignature(): string {
+    return JSON.stringify([...this.objects.values()].map(object => [refKey(object.ref), object.types,
+      object.tags, object.zone, object.might, object.attachedTo]).sort((left, right) =>
+      String(left[0]).localeCompare(String(right[0]))));
   }
 
   snapshot(ref: ObjectRef): LayeredObjectSnapshot | null {
