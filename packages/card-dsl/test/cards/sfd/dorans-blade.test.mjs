@@ -1,3 +1,5 @@
+// Execution evidence (README 4.1): the Equip activation of Doran's Blade runs through the
+// real ProgramBinding/ChainEngine path in test/cards/templates/keyword-equip-printed-power-882.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -24,4 +26,14 @@ test("Doran's Blade hosts a valued Body Equip keyword", () => {
   assert.equal(equip.costDomain, "Body");
 });
 
-test.todo("Doran's Blade: Equip keyword expansion (Body power cost, controlled-unit target, effect.attach body) is owned by the engine keyword registry (RIFT-81~91)");
+test("Doran's Blade carries its printed Equip cost as exactly one Body Power through params.cost", () => {
+  const [equip] = program.abilities;
+  assert.deepEqual(equip.params, {
+    cost: {
+      kind: "activated",
+      payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["Body"] }]
+    }
+  });
+  assert.equal(equip.params.cost.energy, undefined);
+  assert.equal(equip.params.cost.payments.some(payment => payment.kind === "equip"), false);
+});
