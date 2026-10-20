@@ -79,11 +79,20 @@ function effectKind(entry: RegisteredContinuousEffect): string {
   return String(record(entry.effect.effect).kind ?? "").toLowerCase();
 }
 
+type LifecycleRuleRegistry = ContinuousEffectRegistry & {
+  readonly lifecycleRuleEffects?: () => readonly RegisteredContinuousEffect[];
+};
+
+/** Explicit registrations remain public; lifecycle-derived entries stay queryable. */
+function registeredEffects(registry: ContinuousEffectRegistry): readonly RegisteredContinuousEffect[] {
+  return (registry as LifecycleRuleRegistry).lifecycleRuleEffects?.() ?? registry.list();
+}
+
 function effectsOfKind(
   registry: ContinuousEffectRegistry,
   ...kinds: readonly string[]
 ): readonly RegisteredContinuousEffect[] {
-  return registry.list().filter(entry => {
+  return registeredEffects(registry).filter(entry => {
     const actual = effectKind(entry);
     return kinds.some(kind => actual === kind || actual === "continuous." + kind || actual.endsWith("." + kind));
   });
@@ -727,5 +736,5 @@ export function canApplyCombatRule(registry: ContinuousEffectRegistry, flag: str
 
 /** Expiry is handled by ContinuousEffectRegistry; this helper is kept as a stable query alias. */
 export function activeRuleEffects(registry: ContinuousEffectRegistry): readonly RegisteredContinuousEffect[] {
-  return registry.list();
+  return registeredEffects(registry);
 }
