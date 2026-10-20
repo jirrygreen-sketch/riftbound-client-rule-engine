@@ -469,6 +469,22 @@ test('layers-derived-might-reentrant-cross-object-read-keeps-group-snapshot-boun
     [['first', 2], ['second', 3]], 'repeated group evaluation stays stable');
 });
 
+test('layers-evaluate-all-freezes-object-batch-across-reentrant-host-refresh', () => {
+  const first = object('first', { might: 2 });
+  const second = object('second', { might: 3 });
+  let layers;
+  let refreshed = false;
+  layers = engine([first, second], [], { derivedMight(snapshot) {
+    if (!refreshed) {
+      refreshed = true;
+      layers.setObjects([first, second]);
+    }
+    return snapshot.might;
+  } });
+  assert.deepEqual(layers.evaluateAll().map(snapshot => snapshot.ref),
+    [first.ref, second.ref], 'setObjects during one object evaluation must not restart evaluateAll enumeration');
+});
+
 test('layers-order-is-copy-trait-ability-arithmetic: contract order is exported', () => {
   assert.deepEqual(LAYER_ORDER, ['copy', 'trait', 'ability', 'arithmetic']);
 });

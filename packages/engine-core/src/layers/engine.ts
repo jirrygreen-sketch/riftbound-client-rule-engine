@@ -922,7 +922,11 @@ export class LayerEngine {
 
   evaluateAll(): readonly LayeredObjectSnapshot[] {
     const snapshots: LayeredObjectSnapshot[] = [];
-    for (const object of this.objects.values()) {
+    // Evaluation is reentrant: a condition or derived callback may refresh the
+    // host and call setObjects through the public engine. Freeze this batch's
+    // object identities first so replacing the live Map cannot restart its
+    // iterator and emit the same incarnation twice.
+    for (const object of [...this.objects.values()]) {
       const snapshot = this.evaluate(object.ref);
       if (snapshot !== null) snapshots.push(snapshot);
     }
