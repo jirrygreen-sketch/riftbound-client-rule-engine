@@ -9297,9 +9297,9 @@
           "evidence": {
             "owner": "RIFT-872",
             "path": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
-            "testTitle": "sfd-180-221 Fiora, Worthy: the current effect.ready schema cannot consume event:it (shared bridge required)",
-            "result": "blocked",
-            "currentStatus": "negative production test passes; behavior remains blocked",
+            "testTitle": "sfd-180-221 Fiora, Worthy: the original trigger resolves payment and readies only event:it",
+            "result": "partial",
+            "currentStatus": "partial: component-level golden with admitted status metadata executes the original trigger, Order payment and event:it ready; whole-card default authoritative-host acceptance (exact Order Power debit, Universal Power) pending",
             "titlePresent": true
           }
         },

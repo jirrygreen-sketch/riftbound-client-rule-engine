@@ -18,7 +18,8 @@ describe("M1 headless dual-bot regression", () => {
   const run = createHeadlessRegressionHarness();
 
   it("classifies committed natural wins separately from unfinished guards", () => {
-    const noCommands = { play: 0, idle: 0, pass: 0, advance: 0, move: 0, "combat-damage": 0, concede: 0 };
+    const noCommands = { play: 0, idle: 0, pass: 0, advance: 0, move: 0, "rune-energy": 0,
+      "combat-damage": 0, concede: 0 };
     const natural: HeadlessStats = {
       seed: "classification-natural", decks: { A: "rumble-sfd", B: "fiora-sfd" }, winner: "A", turnNumber: 12,
       termination: "winner", guardReason: null, blockers: [], scores: { A: 8, B: 3 }, victoryScore: 8,
@@ -27,6 +28,8 @@ describe("M1 headless dual-bot regression", () => {
       judgeRequiredCardCounts: [], judgeRequiredTop: [],
       actionCoverage: { commands: noCommands,
         choices: { optional: 0, mode: 0, number: 0, "select-objects": 0, order: 0 } },
+      observedActions: { commands: noCommands, choices: { optional: 0, mode: 0, number: 0, "select-objects": 0, order: 0 },
+        committedPlays: 0, rejectedPlays: 0 },
       eventCount: 10, journalDigest: "a".repeat(64), projectionDigests: { A: "b".repeat(64), B: "c".repeat(64) },
       replayMatches: true, privacySafe: true,
     };
@@ -87,6 +90,72 @@ describe("M1 headless dual-bot regression", () => {
     expect(summary.judgeRequiredCardCounts.length).toBeGreaterThan(0);
     expect(summary.results.every(result => /^[0-9a-f]{64}$/.test(result.journalDigest))).toBe(true);
   }, 600_000);
+
+  it("records Basic Rune resources and an authoritative Unit entry", () => {
+    let journal: HeadlessJournal | undefined;
+    const result = runHeadlessGame("RIFT-874-regression-1", { decks: ["rumble-sfd", "fiora-sfd"],
+      maxTurns: 40, onJournal: value => { journal = value; } });
+    expect(journal).toBeDefined();
+    expect(journal!.commands.some(entry => entry.trace?.phase === "main" &&
+      entry.trace.canActNormal && entry.trace.basicRunes.some(rune => !rune.exhausted))).toBe(true);
+    expect(journal!.commands.some(entry => entry.command.type === "rune-energy" && entry.failure === null)).toBe(true);
+    expect(journal!.commands.some(entry => entry.trace?.boardUnits.length)).toBe(true);
+    expect(result.replayMatches).toBe(true);
+    expect(result.privacySafe).toBe(true);
+    expect(result.actionCoverage.commands.concede).toBe(0);
+    expect(result.observedActions.committedPlays).toBeGreaterThan(0);
+    expect(["blocked", "guard"]).toContain(result.termination);
+    if (result.termination === "blocked") {
+      expect(result.blockers).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: expect.stringMatching(/^(standard-move-transaction|empty-rune-pool)$/) }),
+      ]));
+    }
+  }, 30_000);
+
+  it("finds a ready base Unit and its Standard Move candidates in the production path", () => {
+    let journal: HeadlessJournal | undefined;
+    const result = runHeadlessGame("RIFT-874-regression-1", { decks: ["rumble-sfd", "fiora-sfd"],
+      onJournal: value => { journal = value; } });
+    const move = journal!.commands.find(entry => (entry.trace?.candidateCounts.move ?? 0) > 0);
+    expect(move).toBeDefined();
+    expect(move!.trace!.turnState).toBe("neutral-open");
+    expect(move!.trace!.canActNormal).toBe(true);
+    expect(move!.trace!.canEndTurn).toBe(true);
+    expect(move!.trace!.boardUnits).toEqual(expect.arrayContaining([
+      expect.objectContaining({ exhausted: false, canMove: true, location: expect.objectContaining({ type: "base" }) }),
+    ]));
+    expect(result.blockers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "standard-move-transaction" }),
+    ]));
+    expect(result.actionCoverage.commands.concede).toBe(0);
+  }, 30_000);
+
+  it("holds six seeded mixed-orientation games to real unit and move candidate coverage", () => {
+    const plan = [
+      { seed: "RIFT-874-orientation-rumble-sfd-1", decks: ["rumble-sfd", "fiora-sfd"] as const },
+      { seed: "RIFT-874-orientation-rumble-sfd-2", decks: ["rumble-sfd", "fiora-sfd"] as const },
+      { seed: "RIFT-874-orientation-rumble-sfd-3", decks: ["rumble-sfd", "fiora-sfd"] as const },
+      { seed: "RIFT-874-orientation-fiora-sfd-1", decks: ["fiora-sfd", "rumble-sfd"] as const },
+      { seed: "RIFT-874-orientation-fiora-sfd-2", decks: ["fiora-sfd", "rumble-sfd"] as const },
+      { seed: "RIFT-874-orientation-fiora-sfd-3", decks: ["fiora-sfd", "rumble-sfd"] as const },
+    ];
+    const results = plan.map(({ seed, decks }) => {
+      let journal: HeadlessJournal | undefined;
+      const result = runHeadlessGame(seed, { decks, onJournal: value => { journal = value; } });
+      return { result, journal: journal! };
+    });
+    const selected = results.filter(({ journal }) => journal.commands.some(entry =>
+      (entry.trace?.candidateCounts.move ?? 0) > 0));
+    expect(selected.length).toBeGreaterThanOrEqual(5);
+    expect(results.filter(({ journal }) => journal.commands.some(entry => entry.trace?.boardUnits.length)).length)
+      .toBeGreaterThanOrEqual(5);
+    expect(results.filter(({ result }) => result.exceptions.some(exception =>
+      exception.includes("Invalid effect.token argument: location"))).length).toBeLessThanOrEqual(1);
+    expect(results.every(({ result }) => result.actionCoverage.commands.concede === 0)).toBe(true);
+    expect(results.every(({ result }) => result.replayMatches && result.privacySafe)).toBe(true);
+    expect(selected.filter(({ result }) => result.exceptions.length === 0).every(({ result }) =>
+      result.blockers.some(blocker => blocker.code === "standard-move-transaction"))).toBe(true);
+  }, 180_000);
 
   it("builds the four JSON-backed M1 deck shapes without changing printed null costs", () => {
     for (const [index, id] of M1_DECK_IDS.entries()) {
@@ -235,5 +304,5 @@ describe("M1 headless dual-bot regression", () => {
 
   // This gate cannot be implemented by fixtures or hand-written settlement.
   // See src/headless/README.md for the engine contracts required to enable it.
-  it.todo("wins several fixed-seed official games by eight-point scoring through real movement and combat");
+  it.todo("wins several fixed-seed official games after the public Standard Move and Rune Pool commands land");
 });

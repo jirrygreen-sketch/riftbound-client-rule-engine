@@ -16,8 +16,10 @@ test("sfd-181-221 Mechanized Menace: identity and status", () => {
     "card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7"
   );
   assert.equal(mechanizedMenace.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(mechanizedMenace.status, "executable");
-  assert.equal(mechanizedMenace.judgeReason, undefined);
+  assert.equal(mechanizedMenace.status, "judge-required");
+  assert.match(mechanizedMenace.judgeReason, /CR 111/);
+  assert.match(mechanizedMenace.judgeReason, /create-token to chain/);
+  assert.match(mechanizedMenace.judgeReason, /RIFT-891/);
 });
 
 test("sfd-181-221 Mechanized Menace: single static keyword-grant ability", () => {
@@ -30,7 +32,8 @@ test("sfd-181-221 Mechanized Menace: single static keyword-grant ability", () =>
   assert.deepEqual(ability.effect.value, { kind: "constant", value: 1 });
   // The grant covers every Mech unit the legend's controller controls.
   assert.equal(ability.effect.filter.type, "unit");
-  assert.equal(ability.effect.filter.tag, "mech");
+  // Tags are case-sensitive; the catalog and the CR 187.4 Mech token use "Mech".
+  assert.equal(ability.effect.filter.tag, "Mech");
   assert.equal(ability.effect.filter.controller, "controller");
   assert.equal(ability.effect.filter.zone, "board");
   assert.equal(ability.condition, undefined);
@@ -43,6 +46,71 @@ test("sfd-181-221 Mechanized Menace: sourceText is the printed ability text", ()
   );
 });
 
-test.todo(
-  "layer evaluation of grant-keyword (Mech units gain Shield 1; +1 might while defenders) — pending Shield KeywordDef / layers expansion (RIFT-81~91)"
-);
+// --- Production component goldens. The original registry program is bound by
+// createProgramBinding and the Legend enters through real move-zone actions so
+// the lifecycle binds its static. The Legend is parked on the Board only
+// because the engine has no Legend zone yet (RIFT-891); this proves the grant
+// itself, not the in-match Legend placement.
+//
+// The card is judge-required, so the binding receives a component view that
+// admits only the status metadata; abilities, filter and tag are the unchanged
+// registry IR. These tests prove the grant, not the in-match Legend placement.
+const admitted = { ...mechanizedMenace, status: "executable", judgeReason: undefined };
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { getTokenDefinition } from "../../../../engine-core/dist/effects/tokens/definitions.js";
+
+function legendOnBoard() {
+  const kernel = world().player("A").player("B")
+    .object("legend", { owner: "A", controller: "A", cardId: mechanizedMenace.canonicalCardId, types: ["legend"], tags: ["Rumble"], zone: "hand", might: null, energy: null, power: null })
+    .base("mech", { might: 3, tags: ["Mech", "Yordle"] })
+    .base("plain", { might: 3, tags: ["Yordle"] })
+    .unit("enemy-mech", { owner: "B", controller: "B", might: 3, tags: ["Mech"], location: { type: "base", player: "B" } })
+    .build();
+  const choose = request => { throw new Error(`Unexpected production choice ${request.id}`); };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const binding = createProgramBinding({ cardPrograms: [admitted] });
+  binding.attachLifecycle(engine, error => { throw error; });
+  engine.commit({ type: "move-zone", object: kernel.ref("legend"), to: "chain" });
+  engine.commit({ type: "move-zone", object: kernel.ref("legend"), to: "base", location: { type: "base", player: "A" } });
+  const shield = id => {
+    engine.layers.setObjects(kernel.objects);
+    return engine.layers.evaluate(kernel.ref(id)).keywords.filter(keyword => keyword.id.toLowerCase() === "shield");
+  };
+  return { kernel, engine, shield };
+}
+
+test("sfd-181-221 Mechanized Menace grants Shield 1 only to its controller's Mechs", () => {
+  const f = legendOnBoard();
+  assert.deepEqual(f.shield("mech").map(keyword => keyword.value), [1]);
+  assert.deepEqual(f.shield("plain"), [], "a friendly non-Mech is unaffected");
+  assert.deepEqual(f.shield("enemy-mech"), [], "an opposing Mech is unaffected");
+});
+
+test("sfd-181-221 Mechanized Menace reaches the CR 187.4 Mech token's real tag", () => {
+  const mechToken = getTokenDefinition("mech");
+  assert.ok(mechToken, "the frozen Mech token definition exists");
+  assert.ok(mechToken.spec.tags.includes(mechanizedMenace.abilities[0].effect.filter.tag));
+});
+
+test("sfd-181-221 Mechanized Menace stops granting Shield once the Legend leaves", () => {
+  const f = legendOnBoard();
+  assert.equal(f.shield("mech").length, 1);
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("legend"), to: "trash" });
+  assert.deepEqual(f.shield("mech"), []);
+});
+
+test.todo("sfd-181-221 Mechanized Menace: the Champion Legend in its Legend zone grants Shield during a real createMatch game (RIFT-891)");
+test.todo("sfd-181-221 Mechanized Menace: a granted Shield gives +1 Might while the Mech is a defender in real combat (CR 814.1.c)");
