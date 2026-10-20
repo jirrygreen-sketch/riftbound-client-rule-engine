@@ -96,15 +96,9 @@ export function describePlay(registry: ProgramRegistry, action: Extract<GameActi
   const restrictions = translateRestriction(ability?.restriction, program.canonicalCardId);
   const repeatCost = hasRepeatDeclaration(program, source) ? repeatAdditionalCost(ability?.cost) : undefined;
   const costAbility = repeatCost === undefined ? ability : { ...ability!, cost: repeatCost };
-  const costProgram = repeatCost === undefined ? program : {
-    ...program,
-    // CR 820.1.b defines the payment itself as optional. Some historical card
-    // IR carries the exact decision on the play CostSpec without repeating
-    // that phrase in sourceText; expose the rule text to the existing cost
-    // binder instead of rewriting the authored program or its status.
-    sourceText: `${program.sourceText}\nYou may pay the Repeat cost as an additional cost.`,
-  };
-  const cost = bindProgramCost({ program: costProgram, source, mode: 'play', id, ability: costAbility, abilities: expanded.abilities });
+  // The normalized component carries keyword: 'repeat', so the cost binder
+  // takes its optionality from CR 820.1.b rather than from reminder prose.
+  const cost = bindProgramCost({ program, source, mode: 'play', id, ability: costAbility, abilities: expanded.abilities });
   return {
     id,
     controller: action.player,
