@@ -14,6 +14,8 @@ import type {
   PlayerSnapshot,
   ResolveContext,
   TokenSpec,
+  FinalizedCostPlan,
+  PowerPaymentSource,
   ZoneDestination,
   ZoneId,
 } from "../../../../packages/engine-core/dist/effects/contract.js";
@@ -481,13 +483,70 @@ export class EngineRuntimeHost {
     return this.done(moved);
   }
 
-  private pay(playerId: PlayerId, plan: { readonly finalized: true; readonly energy?: number; readonly xp?: number; readonly exhaust?: readonly ObjectRef[]; readonly recycle?: readonly ObjectRef[] }): ActionOutcome {
-    const player = this.requirePlayer(playerId), energy = plan.energy ?? 0, xp = plan.xp ?? 0;
-    if (player.energy < energy || player.xp < xp) return this.prevented();
-    player.energy -= energy; player.xp -= xp;
-    for (const ref of plan.exhaust ?? []) this.setExhausted(ref, true);
-    for (const ref of plan.recycle ?? []) this.move(ref, "deck-bottom");
-    return this.done();
+  private pay(playerId: PlayerId, plan: FinalizedCostPlan): ActionOutcome {
+    const player = this.requirePlayer(playerId);
+    if (plan.finalized !== true) return this.prevented();
+    const energy = plan.energy ?? 0;
+    const xp = plan.xp ?? 0;
+    if (!validCount(energy) || !validCount(xp) || player.energy < energy || player.xp < xp) return this.prevented();
+
+    const power = plan.power ?? [];
+    if (!Array.isArray(power) || power.some(domain => !KNOWN_DOMAINS.has(domain))) return this.prevented();
+    const powerRequired = new Map<Domain, number>();
+    for (const domain of power) powerRequired.set(domain, (powerRequired.get(domain) ?? 0) + 1);
+    const powerSources = plan.powerSources ?? [];
+    if (!Array.isArray(powerSources)) return this.prevented();
+    const assigned = new Map<PowerPaymentSource, number>();
+    for (const entry of powerSources) {
+      if (entry === null || typeof entry !== "object" || !KNOWN_DOMAINS.has(entry.source as Domain) ||
+          !validCount(entry.amount) || entry.amount === 0) return this.prevented();
+      assigned.set(entry.source, (assigned.get(entry.source) ?? 0) + entry.amount);
+    }
+    // The legacy Domain[] pool can prove only named-domain Power. Universal
+    // lots cannot be represented here; fail closed rather than treating them
+    // as an unrestricted or free payment.
+    if (plan.universalPower !== undefined) return this.prevented();
+    for (const [domain, amount] of powerRequired) {
+      if (powerSources.length > 0 && (assigned.get(domain) ?? 0) !== amount) return this.prevented();
+      if (player.power.filter(value => value === domain).length < amount) return this.prevented();
+    }
+    if (powerSources.length > 0 && [...assigned].some(([domain, amount]) => (powerRequired.get(domain as Domain) ?? 0) !== amount)) return this.prevented();
+
+    const exhaust = plan.exhaust ?? [];
+    const recycle = plan.recycle ?? [];
+    if (!Array.isArray(exhaust) || !Array.isArray(recycle)) return this.prevented();
+    const refs = [...exhaust, ...recycle];
+    const seen = new Set<string>();
+    for (const ref of refs) {
+      if (ref === null || typeof ref !== "object" || typeof ref.id !== "string" || !validCount(ref.zoneEntryId) ||
+          seen.has(refKey(ref))) return this.prevented();
+      seen.add(refKey(ref));
+      if (this.object(ref) === null) return this.prevented();
+    }
+
+    // Validation is complete before the first mutation. Keep the checkpoint
+    // even though every checked operation below is deterministic, so a future
+    // failure cannot leak an energy/XP or object transition.
+    const checkpoint = this.checkpoint();
+    try {
+      player.energy -= energy;
+      player.xp -= xp;
+      for (const [domain, amount] of powerRequired) {
+        let remaining = amount;
+        for (let index = player.power.length - 1; index >= 0 && remaining > 0; index--) {
+          if (player.power[index] !== domain) continue;
+          player.power.splice(index, 1);
+          remaining--;
+        }
+        if (remaining !== 0) throw new Error(`Power payment lost ${domain} during commit`);
+      }
+      for (const ref of exhaust) this.setExhausted(ref, true);
+      for (const ref of recycle) this.move(ref, "deck-bottom");
+      return this.done();
+    } catch (error) {
+      this.restore(checkpoint);
+      return this.prevented();
+    }
   }
 }
 
