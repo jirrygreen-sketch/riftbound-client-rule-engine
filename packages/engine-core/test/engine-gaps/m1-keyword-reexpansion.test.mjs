@@ -101,10 +101,6 @@ test('Forecaster: default lifecycle grants Vision to the controller Mechs and ex
       .unit('plain-ally', { cardId: 'card:plain', types: ['unit'], tags: [], controller: 'A', owner: 'A', might: 3, energy: null, power: null })
       .unit('enemy-mech', { cardId: 'card:enemy', types: ['unit'], tags: ['Mech'], controller: 'B', owner: 'B', might: 3, energy: null, power: null }),
     [forecaster],
-    { answers: {
-      'vision-look%3Akeyword%3Avision%3Acard.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40%3A0/vision-select%3Akeyword%3Avision%3Acard.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40%3A0': [top],
-      'vision-look%3Akeyword%3Avision%3Acard.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40%3A1/vision-select%3Akeyword%3Avision%3Acard.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40%3A1': [top],
-    } },
   );
   assert.equal(f.enter('friendly-mech').status, 'done');
   assert.equal(f.enter('plain-ally').status, 'done');
@@ -117,7 +113,10 @@ test('Forecaster: default lifecycle grants Vision to the controller Mechs and ex
   assert.deepEqual(keywordIds(f, 'enemy-mech'), []);
   assert.deepEqual(keywordIds(f, 'forecaster'), ['Vision']);
   assert.ok(f.asked.some(request => request.type === 'select-objects'), 'the real Vision trigger performed Predict');
-  assert.equal(f.kernel.zone('A', 'deck')[0].id, 'second-card');
+  const visionLinks = Object.entries(f.kernel.linkedSnapshot())
+    .filter(([key]) => key.includes('vision-recycle') && key.endsWith('.recycledCount'));
+  assert.equal(visionLinks.length, 2, 'each Vision source performs its own Predict');
+  assert.equal(f.kernel.zone('A', 'deck')[0].id, 'top-card');
 });
 
 for (const [otherMech, expectedReady] of [[false, false], [true, true]]) {
