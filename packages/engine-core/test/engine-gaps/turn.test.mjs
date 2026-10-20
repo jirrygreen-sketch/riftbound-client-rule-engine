@@ -277,7 +277,7 @@ test('EG-TURN default TurnFlow preserves the normal opponent after zero, one, tw
   assert.deepEqual(sequenceFor(['A', 'B', 'A']), ['A', 'A', 'B', 'A', 'B']);
 });
 
-test('EG-TURN original Time Warp IR executes through the default interpreter and queues one turn', () => {
+test('EG-TURN original Time Warp IR executes both clauses through the default interpreter and queues one turn', () => {
   const f = fixture();
   const definition = timeWarp.abilities.find(ability => ability.kind === 'play').body;
   const ordered = [];
@@ -286,12 +286,24 @@ test('EG-TURN original Time Warp IR executes through the default interpreter and
     version: 'riftbound.turn-task.v1',
     scheduleAdditionalTurn: (owner, source) => ordered.push({ player: owner, additional: true, sourceInstructionId: source }),
   });
-  const result = resolveChainBody(definition.slice(0, 1), context);
-  assert.equal(result.status, 'executed');
-  assert.deepEqual(result.linkedValues, {
+  const [additional, banish] = definition;
+  assert.equal(additional.op, 'effect.additional-turn');
+  assert.equal(banish.op, 'effect.banish');
+  const scheduled = resolveChainBody([additional], context);
+  const returned = resolveChainBody([banish], context);
+  assert.equal(scheduled.status, 'executed');
+  assert.equal(returned.status, 'executed');
+  assert.deepEqual({ ...scheduled.linkedValues, ...returned.linkedValues }, {
     'take-turn-after-this.additionalTurn': { player: 'A', after: 'this-turn' },
+    'banish-this.banished': { count: 1, objects: [{ id: 'source', zoneEntryId: 2 }], source: { id: 'source', zoneEntryId: 1 } },
+    'banish-this.banishedCount': 1,
+    'banish-this.banishedObjects': [{ id: 'source', zoneEntryId: 2 }],
+    'banish-this.banishedObject': { id: 'source', zoneEntryId: 2 },
   });
   assert.deepEqual(ordered, [{ player: 'A', additional: true, sourceInstructionId: 'effect.additional-turn' }]);
+  assert.equal(context.object(f.kernel.ref('source')), null);
+  assert.notDeepEqual(returned.linkedValues['banish-this.banishedObject'], { id: 'source', zoneEntryId: 1 });
+  assert.deepEqual(returned.linkedValues['banish-this.banishedObject'], { id: 'source', zoneEntryId: 2 });
 });
 
 test('EG-TURN original Time Warp IR fails closed without the turn-task capability', () => {
