@@ -1,3 +1,5 @@
+// Execution evidence (README 4.1): the Equip activation of Sacred Shears runs through the
+// real ProgramBinding/ChainEngine path in test/cards/templates/keyword-equip-printed-power-882.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -24,4 +26,14 @@ test("Sacred Shears hosts a valued Order Equip keyword", () => {
   assert.equal(equip.costDomain, "Order");
 });
 
-test.todo("Sacred Shears: Equip keyword expansion (Order power cost, controlled-unit target, effect.attach body) is owned by the engine keyword registry (RIFT-81~91)");
+test("Sacred Shears carries its printed Equip cost as exactly one Order Power through params.cost", () => {
+  const [equip] = program.abilities;
+  assert.deepEqual(equip.params, {
+    cost: {
+      kind: "activated",
+      payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["Order"] }]
+    }
+  });
+  assert.equal(equip.params.cost.energy, undefined);
+  assert.equal(equip.params.cost.payments.some(payment => payment.kind === "equip"), false);
+});

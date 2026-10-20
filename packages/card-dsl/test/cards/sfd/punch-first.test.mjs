@@ -207,3 +207,46 @@ test.todo(
     "layers/duration at the turn-end timing point; the golden asserts the registered end-of-turn duration"
 );
 
+
+// --- Production goldens: original registry program, real describePlay,
+// ChainEngine speed/target/cost/pass/Resolve (test/fixtures/production-play.mjs).
+// Printed: Spell, Body, 1 Energy + 2 Body Power. A card's `power` lists its
+// distinct printed domains; the amount comes from the program's cost.
+import { productionPlay } from "../../fixtures/production-play.mjs";
+
+const pfTable = ({ power = ["Body", "Body"], target = "ally" } = {}) => productionPlay({
+  programs: [program],
+  answers: { "target:punch-first.unit": [target] },
+  build: w => w.player("A", { energy: 1, power }).player("B")
+    .object("pf", { owner: "A", controller: "A", cardId: CANONICAL, types: ["spell"], zone: "hand", energy: 1, power: ["Body"] })
+    .base("ally", { might: 2 }).base("ally-2", { might: 2 })
+    .unit("enemy", { owner: "B", controller: "B", might: 3, location: { type: "base", player: "B" } }),
+});
+
+test("sfd-097-221 Punch First production: Action speed, +5 Might only on the chosen unit, pays 1 Energy + 2 Body", () => {
+  const f = pfTable();
+  const draft = f.play("pf");
+  assert.equal(draft.speed, "action");
+  assert.equal(f.might("ally"), 7);
+  assert.equal(f.might("ally-2"), 2);
+  assert.equal(f.might("enemy"), 3);
+  assert.equal(f.kernel.player("A").energy, 0);
+  assert.deepEqual(f.kernel.player("A").power, []);
+  assert.equal(f.kernel.getObject("pf").zone, "trash");
+});
+
+test("sfd-097-221 Punch First production: \"a unit\" includes an opposing unit", () => {
+  const f = pfTable({ target: "enemy" });
+  f.play("pf");
+  assert.equal(f.might("enemy"), 8);
+  assert.equal(f.might("ally"), 2);
+});
+
+for (const [why, power] of [["only one Body Power", ["Body"]], ["off-domain Power", ["Fury", "Fury"]]]) {
+  test(`sfd-097-221 Punch First production: with ${why} the play is rejected before anything moves`, () => {
+    const f = pfTable({ power });
+    const before = f.kernel.snapshot();
+    assert.throws(() => f.play("pf"), /insufficient matching Power/);
+    assert.deepEqual(f.kernel.snapshot(), before);
+  });
+}

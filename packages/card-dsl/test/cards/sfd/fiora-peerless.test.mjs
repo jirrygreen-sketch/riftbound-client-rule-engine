@@ -4,13 +4,29 @@ import { validateCardProgram } from "../../../dist/index.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
 
 const cardId = "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f";
 const program = cardProgramsById.get(cardId);
+
+// Official evidence for the production scenario below:
+// - CR v1.5, updated 2026-10-09:
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+//   (383.2.c, 383.4.e.2, 433.1, 466.2.c.3/d.1, 468.7.c, 740.2.a/b)
+// - Radiance patch notes, published 2026-10-09 and effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// - Card text: SFD-110/221 printing in the shared read-only deck catalog.
+// Timeline: one real Move applies Contested; Combat opens and establishes roles;
+// the two declaration events are collected as one source batch; EventPipeline
+// evaluates one-on-one per captured source; the resolved Chain instruction reads
+// current Might, registers the arithmetic delta, preserves it through Combat, and
+// removes it from the layer registry on combat-end.
 
 test("fiora-peerless program is registered and validates", () => {
   assert.ok(program, "fiora-peerless must be in the generated card registry");
@@ -19,8 +35,8 @@ test("fiora-peerless program is registered and validates", () => {
 });
 
 test("fiora-peerless structure: attack/defend triggers with one-on-one predicate and a real doubling body", () => {
-  assert.equal(program.status, "judge-required");
-  assert.ok(program.judgeReason.includes("one-on-one"), "judgeReason must explain the supported one-on-one gate");
+  assert.equal(program.status, "executable");
+  assert.equal(Object.hasOwn(program, "judgeReason"), false);
   assert.equal(program.abilities.length, 2);
 
   const [attack, defend] = program.abilities;
@@ -125,6 +141,7 @@ test("fiora-peerless: attack and defense trigger registrations are structurally 
   const source = world()
     .unit("fiora", {
       cardId,
+      owner: "A",
       controller: "A",
       location: { type: "battlefield", id: "duel" },
       might: 6
@@ -132,7 +149,7 @@ test("fiora-peerless: attack and defense trigger registrations are structurally 
     .build()
     .getObject("fiora");
   const registrations = triggerRegistrations(
-    new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]),
+    new ProgramRegistry([program]),
     source
   );
   assert.deepEqual(registrations.map(registration => registration.spec.at), ["attack-declared", "defense-declared"]);
@@ -189,7 +206,229 @@ for (const controller of ["A", "B"]) {
   }
 }
 
-test.todo(
-  "fiora-peerless: produce attack-declared/defense-declared from CR 466.2's atomic combat-start role " +
-    "transaction and evaluate the authored condition at trigger collection via the production testTrigger adapter"
-);
+const combatField = () => ({ type: "battlefield", id: "bf1" });
+
+function productionFixture({
+  fioraController = "A",
+  battlefieldController = "B",
+  fioraLocation = { type: "base", player: fioraController },
+  enemyLocation = combatField(),
+  extraFriendly = false,
+  extraEnemy = false,
+  enemyMight = 5
+} = {}) {
+  const opponent = fioraController === "A" ? "B" : "A";
+  const builder = world().player("A").player("B")
+    .unit("fiora", { cardId, owner: fioraController, controller: fioraController, might: 3, location: fioraLocation })
+    .unit("enemy", { owner: opponent, controller: opponent, might: enemyMight, location: enemyLocation });
+  if (extraFriendly) builder.unit("friendly", {
+    owner: fioraController,
+    controller: fioraController,
+    might: 1,
+    location: { type: "base", player: fioraController }
+  });
+  if (extraEnemy) builder.unit("enemy-2", { owner: opponent, controller: opponent, might: 1, location: combatField() });
+  for (const player of ["A", "B"]) {
+    builder.deck(Array.from({ length: 8 }, (_, index) => `${player}:deck:${index}`), { owner: player });
+    builder.rune(Array.from({ length: 8 }, (_, index) => `${player}:rune:${index}`), { owner: player });
+  }
+  const kernel = builder.build();
+  let fallbackCalls = 0;
+  const choose = request => {
+    if (request.id === "move-pair/move-pair.objects") {
+      return request.options.filter(option => ["fiora", "friendly"].includes(option.id));
+    }
+    if (request.type === "select-objects" && request.min === request.max && request.options.length === request.min) {
+      return [...request.options];
+    }
+    throw new Error(`Unexpected choice ${JSON.stringify(request)}`);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => {
+      fallbackCalls++;
+      return kernel.test(registration.spec.condition);
+    }
+  });
+  const flow = new TurnFlow({
+    host,
+    player: id => kernel.player(id),
+    turnOrder: ["A", "B"],
+    battlefields: [{ id: "bf1", controller: battlefieldController }, { id: "bf2", controller: null }]
+  });
+  const registered = createProgramBinding({ cardPrograms: [program] })
+    .registerProgramTriggers(flow.chain, kernel.getObject("fiora"));
+  const firedTriggers = [];
+  const appendTrigger = flow.chain.pipeline.onTrigger;
+  flow.chain.pipeline.onTrigger = snapshot => {
+    firedTriggers.push(snapshot.registration.id);
+    appendTrigger(snapshot);
+  };
+  flow.start();
+  return { kernel, flow, registered, firedTriggers, fallbackCalls: () => fallbackCalls };
+}
+
+function moveIntoCombat(f, objectId, controller = f.flow.turnPlayer) {
+  f.flow.execute({
+    id: `${objectId}-attack-move`,
+    controller,
+    source: f.kernel.getObject(objectId),
+    kind: "activated",
+    speed: "normal",
+    body: [{ id: "move", op: "effect.move", args: { to: { kind: "constant", value: combatField() } } }]
+  });
+  while (f.flow.chain.items.length) f.flow.pass(f.flow.chain.priority);
+  f.flow.chain.layers.setObjects(f.kernel.objects);
+}
+
+function moveFioraAndFriendlyIntoCombat(f) {
+  f.flow.execute({
+    id: "friendly-pair-attack-move",
+    controller: f.flow.turnPlayer,
+    source: f.kernel.getObject("fiora"),
+    kind: "activated",
+    speed: "normal",
+    body: [{
+      id: "move-pair",
+      op: "effect.move",
+      args: {
+        objects: { kind: "constant", value: {
+          kind: "choose",
+          id: "move-pair.objects",
+          filter: { type: "unit", zone: "board" },
+          min: 2
+        } },
+        amount: { kind: "constant", value: 2 },
+        to: { kind: "constant", value: combatField() }
+      }
+    }]
+  });
+  while (f.flow.chain.items.length) f.flow.pass(f.flow.chain.priority);
+  f.flow.chain.layers.setObjects(f.kernel.objects);
+}
+
+function evaluated(f, id) {
+  f.flow.chain.layers.setObjects(f.kernel.objects);
+  return f.flow.chain.layers.evaluate(f.kernel.ref(id));
+}
+
+function eventCounts(flow) {
+  return flow.chain.pipeline.events.reduce((counts, event) => {
+    counts[event.timingPoint] = (counts[event.timingPoint] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
+function triggerMightRegistrations(f) {
+  return f.flow.chain.layers.registry.list().filter(entry =>
+    entry.effect.effect.kind === "continuous.might" && entry.effect.filter.objectId === "fiora"
+  );
+}
+
+test("sfd-110-221 Fiora, Peerless: attacks one-on-one through default CombatFlow and really doubles Might", () => {
+  const f = productionFixture();
+
+  moveIntoCombat(f, "fiora");
+
+  const events = f.flow.chain.pipeline.events;
+  const declarations = events.filter(event => ["attack-declared", "defense-declared"].includes(event.timingPoint));
+  assert.deepEqual(declarations.map(event => [event.timingPoint, event.object.ref.id, event.player]), [
+    ["attack-declared", "fiora", "A"],
+    ["defense-declared", "enemy", "B"]
+  ]);
+  assert.equal(declarations[0].batchId, declarations[1].batchId);
+  assert.deepEqual(f.registered, ["program:fiora:1:0", "program:fiora:1:1"]);
+  assert.deepEqual(f.firedTriggers, ["program:fiora:1:0"]);
+  assert.equal(f.fallbackCalls(), 0);
+  assert.equal(triggerMightRegistrations(f).length, 1);
+  assert.equal(evaluated(f, "fiora").might, 6);
+  assert.equal(evaluated(f, "enemy").might, 5);
+});
+
+test("sfd-110-221 Fiora, Peerless: defends one-on-one through default CombatFlow and really doubles Might", () => {
+  const f = productionFixture({
+    battlefieldController: "A",
+    fioraLocation: combatField(),
+    enemyLocation: { type: "base", player: "B" }
+  });
+  while (f.flow.chain.items.length) f.flow.pass(f.flow.chain.priority);
+  f.flow.pass("A");
+
+  moveIntoCombat(f, "enemy", "B");
+
+  const declarations = f.flow.chain.pipeline.events
+    .filter(event => ["attack-declared", "defense-declared"].includes(event.timingPoint));
+  assert.deepEqual(declarations.map(event => [event.timingPoint, event.object.ref.id, event.player]).sort(), [
+    ["attack-declared", "enemy", "B"],
+    ["defense-declared", "fiora", "A"]
+  ]);
+  assert.deepEqual(f.firedTriggers, ["program:fiora:1:1"]);
+  assert.equal(f.fallbackCalls(), 0);
+  assert.equal(triggerMightRegistrations(f).length, 1);
+  assert.equal(evaluated(f, "fiora").might, 6);
+});
+
+for (const scenario of [
+  { name: "another friendly Unit is at the location", extraFriendly: true },
+  { name: "a second enemy Unit is at the location", extraEnemy: true }
+]) {
+  test(`sfd-110-221 Fiora, Peerless: does not double when ${scenario.name}`, () => {
+    const f = productionFixture(scenario);
+
+    if (scenario.extraFriendly) moveFioraAndFriendlyIntoCombat(f);
+    else moveIntoCombat(f, "fiora");
+
+    const events = f.flow.chain.pipeline.events;
+    assert.equal(events.filter(event => ["attack-declared", "defense-declared"].includes(event.timingPoint)).length, 3);
+    assert.deepEqual(f.firedTriggers, []);
+    assert.equal(f.fallbackCalls(), 0);
+    assert.equal(triggerMightRegistrations(f).length, 0);
+    assert.equal(evaluated(f, "fiora").might, 3);
+  });
+}
+
+test("sfd-110-221 Fiora, Peerless: doubling lasts through Combat and expires at combat-end", () => {
+  const f = productionFixture({ enemyMight: 1 });
+  moveIntoCombat(f, "fiora");
+  assert.equal(evaluated(f, "fiora").might, 6);
+
+  f.flow.pass("A");
+  f.flow.pass("B");
+  f.flow.combat.prepareDamage();
+  const damage = f.flow.combat.damageView();
+  f.flow.combat.submitAttackerDamage("A", [{ uid: "enemy", amount: damage.attackerMight }]);
+  f.flow.combat.submitDefenderDamage("B", [{ uid: "fiora", amount: damage.defenderMight }]);
+  assert.equal(f.flow.chain.layers.registry.list().length, 1);
+  assert.equal(evaluated(f, "fiora").might, 6);
+
+  f.flow.advance();
+  f.flow.advance();
+  f.flow.advance();
+
+  assert.equal(f.flow.combat.active, false);
+  assert.equal(eventCounts(f.flow)["combat-end"], 1);
+  assert.equal(f.flow.chain.layers.registry.list().length, 0);
+  assert.equal(evaluated(f, "fiora").might, 3);
+});
+
+test("sfd-110-221 Fiora, Peerless: ships through the default ProgramRegistry with two once-per-combat triggers", () => {
+  const source = world().unit("fiora", {
+    cardId,
+    owner: "A",
+    controller: "A",
+    location: combatField()
+  }).build().getObject("fiora");
+  const registry = new ProgramRegistry([program]);
+  const registrations = triggerRegistrations(registry, source);
+  assert.deepEqual(registrations.map(entry => [entry.spec.at, entry.spec.once]), [
+    ["attack-declared", "per-combat"],
+    ["defense-declared", "per-combat"]
+  ]);
+});
