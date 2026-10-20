@@ -139,7 +139,8 @@ test('RIFT-878 conquer emits exact battlefield and Unit incarnation for the orig
   assert.equal(ravenbloomConservatory.status, 'judge-required');
   assert.equal(treasureHoard.status, 'judge-required');
   assert.equal(laurentDuelist.status, 'judge-required');
-  assert.equal(fioraPeerless.status, 'judge-required');
+  // RIFT-877 made Fiora, Peerless executable through its own production goldens.
+  assert.equal(fioraPeerless.status, 'executable');
 });
 
 test('RIFT-878 conquer aggregate Score payload records every participating Unit and exact battlefield', () => {
