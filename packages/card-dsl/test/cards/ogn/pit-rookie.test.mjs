@@ -108,3 +108,77 @@ test.todo(
   "Target legality at Finalize: exclude Pending chain items and re-check 'another friendly unit' " +
     "when the trigger goes on the chain (RIFT-8x target/chain workstream)"
 );
+
+// --- Production goldens: the original registry program through the generic
+// scenario harness (ProgramBinding -> ChainEngine play, card-played trigger,
+// Finalize target lock, Resolve). Printed: Unit, Body, 2 Energy, Might 2.
+// The +1 Might a Buff contributes (CR 703) is a rules-engine layer concern
+// tracked by RIFT-888; these goldens assert the Buff counter this card places.
+const { runCardScenario } = await import(new URL("effects/testing/scenario/index.js", engineCore));
+
+const BASE_A = { type: "base", player: "A" };
+const BASE_B = { type: "base", player: "B" };
+const rookie = { id: "rookie", cardId: program.canonicalCardId, program, types: ["unit"], zone: "hand", energy: 2, power: [], might: 2 };
+const playAndResolve = [
+  { type: "play", object: "rookie", player: "A" },
+  { type: "pass", player: "A" },
+  { type: "pass", player: "B" },
+];
+const buffsOf = (result, id) => result.state.objects.find(object => object.ref.id === id).buffs;
+
+test("ogn-136-298 Pit Rookie buffs the only other friendly unit, never itself or an enemy", () => {
+  const result = runCardScenario(program, {
+    players: { A: { energy: 2 } },
+    objects: [
+      rookie,
+      { id: "ally", owner: "A", types: ["unit"], zone: "board", location: BASE_A, might: 2 },
+      { id: "enemy", owner: "B", controller: "B", types: ["unit"], zone: "board", location: BASE_B, might: 2 },
+    ],
+    operations: playAndResolve,
+    expect: { objects: { rookie: { zone: "board" } }, players: { A: { energy: 0 } } },
+  });
+  result.asserts();
+  assert.equal(buffsOf(result, "ally"), 1);
+  assert.equal(buffsOf(result, "rookie"), 0);
+  assert.equal(buffsOf(result, "enemy"), 0);
+  assert.deepEqual(result.state.chain, []);
+});
+
+test("ogn-136-298 Pit Rookie buffs exactly the chosen one of two other friendly units", () => {
+  const result = runCardScenario(program, {
+    players: { A: { energy: 2 } },
+    answers: { "target:other-unit": ["ally-2"] },
+    objects: [
+      rookie,
+      { id: "ally-1", owner: "A", types: ["unit"], zone: "board", location: BASE_A, might: 2 },
+      { id: "ally-2", owner: "A", types: ["unit"], zone: "board", location: BASE_A, might: 3 },
+    ],
+    operations: playAndResolve,
+  });
+  assert.equal(buffsOf(result, "ally-2"), 1);
+  assert.equal(buffsOf(result, "ally-1"), 0);
+  assert.equal(buffsOf(result, "rookie"), 0);
+});
+
+test("ogn-136-298 Pit Rookie with no other friendly unit resolves its play and buffs nothing", () => {
+  const result = runCardScenario(program, {
+    players: { A: { energy: 2 } },
+    objects: [rookie, { id: "enemy", owner: "B", controller: "B", types: ["unit"], zone: "board", location: BASE_B, might: 2 }],
+    operations: [{ type: "play", object: "rookie", player: "A" }],
+    expect: { objects: { rookie: { zone: "board" } } },
+  });
+  result.asserts();
+  assert.equal(buffsOf(result, "rookie"), 0);
+  assert.equal(buffsOf(result, "enemy"), 0);
+  assert.deepEqual(result.state.chain, []);
+});
+
+test("ogn-136-298 Pit Rookie on an already-buffed friendly unit does not stack a second Buff (CR 702.3.a)", () => {
+  const result = runCardScenario(program, {
+    players: { A: { energy: 2 } },
+    objects: [rookie, { id: "ally", owner: "A", types: ["unit"], zone: "board", location: BASE_A, might: 2, buffs: 1 }],
+    operations: playAndResolve,
+  });
+  assert.equal(buffsOf(result, "ally"), 1);
+  assert.deepEqual(result.state.chain, []);
+});
