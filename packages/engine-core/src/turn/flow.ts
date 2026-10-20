@@ -79,6 +79,7 @@ export class TurnFlow {
   private emptyingRunePool = false;
   private hiddenState: HiddenState;
   private hiddenControllers = new Map<string, PlayerId | null>();
+  private revealingForCleanup = new Set<string>();
   readonly victoryScore: number;
 
   constructor(readonly options: TurnFlowOptions) {
@@ -189,14 +190,15 @@ export class TurnFlow {
       turns: new Map(this.turns), ledger: this.scoreLedger.snapshot(), turnQueue: this.turnQueue.snapshot(),
       combat: this.combat?.checkpoint(), tasks: [...this.tasks], scoring: this.scoring,
       burnOutSequence: this.burnOutSequence, emptyingRunePool: this.emptyingRunePool,
-      hidden: this.hiddenState, hiddenControllers: new Map(this.hiddenControllers) };
+      hidden: this.hiddenState, hiddenControllers: new Map(this.hiddenControllers),
+      revealingForCleanup: new Set(this.revealingForCleanup) };
   }
   private restore(saved: ReturnType<TurnFlow['checkpoint']>): void {
     this.phaseValue = saved.phase; this.turnValue = saved.turn; this.winnerValue = saved.winner; this.special = saved.special;
     this.turns = saved.turns; this.scoreLedger.restore(saved.ledger); this.turnQueue.restore(saved.turnQueue);
     this.tasks = saved.tasks; this.burnOutSequence = saved.burnOutSequence;
     this.emptyingRunePool = saved.emptyingRunePool; this.hiddenState = restoreHiddenState(saved.hidden);
-    this.hiddenControllers = saved.hiddenControllers;
+    this.hiddenControllers = saved.hiddenControllers; this.revealingForCleanup = saved.revealingForCleanup;
     if (saved.combat) this.combat.restore(saved.combat);
   }
 
@@ -414,6 +416,7 @@ export class TurnFlow {
     const scoredFields = new Set([...this.scoreLedger.fields(player), field]);
     const finalDraw = method === 'conquer' && finalPointDecision(this.options.player(player).score,
       this.victoryScore, this.battlefields.every(value => scoredFields.has(value.id))).drawInstead;
+    if (finalDraw && this.options.player(player).deckCount === 0) throw new TurnCombatBlockedError('burn-out', 'Final Point draw would require Burn Out');
     this.insert([() => {
       const battlefield = this.battlefieldObject(field);
       if (battlefield !== null && !scorePermission({
@@ -585,18 +588,16 @@ export class TurnFlow {
     const candidate = this.options.host.objects().find(value => value.ref.id === object.id);
     const current = candidate?.zone === 'board' ? candidate : undefined;
     if (current === undefined) return;
-    // CR 422.4: a facedown card changing zones is revealed to all players
-    // before it moves. Both commits stay inside the surrounding Chain cleanup
-    // transaction, so a failed Reveal or Move-Zone rolls both back atomically.
-    const revealed = this.chain.commit({ type: 'reveal', object: current.ref });
-    if (revealed.status !== 'done') {
-      throw new TurnCombatBlockedError('hidden-cleanup-state',
-        'Hidden cleanup Reveal was rejected');
-    }
-    const moved = this.chain.commit({ type: 'move-zone', object: current.ref, to: 'trash' });
-    if (moved.status !== 'done') {
-      throw new TurnCombatBlockedError('hidden-cleanup-state',
-        'Hidden cleanup Move-Zone was rejected');
+    const key = this.refKey(current.ref);
+    this.revealingForCleanup.add(key);
+    try {
+      const outcome = this.chain.commit({ type: 'move-zone', object: current.ref, to: 'trash' });
+      if (outcome.status === 'impossible') {
+        throw new TurnCombatBlockedError('hidden-cleanup-state',
+          'Hidden cleanup selected a stale face-down object');
+      }
+    } finally {
+      this.revealingForCleanup.delete(key);
     }
     void battlefieldId;
   }

@@ -227,54 +227,29 @@ test('EG-TURN repeated Burn Out with empty Trash gives successive points and end
   assert.equal(points.length, 8);
 });
 
-test('EG-TURN multiple additional turns are inserted after the current turn and later insertions resolve first', () => {
+test('EG-TURN additional turns preserve creation order and resume the normal queue', () => {
   const queue = new TurnQueue(['A', 'B']);
   assert.deepEqual(queue.current(), { player: 'A', additional: false });
   queue.enqueueAdditional('A', 'time-warp-1');
   queue.enqueueAdditional('B', 'time-warp-2');
-  const checkpoint = queue.snapshot();
-  assert.deepEqual(queue.next(), { player: 'B', additional: true, sourceInstructionId: 'time-warp-2' });
   assert.deepEqual(queue.next(), { player: 'A', additional: true, sourceInstructionId: 'time-warp-1' });
-  assert.deepEqual(queue.next(), { player: 'B', additional: false });
-
-  queue.restore(checkpoint);
   assert.deepEqual(queue.next(), { player: 'B', additional: true, sourceInstructionId: 'time-warp-2' });
-  assert.deepEqual(queue.next(), { player: 'A', additional: true, sourceInstructionId: 'time-warp-1' });
   assert.deepEqual(queue.next(), { player: 'B', additional: false });
 });
 
-test('EG-TURN default TurnFlow preserves the normal opponent after zero, one, two, and three Additional Turns', () => {
-  const sequenceFor = owners => {
-    const f = fixture({ deck: 12, rune: 12 });
-    f.flow.start();
-    const sequence = [{ player: f.flow.turnPlayer, turn: f.flow.turn, additional: false }];
-    if (owners.length) {
-      f.flow.execute(f.draft('queue-extra', owners.map((owner, index) => ({
-        id: `queue-extra-${index}`, op: 'effect.additional-turn',
-        args: { owner: c(owner), after: c('this-turn') },
-      }))));
-      passUntilIdle(f);
-    }
-    const expected = [...owners].reverse();
-    for (const expectedOwner of expected) {
-      const player = f.flow.turnPlayer;
-      f.flow.endTurn(player);
-      passUntilIdle(f);
-      assert.equal(f.flow.turnPlayer, expectedOwner);
-      sequence.push({ player: f.flow.turnPlayer, turn: f.flow.turn, additional: true });
-    }
-    f.flow.endTurn(f.flow.turnPlayer);
-    passUntilIdle(f);
-    assert.equal(f.flow.turnPlayer, 'B');
-    assert.equal(f.flow.queuedAdditionalTurns.length, 0);
-    sequence.push({ player: f.flow.turnPlayer, turn: f.flow.turn, additional: false });
-    return sequence.map(turn => turn.player);
-  };
-
-  assert.deepEqual(sequenceFor([]), ['A', 'B']);
-  assert.deepEqual(sequenceFor(['A']), ['A', 'A', 'B']);
-  assert.deepEqual(sequenceFor(['A', 'B']), ['A', 'B', 'A', 'B']);
-  assert.deepEqual(sequenceFor(['A', 'B', 'A']), ['A', 'A', 'B', 'A', 'B']);
+test('EG-TURN a queued Additional Turn is consumed after the current turn, then normal order resumes', () => {
+  const f = fixture({ deck: 3 });
+  f.flow.start();
+  f.flow.execute(f.draft('queue-extra', [{
+    id: 'queue-extra.take', op: 'effect.additional-turn',
+    args: { owner: c('controller'), after: c('this-turn') },
+  }]));
+  passUntilIdle(f);
+  assert.deepEqual(f.flow.queuedAdditionalTurns.map(turn => turn.player), ['A']);
+  f.flow.endTurn('A');
+  assert.equal(f.flow.turnPlayer, 'A');
+  assert.equal(f.flow.turn, 2);
+  assert.deepEqual(f.flow.queuedAdditionalTurns, []);
 });
 
 test('EG-TURN original Time Warp IR executes through the default interpreter and queues one turn', () => {

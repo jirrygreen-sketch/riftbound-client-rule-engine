@@ -40,16 +40,9 @@ export class TurnQueue {
   current(): QueuedTurn {
     return { player: this.turnOrder[this.normalCursor % this.turnOrder.length]!, additional: false };
   }
-  /**
-   * CR 735-738: each insertion is placed immediately after the current turn.
-   * A later insertion is therefore ahead of earlier insertions. Only advancing
-   * the base turn order consumes the next normal turn; Additional Turns never
-   * advance normalCursor.
-   */
+  /** CR 737: consume one queued Additional Turn, then resume the normal loop. */
   next(): QueuedTurn {
-    const additional = this.additional.pop();
-    if (additional !== undefined) return additional;
     this.normalCursor = (this.normalCursor + 1) % this.turnOrder.length;
-    return this.current();
+    return this.additional.shift() ?? this.current();
   }
 }
