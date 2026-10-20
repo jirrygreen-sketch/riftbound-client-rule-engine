@@ -92,13 +92,14 @@ function namedEventDependency(value: unknown, seen = new Set<object>()): boolean
 function namedFilterEventDependency(filter: unknown): boolean {
   if (filter === null || typeof filter !== 'object' || Array.isArray(filter)) return false;
   const pattern = filter as Record<string, unknown>;
-  if (pattern.it !== undefined || pattern.fromZone !== undefined || pattern.toZone !== undefined ||
+  if (pattern.here !== undefined || pattern.it !== undefined || pattern.fromZone !== undefined || pattern.toZone !== undefined ||
       pattern.amount !== undefined || pattern.details !== undefined) return true;
   for (const role of ['object', 'target'] as const) {
     const nested = pattern[role];
     if (nested !== null && typeof nested === 'object' && !Array.isArray(nested)) {
       const value = nested as Record<string, unknown>;
-      if (value.event === 'it' || value.role === 'it' || value.object === 'it' || value.source === 'it') return true;
+      if (value.here !== undefined || value.event === 'it' || value.role === 'it' ||
+          value.object === 'it' || value.source === 'it') return true;
     }
   }
   return false;
@@ -373,7 +374,7 @@ export class EventPipeline {
       if (!registration.delayed && (!source || !(registration.activeZones ?? ['board']).includes(source.zone))) continue;
       const captured = structuredClone(source ?? registration.source);
       const controller = registration.delayed ? registration.controller : captured.controller;
-      if (!matchesTriggerEvent(registration.spec.filter, event, controller)) continue;
+      if (!matchesTriggerEvent(registration.spec.filter, event, controller, captured)) continue;
       if (registration.spec.condition) {
         try {
           // The pipeline evaluator has the captured source, immutable event,
