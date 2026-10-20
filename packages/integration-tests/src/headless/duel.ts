@@ -16,6 +16,11 @@ import { CostPlanError } from "../../../engine-core/dist/cost/plan-types.js";
 import { TriggerSpecValidationError } from "../../../engine-core/dist/events/trigger-spec.js";
 import { TargetSelectionError } from "../../../engine-core/dist/target/target-plan.js";
 import { movement, playLocations, restrictions } from "../../../engine-core/dist/layers/rules/query.js";
+import {
+  executeBasicRuneResourcePlan,
+  planBasicRuneResourceActivation,
+  type BasicRuneIdentity,
+} from "../../../engine-core/dist/runes/index.js";
 
 const { buildM1Deck, M1_DECK_IDS } = await import(new URL("./decks.ts", import.meta.url).href);
 
@@ -25,7 +30,7 @@ export const DEFAULT_GAME_LIMIT = 100;
 export const DEFAULT_TURN_LIMIT = 40;
 export const DEFAULT_ACTION_LIMIT = 10_000;
 
-export type HeadlessCommandType = "play" | "idle" | "pass" | "advance" | "move" | "combat-damage" | "concede";
+export type HeadlessCommandType = "play" | "idle" | "pass" | "advance" | "move" | "rune-energy" | "combat-damage" | "concede";
 export type HeadlessChoiceType = "optional" | "mode" | "number" | "select-objects" | "order";
 
 export interface HeadlessActionCoverage {
@@ -115,12 +120,70 @@ export type HeadlessCommand =
   | { readonly type: "play"; readonly player: PlayerId; readonly object: ObjectRef;
       readonly id: string; readonly location?: LocationRef }
   | { readonly type: "move"; readonly player: PlayerId; readonly object: ObjectRef; readonly to: LocationRef }
+  | { readonly type: "rune-energy"; readonly player: PlayerId; readonly object: ObjectRef; readonly id: string }
   | { readonly type: "idle" | "pass"; readonly player: PlayerId }
   | { readonly type: "advance" | "combat-damage" };
 
 export interface HeadlessJournalEntry {
   readonly command: HeadlessCommand;
   readonly failure: HeadlessFailure | null;
+  /** Optional read-only observations from older and current journals remain replayable. */
+  readonly trace?: HeadlessCommandTrace;
+}
+
+export interface HeadlessCommandTraceObject {
+  readonly id: string;
+  readonly cardId: string | null;
+  readonly name: string;
+  readonly controller: PlayerId;
+  readonly zone: ObjectSnapshot["zone"];
+  readonly location: LocationRef | null;
+  readonly exhausted: boolean;
+  readonly canMove: boolean;
+  readonly canGank: boolean;
+  readonly movementRestrictions: readonly string[];
+}
+
+export interface HeadlessBasicRuneTrace {
+  readonly id: string;
+  readonly name: string;
+  readonly cardId: string | null;
+  readonly domain: string | null;
+  readonly exhausted: boolean;
+}
+
+export interface HeadlessCommandTrace {
+  readonly turn: number;
+  readonly turnPlayer: PlayerId;
+  readonly phase: Match["flow"]["phase"];
+  readonly priority: PlayerId | null;
+  readonly focus: PlayerId | null;
+  readonly turnState: Match["flow"]["chain"]["turnState"];
+  readonly canActNormal: boolean;
+  readonly candidateCounts: Readonly<Record<HeadlessCommandType, number>>;
+  readonly boardUnits: readonly HeadlessCommandTraceObject[];
+  readonly basicRunes: readonly HeadlessBasicRuneTrace[];
+  readonly runePool: Readonly<Record<PlayerId, { readonly energy: number; readonly power: readonly string[] }>>;
+  readonly candidates: readonly {
+    readonly type: HeadlessCommandType;
+    readonly id: string | null;
+    readonly name: string | null;
+    readonly object: ObjectRef;
+    readonly energy: number | null;
+    readonly power: readonly string[] | null;
+    readonly types: readonly string[];
+    readonly destination: LocationRef | null;
+  }[];
+  /** The public flow predicate that decides whether this Command may end Main. */
+  readonly canEndTurn: boolean;
+  readonly emptyRunePoolBlocked: boolean;
+}
+
+export interface HeadlessObservedActionCoverage extends HeadlessActionCoverage {
+  /** Play commands whose authoritative Play action committed, including zero-cost cards. */
+  readonly committedPlays: number;
+  /** Play commands rejected because the locked cost was not payable. */
+  readonly rejectedPlays: number;
 }
 
 export interface HeadlessStats {
@@ -141,6 +204,7 @@ export interface HeadlessStats {
   readonly judgeRequiredCardCounts: readonly HeadlessJudgeRequiredCardStat[];
   readonly judgeRequiredTop: readonly HeadlessJudgeRequiredCardStat[];
   readonly actionCoverage: HeadlessActionCoverage;
+  readonly observedActions: HeadlessObservedActionCoverage;
   readonly eventCount: number;
   readonly journalDigest: string;
   readonly projectionDigests: Readonly<Record<PlayerId, string>>;
@@ -283,6 +347,9 @@ interface HeadlessContext {
   readonly decks: HeadlessDeckPair;
   readonly mulligans: readonly [readonly string[], readonly string[]];
   readonly programs: ReturnType<typeof createProgramBinding>;
+  readonly basicRuneDomain: (cardId: string | null) => string | null;
+  readonly basicRuneIdentity: (cardId: string) => BasicRuneIdentity | null;
+  readonly m1Pair: boolean;
   readonly match: Match;
 }
 
@@ -300,6 +367,21 @@ function journalHasValidIntegrity(journal: HeadlessJournal): boolean {
   return journal.integrity === undefined || digest(journalContent(journal)) === journal.integrity;
 }
 
+function replayHeadlessGame(journal: HeadlessJournal): boolean {
+  try {
+    if (!journalHasValidIntegrity(journal)) return false;
+    const context = createHeadlessContext(journal.seed, journal.mulligans, journal.decks);
+    for (const entry of journal.commands) {
+      let failure: HeadlessFailure | null = null;
+      try { executeCommand(context, entry.command); }
+      catch (error) { failure = failureOf(error); }
+      if (digest(failure) !== digest(entry.failure)) return false;
+    }
+    return digest(context.match.events()) === digest(journal.events) &&
+      digest(finalState(context)) === digest(journal.final);
+  } catch { return false; }
+}
+
 function stableSeed(seed: string): number {
   let value = 0x811c9dc5;
   for (const character of seed) {
@@ -311,7 +393,8 @@ function stableSeed(seed: string): number {
 
 function emptyActionCoverage(): MutableCounters["actionCoverage"] {
   return {
-    commands: { play: 0, idle: 0, pass: 0, advance: 0, move: 0, "combat-damage": 0, concede: 0 },
+    commands: { play: 0, idle: 0, pass: 0, advance: 0, move: 0, "rune-energy": 0,
+      "combat-damage": 0, concede: 0 },
     choices: { optional: 0, mode: 0, number: 0, "select-objects": 0, order: 0 },
   };
 }
@@ -752,6 +835,18 @@ function createHeadlessContext(
   const mulligans = requestedMulligans ?? chooseMulligans(seed, openingHandsFor(seed, decks));
   const state = makeWorld(seed);
   const match = setupMatch(seed, state, programs, decks, mulligans);
+  const runeDomains = new Map<string, string>();
+  const runeIdentities = new Map<string, BasicRuneIdentity>();
+  for (const card of [...decks[0].runeDeck, ...decks[1].runeDeck]) {
+    if (card.cardId && card.tags?.includes("Basic") && card.domains?.length === 1) {
+      runeDomains.set(card.cardId, card.domains[0]!);
+      const domain = card.domains[0];
+      if (card.canonicalCardId && domain && ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"].includes(domain)) {
+        runeIdentities.set(card.cardId, { cardId: card.cardId, canonicalCardId: card.canonicalCardId,
+          domain: domain as BasicRuneIdentity["domain"] });
+      }
+    }
+  }
   programs.attachLifecycle(match.flow.chain, (error, source) => {
     if (cardProgramStatus(source.cardId) !== "executable" || error instanceof TriggerSpecValidationError ||
       error instanceof Error && "code" in error && error.code === "judge-required") {
@@ -760,7 +855,11 @@ function createHeadlessContext(
     // Unsupported lifecycle work must block, never silently drop a trigger.
     throw error;
   });
-  return { state, decks: pair, mulligans, programs, match };
+  return { state, decks: pair, mulligans, programs,
+    basicRuneDomain: cardId => cardId === null ? null : runeDomains.get(cardId) ?? null,
+    basicRuneIdentity: cardId => runeIdentities.get(cardId) ?? null,
+    m1Pair: pair.A === "rumble-sfd" && pair.B === "fiora-sfd" ||
+      pair.A === "fiora-sfd" && pair.B === "rumble-sfd", match };
 }
 
 class HeadlessContractBlockedError extends Error {
@@ -812,6 +911,21 @@ function executeCommand(context: HeadlessContext, command: HeadlessCommand): voi
         }
         match.flow.move(command.player, command.object, command.to.id);
         return;
+      case "rune-energy": {
+        const source = state.kernel.objects.find(object => object.ref.id === command.object.id &&
+          object.ref.zoneEntryId === command.object.zoneEntryId);
+        if (!source) throw new Error("Missing owned Basic Rune source");
+        const plan = planBasicRuneResourceActivation({
+          chain: match.flow.chain,
+          state: { objects: () => state.kernel.objects, player: id => state.kernel.player(id) },
+          resolveIdentity: context.basicRuneIdentity,
+          request: { actor: command.player, activationId: command.id,
+            intent: { type: "rune-energy", runeObjectId: source.ref.id, zoneEntryId: source.ref.zoneEntryId },
+            window: { kind: "priority" } },
+        });
+        executeBasicRuneResourcePlan(plan);
+        return;
+      }
       case "play": {
         const source = state.kernel.objects.find(object => object.ref.id === command.object.id &&
           object.ref.zoneEntryId === command.object.zoneEntryId) as DraftableCard | undefined;
@@ -878,8 +992,32 @@ function enumerateCandidates(context: HeadlessContext, sequence: number): readon
       const draft = createBotDraft(programs, source as DraftableCard, player, location, state.counters, id);
       if (!draft) continue;
       const reaction = draft.conditionalReaction && state.host.context(source, player, "chain-item-finalize").test(draft.conditionalReaction);
-      if (chain.canAct(player, reaction ? "reaction" : draft.speed ?? "normal", source.ref, source)) {
+      const speed = reaction ? "reaction" : draft.speed ?? "normal";
+      if (chain.canAct(player, speed, source.ref, source)) {
         commands.push({ type: "play", player, object: source.ref, id, ...(location ? { location } : {}) });
+      }
+    }
+  }
+  if (context.m1Pair && flow.phase === "main" && !flow.combat.active &&
+      chain.turnState === "neutral-open" && chain.canAct(player, "reaction") && chain.canAct(player, "normal")) {
+    const pool = state.kernel.player(player).energy;
+    const runes = objects.filter(object => object.controller === player && object.zone === "rune-zone" &&
+      !object.exhausted && object.cardId !== null && context.basicRuneIdentity(object.cardId) !== null);
+    const playableUnits = commands.filter((command): command is Extract<HeadlessCommand, { type: "play" }> =>
+      command.type === "play").flatMap(command => {
+        const source = objects.find(object => object.ref.id === command.object.id &&
+          object.ref.zoneEntryId === command.object.zoneEntryId);
+        return source?.types.includes("unit") && source.energy !== null ? [{ source, energy: source.energy }] : [];
+      }).sort((left, right) => left.energy - right.energy);
+    const target = playableUnits.find(candidate => candidate.energy > pool && candidate.energy <= pool + runes.length &&
+      candidate.source.power === null);
+    if (target) {
+      const energyShortfall = target.energy - pool;
+      const powerShortfall = target.source.power === null ? 0 :
+        typeof target.source.power === "number" ? target.source.power : target.source.power.length;
+      for (const rune of runes.slice(0, energyShortfall + powerShortfall)) {
+        commands.push({ type: "rune-energy", player, object: rune.ref,
+          id: `headless:rune-energy:${sequence}:${rune.ref.id}:${rune.ref.zoneEntryId}:${player}` });
       }
     }
   }
@@ -908,19 +1046,7 @@ function finalState(
 
 /** Re-execute accepted AND rejected commands, and compare the complete event stream and final state. */
 export function replayHeadlessJournal(journal: HeadlessJournal): boolean {
-  try {
-    if (!journalHasValidIntegrity(journal)) return false;
-    const context = createHeadlessContext(journal.seed, journal.mulligans, journal.decks);
-    for (const entry of journal.commands) {
-      let failure: HeadlessFailure | null = null;
-      try { executeCommand(context, entry.command); }
-      catch (error) { failure = failureOf(error); }
-      if (digest(failure) !== digest(entry.failure)) return false;
-    }
-    return digest(context.match.events()) === digest(journal.events) && digest(finalState(context)) === digest(journal.final);
-  } catch {
-    return false;
-  }
+  return replayHeadlessGame(journal);
 }
 
 function battleStats(events: readonly PipelineEvent[]): HeadlessBattleStats {
@@ -929,6 +1055,66 @@ function battleStats(events: readonly PipelineEvent[]): HeadlessBattleStats {
     defenses: count("defense-declared"), conquers: count("conquer"), scores: count("score"),
     points: events.filter(event => event.timingPoint === "points-gained" || event.timingPoint === "score" && event.action?.type === "score")
       .reduce((sum, event) => sum + (event.amount ?? 0), 0) };
+}
+
+function traceObject(context: HeadlessContext, object: ObjectSnapshot): HeadlessCommandTraceObject {
+  const permission = movement(context.match.flow.chain.layers.registry, object.ref, object, object.controller);
+  return { id: object.ref.id, cardId: object.cardId, name: object.name, controller: object.controller,
+    zone: object.zone, location: object.location, exhausted: object.exhausted,
+    canMove: permission.canMove, canGank: permission.canGank,
+    movementRestrictions: restrictions(context.match.flow.chain.layers.registry, "move",
+      object.ref, object, object.controller).flatMap(rule => rule.name === undefined ? [] : [rule.name]) };
+}
+
+function boardUnitTrace(context: HeadlessContext, player?: PlayerId): readonly HeadlessCommandTraceObject[] {
+  const { match, state } = context;
+  match.flow.chain.layers.setObjects(state.kernel.objects);
+  return match.flow.chain.layers.evaluateAll()
+    .filter(object => object.zone === "board" && object.types.includes("unit") &&
+      (player === undefined || object.controller === player))
+    .map(object => traceObject(context, object));
+}
+
+function commandTrace(context: HeadlessContext, candidates: readonly HeadlessCommand[]): HeadlessCommandTrace {
+  const { match, state } = context;
+  const counts: Record<HeadlessCommandType, number> = { play: 0, idle: 0, pass: 0, advance: 0, move: 0,
+    "rune-energy": 0, "combat-damage": 0, concede: 0 };
+  for (const command of candidates) counts[command.type] += 1;
+  const objects = new Map(state.kernel.objects.map(object => [
+    `${object.ref.id}:${object.ref.zoneEntryId}`, object]));
+  return { turn: match.flow.turn, turnPlayer: match.flow.turnPlayer, phase: match.flow.phase,
+    priority: match.flow.chain.priority, focus: match.flow.chain.focus,
+    turnState: match.flow.chain.turnState,
+    canActNormal: match.flow.chain.priority !== null && match.flow.chain.canAct(match.flow.chain.priority, "normal"),
+    canEndTurn: match.flow.phase === "main" && match.flow.turnPlayer === match.flow.chain.priority &&
+      match.flow.chain.items.length === 0 && !match.flow.combat.active &&
+      match.flow.chain.canAct(match.flow.turnPlayer, "normal"),
+    emptyRunePoolBlocked: (["A", "B"] as const).some(id => {
+      const player = state.kernel.player(id);
+      return player.energy !== 0 || player.power.length !== 0;
+    }),
+    candidateCounts: counts, boardUnits: boardUnitTrace(context),
+    basicRunes: state.kernel.objects.filter(object => object.zone === "rune-zone" &&
+      object.types.some(type => type.toLowerCase() === "rune")).map(object => ({ id: object.ref.id,
+        name: object.name, cardId: object.cardId, domain: context.basicRuneDomain(object.cardId),
+        exhausted: object.exhausted })),
+    runePool: Object.fromEntries((["A", "B"] as const).map(id => [id,
+      { energy: state.kernel.player(id).energy, power: [...state.kernel.player(id).power] }])),
+    candidates: candidates.map(command => {
+      const object = "object" in command ? objects.get(`${command.object.id}:${command.object.zoneEntryId}`) : undefined;
+      return { type: command.type, id: "id" in command ? command.id : null, name: object?.name ?? null,
+        object: "object" in command ? command.object : { id: "none", zoneEntryId: 0 },
+        energy: object?.energy ?? null, power: object?.power === null || object?.power === undefined ? null : [...object.power],
+        types: object?.types === undefined ? [] : [...object.types],
+        destination: command.type === "move" ? command.to : command.type === "play" ? command.location ?? null : null };
+    }) };
+}
+
+function observedActionCoverage(commands: readonly HeadlessJournalEntry[], actionCoverage: HeadlessActionCoverage): HeadlessObservedActionCoverage {
+  return { ...actionCoverage,
+    committedPlays: commands.filter(entry => entry.command.type === "play" && entry.failure === null).length,
+    rejectedPlays: commands.filter(entry => entry.command.type === "play" &&
+      entry.failure?.code === "cannot-pay-cost").length };
 }
 
 export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {}): HeadlessStats {
@@ -966,9 +1152,33 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
     if (match.flow.turn > maxTurns) { guardReason = "turn-limit"; break; }
     if (commands.length >= maxActions) { guardReason = "action-limit"; break; }
     noProgress.before = noProgress.peek(context);
-    const candidates = enumerateCandidates(context, commands.length).filter(command => !rejected.has(commandKey(command)));
+  const allCandidates = enumerateCandidates(context, commands.length);
+    const candidates = allCandidates.filter(command => !rejected.has(commandKey(command)));
+    const trace = commandTrace(context, allCandidates);
     const movements = candidates.filter(command => command.type === "move" && command.to.type === "battlefield");
-    const command = movements.length ? movements[random.next(movements.length)]! : candidates.length
+    const unitPlays = candidates.filter(command => command.type === "play" && trace.boardUnits.length === 0 &&
+      trace.candidates.some(candidate => candidate.type === "play" && candidate.id === command.id &&
+        candidate.types.includes("unit") && candidate.power === null &&
+        candidate.energy !== null && candidate.energy <= state.kernel.player(command.player).energy));
+    const traceCommand = (id: string | null) => trace.candidates.find(candidate => candidate.id === id);
+    const pool = state.kernel.player(match.flow.turnPlayer).energy;
+    const availableHandUnits = trace.candidates.filter(candidate => candidate.type === "play" &&
+      candidate.types.includes("unit") && candidate.energy !== null).length;
+    const runeCount = pool > 0 || availableHandUnits > 0 ? trace.candidateCounts["rune-energy"] : 0;
+    const targetUnit = candidates.filter((command): command is Extract<HeadlessCommand, { type: "play" }> =>
+      command.type === "play" && trace.boardUnits.length === 0 &&
+      (() => {
+        const candidate = traceCommand(command.id);
+        return candidate?.types.includes("unit") === true &&
+          candidate.destination?.type === "base" && candidate.energy !== null &&
+          candidate.energy > pool && candidate.energy <= pool + runeCount;
+      })()).sort((left, right) =>
+        (traceCommand(left.id)?.energy ?? Infinity) - (traceCommand(right.id)?.energy ?? Infinity))[0];
+    const runeAdds = targetUnit ? candidates.filter(command => command.type === "rune-energy") : [];
+    const command = runeAdds.length ? runeAdds[random.next(runeAdds.length)]! :
+      targetUnit?.type === "play" && pool >= (traceCommand(targetUnit.id)?.energy ?? Infinity) ? targetUnit :
+      unitPlays.length ? unitPlays[random.next(unitPlays.length)]! :
+      movements.length ? movements[random.next(movements.length)]! : candidates.length
       ? candidates[random.next(candidates.length)]!
       : match.flow.chain.priority
         ? match.flow.phase === "main" && !match.flow.chain.items.length && !match.flow.combat.active &&
@@ -987,7 +1197,7 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
       } else { exceptions.push(`${failure.name}: ${failure.message}`); termination = "exception"; fatal = true; }
     }
     recordCommand(state.counters, command.type);
-    commands.push({ command, failure });
+    commands.push({ command, failure, trace });
     checkPrivacy();
     if (fatal) break;
     if (!failure) {
@@ -998,6 +1208,8 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
   }
   if (match.result().winner) termination = "winner";
   const events = match.events();
+  const observedActions = observedActionCoverage(commands, { commands: { ...state.counters.actionCoverage.commands },
+    choices: { ...state.counters.actionCoverage.choices } });
   const content: Omit<HeadlessJournal, "integrity"> = { seed, decks, mulligans: context.mulligans, commands,
     events: structuredClone(events), final: finalState(context) };
   const journal: HeadlessJournal = { ...content, integrity: digest(content) };
@@ -1011,9 +1223,10 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
     judgeRequiredRejections: state.counters.judgeRequiredRejections,
     judgeRequiredCards: judgeRequiredCardIds(cards), judgeRequiredCardCounts: cards, judgeRequiredTop: cards.slice(0, 10),
     actionCoverage: { commands: { ...state.counters.actionCoverage.commands }, choices: { ...state.counters.actionCoverage.choices } },
+    observedActions,
     eventCount: events.length, journalDigest: digest(journal),
     projectionDigests: { A: digest(projections.A), B: digest(projections.B) },
-    replayMatches: replayHeadlessJournal(journal), privacySafe,
+    replayMatches: replayHeadlessGame(journal), privacySafe,
   };
 }
 
