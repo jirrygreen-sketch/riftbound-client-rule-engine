@@ -1,6 +1,7 @@
 import type { V2MoveDestination } from '../../../../protocol/dist/v2/commands.js';
 import type { DuelBoard } from '../../duel/battlefields.js';
 import type { LocationRef, ObjectRef, ObjectSnapshot, PlayerId } from '../../effects/contract.js';
+import type { StandardMoveBatchResult } from '../../turn/movement.js';
 import { moveDuelUnitsStandard } from '../../zones/movement.js';
 import { TurnCombatBlockedError } from '../../turn/flow.js';
 import type { Match } from '../lifecycle.js';
@@ -52,19 +53,22 @@ function movementBoard(match: Match, objects: readonly ObjectSnapshot[]): DuelBo
   return {
     playerIds: [...match.turnOrder],
     bases: match.turnOrder.map(player => ({ locationId: baseId(player), ownerPlayerId: player, occupancy: occupancy(baseId(player)) })),
-    battlefields: match.flow.battlefields.map((field, index) => ({
-      instanceId: field.id,
-      locationId: fieldId(field.id),
-      cardId: match.setup.battlefields.find(value => value.id === field.id)?.cardId ?? field.id,
-      // Selected battlefields are reported in seat order, regardless of turn order.
-      ownerPlayerId: index === 0 ? 'A' : 'B',
-      controllerPlayerId: field.controller,
-      contested: field.contestedBy !== null,
-      contestingPlayerId: field.contestedBy,
-      showdown: match.flow.combat.current?.field === field.id ? 'active' : field.staged === 'none' ? 'none' : 'staged',
-      combat: field.staged === 'combat' ? 'staged' : 'none',
-      occupancy: occupancy(fieldId(field.id)),
-    })),
+    battlefields: match.flow.battlefields.map((field, index) => {
+      const combat = match.flow.combat.current;
+      return {
+        instanceId: field.id,
+        locationId: fieldId(field.id),
+        cardId: match.setup.battlefields.find(value => value.id === field.id)?.cardId ?? field.id,
+        // Selected battlefields are reported in seat order, regardless of turn order.
+        ownerPlayerId: index === 0 ? 'A' : 'B',
+        controllerPlayerId: field.controller,
+        contested: field.contestedBy !== null,
+        contestingPlayerId: field.contestedBy,
+        showdown: combat?.field === field.id && combat.step === 'showdown' ? 'active' : field.staged === 'none' ? 'none' : 'staged',
+        combat: field.staged === 'combat' ? 'staged' : 'none',
+        occupancy: occupancy(fieldId(field.id)),
+      };
+    }),
     units: boardUnits,
   };
 }
@@ -72,15 +76,31 @@ function movementBoard(match: Match, objects: readonly ObjectSnapshot[]): DuelBo
 export interface StandardMoveInspection {
   readonly objects: readonly ObjectRef[];
   readonly to: LocationRef;
-  /** Validation is available; committing the action requires a new public rules-task seam. */
-  readonly execution: 'blocked';
-  readonly code: 'standard-move-transaction';
+  /** The whole formation passed preflight and may enter the atomic Move task. */
+  readonly execution: 'available';
+  readonly code: 'standard-move-atomic';
+}
+
+export interface StandardMoveExecution extends StandardMoveInspection {
+  readonly receipt: StandardMoveBatchResult['receipt'];
+  readonly eventSeq: number;
+}
+
+interface PreparedStandardMove {
+  readonly board: DuelBoard;
+  readonly readiness: readonly {
+    readonly objectId: string;
+    readonly readied: boolean;
+    readonly hasGanking: boolean;
+  }[];
+  readonly objects: readonly ObjectRef[];
+  readonly to: LocationRef;
 }
 
 /** CR v1.5 144 / 810: validate the entire formation before paying any cost. */
-export function inspectStandardMove(
+function prepareStandardMove(
   context: GameCommandContext, actor: PlayerId, objectIds: readonly string[], to: V2MoveDestination,
-): StandardMoveInspection {
+): PreparedStandardMove {
   requireActor(context, actor);
   const { match } = context;
   if (to.zone !== 'base' && to.zone !== 'battlefield') {
@@ -104,11 +124,16 @@ export function inspectStandardMove(
     throw new GameCommandError('illegal-unit', 'Standard Move requires board Units');
   }
   const board = movementBoard(match, objects);
+  const readiness = board.units.map(unit => {
+    const object = objects.find(candidate => candidate.ref.id === unit.objectId)!;
+    return {
+      objectId: unit.objectId,
+      readied: !object.exhausted,
+      hasGanking: object.keywords.some(keyword => keyword.id.toLowerCase() === 'ganking'),
+    };
+  });
   try {
-    moveDuelUnitsStandard(board, board.units.map(unit => {
-      const object = objects.find(candidate => candidate.ref.id === unit.objectId)!;
-      return { objectId: unit.objectId, readied: !object.exhausted, hasGanking: object.keywords.some(keyword => keyword.id.toLowerCase() === 'ganking') };
-    }), {
+    moveDuelUnitsStandard(board, readiness, {
       actor, unitUIDs: [...objectIds], destinationLocationId: locationId(destination),
       timing: {
         phase: match.flow.phase === 'main' ? 'main' : 'other',
@@ -125,11 +150,48 @@ export function inspectStandardMove(
     if (error instanceof TypeError) throw new GameCommandError('illegal-move', 'Illegal Standard Move');
     throw error;
   }
-  return { objects: selected.map(object => ({ ...object.ref })), to: destination, execution: 'blocked', code: 'standard-move-transaction' };
+  return { board, readiness, objects: selected.map(object => ({ ...object.ref })), to: destination };
+}
+
+/** Validate a complete formation without paying Exhaust or changing any authority state. */
+export function inspectStandardMove(
+  context: GameCommandContext, actor: PlayerId, objectIds: readonly string[], to: V2MoveDestination,
+): StandardMoveInspection {
+  const prepared = prepareStandardMove(context, actor, objectIds, to);
+  return {
+    objects: prepared.objects, to: prepared.to,
+    execution: 'available', code: 'standard-move-atomic',
+  };
 }
 
 /** Internal formation API. Protocol v2 currently carries only one objectId. */
-export function moveUnits(context: GameCommandContext, actor: PlayerId, objectIds: readonly string[], to: V2MoveDestination): never {
-  inspectStandardMove(context, actor, objectIds, to);
-  throw new TurnCombatBlockedError('standard-move-transaction', 'Atomic Exhaust + Move and its trigger wave are unavailable (CR v1.5 144.2–144.3)');
+export function moveUnits(
+  context: GameCommandContext, actor: PlayerId, objectIds: readonly string[], to: V2MoveDestination,
+): StandardMoveExecution {
+  const prepared = prepareStandardMove(context, actor, objectIds, to);
+  const result = context.match.flow.moveFormation({
+    board: prepared.board,
+    unitIds: [...objectIds],
+    actor,
+    destination: prepared.to,
+    readiness: prepared.readiness,
+    rules: {
+      registry: context.match.flow.layers.registry,
+      refForUnit: unit => {
+        const object = context.match.flow.options.host.objects()
+          .find(candidate => candidate.ref.id === unit.objectId);
+        if (object === undefined) throw new TypeError('Standard Move unit is absent');
+        return object.ref;
+      },
+      objectForUnit: unit => currentObjects(context.match).find(object => object.ref.id === unit.objectId)!,
+    },
+  });
+  return {
+    objects: prepared.objects,
+    to: prepared.to,
+    execution: 'available',
+    code: 'standard-move-atomic',
+    receipt: result.receipt,
+    eventSeq: context.match.events().length,
+  };
 }

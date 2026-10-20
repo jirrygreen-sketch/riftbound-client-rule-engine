@@ -1,7 +1,16 @@
 import type { ChainEngine } from '../chain/engine.js';
-import type { ObjectRef, ObjectSnapshot, PlayerId } from '../effects/contract.js';
+import type { LocationRef, ObjectRef, ObjectSnapshot, PlayerId } from '../effects/contract.js';
 import type { PipelineHost, TimingEmission, TriggerSnapshot } from '../events/pipeline-types.js';
 import { TurnCombatBlockedError } from '../turn/flow.js';
+import {
+  commitStandardMoveBatch,
+  type StandardMoveBatchResult,
+} from '../turn/movement.js';
+import type { DuelBoard } from '../duel/battlefields.js';
+import type {
+  DuelMovementRuleContext,
+  DuelStandardMoveTiming,
+} from '../zones/movement.js';
 import {
   completeDuelBaseCombatAllocation,
   validateDuelBaseCombatAllocation,
@@ -87,6 +96,16 @@ export interface CombatResult {
   readonly loserId: PlayerId | null;
   readonly unitResults: readonly { readonly unitId: string; readonly result: 'won' | 'lost' | 'no-result' }[];
   readonly noResult: boolean;
+}
+
+export interface StandardMoveFormationInput {
+  readonly board: DuelBoard;
+  readonly unitIds: readonly string[];
+  readonly actor: PlayerId;
+  readonly destination: LocationRef;
+  readonly readiness: unknown;
+  readonly rules?: DuelMovementRuleContext;
+  readonly transactionId?: string;
 }
 
 /** Batch 5 structural tasks; Priority, Focus, triggers and Chain stay in batch 4. */
@@ -409,16 +428,100 @@ export class CombatFlow {
     this.finishCombat();
   }
 
-  move(player: PlayerId, ref: ObjectRef, fieldId: string): void {
+  private movementBoard(): DuelBoard {
+    this.chain.layers.setObjects(this.host.objects());
+    const objects = this.chain.layers.evaluateAll();
+    const baseId = (player: PlayerId) => JSON.stringify(['duel-base', player]);
+    const fieldId = (id: string) => JSON.stringify(['duel-battlefield', id]);
+    const units = objects.filter(object => object.zone === 'board' && object.types.includes('unit'));
+    if (units.some(unit => unit.location === null)) {
+      throw new TurnCombatBlockedError('unit-location', 'A board Unit has no authoritative location');
+    }
+    const boardUnits = units.map(unit => ({
+      objectId: unit.ref.id,
+      controllerPlayerId: unit.controller,
+      locationId: unit.location!.type === 'base' ? baseId(unit.location!.player) : fieldId(unit.location!.id),
+    }));
+    const occupancy = (id: string) => boardUnits.filter(unit => unit.locationId === id).map(unit => unit.objectId);
+    return {
+      playerIds: [...this.chain.pipeline.turnOrder],
+      bases: this.chain.pipeline.turnOrder.map((player, index) => ({
+        locationId: baseId(player), ownerPlayerId: player, occupancy: occupancy(baseId(player)),
+      })),
+      battlefields: this.fields.map((field, index) => ({
+        instanceId: field.id, locationId: fieldId(field.id), cardId: field.id,
+        ownerPlayerId: index === 0 ? 'A' : 'B', controllerPlayerId: field.controller,
+        contested: field.contestedBy !== null, contestingPlayerId: field.contestedBy,
+        showdown: this.engagement?.field === field.id ? 'active' : field.staged === 'none' ? 'none' : 'staged',
+        combat: field.staged === 'combat' ? 'staged' : 'none', occupancy: occupancy(fieldId(field.id)),
+      })),
+      units: boardUnits,
+    };
+  }
+
+  private standardMoveTiming(actor: PlayerId): DuelStandardMoveTiming {
+    return {
+      phase: 'main',
+      stateOpen: this.chain.turnState === 'neutral-open' && this.chain.canAct(actor, 'normal') && !this.active,
+      turnPlayerId: this.chain.pipeline.turnPlayer,
+      priorityPlayerId: this.chain.priority,
+    };
+  }
+
+  /** One CR 144.3 formation action with all Exhaust costs and Moves in one rollback boundary. */
+  moveFormation(input: StandardMoveFormationInput): StandardMoveBatchResult {
+    if (this.active || this.chain.turnState !== 'neutral-open' || !this.chain.canAct(input.actor, 'normal')) {
+      throw new TurnCombatBlockedError('standard-move-timing', 'Standard Move requires the actor Priority in an Open Main Phase');
+    }
+    return this.withTransaction(() => {
+      const result = commitStandardMoveBatch({
+        pipeline: this.chain.pipeline,
+        // The Chain-owned production host also checkpoints Turn and Combat state.
+        checkpoint: this.chain.pipeline.host.checkpoint,
+        restore: this.chain.pipeline.host.restore,
+        board: input.board,
+        unitIds: input.unitIds,
+        actor: input.actor,
+        destination: input.destination,
+        timing: this.standardMoveTiming(input.actor),
+        readiness: input.readiness,
+        ref: id => {
+          const object = this.chain.pipeline.host.objects().find(candidate => candidate.ref.id === id);
+          if (object === undefined || object.zone !== 'board' || !object.types.includes('unit')) {
+            throw new TurnCombatBlockedError('unit-unavailable', `Unit ${id} is unavailable`);
+          }
+          return object.ref;
+        },
+        object: id => this.chain.pipeline.host.objects().find(candidate => candidate.ref.id === id) ?? null,
+        ...(input.rules === undefined ? {} : { rules: input.rules }),
+        ...(input.transactionId === undefined ? {} : { transactionId: input.transactionId }),
+      });
+      this.chain.requestCleanup('standard-move');
+      return result;
+    });
+  }
+
+  move(player: PlayerId, ref: ObjectRef, fieldId: string): StandardMoveBatchResult {
     const field = this.fields.find(value => value.id === fieldId);
     const object = this.host.objects().find(value => value.ref.id === ref.id && value.ref.zoneEntryId === ref.zoneEntryId);
     if (!field || !object || object.zone !== 'board' || !object.types.includes('unit') || object.controller !== player ||
-      object.exhausted || this.active || this.chain.turnState !== 'neutral-open' || !this.chain.canAct(player, 'normal')) {
-      throw new Error('Illegal Standard Move');
-    }
-    // Multi-action costs need the same atomic rules task seam as simultaneous damage.
-    // Never exhaust a Unit then risk leaving its failed Move half committed.
-    throw new TurnCombatBlockedError('standard-move-transaction', 'Standard Move requires atomic Exhaust + Move with rollback (CR 144.2)');
+      object.exhausted) throw new Error('Illegal Standard Move');
+    const board = this.movementBoard();
+    const objects = this.chain.layers.evaluateAll();
+    const readiness = board.units.map(unit => {
+      const current = objects.find(candidate => candidate.ref.id === unit.objectId)!;
+      return { objectId: unit.objectId, readied: !current.exhausted,
+        hasGanking: current.keywords.some(keyword => keyword.id.toLowerCase() === 'ganking') };
+    });
+    return this.moveFormation({
+      board, unitIds: [ref.id], actor: player,
+      destination: { type: 'battlefield', id: fieldId }, readiness,
+      rules: {
+        registry: this.chain.layers.registry,
+        refForUnit: unit => objects.find(candidate => candidate.ref.id === unit.objectId)!.ref,
+        objectForUnit: unit => objects.find(candidate => candidate.ref.id === unit.objectId)!,
+      },
+    });
   }
   /** Called by the real ChainEngine cleanup callback, never by a test fixture. */
   cleanup(): boolean {

@@ -17,6 +17,8 @@ import {
   type HiddenState,
 } from '../zones/hidden/index.js';
 import { inheritTurnTaskCapability, registerTurnTaskCapability } from '../effects/instructions/effect.additional-turn.js';
+import type { StandardMoveFormationInput } from '../combat/flow.js';
+import type { StandardMoveBatchResult } from './movement.js';
 
 export class TurnCombatBlockedError extends Error {
   readonly status = 'blocked';
@@ -151,6 +153,7 @@ export class TurnFlow {
           const details = score.method === 'conquer'
             ? { battlefieldId: score.field, battlefieldControllerBefore: score.battlefieldControllerBefore }
             : { battlefieldId: score.field };
+          const participatingUnits = score.units.map(unit => ({ id: unit.id, zoneEntryId: unit.zoneEntryId }));
           if (score.method === 'conquer') emissions.unshift(this.combat.establish(score.player, score.field));
           if (score.finalDraw) emissions.push({ timingPoint: 'final-point', player: score.player, details });
           for (const unit of score.units) {
@@ -159,7 +162,13 @@ export class TurnFlow {
             emissions.push({ timingPoint: score.method, object, source: object, it: object, player: score.player,
               details: { ...details, objectId: unit.id, playerId: score.player } });
           }
-          emissions.push({ timingPoint: 'score', player: score.player, details });
+          const battlefieldObject = this.battlefieldObject(score.field);
+          emissions.push({ timingPoint: 'score', player: score.player, details: { ...details, participatingUnits },
+            // The aggregate Scoring action still refers to the Battlefield,
+            // including when the current harness represents that location
+            // only through details.battlefieldId rather than a board object.
+            ...(battlefieldObject === null ? {} : { object: battlefieldObject }),
+          });
           // One committed action publishes the whole Score trigger wave atomically.
           return { ...execution, emissions: emissions.map(event => ({ ...event, simultaneousGroup: 'battlefield-score' })) };
         }
@@ -245,11 +254,24 @@ export class TurnFlow {
     this.chain.execute(draft);
     this.advance();
   }
-  move(player: PlayerId, object: ObjectRef, field: string): void {
+  move(player: PlayerId, object: ObjectRef, field: string): StandardMoveBatchResult {
     if (!this.chain.items.length && !this.combat.active) this.advance();
     if (this.phase !== 'main' || this.tasks.length || this.winnerValue) throw new Error('Standard Move requires Main Phase');
-    this.combat.move(player, object, field);
+    const result = this.combat.move(player, object, field);
     this.advance();
+    return result;
+  }
+  /** Internal formation entry used by the public v2 move command. */
+  moveFormation(input: StandardMoveFormationInput): StandardMoveBatchResult {
+    if (this.chain.items.length || this.combat.active) {
+      throw new TurnCombatBlockedError('standard-move-timing', 'Standard Move requires an idle Chain and no Combat');
+    }
+    if (this.phase !== 'main' || this.tasks.length || this.winnerValue) {
+      throw new TurnCombatBlockedError('standard-move-timing', 'Standard Move requires Main Phase');
+    }
+    const result = this.combat.moveFormation(input);
+    this.advance();
+    return result;
   }
   endTurn(player: PlayerId): void {
     if (!this.chain.items.length && !this.combat.active) this.advance();
