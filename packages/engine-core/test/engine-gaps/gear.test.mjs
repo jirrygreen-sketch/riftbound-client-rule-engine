@@ -35,6 +35,11 @@ import { fixture, settle } from '../rules/keywords/support.mjs';
 
 const battlefield = { type: 'battlefield', id: 'bf-1' };
 
+// Long Sword is judge-required until Quick-Draw's Reaction speed is consumed
+// by describePlay (RIFT-884); the same test-local admission keeps its unchanged
+// abilities exercised here.
+const admittedLongSword = { ...longSword, status: 'executable', judgeReason: undefined };
+
 const admittedShady = {
   ...shadySpectacles,
   status: 'executable',
@@ -289,7 +294,7 @@ test('EG-GEAR attach is replaceable and the chain still resolves cleanly', () =>
 
 test('EG-GEAR plays the original Long Sword program and its registered card-played trigger attaches (CR 819.1)', () => {
   const f = fixture({
-    programs: [longSword],
+    programs: [admittedLongSword],
     energy: { A: 4 },
     answers: { 'target:quick-draw-unit': ['runner'] },
     setup: w => w.player('A').player('B')
