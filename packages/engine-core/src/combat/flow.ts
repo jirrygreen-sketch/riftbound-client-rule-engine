@@ -494,7 +494,10 @@ export class CombatFlow {
       return;
     }
     if (activeCombat?.step === 'result' && this.chain.turnState === 'neutral-open') {
-      this.withTransaction(() => this.resolveCombatResult());
+      this.withTransaction(() => {
+        this.resolveCombatResult();
+        this.finishCombat();
+      });
       return;
     }
     if (this.engagement) {
@@ -839,9 +842,9 @@ export class CombatFlow {
     const defenderUnits = units.filter(unit => this.role(unit) === 'defender');
     const recallKeys = new Set(active.recalledUnitKeys ?? []);
     const recalled = recallKeys.size > 0;
-    const attackerRemaining = attackerUnits.length > 0 || this.host.objects().some(object =>
-      recallKeys.has(this.refKey(object.ref)) && object.zone === 'board' && object.types.includes('unit') &&
-      object.controller === active.attacker);
+    // CR 468.3/468.3.d.1 measure remaining Units at this Battlefield. A
+    // recalled Attacker in its Base remains in the game but is not here.
+    const attackerRemaining = attackerUnits.length > 0;
     const defenderRemaining = defenderUnits.length > 0;
     const noResult = recalled || attackerUnits.length > 0 && defenderUnits.length > 0 ||
       attackerUnits.length === 0 && defenderUnits.length === 0;
@@ -864,6 +867,7 @@ export class CombatFlow {
     active.controlEstablished = false;
     active.queued = false;
     if (noResult && attackerRemaining && defenderRemaining) active.endState = 'restage';
+    else active.endState = 'ordinary';
     return details;
   }
   private finishCombat(): void {
@@ -881,36 +885,25 @@ export class CombatFlow {
     if (this.chain.items.length > 0) return;
     if (active.step === 'control') {
       if (active.endState === 'restage') {
-        // 468.5 skips a staged Showdown/Combat; 468.7 still ends this Combat.
+        field.contestedBy = active.attacker!;
+        field.staged = 'combat';
         active.step = 'end';
         this.finishCombat();
         return;
       }
-      if (result.noResult && controllers.length === 0) {
+      const controlEstablished = controllers.length === 1 && field.controller !== controllers[0];
+      if (controlEstablished) {
+        active.scorer = controllers[0]!;
+        active.queued = false;
+        active.step = 'control';
+      } else {
         field.contestedBy = null;
         field.staged = 'none';
-        field.controller = null;
+        if (controllers.length === 0) field.controller = null;
         active.step = 'end';
         this.finishCombat();
         return;
       }
-      if (!result.noResult && controllers.length === 1 && field.controller !== controllers[0]) {
-        active.scorer = controllers[0]!;
-        if (!active.queued) {
-          active.queued = true;
-          this.conquer(active.scorer, active.field);
-        }
-        // `advance` asks the Phase 1 producer and re-enters `finishCombat`.
-        if (!active.controlEstablished) this.chain.requestCleanup('control-outstanding');
-        return;
-      }
-      // 468.5.a-b: a result with no remainder, or control already retained,
-      // clears Contested and proceeds to 468.7 without inventing a Score.
-      field.contestedBy = null;
-      field.staged = 'none';
-      if (controllers.length === 0) field.controller = null;
-      active.step = 'end';
-      this.finishCombat();
       return;
     }
     if (active.step !== 'end') return;

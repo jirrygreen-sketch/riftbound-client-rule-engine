@@ -1,8 +1,10 @@
 import { canonicalJournalJson, type DuelCommandMessageV3Actions1 } from '@riftbound/protocol';
-import { createDuelRecordedRuntimeP4 } from '../command-journal-p4.js';
+import { archiveSnapshotOfDuelRecordedRuntimeP4, createDuelRecordedRuntimeP4,
+  operationsOfDuelRecordedRuntimeP4 } from '../command-journal-p4.js';
 import { DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK } from '../authoritative-runtime-p4.js';
 import { JournalWriter, digestJournalValue, type JournalCommand, type JournalJsonObject } from './journal/index.js';
-import { restoreRecording, type RecordingOptions, type RecordedRuntime, type DurableRuntimeResult } from './durable/recording.js';
+import { registerRecordedRuntimeReadAccess, restoreRecording,
+  type RecordingOptions, type RecordedRuntime, type DurableRuntimeResult } from './durable/recording.js';
 
 const json = (value: unknown): JournalJsonObject => JSON.parse(canonicalJournalJson(value));
 
@@ -35,12 +37,12 @@ export function createCurrentRecording(options: RecordingOptions): RecordedRunti
   let processed = 0, operationOrdinal = 0;
   let dirty = true;
   let cached: ReturnType<RecordedRuntime['archive']>;
-  const archive = (): ReturnType<RecordedRuntime['archive']> => {
+  const archiveInternal = (): ReturnType<RecordedRuntime['archive']> => {
     if (!dirty) return cached;
-    const captured = base.archive();
-    if (captured.operations.length !== processed) {
+    const operations = operationsOfDuelRecordedRuntimeP4(base);
+    if (operations.length !== processed) {
       const writer = new JournalWriter(journal);
-      for (const operation of captured.operations.slice(processed)) {
+      for (const operation of operations.slice(processed)) {
         const ack = (operation.observation.ack as DurableRuntimeResult | null)?.ack;
         const operationId = operation.kind === 'resume' || ack?.type === 'blocked'
           ? `p4:operation:${++operationOrdinal}` : null;
@@ -50,9 +52,11 @@ export function createCurrentRecording(options: RecordingOptions): RecordedRunti
         const views = operation.observation.views;
         const publicView = views.at(-1) as ReturnType<RecordedRuntime['runtime']['project']>;
         const clock = { stateVersion: publicView.match.stateVersion, eventSeq: publicView.match.eventSeq, roomVersion: 0 };
-        const state = { ...clock, stateDigest: digestJournalValue(publicView), privateStateDigest: digestJournalValue(views) };
+        const projectionDigests = [digestJournalValue(publicView), digestJournalValue(views)] as const;
+        const state = { ...clock, stateDigest: projectionDigests[0], privateStateDigest: projectionDigests[1] };
         if (operationId !== null) {
-          const source = captured.journal!.entries.find(entry => entry.kind === 'operation' && entry.operationId === operationId);
+          const source = archiveSnapshotOfDuelRecordedRuntimeP4(base).journal!.entries.find(entry =>
+            entry.kind === 'operation' && entry.operationId === operationId);
           if (source?.kind !== 'operation') throw new TypeError('Recorder omitted native operation evidence');
           writer.recordOperation({ ...source, state });
           continue;
@@ -75,7 +79,7 @@ export function createCurrentRecording(options: RecordingOptions): RecordedRunti
         const recordedCommand = commandOf(packet);
         const digests = Object.fromEntries(options.roster.map((seat, index) =>
           [seat.playerId, digestJournalValue(views[index])]));
-        digests.public = digestJournalValue(publicView);
+        digests.public = projectionDigests[0];
         writer.recordCommand({ playerId: operation.actor, actor: operation.actor,
           requestId: packet.requestId, commandId: packet.commandId,
           command: recordedCommand, payload: recordedCommand, expectedStateVersion: packet.expectedVersion,
@@ -86,16 +90,21 @@ export function createCurrentRecording(options: RecordingOptions): RecordedRunti
           acceptedAt: new Date(0).toISOString() });
       }
       journal = writer.snapshot();
-      processed = captured.operations.length;
+      processed = operations.length;
     }
+    const captured = archiveSnapshotOfDuelRecordedRuntimeP4(base);
     cached = Object.freeze({ ...captured, journal, header: journal.header, head: journal.head,
       entries: journal.entries, integrity: journal.integrity });
     dirty = false;
     return cached;
   };
+  const archive = (): ReturnType<RecordedRuntime['archive']> => structuredClone(archiveInternal());
   const runtime: RecordedRuntime['runtime'] = { ...base.runtime,
     dispatch: (actor, packet) => { const result = base.runtime.dispatch(actor, packet); dirty = true; return result; },
     resumePending: () => { const result = base.runtime.resumePending(); if (result !== null) dirty = true; return result; } };
-  return { runtime, profile: base.profile, archive,
+  const recorded: RecordedRuntime = { runtime, profile: base.profile, archive,
     fork: () => restoreRecording({ ...options, recordingFactory: createCurrentRecording }, archive().journal!).recorded };
+  registerRecordedRuntimeReadAccess(recorded, { journal: () => journal,
+    currentJournal: () => { archiveInternal(); return journal; } });
+  return Object.freeze(recorded);
 }

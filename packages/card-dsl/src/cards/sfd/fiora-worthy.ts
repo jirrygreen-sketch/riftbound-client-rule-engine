@@ -29,17 +29,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * Resolve condition, so this program does not invent one. There is no once cap,
  * so a later separate 4 -> 5 transition can trigger again.
  *
- * status = judge-required after the 2026-10-19 production probe. The correct
- * IR and Finalize cost translator are present, but the default Chain currently
- * has no complete producer/consumer edge for this interaction: registering the
- * transition filter fails closed in programs/filters.ts, real layer changes do
- * not publish a scanned might-changed event in the default Chain, the generic
- * pipeline does not assign a frozen event `it` to the trigger snapshot, and
- * effect.ready's primitive schema does not yet accept the event selector. The
- * legacy ResolveContext also cannot represent Universal Power, although CR
- * 135.2.e.5.a / 163.2.b permits it to pay any Domain cost. Those are shared
- * engine/pipeline responsibilities and must not be approximated by Fiora-
- * specific settlement code or a player-selected target.
+ * status = judge-required after the 2026-10-20 production recheck. The typed
+ * transition filter, real layer event with event `it`, Finalize event binding,
+ * and effect.ready consumer now execute in their scoped production modules.
+ * The remaining whole-card gate is that the real authoritative host must prove
+ * the exact Order Power debit; the legacy ResolveContext still cannot represent
+ * Universal Power. CR 135.2.e.5.a / 163.2.b permit Universal Power, so it must
+ * not be approximated as a named Domain or fake resource. These limits must not
+ * be hidden by card-specific resolution code or a player-selected target.
  *
  * Evidence URL: the card text is from the official Spiritforged catalog (the
  * two approved printings above); the CR download and hash are recorded in
@@ -111,11 +108,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "Fiora's official text and IR are source-backed, but the default production path is incomplete (probed 2026-10-19): " +
-    "programs/filters.ts rejects object.becomesMighty, the default Chain does not publish a scanned might-changed event after a real layer change, " +
-    "EventPipeline does not install the frozen event `it` on trigger snapshots, effect.ready does not accept `{event:'it'}`, " +
-    "and the legacy ResolveContext cannot represent Universal Power (CR 135.2.e.5.a / 163.2.b). " +
-    "Keep this card blocked until the shared trigger/event/payment owner connects those paths; no player target, Fiora source fallback, or custom resolution is permitted.",
+    "Fiora's IR, typed Mighty transition, frozen event:it, Finalize cost translation, and event:it ready consumer are source-backed and scoped-probed. " +
+    "The whole card remains blocked pending independent authoritative-host proof of the exact Order Power debit and universal/unknown cost handling; " +
+    "the legacy ResolveContext cannot represent Universal Power (CR 135.2.e.5.a / 163.2.b). " +
+    "No player target, Fiora source fallback, synthetic payment, or card-specific resolution is permitted.",
   abilities,
   sourceText:
     "When a unit you control becomes [Mighty], you may pay :rb_rune_order: to ready it. (A unit is Mighty while it has 5+ :rb_might:.)"
