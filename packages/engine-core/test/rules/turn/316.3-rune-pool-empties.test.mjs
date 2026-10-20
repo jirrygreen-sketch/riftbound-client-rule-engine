@@ -17,7 +17,7 @@
 // turn.yaml scenarios (317.2.b) expect a `unit.healed` timing.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fixture } from '../../turn/helpers.mjs';
+import { fixture, c } from '../../turn/helpers.mjs';
 
 test('turn-main-phase-priority-and-rune-pool-empty: both pools empty before Main priority', () => {
   const f = fixture({ energy: 5 });
@@ -34,6 +34,19 @@ test('turn-expiration-empties-rune-pool: ending cleanup empties both players poo
   const f = fixture({ energy: 3 });
   f.kernel.addPlayer('B', { energy: 4, power: ['Order'] });
   f.flow.start();
+  // Main Phase begins with both pools empty (316.3). Create a non-zero pool
+  // inside Main through a real instruction execution, then expire it (317.2.d).
+  assert.equal(f.kernel.player('A').energy, 0);
+  assert.equal(f.kernel.player('B').power.length, 0);
+  f.flow.execute(f.draft('gain-after-main', [
+    { id: 'gain-after-main.energy', op: 'effect.resources',
+      args: { energy: c(3), player: c('A') } },
+    { id: 'gain-after-main.power', op: 'effect.resources',
+      args: { power: c(['Order']), player: c('B') } },
+  ]));
+  while (f.flow.chain.items.length) f.flow.pass(f.flow.chain.priority);
+  assert.equal(f.kernel.player('A').energy, 3);
+  assert.deepEqual(f.kernel.player('B').power, ['Order']);
   f.flow.endTurn('A');
   assert.equal(f.kernel.player('A').energy, 0);
   assert.equal(f.kernel.player('B').energy, 0);

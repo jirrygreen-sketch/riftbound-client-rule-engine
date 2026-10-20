@@ -17,7 +17,7 @@
 // 需要的机制：Score 动作的替代协议（被替代/否定后仍完成 Scoring、发布 hold 与 score 时点）。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { turnFixture as fixture, settle, draw } from '../turn/harness.mjs';
+import { turnFixture as fixture, settle, draw, markEvents, eventsAfter, eventsAt, stages } from '../turn/harness.mjs';
 
 test('triggers-hold-point-replaced-still-triggers (383.4.d.2.c)', () => {
   const f = fixture({
@@ -27,10 +27,20 @@ test('triggers-hold-point-replaced-still-triggers (383.4.d.2.c)', () => {
   f.trigger('trigger:hold', 'hold', [draw('hold-draw')], { sourceId: 'u1', filter: { event: 'held', player: 'self' } });
   f.flow.chain.pipeline.registerReplacement({ id: 'replace-score', matches: action => action.type === 'score',
     apply: action => ({ status: 'replace', actions: [{ type: 'draw', player: action.player, amount: 1 }] }) });
+  const mark = markEvents(f);
+  const drawsBefore = eventsAt(f, 'card-drawn').length;
   f.flow.start();
   settle(f);
   assert.equal(f.kernel.player('A').score, 0);
   assert.deepEqual(f.flow.scored('A'), ['bf1']);
   assert.equal(f.flow.chain.items.length, 0);
-  assert.ok(f.kernel.player('A').handCount >= 1);
+  assert.deepEqual(stages(f), [
+    'pending:trigger:1', 'finalized:trigger:1', 'resolved:trigger:1', 'removed:trigger:1',
+  ]);
+  const drawEvents = eventsAfter(f, mark).filter(event => event.timingPoint === 'card-drawn');
+  assert.equal(drawEvents.length, 3, 'one normal Draw, one replacement Draw, and the trigger body Draw');
+  assert.equal(eventsAt(f, 'card-drawn').length, drawsBefore + 3);
+  assert.equal(f.kernel.player('A').handCount, 3);
+  assert.equal(drawEvents.at(-1).source?.ref.id, 'u1', 'the resolved trigger Draw comes from the holding Unit');
+  assert.equal(eventsAt(f, 'hold')[0].object?.ref.id, 'u1');
 });
