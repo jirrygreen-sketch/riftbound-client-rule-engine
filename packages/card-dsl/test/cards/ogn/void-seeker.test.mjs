@@ -111,3 +111,55 @@ test.todo(
   "Void Seeker full chain play: spell cast pays 3 energy + 1 Fury power and [Action] showdown " +
     "permission is enforced (依赖 RIFT-82 费用系统 / RIFT-81 目标解析 / RIFT-89 continuous.timing)"
 );
+
+// --- Production goldens: original registry program, real describePlay,
+// ChainEngine speed/target/cost/pass/Resolve (test/fixtures/production-play.mjs).
+// Printed: Spell, Fury, 3 Energy + 1 Fury Power.
+import { productionPlay } from "../../fixtures/production-play.mjs";
+
+const vsHand = { owner: "A", controller: "A", cardId: voidSeeker.canonicalCardId, types: ["spell"], zone: "hand", energy: 3, power: ["Fury"] };
+const vsTable = ({ power = ["Fury"], answers = { "target:unit-at-battlefield": ["bf-enemy"] }, battlefieldUnits = true } = {}) => productionPlay({
+  programs: [voidSeeker],
+  answers,
+  build: w => {
+    let b = w.player("A", { energy: 3, power }).player("B").object("vs", vsHand)
+      .unit("base-enemy", { owner: "B", controller: "B", might: 5, location: { type: "base", player: "B" } })
+      .deck("top");
+    if (battlefieldUnits) {
+      b = b.unit("bf-enemy", { owner: "B", controller: "B", might: 5, location: { type: "battlefield", id: "bf-1" } })
+        .unit("bf-friend", { owner: "A", controller: "A", might: 3, location: { type: "battlefield", id: "bf-2" } });
+    }
+    return b;
+  },
+});
+
+test("ogn-024-298 Void Seeker production: Action speed, deals 4 to the chosen battlefield unit, draws 1, pays 3 Energy + 1 Fury", () => {
+  const f = vsTable();
+  const draft = f.play("vs");
+  assert.equal(draft.speed, "action");
+  const [request] = f.targetRequests();
+  assert.deepEqual(new Set(request.options.map(ref => ref.id)), new Set(["bf-enemy", "bf-friend"]),
+    "every unit at a battlefield is offered, a unit at a base is not");
+  assert.equal(f.kernel.getObject("bf-enemy").damage, 4);
+  assert.equal(f.kernel.getObject("bf-friend").damage, 0);
+  assert.equal(f.kernel.getObject("base-enemy").damage, 0);
+  assert.equal(f.kernel.player("A").handSize, 1);
+  assert.equal(f.kernel.player("A").energy, 0);
+  assert.deepEqual(f.kernel.player("A").power, []);
+  assert.equal(f.kernel.getObject("vs").zone, "trash");
+});
+
+test("ogn-024-298 Void Seeker production: without the Fury Power the play is rejected before anything moves", () => {
+  const f = vsTable({ power: [] });
+  const before = f.kernel.snapshot();
+  assert.throws(() => f.play("vs"), /insufficient matching Power/);
+  assert.deepEqual(f.kernel.snapshot(), before);
+});
+
+test("ogn-024-298 Void Seeker production: with no unit at any battlefield the play has no legal target and is rejected", () => {
+  const f = vsTable({ battlefieldUnits: false, answers: {} });
+  const before = f.kernel.snapshot();
+  assert.throws(() => f.play("vs"), error => error.code === "no-legal-targets");
+  assert.deepEqual(f.kernel.snapshot(), before);
+  assert.equal(f.kernel.getObject("vs").zone, "hand");
+});
