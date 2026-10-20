@@ -146,11 +146,14 @@ test("sfd-180-221 Fiora, Worthy: program validates and has expected shape", () =
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
-  assert.match(program.judgeReason, /becomesMighty/);
-  assert.match(program.judgeReason, /might-changed/);
-  assert.match(program.judgeReason, /event `it`/);
-  assert.match(program.judgeReason, /effect\.ready/);
+  assert.match(program.judgeReason, /typed Mighty transition/);
+  assert.match(program.judgeReason, /event:it/);
+  assert.match(program.judgeReason, /Finalize cost translation/);
+  assert.match(program.judgeReason, /authoritative-host proof/);
   assert.match(program.judgeReason, /Universal Power/);
+  assert.doesNotMatch(program.judgeReason, /programs\/filters\.ts rejects/);
+  assert.doesNotMatch(program.judgeReason, /does not publish/);
+  assert.doesNotMatch(program.judgeReason, /does not accept/);
 });
 
 test("sfd-180-221 Fiora, Worthy: might-changed trigger filtered to friendly units becoming Mighty", () => {
@@ -278,8 +281,8 @@ test("sfd-180-221 Fiora, Worthy: the original unmodified trigger IR registers", 
   }]);
 });
 
-test("sfd-180-221 Fiora, Worthy: a real layer action currently emits no scanned might-changed production event", () => {
-  const { engine, kernel } = productionFixture();
+test("sfd-180-221 Fiora, Worthy: a real layer action emits one target 4-to-5 might-changed fact", () => {
+  const { engine, kernel, binding } = productionFixture();
   engine.advance();
   engine.execute({
     id: "fiora.might-probe",
@@ -300,8 +303,38 @@ test("sfd-180-221 Fiora, Worthy: a real layer action currently emits no scanned 
   while (engine.items.length) engine.pass(engine.priority);
   engine.layers.setObjects(kernel.objects);
   assert.equal(engine.layers.evaluate(kernel.ref("target")).might, 5);
-  assert.deepEqual(engine.pipeline.events.filter(event => event.timingPoint === "might-changed"), []);
   assert.ok(engine.trace.some(entry => entry.step === "resolved" && entry.item === "fiora.might-probe"));
+  const transitions = engine.pipeline.events.filter(event => event.timingPoint === "might-changed");
+  assert.equal(transitions.length, 1);
+  const [transition] = transitions;
+  assert.deepEqual(transition.object.ref, kernel.ref("target"));
+  assert.deepEqual(transition.it.ref, kernel.ref("target"));
+  assert.deepEqual(transition.details.before.ref, kernel.ref("target"));
+  assert.deepEqual(transition.details.after.ref, kernel.ref("target"));
+  assert.equal(transition.details.before.might, 4);
+  assert.equal(transition.details.after.might, 5);
+  assert.equal(transition.details.previousMight, 4);
+  assert.equal(transition.details.currentMight, 5);
+  assert.equal(transition.eventId > 0, true);
+  assert.equal(matchesTriggerEvent(translatedFioraFilter(), transition, "A"), true);
+  assert.equal(matchesTriggerEvent(translatedFioraFilter(), transition, "B"), false);
+
+  // This real layer wave only produces the fact. It must not alter Fiora's
+  // readiness or invent a player-selected target.
+  assert.equal(kernel.getObject("fiora").exhausted, true);
+  assert.equal(kernel.getObject("target").exhausted, true);
+  assert.equal(engine.pipeline.events.filter(event => event.timingPoint === "became-target").length, 0);
+
+  // This is the real layer producer. The full card remains blocked until the
+  // card's own default lifecycle is independently accepted; the binding here
+  // only verifies that this exact production event would match the original IR.
+  const admittedBinding = createProgramBinding({ cardPrograms: [admitted] });
+  const [registration] = admittedBinding.registry.get(CANONICAL_ID).abilities;
+  assert.deepEqual(registration.trigger.filter, ability.trigger.filter);
+  assert.equal(binding.registry.inspect(CANONICAL_ID), program);
+  // The unadmitted card lifecycle remains detached at this stage, so no Pending
+  // item is fabricated from this real fact by the component-level probe.
+  assert.equal(engine.items.length, 0);
 });
 
 test("sfd-180-221 Fiora, Worthy: the Mighty matcher implements the exact transition and incarnation boundary", () => {
@@ -382,31 +415,14 @@ test("sfd-180-221 Fiora, Worthy: the real Might producer freezes before, after a
 });
 
 test("sfd-180-221 Fiora, Worthy: the original trigger resolves payment and readies only event:it", () => {
-  const before = {
-    ref: { id: "target", zoneEntryId: 1 },
-    cardId: "target",
-    name: "target",
-    types: ["unit"],
-    tags: [],
-    keywords: [],
-    owner: "A",
-    controller: "A",
-    zone: "board",
-    location: { type: "battlefield", id: "battlefield-1" },
-    might: 4,
-    energy: null,
-    power: null,
-    exhausted: true,
-    damage: 0,
-    stunned: false,
-    buffs: 0,
-    attachedTo: null,
-    faceDown: false,
-    isToken: false
-  };
-  const after = { ...before, might: 5 };
+  // Component-level fixture: admitted metadata bypasses the whole-card status
+  // gate so the original trigger/body can be registered unchanged. It is not
+  // evidence that Fiora's card is executable end-to-end.
   const f = directPipelineFixture();
   const { kernel, engine, registered } = f;
+  const eventUnit = kernel.getObject("event-unit");
+  const before = { ...eventUnit, might: 4 };
+  const after = { ...eventUnit, might: 5 };
   const derived = deriveMightChangedEmissions([before], [after], {
     batchId: "raw-mighty",
     cause: "layer-recompute",
@@ -415,10 +431,15 @@ test("sfd-180-221 Fiora, Worthy: the original trigger resolves payment and readi
   assert.ok(derived);
   assert.equal(registered.length, 1);
   const [event] = engine.pipeline.emitBatch([derived], undefined, "raw-mighty");
+  assert.equal(event.eventId > 0, true);
   assert.deepEqual(event.it.ref, kernel.ref("event-unit"));
+  assert.deepEqual(event.details.before.ref, kernel.ref("event-unit"));
+  assert.deepEqual(event.details.after.ref, kernel.ref("event-unit"));
   assert.equal(engine.items.length, 1);
   assert.equal(engine.items[0].status, "pending");
   assert.deepEqual(engine.items[0].trigger.event, event);
+  assert.equal(engine.items[0].trigger.event.eventId, event.eventId);
+  assert.deepEqual(engine.items[0].trigger.event.it.ref, event.it.ref);
 
   engine.advance();
   assert.equal(engine.items[0].status, "finalized");
@@ -704,6 +725,6 @@ test("sfd-180-221 Fiora, Worthy: effect.ready consumes exact event:it and fails 
 });
 
 test.todo(
-  "sfd-180-221 Fiora, Worthy: the default layer recompute must publish this 4-to-5 event, and the independent real host " +
-    "must prove exact Order Power debit before the whole card can be accepted; the pipeline and primitive slices above are separate from that production path"
+  "sfd-180-221 Fiora, Worthy: the independent authoritative host must prove exact Order Power debit before the whole card can be accepted; " +
+    "the real layer producer, trigger, Chain Finalize/Resolve and primitive slices above are separate from that host acceptance"
 );
