@@ -1,9 +1,8 @@
-# RIFT-761 对局命令层（部分交付）
+# RIFT-761 / RIFT-886 对局命令层
 
 此目录只适配现有公开 `Match` / `TurnFlow` / `ProgramBinding` / zones / layers
-接口，不修改协议、旧 profile 或 journal。**不能据此宣布 Standard Move 或 Combat
-已经可玩。** 当前分支的 `CombatFlow.move()`、`advance()` 和 `dealDamage()` 仍明确
-阻塞这些操作，见下方契约变更请求。
+接口，不修改协议、旧 profile 或 journal。Standard Move 及其后的 Showdown/Combat
+进入路径走真实 `TurnFlow` / `CombatFlow`；完整 Combat 分配与伤害仍在后续规则任务。
 
 ## 接口与 protocol v2 映射
 
@@ -14,9 +13,9 @@ v2 尚未导出包子路径，沿用仓库已有的相对 `protocol/dist/v2` 导
 | 接口 | v2 输入 | 当前行为 |
 | --- | --- | --- |
 | `executeGameCommand(context, actor, command)` | 现有 `V2Command`，运行时严格 guard | 分发、检查玩家/终局/版本，返回前后事件游标及胜者；不吞掉 blocked |
-| `move(context, actor, command)` | `move { objectId, to }` | 调用整组预检；合法动作仍以 `standard-move-transaction` 阻塞，零扣费 |
-| `inspectStandardMove(context, actor, objectIds, to)` | 内部组接口；单个 v2 move 的 `to` 原样复用 | 根据实时 layers/位置/控制/横置和规则查询，调用 `moveDuelUnitsStandard` 验证；返回当前对象 epoch、目的地和执行阻塞原因 |
-| `moveUnits(context, actor, objectIds, to)` | 内部编队接口；当前 wire 没有数组 move | 先检查所有成员，再明确阻塞；绝不拆成多条单单位移动 |
+| `move(context, actor, command)` | `move { objectId, to }` | 整组预检后走真实 `TurnFlow.moveFormation()`；Exhaust 与 Move 在单次原子事务提交 |
+| `inspectStandardMove(context, actor, objectIds, to)` | 内部组接口；单个 v2 move 的 `to` 原样复用 | 根据实时 layers/位置/控制/横置和规则查询，调用 `moveDuelUnitsStandard` 验证；返回当前对象 epoch、目的地及 `standard-move-atomic` |
+| `moveUnits(context, actor, objectIds, to)` | 内部编队接口；当前 wire 只有单个 objectId | 先检查所有成员，再将整组作为一次 `batch` 契约交易；任一 Exhaust/Move 失败会回滚前序状态、事件和 trace |
 | `declareAttack(context, actor, command)` | `declare-attack { battlefieldId, attackerObjectIds }` | `combat-start-transaction` blocked；不擅自把客户端列表变成攻方身份 |
 | `declareDefense(context, actor, command)` | `declare-defense { battlefieldId, defenderObjectIds }` | `combat-designation-task` blocked；CR 466.2.c 是自动指定场上所有对应单位 |
 | `assignDamage(context, actor, command)` | 预留映射 `choose { choiceId, answer }` | `combat-damage-choice` blocked；没有由真实 Combat 产生的选择游标，不解析或提交分配 |
@@ -31,7 +30,8 @@ v2 尚未导出包子路径，沿用仓库已有的相对 `protocol/dist/v2` 导
 基地不使用 `locationId`。战场必须有当前对局的 `locationId`，不接收 `playerId`。
 手牌、牌库、废牌堆等目的地不是 Standard Move；不可用公开 move 任意传送卡牌。
 编队预检使用一次性派生的 DuelBoard 视图，绝不保存或提交叶子内核返回的副本。
-它涵盖已实现的标准移动检查，不代表已构建额外移动费用或要求的付款计划。
+合法组按 CR v1.5 144.2–144.3 提交全部 Exhaust + Move；移动动作完成后请求真实
+Cleanup，由现有 Contested/Showdown/Combat 路径继续。
 
 `context.match`、`context.stateVersion`、`context.binding` 必须来自可信状态宿主。
 actor 来自认证会话。宿主必须已把 binding 连接到该 match 的真实生命周期；

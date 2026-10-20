@@ -14,9 +14,31 @@ function playerMatches(selector: PlayerSelector | undefined, player: string | un
   if (player === undefined) return false;
   return typeof selector === 'object' ? selector.playerId === player : selector === 'self' ? player === controller : player !== controller;
 }
-export function matchesTriggerObject(filter: ObjectFilter, object: ObjectSnapshot | undefined, controller: string): boolean {
+function battlefieldId(location: ObjectSnapshot['location'] | undefined): string | null {
+  return location?.type === 'battlefield' ? location.id : null;
+}
+
+function eventBattlefieldId(event: PipelineEvent): string | null {
+  const id = (event.details as Readonly<Record<string, unknown>> | undefined)?.battlefieldId;
+  return typeof id === 'string' && id.length > 0 ? id : null;
+}
+
+export function matchesTriggerObject(
+  filter: ObjectFilter,
+  object: ObjectSnapshot | undefined,
+  controller: string,
+  source?: ObjectSnapshot,
+  eventField?: string | null,
+): boolean {
   if (!object) return Object.keys(filter).length === 0;
+  if (filter.here !== undefined) {
+    const anchorField = battlefieldId(source?.location);
+    if (filter.here !== true || anchorField === null || battlefieldId(object.location) !== anchorField ||
+        eventField !== undefined && eventField !== anchorField) return false;
+  }
   if (filter.objectId !== undefined && object.ref.id !== filter.objectId) return false;
+  if (source !== undefined && filter.objectId === source.ref.id &&
+      object.ref.zoneEntryId !== source.ref.zoneEntryId) return false;
   if ((filter.cardId ?? filter.canonicalCardId) !== undefined && object.cardId !== (filter.cardId ?? filter.canonicalCardId)) return false;
   if (filter.type !== undefined && !list(filter.type).some(type => type === 'object' || (type === 'card' && object.cardId !== null) || (type === 'token' && object.isToken) || object.types.includes(type))) return false;
   if (!playerMatches(filter.controller, object.controller, controller) || !playerMatches(filter.owner, object.owner, controller)) return false;
@@ -47,20 +69,33 @@ export function matchesMightyTransition(
       !Number.isFinite(previous.might) || !Number.isFinite(current.might)) return false;
   return previous.might < 5 && current.might >= 5;
 }
-export function matchesTriggerEvent(filter: ObjectFilter | EventPattern, event: PipelineEvent, controller: string): boolean {
+export function matchesTriggerEvent(
+  filter: ObjectFilter | EventPattern,
+  event: PipelineEvent,
+  controller: string,
+  source?: ObjectSnapshot,
+): boolean {
   // `it` is part of the card IR contract and is preserved on the runtime event
   // even before the shared trigger-spec declaration exposes its typed field.
   const pattern = filter as EventPattern & { readonly it?: ObjectFilter };
-  const isPattern = ['event', 'kind', 'object', 'source', 'target', 'it', 'player', 'fromZone', 'toZone', 'amount', 'details'].some(key => key in filter) || typeof pattern.type === 'string' && pattern.type.includes('-');
+  const isPattern = ['event', 'kind', 'here', 'object', 'source', 'target', 'it', 'player', 'fromZone', 'toZone', 'amount', 'details'].some(key => key in filter) || typeof pattern.type === 'string' && pattern.type.includes('-');
   if (!isPattern) {
     if (Object.hasOwn(filter, 'becomesMighty')) return false;
-    return matchesTriggerObject(filter as ObjectFilter, event.object ?? event.target, controller);
+    return matchesTriggerObject(filter as ObjectFilter, event.object ?? event.target, controller, source, eventBattlefieldId(event));
   }
   const kind = pattern.event ?? pattern.type ?? pattern.kind;
   const actual = event.kind ?? event.timingPoint;
   if (kind !== undefined && (EVENT_NAMES[kind] ?? kind) !== (EVENT_NAMES[actual] ?? actual)) return false;
-  for (const key of ['object', 'source', 'target'] as const) if (pattern[key] && !matchesTriggerObject(pattern[key], event[key], controller)) return false;
-  if (pattern.it && (!event.it || !matchesTriggerObject(pattern.it, event.it, controller))) return false;
+  const field = eventBattlefieldId(event);
+  if (pattern.here !== undefined) {
+    if (pattern.here !== true || field === null || battlefieldId(source?.location) !== field) return false;
+  }
+  if ((pattern.object?.here === true || pattern.it?.here === true) &&
+      (field === null || battlefieldId(source?.location) !== field)) return false;
+  for (const key of ['object', 'source', 'target'] as const) {
+    if (pattern[key] && !matchesTriggerObject(pattern[key], event[key], controller, source, field)) return false;
+  }
+  if (pattern.it && (!event.it || !matchesTriggerObject(pattern.it, event.it, controller, source, field))) return false;
   const hasDetailsMightyTransition = pattern.details !== undefined && Object.hasOwn(pattern.details, 'becomesMighty');
   const hasObjectMightyTransition = pattern.object !== undefined && Object.hasOwn(pattern.object, 'becomesMighty');
   const becomesMighty = hasDetailsMightyTransition

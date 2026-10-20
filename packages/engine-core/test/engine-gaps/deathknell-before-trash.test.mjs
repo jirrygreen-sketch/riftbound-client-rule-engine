@@ -119,12 +119,19 @@ test('EG-PIPELINE original Undercover Agent IR queues Pending before its Trash e
   assert.equal(f.engine.commit({ type: 'kill', object: oldRef }).status, 'done');
   assert.equal(observed.live.zone, 'board');
   assert.deepEqual(observed.live.ref, oldRef);
-  assert.deepEqual(observed.itemIds, ['trigger:1'], 'the Pending item exists before the boundary scan returns');
-  assert.equal(pendingDuringBoundary, true, 'the Pending publication is observed in the pre-Trash boundary');
+  // RIFT-879 binds the printed body to the keyword boundary, so the death is
+  // collected by exactly one trigger. Its Pending publication must still
+  // precede the Trash entry (CR 808.1.d.2), with the pre-Trash snapshot.
+  assert.deepEqual(observed.itemIds, [], 'the single Deathknell trigger is the first one collected');
+  assert.equal(pendingDuringBoundary, false);
   const death = f.engine.pipeline.events.find(event => event.timingPoint === 'object-killed');
+  const pendingEvent = f.engine.pipeline.events.find(event => event.timingPoint === 'chain-item-pending');
   const trash = f.engine.pipeline.events.find(event => event.timingPoint === 'object-enters-zone' && event.object.zone === 'trash');
   assert.ok(death.eventId < trash.eventId);
-  const pending = f.engine.items.find(item => item.trigger?.registration.id === 'program:agent:3:1');
+  assert.ok(pendingEvent && pendingEvent.eventId < trash.eventId, 'the Pending item is published before the Trash entry');
+  assert.equal(f.engine.items.length, 1, 'one printed Deathknell sentence is one Pending item');
+  const pending = f.engine.items.find(item => item.body?.[0]?.op === 'trigger.leave' &&
+    item.body.some(instruction => instruction.op === 'effect.discard'));
   assert.ok(pending);
   assert.deepEqual(pending.trigger.source.ref, oldRef);
   assert.equal(pending.trigger.source.zone, 'board');
