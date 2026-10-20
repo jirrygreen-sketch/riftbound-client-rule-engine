@@ -7,6 +7,7 @@ import { concreteLocation, isRelativeLocation } from '../layers/relative/locatio
 import { bindFilterAnchor, isSupportedRelativeFilterValue } from '../layers/relative/filter.js';
 import { bindReplacement as bindReplacementRegistration } from '../replacement/bind.js';
 import { ProgramBindingError } from './errors.js';
+import { KeywordGrantLayerEngine, type GrantedKeywordAbilityEntry } from './keyword-grants.js';
 import {
   bindStaticCapability,
   bindingSource,
@@ -44,6 +45,8 @@ export interface StaticBindingHandle { readonly unbind: () => void; }
 export interface ProgramStaticBinder {
   bindStatic?(ability: Extract<Ability, { kind: 'static' }>, source: ObjectSnapshot): StaticBindingHandle | void;
   bindReplacement?(ability: Extract<Ability, { kind: 'replacement' }>, source: ObjectSnapshot): StaticBindingHandle | void;
+  /** May narrow an authored trigger filter to the live lifecycle source. */
+  authorizeTrigger?(registration: Parameters<ChainEngine['pipeline']['registerTrigger']>[0]): Parameters<ChainEngine['pipeline']['registerTrigger']>[0];
   /** Optional lifecycle hand-off for entry events that carry an older incarnation. */
   sourceFor?(source: ObjectSnapshot): ObjectSnapshot | null;
 }
@@ -61,6 +64,14 @@ type LayerName = ContinuousEffectSpec['layer'];
 type StaticAbility = Extract<Ability, { kind: 'static' }>;
 
 const LIFECYCLE_BRIDGED_PIPELINES = new WeakSet<object>();
+interface KeywordLifecycleBinding { readonly ids: readonly string[]; }
+interface KeywordLifecycleHandle {
+  detach(): void;
+  sync(ref?: ObjectRef): void;
+  authorizeTrigger(registration: Parameters<ChainEngine['pipeline']['registerTrigger']>[0]): Parameters<ChainEngine['pipeline']['registerTrigger']>[0];
+}
+const KEYWORD_LIFECYCLE_BINDINGS = new WeakMap<object, KeywordLifecycleHandle>();
+const KEYWORD_LIFECYCLE_TRIGGER_IDS = new WeakMap<object, Set<string>>();
 
 /**
  * EventPipeline publishes action timings through emitBatch without invoking
@@ -71,27 +82,230 @@ const LIFECYCLE_BRIDGED_PIPELINES = new WeakSet<object>();
  */
 function bridgeLifecycleOnEvent(engine: ChainEngine): void {
   const pipeline = engine.pipeline as (typeof engine.pipeline & {
-    onEvent?: (event: { readonly timingPoint?: string }) => void;
+    onEvent?: (event: { readonly timingPoint?: string; readonly object?: ObjectSnapshot }) => void;
   }) | undefined;
   if (pipeline === undefined || pipeline === null) return;
   if (LIFECYCLE_BRIDGED_PIPELINES.has(pipeline) || typeof pipeline.emit !== 'function' ||
       typeof pipeline.emitBatch !== 'function') return;
   LIFECYCLE_BRIDGED_PIPELINES.add(pipeline);
+  const eventPipeline = pipeline;
   const originalOnEvent = pipeline.onEvent;
   pipeline.onEvent = event => {
+    const exactObject = event.object === undefined ? undefined : liveSource(engine, event.object.ref) ?? undefined;
     const timingPoint = event.timingPoint;
     if (timingPoint === 'object-enters-board' || timingPoint === 'object-enters-chain' ||
         timingPoint === 'object-leaves-board' || timingPoint === 'object-killed') {
+      const lifecycle = KEYWORD_LIFECYCLE_BINDINGS.get(engine);
+      if (exactObject === undefined) { /* no source to bind */ }
+      else if (timingPoint === 'object-leaves-board' || timingPoint === 'object-killed') lifecycle?.sync(exactObject.ref);
+      else if (timingPoint === 'object-enters-board') {
+        const keywordLifecycle = KEYWORD_LIFECYCLE_BINDINGS.get(engine);
+        keywordLifecycle?.sync(exactObject.ref);
+      }
       const publishBatch = pipeline.emitBatch;
       pipeline.emitBatch = (() => []) as typeof pipeline.emitBatch;
       try {
-        pipeline.emit(event as never);
+        pipeline.emit({ ...event, ...(exactObject === undefined ? {} : { object: exactObject }) } as never);
       } finally {
         pipeline.emitBatch = publishBatch;
       }
     }
     originalOnEvent?.(event as never);
   };
+}
+
+function keywordAbilityRegistration(
+  engine: ChainEngine,
+  ref: ObjectRef,
+  entry: GrantedKeywordAbilityEntry,
+  id: string,
+): { readonly registration: Parameters<ChainEngine['pipeline']['registerTrigger']>[0] } | null {
+  if (entry.ability.kind !== 'triggered') return null;
+  const source = liveSource(engine, ref);
+  if (source === null) return null;
+  return {
+    registration: {
+      id,
+      source,
+      controller: source.controller,
+      spec: { ...structuredClone(entry.ability.trigger), at: entry.ability.trigger.at,
+        filter: { objectId: ref.id, ...(source.zone === 'board' ? { zone: 'board' } : {}) } } as never,
+      body: structuredClone(entry.ability.body).map(instruction => instruction.op !== 'effect.inspect'
+        ? instruction
+        : { ...instruction, args: { ...instruction.args, player: { kind: 'constant', value: source.controller } } }) as never,
+      optional: entry.ability.optional,
+      activeZones: ['board'],
+      boundToIncarnation: true,
+    },
+  };
+}
+
+/**
+ * The default CardProgram lifecycle binds keyword-derived abilities onto the
+ * already-selected ChainEngine layer object. Printed keyword effects follow
+ * CR 478.4's re-check after an ability-layer grant, while generated trigger
+ * registrations are owned here so their source and duration remain exact.
+ */
+function installKeywordReexpansion(engine: ChainEngine): void {
+  const pipeline = engine.pipeline;
+  const registry = new Map<string, KeywordLifecycleBinding>();
+  const installedIds = new Set<string>();
+  KEYWORD_LIFECYCLE_TRIGGER_IDS.set(engine, installedIds);
+  let generated: readonly ContinuousEffectSpec[] = [];
+  const unregister = (ids: readonly string[]) => {
+    for (const id of ids) {
+      if (pipeline.hasTriggerRegistration(id)) pipeline.unregisterTrigger(id);
+    }
+  };
+  const setEffects = (next: readonly ContinuousEffectSpec[]) => {
+    const normalized = next.map(effect => {
+      const effectBody = record(effect.effect);
+      return effectBody.kind === 'continuous.might'
+        ? { ...effect, layer: 'arithmetic' as const }
+        : effectBody.kind === 'continuous.movement' && typeof effectBody.permission === 'string'
+          ? { ...effect, effect: { ...effectBody,
+            permission: { routes: [effectBody.permission] }, canGank: effectBody.permission === 'battlefield-to-battlefield',
+            ...(effectBody.staticCondition === undefined ? {} : { staticCondition: effectBody.staticCondition }) } as never }
+        : effect;
+    });
+    const unchanged = generated.length === normalized.length && generated.every((effect, index) =>
+      JSON.stringify(effect) === JSON.stringify(normalized[index]));
+    if (unchanged) return;
+    for (const effect of generated) if (engine.layers.registry.get(effect.id) !== undefined) engine.layers.removeContinuous(effect.id);
+    for (const effect of normalized) {
+      if (engine.layers.registry.get(effect.id) !== undefined) throw new ProgramBindingError('invalid-program', `Duplicate keyword lifecycle effect ${effect.id}`);
+      engine.layers.addContinuous(effect, { type: 'permanent' });
+    }
+    generated = Object.freeze([...normalized]);
+  };
+  const protocol = engine.pipeline.host as typeof engine.pipeline.host & {
+    keywordTriggerRegistrations?: (ref: ObjectRef) => readonly Parameters<typeof pipeline.registerTrigger>[0][];
+  };
+  const keywordRegistrations = (ref: ObjectRef) => {
+    const owner = liveSource(engine, ref);
+    const raw = protocol.keywordTriggerRegistrations?.(ref) ?? [];
+    return raw.filter(registration => {
+      const filter = registration.spec.filter as { readonly object?: { readonly objectId?: unknown }; readonly objectId?: unknown };
+      const objectId = filter.object?.objectId ?? filter.objectId;
+      return objectId === 'self' || objectId === owner?.ref.id;
+    }).map(registration =>
+      keywordAbilityRegistration(engine, ref, { id: registration.id, ability: {
+        kind: 'triggered',
+        trigger: { ...registration.spec } as never,
+        optional: registration.optional ?? false,
+        body: registration.body as never,
+      } }, registration.id)!.registration);
+  };
+  const syncObject = (ref: ObjectRef) => {
+    const key = `${ref.id}:${ref.zoneEntryId}`;
+    const previous = registry.get(key);
+    let registrations: readonly Parameters<typeof pipeline.registerTrigger>[0][];
+    try { registrations = keywordRegistrations(ref); }
+    catch (error) {
+      if (error instanceof ProgramBindingError && error.code === 'judge-required') return;
+      throw error;
+    }
+    const nextIds = new Set(registrations.map(registration => registration.id));
+    if (previous && nextIds.size === previous.ids.length && previous.ids.every(id => nextIds.has(id))) return;
+    if (previous) {
+      unregister(previous.ids);
+      for (const id of previous.ids) installedIds.delete(id);
+    }
+    for (const registration of registrations) {
+      if (!installedIds.has(registration.id) && pipeline.hasTriggerRegistration(registration.id)) {
+        throw new ProgramBindingError('invalid-program', `Keyword lifecycle trigger ${registration.id} is already registered by another lifecycle binding`);
+      }
+      if (!pipeline.hasTriggerRegistration(registration.id)) pipeline.registerTrigger(registration);
+      installedIds.add(registration.id);
+    }
+    registry.set(key, { ids: registrations.map(registration => registration.id) });
+  };
+  const exp: KeywordGrantLayerEngine = new KeywordGrantLayerEngine(engine.layers.objectsView(), {
+    context: source => engine.pipeline.host.context(source, source.controller, engine.layers.currentTimingPoint ?? 'cleanup-start'),
+    registry: engine.layers.registry,
+    grantedOnly: true,
+    includeAllKeywordAbilities: true,
+    deferGeneratedEffects: true,
+    onKeywordEffects: setEffects,
+    onKeywordAbilities: () => {},
+  });
+  const keywordEngine = new KeywordGrantLayerEngine(engine.layers.objectsView(), {
+    context: source => engine.pipeline.host.context(source, source.controller, engine.layers.currentTimingPoint ?? 'cleanup-start'),
+    registry: engine.layers.registry,
+    grantedOnly: true,
+    includeAllKeywordAbilities: true,
+    deferGeneratedEffects: true,
+    onKeywordEffects: setEffects,
+    onKeywordAbilities: () => {},
+  });
+  keywordEngine.setObjects(engine.layers.objectsView());
+  const keywordTriggerRegistrations = (ref: ObjectRef) => {
+    const source = liveSource(engine, ref);
+    if (source === null) return [];
+    keywordEngine.setObjects(engine.pipeline.host.objects());
+    const entries = keywordEngine.keywordEntries(ref);
+    return entries.flatMap(entry => entry.ability.kind === 'triggered'
+      ? (() => {
+          const registration = keywordAbilityRegistration(engine, ref, entry,
+            `program-keyword-ability:${ref.id}:${ref.zoneEntryId}:${entry.id}`);
+          return registration === null ? [] : [registration.registration];
+        })()
+      : []);
+  };
+  protocol.keywordTriggerRegistrations = keywordTriggerRegistrations;
+  const add = engine.layers.addContinuous.bind(engine.layers);
+  const remove = engine.layers.removeContinuous.bind(engine.layers);
+  engine.layers.addContinuous = ((effect, duration, timestamp) => {
+    const entry = add(effect, duration, timestamp);
+    if (!effect.id.startsWith('program-keyword:') && !effect.id.startsWith('program-keyword-capability:')) {
+      exp.invalidateKeywordView(); keywordEngine.invalidateKeywordView();
+    }
+    return entry;
+  }) as typeof engine.layers.addContinuous;
+  engine.layers.removeContinuous = ((id: string) => {
+    const removed = remove(id);
+    if (!id.startsWith('program-keyword:') && !id.startsWith('program-keyword-capability:')) {
+      exp.invalidateKeywordView(); keywordEngine.invalidateKeywordView();
+    }
+    return removed;
+  }) as typeof engine.layers.removeContinuous;
+  const detach = () => {
+    for (const binding of registry.values()) unregister(binding.ids);
+    for (const id of installedIds) if (pipeline.hasTriggerRegistration(id)) pipeline.unregisterTrigger(id);
+    for (const effect of generated) if (engine.layers.registry.get(effect.id) !== undefined) engine.layers.removeContinuous(effect.id);
+    registry.clear(); installedIds.clear(); generated = [];
+  };
+  KEYWORD_LIFECYCLE_BINDINGS.set(engine, {
+    detach,
+    authorizeTrigger(registration) {
+      const source = liveSource(engine, registration.source.ref);
+      const filter = registration.spec.filter as { readonly object?: { readonly objectId?: unknown } };
+      if (source === null || filter.object?.objectId !== 'self') return registration;
+      return { ...registration, spec: { ...registration.spec, filter: { event: registration.spec.at, object: { objectId: source.ref.id } } as never } };
+    },
+    sync(ref?: ObjectRef) {
+      if (ref === undefined) {
+        const objects = engine.pipeline.host.objects();
+        exp.setObjects(objects);
+        keywordEngine.setObjects(objects);
+        for (const object of exp.evaluateAll()) syncObject(object.ref);
+        return;
+      }
+      if (liveSource(engine, ref) === null) {
+        const key = `${ref.id}:${ref.zoneEntryId}`;
+        const previous = registry.get(key);
+        if (previous) unregister(previous.ids);
+        registry.delete(key);
+        return;
+      }
+      // The object just entered an active zone. Refresh its exact keyword
+      // expansion before registering the trigger that this entry should emit.
+      const objects = engine.pipeline.host.objects();
+      exp.setObjects(objects);
+      keywordEngine.setObjects(objects);
+      syncObject(ref);
+    },
+  });
 }
 
 const LAYER_BY_KIND: Readonly<Record<string, LayerName>> = Object.freeze({
@@ -548,11 +762,18 @@ function bindStatic(engine: ChainEngine, ability: StaticAbility, source: ObjectS
 /** Build the production adapter used by attachProgramLifecycle. */
 export function createEngineStaticBinder(engine: ChainEngine): ProgramStaticBinder {
   bridgeLifecycleOnEvent(engine);
+  if (!KEYWORD_LIFECYCLE_BINDINGS.has(engine)) installKeywordReexpansion(engine);
+  const keywordLifecycle = KEYWORD_LIFECYCLE_BINDINGS.get(engine);
+  // The engine layer can insert entries between refreshes. Recompute ahead of
+  // every material collection before the ordinary program binder runs.
+  keywordLifecycle?.sync(undefined);
   const staticOrdinals = new Map<string, Set<number>>();
   return {
+    authorizeTrigger: registration => keywordLifecycle!.authorizeTrigger(registration),
     /** Expose dynamic-host rebinding for lifecycle owners without editing their files. */
     sourceFor: source => bindingSource(engine, source),
     bindStatic: (ability, source) => {
+      KEYWORD_LIFECYCLE_BINDINGS.get(engine)?.sync(source.ref);
       if (!engine.layers || typeof (engine.layers as { registry?: unknown }).registry !== 'object') {
         throw new ProgramBindingError('judge-required', `Static ability kind ${String(record(ability.effect).kind ?? '<missing>')} has no layer mapping`);
       }
@@ -566,6 +787,7 @@ export function createEngineStaticBinder(engine: ChainEngine): ProgramStaticBind
       used.add(ordinal);
       try {
         const handle = bindStatic(engine, ability, current, ordinal);
+        KEYWORD_LIFECYCLE_BINDINGS.get(engine)?.sync(undefined);
         let active = true;
         return { unbind: () => {
           if (!active) return;
@@ -583,6 +805,7 @@ export function createEngineStaticBinder(engine: ChainEngine): ProgramStaticBind
       }
     },
     bindReplacement: (ability, source) => {
+      KEYWORD_LIFECYCLE_BINDINGS.get(engine)?.sync(source.ref);
       const host = engine.pipeline.host;
       const bound = bindReplacementRegistration(ability, source.ref, {
         host: {
