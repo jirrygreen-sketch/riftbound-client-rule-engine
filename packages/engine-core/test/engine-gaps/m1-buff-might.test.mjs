@@ -2,8 +2,12 @@
 // Rules evidence: /root/swarm-rift/shared/rules/CR-v1.5.txt lines 4566-4585:
 // 702.2.b spend, 702.3 one Buff per Unit, 703 effective Might increase, and
 // 705 removal on leaving play. Layer ordering is CR 478.3/478.4 and 479.4.e.1.
-// The real card path below uses Pit Rookie's canonical program
-// (card.hash-e2638655ff5ed3a1e60a501be3c23d74e46ef7f1900bed31b436f1a579b316ed).
+// Official source: Core Rules v1.5 (effective 2026-10-09),
+// https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/
+//   5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf.
+// Production card timeline (Pit Rookie): play -> card-played queue -> buff-added
+// -> layer read; canonicalCardId
+// card.hash-e2638655ff5ed3a1e60a501be3c23d74e46ef7f1900bed31b436f1a579b316ed.
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -182,7 +186,7 @@ test('RIFT-888 derivedMight and public caching include Buff without losing curre
   assert.equal(layers.evaluate(unit.ref).printed.might, 2, 'LKI retains printed Might rather than the derived total');
 });
 
-test('RIFT-888 real Pit Rookie adds one Buff to another friendly Unit and exposes the new effective Might', () => {
+test('RIFT-888 Pit Rookie production timeline raises another friendly Unit and spend restores it', () => {
   const f = fixture({
     programs: [pitRookie],
     energy: { A: 2 },
