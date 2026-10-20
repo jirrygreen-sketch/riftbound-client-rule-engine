@@ -14,6 +14,8 @@ import treasureHoard from "../../../card-dsl/dist/cards/sfd/treasure-hoard.js";
 import wagesOfPain from "../../../card-dsl/dist/cards/sfd/wages-of-pain.js";
 import watchfulSentry from "../../../card-dsl/dist/cards/ogn/watchful-sentry.js";
 import unsungHero from "../../../card-dsl/dist/cards/sfd/unsung-hero.js";
+import undercoverAgent from "../../../card-dsl/dist/cards/ogn/undercover-agent.js";
+import deathknell, { bindPrintedDeathknellBodies, DeathknellBindingError } from "../../dist/effects/keywords/Deathknell.js";
 
 const base = player => ({ type: "base", player });
 const battlefield = { type: "battlefield", id: "battlefield-1" };
@@ -213,3 +215,51 @@ for (const [might, draws] of [[5, 2], [4, 0]]) {
     assert.equal(f.get("hero").zone, "trash");
   });
 }
+
+// Undercover Agent anchors its printed body with object: { objectId: "self" }.
+test("Undercover Agent's object.objectId self body binds to its Deathknell boundary as one trigger", () => {
+  const program = admitted(undercoverAgent);
+  const f = fixture({
+    programs: [program],
+    setup: w => w.unit("agent", { cardId: program.canonicalCardId, types: ["unit"], location: battlefield }),
+  });
+  assert.equal(f.engine.commit({ type: "kill", object: f.ref("agent") }).status, "done");
+  assert.equal(f.engine.items.length, 1, "no empty boundary item and no ordering of two triggers");
+  assert.deepEqual(f.engine.items[0].body.map(instruction => instruction.op), ["trigger.leave", "effect.discard", "effect.draw"]);
+});
+
+// Direct binding cases (the lifecycle reports a thrown DeathknellBindingError
+// and leaves the program unbound instead of keeping duplicate triggers).
+const host = { canonicalCardId: "test:deathknell-host" };
+const keyword = { kind: "keyword", keyword: "deathknell" };
+const [boundary] = deathknell.expand({ host });
+const selfDeath = (id, filter = { self: true }) => ({
+  kind: "triggered", trigger: { at: "object-killed", filter }, optional: false,
+  body: [{ id, op: "effect.draw", args: { amount: { kind: "constant", value: 1 } } }],
+});
+
+test("Deathknell binding fails closed when two self-death bodies follow one keyword", () => {
+  const first = selfDeath("first"), second = selfDeath("second");
+  assert.throws(() => bindPrintedDeathknellBodies([first, second, boundary], [keyword, first, second]),
+    error => error instanceof DeathknellBindingError && /2 self-death bodies/.test(error.message));
+});
+
+test("Deathknell binding fails closed on a host reference it cannot recognize exactly", () => {
+  const odd = selfDeath("odd", { event: "object-killed", object: { objectId: "self", controller: "self" } });
+  assert.throws(() => bindPrintedDeathknellBodies([odd, boundary], [keyword, odd]),
+    error => error instanceof DeathknellBindingError && /unrecognized form/.test(error.message));
+});
+
+test("a self-death body in another keyword's segment is not bound to Deathknell", () => {
+  const later = selfDeath("later");
+  const bound = bindPrintedDeathknellBodies([later, boundary], [keyword, { kind: "keyword", keyword: "accelerate" }, later]);
+  assert.equal(bound.includes(later), true, "the later body stays its own ability");
+  const keywordTrigger = bound.find(ability => ability.body?.[0]?.op === "trigger.leave");
+  assert.deepEqual(keywordTrigger.body.map(instruction => instruction.op), ["trigger.leave"]);
+});
+
+test("a death trigger anchored on other objects stays independent of Deathknell", () => {
+  const friendly = selfDeath("friendly", { event: "object-killed", object: { controller: "self", type: "unit" } });
+  const bound = bindPrintedDeathknellBodies([friendly, boundary], [keyword, friendly]);
+  assert.deepEqual(bound, [friendly, boundary]);
+});

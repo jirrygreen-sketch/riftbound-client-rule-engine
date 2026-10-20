@@ -93,56 +93,63 @@ function readPayload(value: unknown): readonly Instruction[] {
   return structuredClone(value) as unknown as readonly Instruction[];
 }
 
-function explicitlyAnchorsSelf(filter: unknown): boolean {
-  if (typeof filter !== "object" || filter === null || Array.isArray(filter)) return false;
-  const pattern = filter as Record<string, unknown>;
-  if (pattern.self === true || pattern.source === "self" || pattern.role === "self" || pattern.controller === "self") return true;
-  return typeof pattern.filter === "object" && pattern.filter !== null &&
-    !Array.isArray(pattern.filter) && explicitlyAnchorsSelf(pattern.filter);
+type AnchorClass = "self" | "other" | "ambiguous";
+
+const SELF_KEYS = new Set(["self", "source", "role", "objectId", "object"]);
+const EVENT_KEYS = new Set(["event", "type", "kind"]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function explicitSelfDeathBody(ability: Ability): ability is TriggeredAbility {
-  return ability.kind === "triggered" && ability.trigger.at === "object-killed" &&
-    ability.trigger.filter !== undefined && explicitlyAnchorsSelf(ability.trigger.filter) &&
-    ability.body.length > 0;
-}
-
-function isSelfAnchor(filter: unknown, depth = 0): boolean {
-  if (typeof filter !== "object" || filter === null || Array.isArray(filter)) return false;
-  const pattern = filter as Record<string, unknown>;
-  const primary = Object.keys(pattern).every(key =>
-    ["self", "source", "role", "controller", "event", "type", "kind", "filter"].includes(key)) &&
-    (pattern.event === "object-killed" || pattern.type === "object-killed" || pattern.kind === "object-killed" ||
-      pattern.event === undefined && pattern.type === undefined && pattern.kind === undefined);
-  if (!primary) return false;
-  const markers = [
-    pattern.self === true,
-    pattern.source === "self",
-    pattern.role === "self",
-    pattern.controller === "self",
-  ].filter(Boolean).length;
-  // The keyword boundary uses `{ self: true }`, while card IR commonly uses
-  // `{ event: ..., filter: { source: "self" } }`. Accept exactly one self
-  // marker at either level and no unrelated predicates.
-  if (markers > 1) return false;
-  if (pattern.filter !== undefined) {
-    if (depth > 0 || markers === 1) return false;
-    return isSelfAnchor(pattern.filter, depth + 1);
+/** Count every marker that names the ability's own host, at any depth. */
+function selfMarkerCount(value: unknown): number {
+  if (!isRecord(value)) return 0;
+  let count = 0;
+  for (const [key, entry] of Object.entries(value)) {
+    if (key === "self" && entry === true) count++;
+    else if ((key === "source" || key === "role" || key === "objectId" || key === "object") && entry === "self") count++;
+    else if (isRecord(entry)) count += selfMarkerCount(entry);
   }
-  return markers === 1;
+  return count;
 }
 
-function sameTriggerShape(boundary: TriggeredAbility, printed: TriggeredAbility): boolean {
-  const sameFilter = JSON.stringify(boundary.trigger.filter) === JSON.stringify(printed.trigger.filter) ||
-    isSelfAnchor(boundary.trigger.filter) && isSelfAnchor(printed.trigger.filter);
+/**
+ * An exact "this object dies" anchor: one self marker in one of the spellings
+ * card IR uses ({ self: true }, { source | role | objectId | object: "self" },
+ * { object: { objectId: "self" } }), optionally beside an object-killed event
+ * name or nested once under `filter`, and no other predicate. `controller:
+ * "self"` means "a unit you control" and is never a self anchor.
+ */
+function isExactSelfAnchor(filter: unknown, depth = 0): boolean {
+  if (!isRecord(filter)) return false;
+  const keys = Object.keys(filter);
+  if (keys.some(key => !SELF_KEYS.has(key) && !EVENT_KEYS.has(key) && key !== "filter")) return false;
+  for (const key of EVENT_KEYS) {
+    if (filter[key] !== undefined && filter[key] !== "object-killed") return false;
+  }
+  if (selfMarkerCount(filter) !== 1) return false;
+  if (filter.filter !== undefined) return depth === 0 && isExactSelfAnchor(filter.filter, depth + 1);
+  if (isRecord(filter.object)) {
+    const object = filter.object;
+    return Object.keys(object).length === 1 && object.objectId === "self";
+  }
+  return filter.self === true || ["source", "role", "objectId", "object"].some(key => filter[key] === "self");
+}
+
+function classifyDeathAnchor(filter: unknown): AnchorClass {
+  if (selfMarkerCount(filter) === 0) return "other";
+  return isExactSelfAnchor(filter) ? "self" : "ambiguous";
+}
+
+function compatibleWithBoundary(boundary: TriggeredAbility, printed: TriggeredAbility): boolean {
   // The keyword boundary never carries a condition of its own. A printed
   // past-tense condition ("If I was Mighty", CR 808.1.c.2) belongs to the one
-  // Deathknell trigger and is checked when that trigger is collected; any other
-  // condition mismatch keeps the abilities separate.
+  // Deathknell trigger and is checked when that trigger is collected.
   const compatibleCondition = boundary.trigger.condition === undefined ||
     JSON.stringify(boundary.trigger.condition) === JSON.stringify(printed.trigger.condition);
-  return boundary.optional === printed.optional && sameFilter && compatibleCondition &&
-    boundary.trigger.once === printed.trigger.once;
+  return boundary.optional === printed.optional && compatibleCondition &&
+    boundary.trigger.once === printed.trigger.once && printed.body.length > 0;
 }
 
 function keywordBoundary(ability: Ability): TriggeredAbility | null {
@@ -156,13 +163,34 @@ function isDeathknellKeyword(ability: Ability): ability is Extract<Ability, { ki
   return ability.kind === "keyword" && ability.keyword.toLowerCase().replace(/[\s_-]+/g, "-") === "deathknell";
 }
 
+function isDeathTrigger(ability: Ability): ability is TriggeredAbility {
+  return ability.kind === "triggered" && ability.trigger.at === "object-killed";
+}
+
+/** A printed Deathknell body that cannot be bound exactly once (fail closed). */
+export class DeathknellBindingError extends Error {
+  readonly status = "blocked";
+  readonly code = "judge-required";
+  constructor(message: string) {
+    super(`Deathknell binding: ${message}`);
+    this.name = "DeathknellBindingError";
+  }
+}
+
 /**
  * Card IR can carry the printed `[Deathknell] -> [Effect]` text as a keyword
  * declaration followed by an explicit self-death trigger with that Effect.
- * Program expansion appends the keyword trigger separately. Bind one strictly
- * matching explicit trigger to the keyword boundary and consume it, preventing
- * the same printed text from becoming two Pending items. Different filters,
- * conditions, optionality, or bodies remain independent.
+ * Program expansion appends the keyword trigger separately. Bind that printed
+ * trigger to the keyword boundary and consume it, so one printed sentence is
+ * one Pending item (CR 808.1.c).
+ *
+ * A keyword's segment ends at the next declared keyword of any kind. Inside a
+ * segment, a death trigger that clearly anchors something other than its own
+ * host stays independent. Exactly one compatible self-anchored trigger binds.
+ * Several self-anchored bodies, an incompatible one, an unrecognized self
+ * reference, or a keyword/boundary count mismatch next to a self-death body
+ * throws `DeathknellBindingError`: the program is not bound, rather than
+ * leaving a duplicate or empty trigger behind.
  */
 export function bindPrintedDeathknellBodies(
   abilities: readonly Ability[],
@@ -173,22 +201,37 @@ export function bindPrintedDeathknellBodies(
     .filter((entry): entry is { keyword: TriggeredAbility; index: number } => entry.keyword !== null);
   const declarations = declaredAbilities.flatMap((ability, index) =>
     isDeathknellKeyword(ability) ? [index] : []);
-  if (boundaries.length === 0 || boundaries.length !== declarations.length) return abilities;
+  const declaredSelfDeath = declaredAbilities.filter(ability =>
+    isDeathTrigger(ability) && keywordBoundary(ability) === null && classifyDeathAnchor(ability.trigger.filter) !== "other");
+  if (boundaries.length === 0 && declarations.length === 0) return abilities;
+  if (boundaries.length !== declarations.length) {
+    if (declaredSelfDeath.length > 0) {
+      throw new DeathknellBindingError(`${declarations.length} declared keyword(s) but ${boundaries.length} expanded boundary trigger(s)`);
+    }
+    return abilities;
+  }
 
   const consumed = new Set<Ability>();
   const replacements = new Map<number, TriggeredAbility>();
   for (const [instance, declarationIndex] of declarations.entries()) {
     const boundary = boundaries[instance]!.keyword;
-    const instanceEnd = declarations[instance + 1] ?? declaredAbilities.length;
-    // Only the declared segment between this Deathknell keyword and the next
-    // keyword can carry its printed Effect. Two possible self-death bodies are
-    // ambiguous, so neither is assigned to this instance.
-    const candidates = declaredAbilities
-      .slice(declarationIndex + 1, instanceEnd)
-      .filter((candidate): candidate is TriggeredAbility =>
-        explicitSelfDeathBody(candidate) && sameTriggerShape(boundary, candidate));
-    if (candidates.length !== 1) continue;
-    const payload = candidates[0]!;
+    const nextKeyword = declaredAbilities.findIndex((ability, index) =>
+      index > declarationIndex && ability.kind === "keyword");
+    const segment = declaredAbilities.slice(declarationIndex + 1, nextKeyword < 0 ? declaredAbilities.length : nextKeyword);
+    const deathTriggers = segment.filter(isDeathTrigger);
+    const ambiguous = deathTriggers.filter(trigger => classifyDeathAnchor(trigger.trigger.filter) === "ambiguous");
+    if (ambiguous.length > 0) {
+      throw new DeathknellBindingError("a death trigger references its host in an unrecognized form");
+    }
+    const selfBodies = deathTriggers.filter(trigger => classifyDeathAnchor(trigger.trigger.filter) === "self");
+    if (selfBodies.length === 0) continue;
+    if (selfBodies.length > 1) {
+      throw new DeathknellBindingError(`${selfBodies.length} self-death bodies follow one Deathknell keyword`);
+    }
+    const payload = selfBodies[0]!;
+    if (!compatibleWithBoundary(boundary, payload)) {
+      throw new DeathknellBindingError("the printed self-death body cannot merge with its keyword boundary");
+    }
     const boundaryInstruction = boundary.body[0]!;
     replacements.set(boundaries[instance]!.index, {
       ...boundary,
