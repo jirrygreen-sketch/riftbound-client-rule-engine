@@ -2,6 +2,7 @@ import type { CardProgram } from "../../../../packages/card-dsl/dist/ir/index.js
 import { createMatch, concede, type Match, type MatchDeck } from "../../../../packages/engine-core/dist/game/lifecycle.js";
 import { createActionPipelineHost } from "../../../../packages/engine-core/dist/events/action-adapter.js";
 import { createProgramBinding, type ProgramBinding } from "../../../../packages/engine-core/dist/programs/index.js";
+import { createEngineStaticBinder } from "../../../../packages/engine-core/dist/programs/statics.js";
 import { inspectStandardMove } from "../../../../packages/engine-core/dist/game/commands/movement.js";
 import type { ChoiceRequest, Domain, GameAction, ObjectRef, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
 import {
@@ -121,6 +122,7 @@ class MatchRuntime implements EngineRuntime {
     const pipelineHost = createActionPipelineHost({
       checkpoint: () => hostState.checkpoint(), restore: checkpoint => hostState.restore(checkpoint), objects: () => hostState.objects(),
       perform: action => hostState.perform(action), choose: request => hostState.choose(request),
+      performContract: action => hostState.performContract(action),
       performWithDeathBoundary: (action, boundary) => hostState.performWithDeathBoundary(action, boundary),
       performKillBatchWithDeathBoundary: (actions, batchId, boundary) =>
         hostState.performKillBatchWithDeathBoundary(actions, batchId, boundary),
@@ -144,8 +146,15 @@ class MatchRuntime implements EngineRuntime {
       throw error;
     }
     if (this.runtimeOptions.programs) {
-      this.binding = createProgramBinding({ cardPrograms: this.runtimeOptions.programs });
+      this.binding = createProgramBinding({
+        cardPrograms: this.runtimeOptions.programs,
+        staticBinder: createEngineStaticBinder(this.match.flow.chain),
+      });
       this.binding.attachLifecycle(this.match.flow.chain);
+    }
+    for (const field of this.match.flow.battlefields) {
+      const battlefield = hostState.objects().find(object => object.ref.id === field.id);
+      if (battlefield) hostState.registerBattlefield(battlefield.owner, field.id);
     }
     this.journalWriter = new RuntimeJournalWriter({
       header: {
@@ -172,6 +181,7 @@ class MatchRuntime implements EngineRuntime {
         },
       }, stateDigest: this.stateDigest(), privateStateDigest: this.privateStateDigest(),
     });
+    this.syncHiddenTurn();
     return this;
   }
 
@@ -307,6 +317,7 @@ class MatchRuntime implements EngineRuntime {
 
   private execute(playerId: string, command: V2Command): Record<string, unknown> {
     const match = this.match!;
+    this.syncHiddenTurn();
     if (command.type === "concede") { concede(match, playerId); return { accepted: true, winnerPlayerId: match.result().winner }; }
     if (command.type === "pass") {
       if (match.flow.chain.items.some(item => item.status === "pending")) {
@@ -335,14 +346,29 @@ class MatchRuntime implements EngineRuntime {
     }
     if (command.type === "play") {
       if (!this.binding) throw new Error("No trusted card-program registry is bound");
-      if (command.cost !== undefined || command.targets !== undefined || command.picks !== undefined) {
-        throw new Error("Wire cost, target and pick selections require the authoritative Finalize choice adapter");
+      if (command.picks !== undefined && command.picks.length > 0) {
+        throw new Error("Wire picks require the authoritative Finalize pick adapter");
       }
       const source = this.resolveObject(command.cardObjectId);
       this.assertCanControl(playerId, source.ref);
-      const draft = this.binding.describePlay({ type: "play", object: source.ref, player: playerId }, source);
+      const base = this.binding.describePlay({ type: "play", object: source.ref, player: playerId }, source);
+      const targets = this.finalizeTargets(base.body, base.targets, command.targets, playerId);
+      const selections = command.cost;
+      if (selections !== undefined && (selections.energy !== undefined || selections.power !== undefined || selections.xp !== undefined ||
+          selections.exhaustObjectIds !== undefined || selections.recycleObjectIds !== undefined || selections.hidden !== undefined)) {
+        throw new Error("Explicit finalized cost components require the external Pay Costs continuation");
+      }
+      const cost = selections === undefined || selections.optionId === undefined ? base.cost : {
+        ...(base.cost ?? { id: `wire-cost:${command.commandId}`, cost: { kind: "printed" as const } }),
+        baseChoice: selections.optionId,
+      };
+      const draft = {
+        ...base,
+        ...(targets.length === 0 ? {} : { targets }),
+        ...(cost === undefined ? {} : { cost }),
+      };
       match.flow.execute(draft);
-      return { accepted: true, objectId: command.cardObjectId };
+      return { accepted: true, objectId: command.cardObjectId, targets: targets.length };
     }
     if (command.type === "activate") {
       if (!this.binding) throw new Error("No trusted card-program registry is bound");
@@ -373,6 +399,59 @@ class MatchRuntime implements EngineRuntime {
     const object = this.host!.object(ref);
     if (!object) throw new Error(`Unknown object ${ref.id}`);
     if (object.controller !== playerId) throw new Error("Player does not control object");
+  }
+
+  private finalizeTargets(
+    body: ReturnType<ProgramBinding["describePlay"]>["body"],
+    specs: ReturnType<ProgramBinding["describePlay"]>["targets"],
+    selections: Extract<V2Command, { type: "play" }>["targets"],
+    actor: PlayerId,
+  ): Array<NonNullable<ReturnType<ProgramBinding["describePlay"]>["targets"]>[number]> {
+    const requirements: Array<NonNullable<ReturnType<ProgramBinding["describePlay"]>["targets"]>[number]> = specs === undefined
+      ? body.flatMap(instruction => (instruction.targets ?? []).map(requirement => ({ requirement })))
+      : [...specs];
+    if (selections === undefined || selections.length === 0) return [];
+    const assigned = new Set<string>();
+    const finalized: Array<NonNullable<ReturnType<ProgramBinding["describePlay"]>["targets"]>[number]> = [];
+    for (const selection of selections) {
+      if (selection.kind !== "object") throw new Error("Only object target selections are supported for Finalize");
+      const matches = requirements.filter(candidate => !assigned.has(candidate.requirement.id) && this.targetMatches(candidate.requirement, selection, actor));
+      if (matches.length !== 1) throw new Error(`Target selection ${selection.objectId} does not match exactly one requirement`);
+      const target = matches[0]!;
+      const object = this.resolveObject(selection.objectId);
+      if (selection.zoneEntryId !== undefined && object.ref.zoneEntryId !== selection.zoneEntryId) throw new Error(`Stale target ${selection.objectId}`);
+      if (target.options?.selected !== undefined) throw new Error(`Target requirement ${target.requirement.id} was already finalized`);
+      assigned.add(target.requirement.id);
+      finalized.push({ ...target, options: { ...(target.options ?? {}), selected: [object.ref] } });
+    }
+    for (const requirement of requirements) {
+      if (assigned.has(requirement.requirement.id)) continue;
+      const min = requirement.requirement.min ?? (requirement.requirement.selection === "up-to" ? 0 : 1);
+      if (min > 0) throw new Error(`Target requirement ${requirement.requirement.id} has no finalized target`);
+      finalized.push({ ...requirement, options: { ...(requirement.options ?? {}), selected: [] } });
+    }
+    return finalized;
+  }
+
+  private targetMatches(requirement: { readonly filter: Record<string, unknown> }, selection: {
+    readonly kind: "object"; readonly objectId: string; readonly zoneEntryId?: number;
+  }, actor: PlayerId): boolean {
+    const filter = requirement.filter;
+    const value = this.resolveObject(selection.objectId);
+    if (value.ref.zoneEntryId !== (selection.zoneEntryId ?? value.ref.zoneEntryId)) return false;
+    const types = value.types.map(type => type.toLowerCase());
+    if (filter.type !== undefined) {
+      const wanted = Array.isArray(filter.type) ? filter.type.map(String) : [String(filter.type)];
+      if (!wanted.some(type => types.includes(type.toLowerCase()))) return false;
+    }
+    if (filter.zone !== undefined && filter.zone !== value.zone) return false;
+    if (filter.controller !== undefined) {
+      const wanted = typeof filter.controller === "string" ? filter.controller : undefined;
+      if (wanted === "you" || wanted === "self" || wanted === "controller") return value.controller === actor;
+      if (wanted === "opponent") return value.controller !== actor;
+      if (wanted !== undefined && wanted !== "any" && value.controller !== wanted) return false;
+    }
+    return true;
   }
 
   private executeRuneResource(playerId: string, command: V2RuneResourceCommand): Record<string, unknown> {
@@ -471,6 +550,11 @@ class MatchRuntime implements EngineRuntime {
   }
 
   private requireStarted(): void { if (!this.match || !this.host || !this.journalWriter) throw new Error("Engine runtime has not started"); }
+
+  private syncHiddenTurn(): void {
+    if (!this.match || !this.host) return;
+    this.host.advanceTurn(Math.max(this.match.flow.turn, 1));
+  }
 
   private stateDigest(): string {
     if (!this.match || !this.host) throw new Error("Engine runtime has not started");
