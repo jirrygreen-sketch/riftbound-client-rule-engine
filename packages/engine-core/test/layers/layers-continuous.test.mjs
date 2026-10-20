@@ -438,6 +438,187 @@ test('layers-derived-might-bridge-complete: complete strict Duel results replace
   assert.equal(engine([unit], [], { derivedMight: resolver }).evaluate(unit.ref).might, 6);
 });
 
+test('layers-derived-might-reentrant-read-stays-visible-without-active-effects', () => {
+  for (const effects of [[], [permanent({ id: 'unrelated', layer: 'arithmetic', filter: { objectId: 'different' },
+    effect: { kind: 'increase', amount: 1 } })]]) {
+    const unit = object('unit', { might: 2 });
+    let layers;
+    layers = engine([unit], effects, { derivedMight(snapshot) {
+      const current = layers.evaluate(snapshot.ref);
+      assert.notEqual(current, null, 'the current object stays readable during derivation');
+      assert.equal(current.might, 2);
+      return current.might;
+    } });
+    assert.equal(layers.evaluate(unit.ref).might, 2);
+    assert.equal(layers.evaluate(unit.ref).might, 2, 'cached repeated derivation stays stable');
+  }
+});
+
+test('layers-derived-might-reentrant-cross-object-read-keeps-group-snapshot-boundary', () => {
+  const first = object('first', { might: 2 });
+  const second = object('second', { might: 3 });
+  let layers;
+  layers = engine([first, second], [], { derivedMight(snapshot) {
+    const current = layers.evaluate(snapshot.ref);
+    assert.equal(current?.might, snapshot.might, 'each current object remains locally readable');
+    return current?.might;
+  } });
+  assert.deepEqual(layers.evaluateAll().map(snapshot => [snapshot.ref.id, snapshot.might]),
+    [['first', 2], ['second', 3]]);
+  assert.deepEqual(layers.evaluateAll().map(snapshot => [snapshot.ref.id, snapshot.might]),
+    [['first', 2], ['second', 3]], 'repeated group evaluation stays stable');
+});
+
+test('layers-evaluate-all-freezes-object-batch-across-reentrant-host-refresh', () => {
+  const first = object('first', { might: 2 });
+  const second = object('second', { might: 3 });
+  let layers;
+  let refreshed = false;
+  layers = engine([first, second], [], { derivedMight(snapshot) {
+    if (!refreshed) {
+      refreshed = true;
+      layers.setObjects([first, second]);
+    }
+    return snapshot.might;
+  } });
+  assert.deepEqual(layers.evaluateAll().map(snapshot => snapshot.ref),
+    [first.ref, second.ref], 'setObjects during one object evaluation must not restart evaluateAll enumeration');
+});
+
 test('layers-order-is-copy-trait-ability-arithmetic: contract order is exported', () => {
   assert.deepEqual(LAYER_ORDER, ['copy', 'trait', 'ability', 'arithmetic']);
+});
+
+test('layers-singleton-self-read-reuses-current-snapshot-without-group-view-copies', () => {
+  const at = id => ({ type: 'battlefield', id });
+  const source = object('source', { might: 4, location: at('one') });
+  const layers = engine([source], [
+    permanent({ id: 'self-delta', layer: 'arithmetic', source: source.ref,
+      filter: { objectId: 'source', sameLocationAs: 'self', zone: 'board' },
+      effect: { kind: 'increase', amount: { kind: 'object-property', object: 'self', property: 'might' } } }),
+  ]);
+  const first = layers.evaluate(source.ref);
+  const second = layers.evaluate(source.ref);
+  assert.equal(first.might, 8);
+  assert.deepEqual(second, first);
+  assert.equal(layers.evaluateAll().length, 1);
+});
+
+test('layers-multi-object-scc-and-relative-aura-keep-start-of-layer-semantics', () => {
+  const at = id => ({ type: 'battlefield', id });
+  const anchor = object('anchor', { might: 2, location: at('one') });
+  const ally = object('ally', { might: 2, controller: 'B', owner: 'B', location: at('one') });
+  const far = object('far', { might: 2, controller: 'B', owner: 'B', location: at('two') });
+  const layers = engine([anchor, ally, far], [
+    permanent({ id: 'aura', layer: 'arithmetic', source: anchor.ref,
+      filter: { type: 'unit', controller: 'opponent', sameLocationAs: 'source', zone: 'board' },
+      effect: { kind: 'increase', amount: 1 } }),
+    permanent({ id: 'cross-name', layer: 'trait', filter: { objectId: 'anchor' },
+      effect: { kind: 'set-name', value: { kind: 'object-property', object: far.ref, property: 'name' } } }),
+  ]);
+  const first = layers.evaluateAll();
+  const second = layers.evaluateAll();
+  assert.deepEqual(first.map(value => [value.ref.id, value.might, value.name]),
+    [['anchor', 2, 'far'], ['ally', 3, 'ally'], ['far', 2, 'far']]);
+  assert.deepEqual(second, first);
+});
+
+test('layers-returned-snapshot-is-detached-from-later-raw-field-mutation', () => {
+  const first = object('first', { types: ['unit'], tags: ['original'], keywords: [{ id: 'Shield' }] });
+  const raw = [first];
+  const layers = engine(raw);
+  const a = layers.evaluate(first.ref);
+  const b = layers.evaluate(first.ref);
+  assert.notEqual(a, b, 'each read receives a fresh wrapper');
+  assert.deepEqual(a, b);
+  assert.notEqual(a.tags, first.tags);
+  assert.equal(Object.isFrozen(a), true);
+  assert.equal(Object.isFrozen(a.printed), true);
+  assert.equal(Object.isFrozen(a.tags), true);
+  assert.equal(Object.isFrozen(a.keywords[0]), true);
+  assert.throws(() => a.tags.push('rejected'), TypeError);
+  first.tags.push('mutated');
+  first.keywords[0].value = 9;
+  assert.deepEqual(a.tags, ['original']);
+  assert.deepEqual(a.keywords, [{ id: 'Shield' }]);
+  assert.deepEqual(a.printed.tags, ['original']);
+  assert.deepEqual(a.printed.keywords, [{ id: 'Shield' }]);
+});
+
+test('layers-empty-effect-fast-path-still-clamps-negative-Might-and-preserves-printed-null', () => {
+  const first = object('first', { might: -3, energy: null, power: null });
+  const layers = engine([first]);
+  const result = layers.evaluate(first.ref);
+  assert.equal(result.might, 0);
+  assert.equal(result.energy, null);
+  assert.equal(result.power, null);
+  assert.equal(result.printed.might, -3);
+  assert.equal(result.printed.energy, null);
+  assert.equal(result.printed.power, null);
+});
+
+test('layers-registry-expiry-and-object-incarnation-invalidate-cached-results', () => {
+  const first = object('first', { might: 2, location: { type: 'battlefield', id: 'one' } });
+  const second = object('second', { might: 2, location: { type: 'battlefield', id: 'one' } });
+  const registry = new ContinuousEffectRegistry();
+  const aura = { id: 'expiring-aura', layer: 'arithmetic', source: first.ref,
+    filter: { objectId: 'second', zone: 'board' },
+    effect: { kind: 'increase', amount: 2 } };
+  registry.register(aura, { type: 'end-of-turn' });
+  const layers = engine([first, second], [], { effects: [] });
+  layers.registry.register(aura, { type: 'end-of-turn' });
+  layers.setObjects([first, second]);
+  assert.equal(layers.evaluate(second.ref).might, 4);
+  assert.equal(layers.evaluate(second.ref).might, 4);
+  const cached = layers.evaluate(second.ref);
+  const repeated = layers.evaluate(second.ref);
+  assert.notEqual(repeated, cached, 'unchanged state still returns a detached wrapper');
+  assert.deepEqual(repeated, cached);
+  assert.equal(repeated.types, cached.types, 'only immutable nested fields are reused');
+  assert.deepEqual(layers.advance({ id: 'turn-end' }), ['expiring-aura']);
+  assert.notEqual(layers.evaluate(second.ref), cached, 'registry revision invalidates the cached snapshot');
+  assert.equal(layers.evaluate(second.ref).might, 2);
+  const oldRef = second.ref;
+  const entered = object('second', { might: 3, location: { type: 'battlefield', id: 'one' } });
+  entered.ref = { id: 'second', zoneEntryId: 2 };
+  layers.setObjects([first, entered]);
+  assert.equal(layers.evaluate(oldRef), null);
+  assert.equal(layers.evaluate(entered.ref).might, 3);
+  assert.equal(layers.registry.list().length, 0);
+});
+
+test('layers-same-id-reentry-keeps-incarnations-and-controller-state-separate', () => {
+  const old = object('same', { might: 2, controller: 'A', owner: 'A', location: { type: 'battlefield', id: 'one' } });
+  const peer = object('peer', { might: 2, controller: 'B', owner: 'B', location: { type: 'battlefield', id: 'one' } });
+  const layers = engine([old, peer], [
+    permanent({ id: 'source-aura', layer: 'arithmetic', source: old.ref,
+      filter: { type: 'unit', controller: 'opponent', sameLocationAs: 'source', zone: 'board' },
+      effect: { kind: 'increase', amount: 2 } }),
+  ]);
+  assert.equal(layers.evaluate(peer.ref).might, 4);
+  const reentered = object('same', { might: 3, controller: 'A', owner: 'A', location: { type: 'battlefield', id: 'one' } });
+  reentered.ref = { id: 'same', zoneEntryId: 2 };
+  layers.setObjects([reentered, peer]);
+  assert.equal(layers.evaluate(old.ref), null);
+  assert.equal(layers.evaluate(peer.ref).might, 2, 'the stale source incarnation no longer grants the aura');
+  assert.equal(layers.evaluate(reentered.ref).might, 3);
+});
+
+test('layers-active-effect-cache-tracks-registry-revision-and-source-lifetime', () => {
+  const source = object('source');
+  const target = object('target');
+  const layers = engine([source, target]);
+  layers.registry.register({ id: 'live', layer: 'arithmetic', source: source.ref,
+    filter: { objectId: 'target' }, effect: { kind: 'increase', amount: 1 } },
+  { type: 'while-source-in-zone', source: source.ref });
+  layers.registry.register({ id: 'permanent', layer: 'arithmetic', source: source.ref,
+    filter: { objectId: 'target' }, effect: { kind: 'increase', amount: 2 } }, { type: 'permanent' });
+  assert.equal(layers.evaluate(target.ref).might, 5);
+  layers.setObjects([target]);
+  assert.equal(layers.evaluate(target.ref).might, 4, 'source departure invalidates only the source-bound active effect');
+  assert.deepEqual(layers.advance({ id: 'object-leaves-zone' }), ['live']);
+  layers.setObjects([source, target]);
+  assert.equal(layers.evaluate(target.ref).might, 4, 'the expired source-bound effect stays removed while the permanent persists');
+  layers.registry.clear();
+  assert.equal(layers.evaluate(target.ref).might, 2);
 });

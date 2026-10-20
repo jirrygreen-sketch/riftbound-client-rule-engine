@@ -7,6 +7,7 @@
  */
 import type { ActionOutcome, Domain, GameAction, ObjectRef, PlayerId, PlayerSnapshot, ZoneId } from '../effects/contract.js';
 import type { PipelineHost, PipelineEvent } from '../events/pipeline-types.js';
+import { createProgramBinding, type ProgramBinding, type ProgramSource } from '../programs/index.js';
 import { TurnFlow } from '../turn/flow.js';
 
 export interface MatchCard {
@@ -40,15 +41,21 @@ export type MatchHost = PipelineHost & {
   readonly player: (id: PlayerId) => PlayerSnapshot;
 };
 
-/**
- * Opaque card-program dependency supplied by the caller.
- *
- * RIFT-262 does not bind printed cards to executable abilities; RIFT-257 owns
- * the concrete program registry. Keeping this boundary opaque lets the match
- * lifecycle carry the injected registry without inventing card semantics here.
- */
-export interface MatchPrograms {
-  readonly [key: string]: unknown;
+/** Existing callers supply a trusted registry source or a live ProgramBinding. */
+export type MatchPrograms = ProgramBinding | ProgramSource | { readonly [key: string]: unknown };
+
+/** Trusted catalog data installed for each supplied CardProgram. */
+export interface MatchProgramCard {
+  readonly canonicalCardId: string;
+  readonly cardId?: string | null;
+  readonly name?: string;
+  readonly cardType?: string;
+  readonly types?: readonly string[];
+  readonly tags?: readonly string[];
+  readonly domains?: readonly string[];
+  readonly energy?: number | null;
+  readonly power?: number | readonly Domain[] | null;
+  readonly might?: number | null;
 }
 
 export type MatchRulesetVersion = 'core-1.5';
@@ -63,6 +70,8 @@ export interface MatchOptions {
   readonly victoryScore?: number;
   readonly battlefieldControllers?: readonly [PlayerId | null, PlayerId | null];
   readonly programs?: MatchPrograms;
+  /** Catalog projection used to reconcile the deck's printed data before setup. */
+  readonly catalog?: readonly MatchProgramCard[];
   readonly host: MatchHost;
 }
 
@@ -109,8 +118,67 @@ export interface Match {
   readonly setup: MatchSetupReport;
   readonly flow: TurnFlow;
   readonly programs?: MatchPrograms;
+  /** Registry installed on this match's real Chain when MatchPrograms was supplied. */
+  readonly programBinding?: ProgramBinding;
   readonly result: () => MatchResult;
   readonly events: () => readonly PipelineEvent[];
+}
+
+function isProgramBinding(value: unknown): value is ProgramBinding {
+  const candidate = value as Partial<ProgramBinding>;
+  return candidate.registry !== undefined && typeof candidate.describePlay === 'function' &&
+    typeof candidate.attachLifecycle === 'function';
+}
+
+function programSource(value: MatchPrograms): ProgramSource {
+  if (isProgramBinding(value)) throw new TypeError('A ProgramBinding cannot be treated as a card source');
+  if (Array.isArray(value) || value instanceof Map) return value as ProgramSource;
+  if (!('programs' in value) || value.programs === undefined) {
+    throw new TypeError('MatchPrograms must be a ProgramBinding or CardProgram source');
+  }
+  if (!Array.isArray(value.programs) && !(value.programs instanceof Map)) {
+    throw new TypeError('MatchPrograms.programs must be a CardProgram array or map');
+  }
+  return value.programs as ProgramSource;
+}
+
+const idempotentBindings = new WeakSet<ProgramBinding>();
+
+/** One binding may be attached by both Match and its existing state owner. */
+function makeProgramLifecycleIdempotent(binding: ProgramBinding): void {
+  if (idempotentBindings.has(binding)) return;
+  const handles = new WeakMap<object, {
+    readonly handle: ReturnType<ProgramBinding['attachLifecycle']>;
+    count: number;
+  }>();
+  const original = binding.attachLifecycle.bind(binding);
+  Object.defineProperty(binding, 'attachLifecycle', {
+    configurable: false,
+    enumerable: true,
+    value: (engine: Match['flow']['chain'], onError?: Parameters<ProgramBinding['attachLifecycle']>[1]) => {
+      let entry = handles.get(engine);
+      if (entry === undefined) {
+        entry = { handle: original(engine, onError), count: 0 };
+        handles.set(engine, entry);
+      }
+      const attached = entry;
+      attached.count++;
+      let active = true;
+      return {
+        detach() {
+          if (!active) return;
+          active = false;
+          attached.count--;
+          if (attached.count === 0 && handles.get(engine) === attached) {
+            handles.delete(engine);
+            attached.handle.detach();
+          }
+        },
+      };
+    },
+    writable: false,
+  });
+  idempotentBindings.add(binding);
 }
 
 /** Wins that arrive outside TurnFlow's score cleanup (concede, contract gap). */
@@ -257,8 +325,23 @@ function objectPower(card: MatchCard): readonly Domain[] | null {
 }
 
 function tokenCard(card: MatchCard, types: readonly string[]) {
+  const normalizedTypes = types.map(type => type.trim().toLowerCase());
+  if (normalizedTypes.includes('legend') || normalizedTypes.includes('champion')) {
+    return {
+      cardId: card.canonicalCardId ?? card.cardId ?? null,
+      name: card.name ?? card.id,
+      types: [...types],
+      tags: [...(card.tags ?? [])],
+      might: null,
+      energy: null,
+      power: null,
+    };
+  }
   return {
-    cardId: card.cardId ?? card.canonicalCardId ?? null,
+    // The source catalog's printing id may differ from the canonical card id.
+    // Programs and identity checks are keyed by the canonical id; the setup
+    // report retains the printing id separately for presentation.
+    cardId: card.canonicalCardId ?? card.cardId ?? null,
     name: card.name ?? card.id,
     types: [...types],
     tags: [...(card.tags ?? [])],
@@ -308,6 +391,71 @@ function createDeckCards(deck: MatchDeck, player: PlayerId, zone: DeckZone, host
     // Chain and immediately moved into its shuffled starting zone (CR 114).
     execute(host, { type: 'move-zone', object: requireRef(host, id), to: destination });
   }
+}
+
+function normalizedProgramType(card: MatchProgramCard): readonly string[] | undefined {
+  const explicit = card.types?.map(type => type.trim().toLowerCase()).filter(type => type.length > 0);
+  if (explicit !== undefined && explicit.length > 0) return explicit;
+  const type = card.cardType?.trim().toLowerCase();
+  return type === undefined || type.length === 0 ? undefined : [type];
+}
+
+/**
+ * Reconcile each deck printing with trusted catalog rows before any setup
+ * token is created. A printing and canonical identity may intentionally
+ * differ; neither is guessed, and missing rows fail before state mutation.
+ */
+export function synchronizeMatchDecks(
+  decks: readonly [MatchDeck, MatchDeck],
+  catalog: readonly MatchProgramCard[],
+): readonly [MatchDeck, MatchDeck] {
+  const rows = new Map<string, readonly MatchProgramCard[]>();
+  for (const [index, card] of catalog.entries()) {
+    if (!card || typeof card.canonicalCardId !== 'string' || card.canonicalCardId.length === 0) {
+      throw new TypeError(`Match catalog row ${index} has no canonicalCardId`);
+    }
+    const existing = rows.get(card.canonicalCardId) ?? [];
+    if (!existing.some(row => JSON.stringify(row) === JSON.stringify(card))) {
+      rows.set(card.canonicalCardId, [...existing, card]);
+    }
+  }
+  const reconcile = (card: MatchCard): MatchCard => {
+    const canonicalCardId = card.canonicalCardId ?? card.cardId;
+    if (canonicalCardId === undefined || canonicalCardId === null || canonicalCardId.length === 0) return card;
+    const candidates = rows.get(canonicalCardId) ?? rows.get(card.id) ?? [];
+    if (candidates.length === 0) throw new TypeError(`Match catalog is missing ${canonicalCardId}`);
+    const byPrintingId = candidates.filter(candidate => candidate.cardId === card.id);
+    const byCatalogPrinting = candidates.filter(candidate => candidate.cardId === card.cardId);
+    const trusted = byPrintingId.length === 1
+      ? byPrintingId[0]
+      : byCatalogPrinting.length === 1
+        ? byCatalogPrinting[0]
+        : candidates.length === 1
+          ? candidates[0]
+          : undefined;
+    if (trusted === undefined) throw new TypeError(`Match catalog identity ${canonicalCardId} is ambiguous for ${card.id}`);
+    const types = normalizedProgramType(trusted) ?? card.types;
+    return {
+      ...card,
+      canonicalCardId,
+      ...(trusted.name === undefined ? {} : { name: trusted.name }),
+      ...(trusted.cardType === undefined ? {} : { cardType: trusted.cardType }),
+      ...(types === undefined ? {} : { types }),
+      ...(trusted.tags === undefined ? {} : { tags: [...trusted.tags] }),
+      ...(trusted.domains === undefined ? {} : { domains: [...trusted.domains] }),
+      ...(trusted.energy === undefined ? {} : { energy: trusted.energy }),
+      ...(trusted.power === undefined ? {} : { power: Array.isArray(trusted.power) ? [...trusted.power] as Domain[] : trusted.power }),
+      ...(trusted.might === undefined ? {} : { might: trusted.might }),
+    };
+  };
+  const deck = (value: MatchDeck): MatchDeck => ({
+    mainDeck: value.mainDeck.map(reconcile),
+    runeDeck: value.runeDeck.map(reconcile),
+    championLegend: reconcile(value.championLegend),
+    chosenChampion: reconcile(value.chosenChampion),
+    battlefields: value.battlefields.map(reconcile) as unknown as MatchDeck['battlefields'],
+  });
+  return [deck(decks[0]), deck(decks[1])];
 }
 
 function shuffleWithSeed(zone: DeckZone, player: PlayerId, host: MatchHost, random: MatchRandom): void {
@@ -390,7 +538,18 @@ export function createMatch(options: MatchOptions): Match {
   if (options.decks.length !== 2) {
     throw new TypeError('createMatch requires exactly two decks');
   }
-  const [deckA, deckB] = options.decks;
+  const [deckA, deckB] = options.catalog === undefined
+    ? options.decks
+    : synchronizeMatchDecks(options.decks, options.catalog);
+  // Validation happens before setup writes any object or resource state. The
+  // concrete registry then drives both direct Play commands and effect.Play.
+  const providedBinding = options.programs !== undefined && isProgramBinding(options.programs)
+    ? options.programs
+    : undefined;
+  const programBinding = options.programs === undefined
+    ? undefined
+    : providedBinding ?? createProgramBinding({ cardPrograms: programSource(options.programs) });
+  if (programBinding !== undefined) makeProgramLifecycleIdempotent(programBinding);
   const random = new MatchRandom(
     typeof options.seed === 'string' ? hashSeed(options.seed) :
       typeof options.seed === 'number' ? Math.trunc(options.seed) >>> 0 :
@@ -467,6 +626,7 @@ export function createMatch(options: MatchOptions): Match {
     turnOrder,
     battlefields: report.battlefields,
     victoryScore: options.victoryScore ?? DEFAULT_VICTORY_SCORE,
+    ...(programBinding === undefined ? {} : { describePlay: programBinding.describePlay }),
   });
   flow.start();
   for (const field of flow.battlefields) {
@@ -505,6 +665,7 @@ export function createMatch(options: MatchOptions): Match {
     setup: report,
     flow,
     programs: options.programs,
+    ...(programBinding === undefined ? {} : { programBinding }),
     result: () => ({ winner: matchWinner(match), turnNumber: flow.turn }),
     events: () => flow.chain.pipeline.events,
   };
