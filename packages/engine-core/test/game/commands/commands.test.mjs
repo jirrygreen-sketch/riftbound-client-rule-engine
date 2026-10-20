@@ -12,10 +12,14 @@ test('RIFT-761: formation validation uses real readiness and never partially exh
   assert.throws(() => moveUnits(f.context(), 'A', [ready, exhausted], to), error => error.code === 'illegal-move');
   assert.deepEqual(state(f), before);
   assert.deepEqual(inspectStandardMove(f.context(), 'A', [ready], to), {
-    objects: [f.kernel.ref(ready)], to: { type: 'battlefield', id: f.fields[0] }, execution: 'blocked', code: 'standard-move-transaction',
+    objects: [f.kernel.ref(ready)], to: { type: 'battlefield', id: f.fields[0] }, execution: 'available', code: 'standard-move-atomic',
   });
-  assert.throws(() => moveUnits(f.context(), 'A', [ready], to), error => error.status === 'blocked' && error.code === 'standard-move-transaction');
-  assert.deepEqual(state(f), before);
+  const moved = moveUnits(f.context(), 'A', [ready], to);
+  assert.deepEqual(moved.receipt.actions, [
+    { type: 'exhaust', status: 'done' }, { type: 'move-location', status: 'done' },
+  ]);
+  assert.deepEqual(f.kernel.getObject(ready).location, { type: 'battlefield', id: f.fields[0] });
+  assert.equal(f.kernel.getObject(ready).exhausted, true);
 });
 
 test('RIFT-761: v2 move rejects arbitrary zone teleports and leaves state unchanged', () => {
@@ -24,8 +28,10 @@ test('RIFT-761: v2 move rejects arbitrary zone teleports and leaves state unchan
   for (const to of [{ zone: 'trash' }, { zone: 'hand' }, { zone: 'board' }, { zone: 'chain' }, { zone: 'banishment' }, { zone: 'deck', position: 'top' }, { zone: 'rune-deck', position: 'bottom' }]) {
     assert.throws(() => f.send('A', 'move', { objectId: id, to }), error => error.code === 'illegal-destination');
   }
-  assert.throws(() => f.send('A', 'move', { objectId: id, to: { zone: 'battlefield', locationId: f.fields[0] } }), error => error.code === 'standard-move-transaction');
-  assert.deepEqual(state(f), before);
+  const moved = f.send('A', 'move', { objectId: id, to: { zone: 'battlefield', locationId: f.fields[0] } });
+  assert.equal(moved.type, 'move');
+  assert.deepEqual(f.kernel.getObject(id).location, { type: 'battlefield', id: f.fields[0] });
+  assert.equal(f.kernel.getObject(id).exhausted, true);
 });
 
 test('RIFT-761: moving to own Base is recognized; Ganking and continuous restrictions use the real rules layer', () => {
@@ -45,7 +51,7 @@ test('RIFT-761: moving to own Base is recognized; Ganking and continuous restric
     id: 'synthetic:ganking', layer: 'ability', source: source.ref, filter: { objectId: id },
     effect: { kind: 'movement', permission: { routes: ['battlefield-to-battlefield'] } },
   }, { type: 'permanent' });
-  assert.equal(inspectStandardMove(f.context(), 'A', [id], { zone: 'battlefield', locationId: f.fields[1] }).execution, 'blocked');
+  assert.equal(inspectStandardMove(f.context(), 'A', [id], { zone: 'battlefield', locationId: f.fields[1] }).execution, 'available');
   f.match.flow.layers.registry.register({
     id: 'synthetic:no-move', layer: 'ability', source: source.ref, filter: { objectId: id },
     effect: { kind: 'restriction', actions: ['move'], restriction: 'cannot-move' },
