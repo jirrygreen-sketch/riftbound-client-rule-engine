@@ -18,11 +18,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import longSword from '../../../card-dsl/dist/cards/sfd/long-sword.js';
-
-// Long Sword is judge-required until Quick-Draw's Reaction speed is consumed by
-// describePlay (RIFT-884); admit only its status metadata so the unchanged
-// abilities drive this Might Bonus timeline.
-const admittedLongSword = { ...longSword, status: 'executable', judgeReason: undefined };
 import { createLayerEngine } from '../../dist/layers/index.js';
 import { fixture, settle } from '../rules/keywords/support.mjs';
 
@@ -68,7 +63,7 @@ function engine(objects, effects = [], options = {}) {
 
 test('RIFT-883 CR 137.3/435.1.d: real Quick-Draw attachment adds and real Detach removes the bonus', () => {
   const f = fixture({
-    programs: [admittedLongSword],
+    programs: [longSword],
     energy: { A: 4 },
     answers: { 'target:quick-draw-unit': ['runner'] },
     setup: w => w.player('A').player('B')
