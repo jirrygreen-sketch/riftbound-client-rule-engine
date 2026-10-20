@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ChainEngine } from "../../../../packages/engine-core/dist/chain/engine.js";
 import { createActionPipelineHost } from "../../../../packages/engine-core/dist/events/action-adapter.js";
 import type { FinalizedCostPlan, ObjectRef } from "../../../../packages/engine-core/dist/effects/contract.js";
@@ -179,6 +179,45 @@ describe("EngineRuntimeHost Power payment", () => {
     expect(state.checkpoint()).toEqual(before);
     expect(state.player("A")).toMatchObject({ energy: 2, power: ["Order"] });
     expect(state.object(gear)).toMatchObject({ exhausted: false, zone: "board" });
+  });
+
+  it("restores every committed component when a later payment action throws", () => {
+    const state = host();
+    const gear = card(state, "A", "rollback-gear", "board");
+    const rune = card(state, "A", "rollback-rune", "rune-zone");
+    state.perform({ type: "gain-energy", player: "A", amount: 3 });
+    state.perform({ type: "gain-xp", player: "A", amount: 2 });
+    givePower(state, ["Order", "Order"]);
+    const plan: FinalizedCostPlan = {
+      finalized: true,
+      energy: 2,
+      xp: 1,
+      power: ["Order", "Order"],
+      exhaust: [gear],
+      recycle: [rune],
+    };
+    const before = state.checkpoint();
+    const target = state as unknown as {
+      setExhausted(ref: ObjectRef, exhausted: boolean): void;
+    };
+    const fault = vi.spyOn(target, "setExhausted").mockImplementationOnce(() => {
+      throw new Error("injected post-debit payment failure");
+    });
+
+    expect(pay(state, plan).status).toBe("prevented");
+    expect(fault).toHaveBeenCalledTimes(1);
+    expect(state.checkpoint()).toEqual(before);
+    expect(state.player("A")).toMatchObject({ energy: 3, xp: 2, power: ["Order", "Order"] });
+    expect(state.object(gear)).toMatchObject({ zone: "board", exhausted: false });
+    expect(state.object(rune)).toMatchObject({ zone: "rune-zone" });
+    expect(state.zoneObjects("A", "deck")).toHaveLength(0);
+
+    fault.mockRestore();
+    expect(pay(state, plan).status).toBe("done");
+    expect(state.player("A")).toMatchObject({ energy: 1, xp: 1, power: [] });
+    expect(state.object(gear)).toMatchObject({ zone: "board", exhausted: true });
+    expect(state.object(rune)).toBeNull();
+    expect(state.zoneObjects("A", "deck")).toHaveLength(1);
   });
 
   it("accepts the original Singularity 6 Energy plus 2 Mind cost and resolves both damages", () => {
