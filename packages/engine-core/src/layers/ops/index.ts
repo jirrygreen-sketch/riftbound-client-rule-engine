@@ -45,6 +45,28 @@ import type {
 import type { ContinuousEffect } from "@riftbound/card-dsl";
 import { isTimingPointId } from "../../events/timing-points.js";
 
+/**
+ * Whether one Equipment currently attached to `host` contributes its bonus.
+ * Equipment's `ObjectSnapshot.might` is its printed Might Bonus in the
+ * catalog/kernel adapter (CR v1.5 137.1, 150.2); it is not treated as a Unit's
+ * combat Might. A null host Might has no value to modulate (137.3.b), so the
+ * bonus is ignored. Detached, off-board, and Unit-typed objects do not match.
+ */
+export function isAttachedEquipmentBonus(
+  source: ObjectSnapshot,
+  host: ObjectSnapshot,
+): boolean {
+  return host.might !== null && host.zone === "board" && host.types.includes("unit") &&
+    source.zone === "board" && source.types.includes("gear") &&
+    !source.types.includes("unit") && source.tags.includes("Equipment") &&
+    source.might !== null && source.attachedTo !== null &&
+    source.attachedTo.id === host.ref.id &&
+    source.attachedTo.zoneEntryId === host.ref.zoneEntryId;
+}
+
+/** Internal layer marker for one printed Equipment bonus registration. */
+export const EQUIPMENT_MIGHT_BONUS_EFFECT_KIND = "equipment-might-bonus";
+
 /** Named duration aliases accepted by the continuous.* instruction args. */
 export type DurationAlias =
   | "this-turn"
