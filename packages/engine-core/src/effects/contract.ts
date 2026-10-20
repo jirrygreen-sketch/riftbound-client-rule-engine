@@ -27,7 +27,7 @@ export type EventObjectRole = "it";
  */
 export type EmpoweredCount = number;
 /** Zones named by the primitive contract. */
-export type ZoneId = "hand" | "deck" | "rune-deck" | "trash" | "banishment" | "board" | "rune-zone" | "chain";
+export type ZoneId = "hand" | "deck" | "rune-deck" | "trash" | "banishment" | "board" | "rune-zone" | "chain" | "legend";
 /** A Base or Battlefield on the Board. */
 export type LocationRef =
   | { readonly type: "base"; readonly player: PlayerId }
@@ -277,12 +277,14 @@ export type GameAction =
   | { readonly type: "remove-counter"; readonly object: ObjectRef; readonly counter: string; readonly amount: number }
   /**
    * Create a token on the Board or as a Pending Chain item's object
-   * (Core Rules v1.5 440.2.c / 185.2.a). The result is its new ObjectRef.
+   * (Core Rules v1.5 440.2.c / 185.2.a), or establish a Legend directly in
+   * the public Legend Zone (107.4 / 174.2.b). The result is its new ObjectRef.
    * The destination is explicit; legacy Board callers use the perform overload.
    */
   | ({ readonly type: "create-token"; readonly player: PlayerId; readonly token: TokenSpec } & (
     | { readonly to: "board"; readonly location: LocationRef }
     | { readonly to: "chain"; readonly location?: LocationRef }
+    | { readonly to: "legend"; readonly location?: undefined }
   ))
   /** Create an object with copied printed characteristics. */
   | { readonly type: "copy"; readonly source: ObjectRef; readonly player: PlayerId; readonly location: LocationRef }

@@ -78,7 +78,10 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     binding.source.ref.id === source.ref.id && binding.source.zone === 'hand' &&
     playFollowers.has(refKey(binding.source)));
   const secretZone = (source: ObjectSnapshot) => source.zone === 'deck' || source.zone === 'rune-deck';
-  const active = (source: ObjectSnapshot) => source.zone === 'board' || source.zone === 'chain' || secretZone(source);
+  const isLegend = (source: ObjectSnapshot) => source.types.some(type => type.toLowerCase() === 'legend');
+  const isActiveLegend = (source: ObjectSnapshot) => isLegend(source) && source.zone === 'legend';
+  const active = (source: ObjectSnapshot) => isActiveLegend(source) ||
+    !isLegend(source) && (source.zone === 'board' || source.zone === 'chain' || secretZone(source));
   const secretZoneReplacement = (ability: CardProgram['abilities'][number], source: ObjectSnapshot): boolean => {
     if (ability.kind !== 'replacement') return false;
     const pattern = ability.replaces;
@@ -138,7 +141,11 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
         const [registration] = triggerRegistrations(isolated, source);
         if (!registration) throw new Error('Trigger adapter returned no registration');
         const id = `program:${source.ref.id}:${source.ref.zoneEntryId}:${index}`;
-        try { pipeline.registerTrigger({ ...registration, id }); }
+        // Legends have Passive/Triggered/Activated abilities in the Legend
+        // Zone (CR 107.4.c, 174.6-174.8). The generic permanent adapter defaults
+        // to Board, so bind this exact Legend incarnation to its actual zone.
+        const activeZones = isActiveLegend(source) ? ['legend'] : registration.activeZones;
+        try { pipeline.registerTrigger({ ...registration, id, ...(activeZones === undefined ? {} : { activeZones }) }); }
         catch (error) {
           if (!(error instanceof Error) || error.message !== `Duplicate trigger ${id}`) throw error;
         }
@@ -182,7 +189,14 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
         abilities = bindReplacement ? secretZoneAbilities(program, source) : [];
         if (abilities.length === 0) { detach(source); return undefined; }
       } else {
-        abilities = expandProgram(program, source).abilities;
+        const bound: ReturnType<typeof expandProgram>['abilities'] = expandProgram(program, source).abilities;
+        // A Legend is neither a Unit nor Gear. Its live surface consists of its
+        // Passive, Triggered, and Activated abilities (CR 174.6-174.8); Play
+        // and Replacement abilities must not become active merely because the
+        // object shares the generic program lifecycle.
+        abilities = isActiveLegend(source)
+          ? bound.filter(ability => ability.kind === 'static' || ability.kind === 'triggered' || ability.kind === 'activated')
+          : bound;
       }
     } catch (error) {
       report(error, source);
@@ -272,8 +286,9 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     // Replacement abilities must be admitted while a permanent is on Chain.
     // The Chain commit hook installs them before its state transition. Static
     // layers become active only once the Board entry is authoritative.
-    const attached = attach(current, current.zone === 'board',
-      current.zone === 'board' || (bindReplacementOnChain && (current.zone === 'chain' || secretZone(current))));
+    const attached = attach(current, current.zone === 'board' || isActiveLegend(current),
+      current.zone === 'board' || isActiveLegend(current) ||
+      (bindReplacementOnChain && (current.zone === 'chain' || secretZone(current))));
     // The Hand registration follows the card by id only so it can intercept the
     // Board entry move. Once the exact Board incarnation owns its registration,
     // retire the temporary follower so later exits cannot detach the new host.
@@ -315,7 +330,8 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     if (binding.source.zone === source.zone) return;
     if (source.zone === 'chain' && handFollowers(source).length > 0) return;
     detach(binding.source);
-    attach(source, source.zone === 'board', source.zone === 'board' || bindReplacementOnChain);
+    attach(source, source.zone === 'board' || isActiveLegend(source),
+      source.zone === 'board' || isActiveLegend(source) || bindReplacementOnChain);
   };
   const syncAction = (action: GameAction | ContractGameAction) => {
     if (action.type === 'batch') {
@@ -328,9 +344,11 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   };
 
   const isEntry = (event: TimingEmission) => event.timingPoint === 'object-enters-board' || event.timingPoint === 'object-enters-chain' ||
-    event.timingPoint === 'object-enters-deck' || event.timingPoint === 'object-enters-rune-deck';
+    event.timingPoint === 'object-enters-deck' || event.timingPoint === 'object-enters-rune-deck' ||
+    event.timingPoint === 'object-enters-zone' && event.object?.zone === 'legend';
   const isExit = (event: TimingEmission) => event.timingPoint === 'object-leaves-board' || event.timingPoint === 'object-killed' ||
-    event.timingPoint === 'object-leaves-deck' || event.timingPoint === 'object-leaves-rune-deck';
+    event.timingPoint === 'object-leaves-deck' || event.timingPoint === 'object-leaves-rune-deck' ||
+    event.timingPoint === 'object-leaves-zone' && event.object?.zone === 'legend';
 
   const actionLeaves = (action: GameAction | ContractGameAction): readonly (GameAction | ContractGameAction)[] =>
     (action as { type?: string }).type === 'batch'
@@ -417,10 +435,11 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   }) as typeof pipeline.deferTriggerScan;
 
   // Main Deck and Rune Deck replacement effects are active only for an event
-  // that involves that same card while it is there (CR 370.1.c.1). Inactive
-  // abilities are not expanded; Board/Chain remain the full active surface.
+  // that involves that same card while it is there (CR 370.1.c.1). Legends
+  // established by setup predate lifecycle attachment, so install their live
+  // Legend-zone surface during the initial scan too.
   for (const source of pipeline.host.objects()) {
-    if (secretZone(source)) ensure(source);
+    if (secretZone(source) || isActiveLegend(source)) ensure(source);
   }
 
   return {

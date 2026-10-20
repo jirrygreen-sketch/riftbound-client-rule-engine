@@ -247,8 +247,15 @@ function deckIds(zone: DeckZone, host: MatchHost, player: PlayerId): string[] {
     .map(object => object.ref.id);
 }
 
-function createToken(host: MatchHost, player: PlayerId, token: ReturnType<typeof tokenCard>): string {
-  const outcome = execute(host, { type: 'create-token', player, token, to: 'chain' });
+function createToken(
+  host: MatchHost,
+  player: PlayerId,
+  token: ReturnType<typeof tokenCard>,
+  destination: 'chain' | 'legend' = 'chain',
+): string {
+  const outcome = execute(host, destination === 'legend'
+    ? { type: 'create-token', player, token, to: 'legend' }
+    : { type: 'create-token', player, token, to: 'chain' });
   const created = outcome.status === 'done' && 'result' in outcome ? outcome.result as { id: string } | undefined : undefined;
   if (!created || typeof created.id !== 'string') {
     throw new Error('Match setup token was not created');
@@ -573,9 +580,11 @@ export function createMatch(options: MatchOptions): Match {
     mulligans: { A: [], B: [] } as Record<PlayerId, string[]>,
     burnOuts: { A: 0, B: 0 } as Record<PlayerId, number>,
   };
-  // CR 111/112 (+ 174.2): legends and the chosen champion start outside every deck.
+  // CR 107.4 / 111: the Champion Legend is established in its public Legend
+  // Zone for the whole game (174.2.b); CR 112 keeps the Chosen Champion in the
+  // existing Champion placement path.
   for (const seat of [{ id: 'A', deck: deckA! }, { id: 'B', deck: deckB! }] as const) {
-    createToken(host, seat.id, tokenCard(seat.deck.championLegend, ['legend']));
+    createToken(host, seat.id, tokenCard(seat.deck.championLegend, ['legend']), 'legend');
     report.legendZone[seat.id] = [seat.deck.championLegend.cardId ?? seat.deck.championLegend.id];
     createToken(host, seat.id, tokenCard(seat.deck.chosenChampion, ['champion']));
     report.championZone[seat.id] = [seat.deck.chosenChampion.cardId ?? seat.deck.chosenChampion.id];
