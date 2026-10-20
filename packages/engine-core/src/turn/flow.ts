@@ -151,6 +151,7 @@ export class TurnFlow {
           const details = score.method === 'conquer'
             ? { battlefieldId: score.field, battlefieldControllerBefore: score.battlefieldControllerBefore }
             : { battlefieldId: score.field };
+          const participatingUnits = score.units.map(unit => ({ id: unit.id, zoneEntryId: unit.zoneEntryId }));
           if (score.method === 'conquer') emissions.unshift(this.combat.establish(score.player, score.field));
           if (score.finalDraw) emissions.push({ timingPoint: 'final-point', player: score.player, details });
           for (const unit of score.units) {
@@ -159,7 +160,13 @@ export class TurnFlow {
             emissions.push({ timingPoint: score.method, object, source: object, it: object, player: score.player,
               details: { ...details, objectId: unit.id, playerId: score.player } });
           }
-          emissions.push({ timingPoint: 'score', player: score.player, details });
+          const battlefieldObject = this.battlefieldObject(score.field);
+          emissions.push({ timingPoint: 'score', player: score.player, details: { ...details, participatingUnits },
+            // The aggregate Scoring action still refers to the Battlefield,
+            // including when the current harness represents that location
+            // only through details.battlefieldId rather than a board object.
+            ...(battlefieldObject === null ? {} : { object: battlefieldObject }),
+          });
           // One committed action publishes the whole Score trigger wave atomically.
           return { ...execution, emissions: emissions.map(event => ({ ...event, simultaneousGroup: 'battlefield-score' })) };
         }
