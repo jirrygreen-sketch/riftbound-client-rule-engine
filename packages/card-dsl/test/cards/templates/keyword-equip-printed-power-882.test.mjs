@@ -19,6 +19,7 @@ import { bindResolveContext, createActionPipelineHost } from "../../../../engine
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { TargetSelectionError } from "../../../../engine-core/dist/target/target-plan.js";
 
 const ROWS = [
   {
@@ -115,19 +116,20 @@ for (const row of ROWS) {
 
 // --- Production fixture for choice and failure observation (same binding/Chain path).
 
-function fixture(row, powerA) {
+function fixture(row, powerA, { includeFriendlyUnit = true } = {}) {
   const program = cardProgramsById.get(row.canonicalCardId);
-  const kernel = world()
+  let builder = world()
     .player("A", { energy: 3, power: powerA })
     .player("B", { energy: 2, power: [row.domain] })
-    .object("gear", gear(row))
-    .base("ally", { might: 2 })
+    .object("gear", gear(row));
+  if (includeFriendlyUnit) builder.base("ally", { might: 2 });
+  const kernel = builder
     .unit("enemy", { owner: "B", controller: "B", might: 2, location: { type: "base", player: "B" } })
     .build();
   const requests = [];
   const choose = request => {
     requests.push(request);
-    if (request.type === "select-objects") return [kernel.ref("ally")];
+    if (request.type === "select-objects" && includeFriendlyUnit) return [kernel.ref("ally")];
     throw new Error(`Unexpected production choice ${request.id}`);
   };
   const host = createActionPipelineHost({
@@ -182,3 +184,24 @@ for (const row of ROWS) {
     });
   }
 }
+
+test(`${label(ROWS[0])}: no friendly Unit is a Finalize no-legal-targets rejection with no payment or state change`, () => {
+  const row = ROWS[0];
+  const f = fixture(row, [row.domain], { includeFriendlyUnit: false });
+  const before = f.kernel.snapshot();
+
+  assert.throws(
+    f.activate,
+    error => error instanceof TargetSelectionError && error.code === "no-legal-targets"
+  );
+
+  assert.deepEqual(f.kernel.snapshot(), before, "Finalize rejected atomically");
+  assert.deepEqual(f.kernel.player("A").power, [row.domain], "the matching Power was not paid");
+  assert.equal(f.kernel.player("A").energy, 3, "the printed Equip cost has no Energy");
+  assert.equal(f.kernel.getObject("gear").zone, "board", "the Equipment stayed on the Board");
+  assert.equal(f.kernel.getObject("gear").attachedTo ?? null, null, "the Equipment stayed unattached");
+  assert.equal(f.kernel.getObject("enemy").zone, "board", "the only Unit remained unchanged");
+  assert.deepEqual(f.engine.items, [], "the rejected activation never remained on the Chain");
+  assert.deepEqual(f.engine.pipeline.events, [], "no payment or resolution event was emitted");
+  assert.equal(f.requests.some(request => request.type === "select-objects"), false, "no illegal target prompt was offered");
+});
