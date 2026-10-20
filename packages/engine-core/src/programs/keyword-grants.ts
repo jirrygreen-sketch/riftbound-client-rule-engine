@@ -197,6 +197,8 @@ export interface KeywordGrantLayerOptions {
   readonly deferGeneratedEffects?: boolean;
   /** Keep every printed or granted keyword-expanded lifecycle ability. */
   readonly includeAllKeywordAbilities?: boolean;
+  /** Restrict generated lifecycle entries to these effective keywords. */
+  readonly lifecycleKeywords?: readonly string[];
 }
 
 /**
@@ -213,10 +215,12 @@ export class KeywordGrantLayerEngine extends LayerEngine {
   private expansions = new Map<string, EffectiveKeywordExpansion>();
   private grantedAbilities = new Map<string, readonly GrantedKeywordAbilityEntry[]>();
   private readonly priorGrantedRefs = new Map<string, ObjectRef>();
+  private readonly lifecycleKeywords: Set<string>;
   private refreshing = false;
 
   constructor(objects: readonly ObjectSnapshot[], private readonly options: KeywordGrantLayerOptions) {
     super(objects, options.registry);
+    this.lifecycleKeywords = new Set(options.lifecycleKeywords?.map(keyword => keyword.toLowerCase()));
   }
 
   /** Current source for an exact host-bound condition. */
@@ -365,6 +369,8 @@ export class KeywordGrantLayerEngine extends LayerEngine {
 
   private staticEffects(source: LayeredObjectSnapshot, expansion: EffectiveKeywordExpansion): ContinuousEffectSpec[] {
     return expansion.abilities.flatMap((ability, index) => {
+      const keyword = expansion.entries[index]?.id.split(':', 1)[0];
+      if (this.lifecycleKeywords.size > 0 && (keyword === undefined || !this.lifecycleKeywords.has(keyword))) return [];
       if (ability.kind !== 'static') {
         if (this.options.includeAllKeywordAbilities === true && ability.kind === 'triggered') return [];
         return blocked(`Dynamic ${ability.kind} keyword abilities need a lifecycle binder`);
@@ -599,7 +605,9 @@ export class KeywordGrantLayerEngine extends LayerEngine {
   /** Full validated lifecycle entries, retaining each keyword instance id. */
   keywordEntries(ref: ObjectRef): readonly GrantedKeywordAbilityEntry[] {
     this.refresh();
-    return this.expansions.get(refKey(ref))?.entries ?? [];
+    const entries = this.expansions.get(refKey(ref))?.entries ?? [];
+    return this.lifecycleKeywords.size === 0 ? entries : entries.filter(entry =>
+      this.lifecycleKeywords.has(entry.id.split(':', 1)[0]!));
   }
   /** Effective keyword instances visible to the production movement consumer. */
   keywordInstances(ref: ObjectRef): readonly Keyword[] {
