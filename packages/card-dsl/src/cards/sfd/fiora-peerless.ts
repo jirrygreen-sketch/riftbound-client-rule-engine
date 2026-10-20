@@ -19,12 +19,13 @@ import type { CardProgram, Condition, Instruction } from "../../ir/index.js";
  *   body is authored as condition.value (read this unit's Might at
  *   resolution) followed by continuous.might on the source.
  *
- * Status: judge-required. The gate and Might body both execute in isolation.
- * CombatFlow.startCombat still blocks on the atomic role/timing transaction
- * (466.2), so neither attack-declared nor defense-declared has a producer.
- * The event host also needs its testTrigger adapter to evaluate this authored
- * condition when collecting the trigger (383.2), rather
- * than treating the old literal "one-on-one" placeholder as a truthy value.
+ * RIFT-877 verification: CombatFlow establishes both roles and publishes the
+ * same-batch attack-declared/defense-declared wave inside its CR 466.2
+ * transaction. The default EventPipeline evaluates this authored condition for
+ * each captured source with relative controller/opponent queries and a
+ * source-location anchor. The triggered Chain item then resolves the authored
+ * body through its real Finalize/Resolve path; the end-of-combat layer effect
+ * expires on combat-end (CR 468.7.c).
  */
 const constant = <T,>(value: T) => ({ kind: "constant" as const, value });
 
@@ -70,9 +71,7 @@ const doublingBody = (readId: string, applyId: string): Instruction[] => [
 export default {
   canonicalCardId: "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "one-on-one（740.2.a/740.2.b）现可由同地友方/敌方单位各为 1 的 count 条件表达，已有解释器边界测试；continuous.might 也已真实翻倍并使用 end-of-combat 时长（433.1/468.7.c）。剩余缺口是 CombatFlow.advance 的 combat-start-transaction（466.2 的同时角色/时点事务），attack-declared/defense-declared 尚无生产者；生产事件宿主还必须提供 testTrigger，在触发收集时求值此条件（383.2）。不再将专用 one-on-one opcode 当作必要依赖，整卡保持 judge-required。",
+  status: "executable",
   abilities: [
     {
       kind: "triggered",
