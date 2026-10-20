@@ -84,3 +84,49 @@ test.todo(
     "keyword expansion and facedown-zone support (RIFT-84), plus chain Closed/Open timing " +
     "permissions (RIFT-85 expansion lands with the layers/chain consumers in RIFT-91)."
 );
+
+// --- Production goldens: original registry program, real describePlay,
+// ChainEngine speed/cost/pass/Resolve (test/fixtures/production-play.mjs).
+// Printed: Spell, Mind, 4 Energy. The [Hidden] route stays the todo above.
+import { productionPlay } from "../../fixtures/production-play.mjs";
+import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
+
+const VOID_SEEKER = "card.hash-600e0796e82099284b213e87b112b1c5df42777ef72b70a3b4cd49a84d27dd10";
+const ctpHand = { owner: "A", controller: "A", cardId: program.canonicalCardId, types: ["spell"], zone: "hand", energy: 4, power: null };
+
+test("ogn-083-298 Consult the Past production: Reaction speed, pays 4 Energy and draws the top two cards", () => {
+  const f = productionPlay({
+    programs: [program],
+    build: w => w.player("A", { energy: 4 }).player("B").object("ctp", ctpHand)
+      .deck("bottom-card").deck("middle-card").deck("top-card"),
+  });
+  const draft = f.play("ctp");
+  assert.equal(draft.speed, "reaction");
+  assert.equal(f.kernel.player("A").energy, 0);
+  assert.equal(f.kernel.getObject("top-card").zone, "hand");
+  assert.equal(f.kernel.getObject("middle-card").zone, "hand");
+  assert.equal(f.kernel.getObject("bottom-card").zone, "deck");
+  assert.equal(f.kernel.getObject("ctp").zone, "trash");
+});
+
+test("ogn-083-298 Consult the Past production: as a Reaction it responds to an opposing spell on the opponent's turn", () => {
+  const f = productionPlay({
+    programs: [program, cardProgramsById.get(VOID_SEEKER)],
+    turnPlayer: "B",
+    answers: { "target:unit-at-battlefield": ["bf-unit"] },
+    build: w => w.player("A", { energy: 4 }).player("B", { energy: 3, power: ["Fury"] })
+      .object("ctp", ctpHand)
+      .object("vs", { owner: "B", controller: "B", cardId: VOID_SEEKER, types: ["spell"], zone: "hand", energy: 3, power: ["Fury"] })
+      .unit("bf-unit", { owner: "A", controller: "A", might: 5, location: { type: "battlefield", id: "bf-1" } })
+      .deck("a-top").deck("a-second"),
+  });
+  f.engine.execute(f.describe("vs", "B"));
+  f.engine.pass("B");
+  assert.equal(f.engine.priority, "A");
+  const draft = f.describe("ctp", "A");
+  assert.equal(f.engine.canAct("A", draft.speed, f.kernel.getObject("ctp").ref, f.kernel.getObject("ctp")), true);
+  f.engine.execute(draft);
+  f.settle();
+  assert.equal(f.kernel.player("A").handSize, 2, "Consult the Past resolved and drew two");
+  assert.equal(f.kernel.getObject("bf-unit").damage, 4, "the opposing spell still resolved afterwards");
+});
