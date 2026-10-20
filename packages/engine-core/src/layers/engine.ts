@@ -852,6 +852,10 @@ export class LayerEngine {
         }
       }
       for (const key of keys) {
+        // The derived-Might callback is an exported reentrant query. Keep the
+        // current object marked so it reads this group's partial snapshot even
+        // when no active effect reached the layer loop (singleton empty set).
+        this.currentObject = key;
         this.finishGroup(key, current.get(key)!);
       }
     } finally {

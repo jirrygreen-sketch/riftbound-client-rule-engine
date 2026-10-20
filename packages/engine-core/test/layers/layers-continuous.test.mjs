@@ -438,6 +438,37 @@ test('layers-derived-might-bridge-complete: complete strict Duel results replace
   assert.equal(engine([unit], [], { derivedMight: resolver }).evaluate(unit.ref).might, 6);
 });
 
+test('layers-derived-might-reentrant-read-stays-visible-without-active-effects', () => {
+  for (const effects of [[], [permanent({ id: 'unrelated', layer: 'arithmetic', filter: { objectId: 'different' },
+    effect: { kind: 'increase', amount: 1 } })]]) {
+    const unit = object('unit', { might: 2 });
+    let layers;
+    layers = engine([unit], effects, { derivedMight(snapshot) {
+      const current = layers.evaluate(snapshot.ref);
+      assert.notEqual(current, null, 'the current object stays readable during derivation');
+      assert.equal(current.might, 2);
+      return current.might;
+    } });
+    assert.equal(layers.evaluate(unit.ref).might, 2);
+    assert.equal(layers.evaluate(unit.ref).might, 2, 'cached repeated derivation stays stable');
+  }
+});
+
+test('layers-derived-might-reentrant-cross-object-read-keeps-group-snapshot-boundary', () => {
+  const first = object('first', { might: 2 });
+  const second = object('second', { might: 3 });
+  let layers;
+  layers = engine([first, second], [], { derivedMight(snapshot) {
+    const current = layers.evaluate(snapshot.ref);
+    assert.equal(current?.might, snapshot.might, 'each current object remains locally readable');
+    return current?.might;
+  } });
+  assert.deepEqual(layers.evaluateAll().map(snapshot => [snapshot.ref.id, snapshot.might]),
+    [['first', 2], ['second', 3]]);
+  assert.deepEqual(layers.evaluateAll().map(snapshot => [snapshot.ref.id, snapshot.might]),
+    [['first', 2], ['second', 3]], 'repeated group evaluation stays stable');
+});
+
 test('layers-order-is-copy-trait-ability-arithmetic: contract order is exported', () => {
   assert.deepEqual(LAYER_ORDER, ['copy', 'trait', 'ability', 'arithmetic']);
 });
