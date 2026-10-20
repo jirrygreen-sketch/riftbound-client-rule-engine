@@ -7,6 +7,7 @@ import { ProgramRegistry } from './registry.js';
 import { triggerRegistrations, unregisterProgramTriggers } from './triggers.js';
 import { expandProgram } from './keywords.js';
 import { ProgramBindingError } from './errors.js';
+import { bindPrintedDeathknellBodies } from '../effects/keywords/Deathknell.js';
 
 export interface ProgramLifecycleHandle { readonly detach: () => void; }
 
@@ -68,6 +69,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   const originalCommitContract = pipeline.commitContract.bind(pipeline);
   const originalDeferTriggerScan = pipeline.deferTriggerScan.bind(pipeline);
   const originalOnEvent = pipeline.onEvent;
+  const originalRouteAction = pipeline.routeAction;
   let depth = 0;
   let detached = false;
 
@@ -223,7 +225,8 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
         abilities = bindReplacement ? secretZoneAbilities(program, source) : [];
         if (abilities.length === 0) { detach(source); return undefined; }
       } else {
-        const bound: ReturnType<typeof expandProgram>['abilities'] = expandProgram(program, source).abilities;
+        const expanded = expandProgram(program, source);
+        const bound: ReturnType<typeof expandProgram>['abilities'] = bindPrintedDeathknellBodies(expanded.abilities, expanded.declared);
         // A Legend is neither a Unit nor Gear. Its live surface consists of its
         // Passive, Triggered, and Activated abilities (CR 174.6-174.8); Play
         // and Replacement abilities must not become active merely because the
@@ -367,6 +370,20 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     attach(source, source.zone === 'board' || isActiveLegend(source),
       source.zone === 'board' || isActiveLegend(source) || bindReplacementOnChain);
   };
+  /**
+   * A token created on the Chain may have no card program of its own. Only in
+   * that exact case, let the authoritative host complete Play; ordinary cards
+   * and token definitions with a registered program still use describePlay.
+   */
+  pipeline.routeAction = action => {
+    if (action.type === 'play') {
+      const source = currentForRef(action.object);
+      if (source?.isToken === true && source.zone === 'chain' && !programExists(source)) {
+        return pipeline.host.execute(action);
+      }
+    }
+    return originalRouteAction?.(action);
+  };
   const syncAction = (action: GameAction | ContractGameAction) => {
     if (action.type === 'batch') {
       for (const leaf of action.actions) syncAction(leaf);
@@ -485,6 +502,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       pipeline.commitContract = originalCommitContract;
       pipeline.onEvent = originalOnEvent;
       pipeline.deferTriggerScan = originalDeferTriggerScan;
+      pipeline.routeAction = originalRouteAction;
       pendingExits.clear();
       playFollowers.clear();
       for (const binding of [...bindings.values()]) detach(binding.source);

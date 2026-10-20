@@ -1,4 +1,4 @@
-import type { Ability, Condition, Instruction, PlayAbility, Requirement, Restriction } from '@riftbound/card-dsl';
+import type { Ability, CardProgram, Condition, CostSpec, Instruction, PlayAbility, Requirement, Restriction } from '@riftbound/card-dsl';
 import type { ChainDraft } from '../chain/engine.js';
 import type { GameAction, ObjectSnapshot } from '../effects/contract.js';
 import { ProgramBindingError, judgeRequired } from './errors.js';
@@ -94,6 +94,36 @@ function validateSurface(body: readonly Instruction[]): void {
   visit(body);
 }
 
+function repeatAdditionalCost(cost: CostSpec | undefined): CostSpec | undefined {
+  if (cost === undefined) return undefined;
+  const raw = cost as CostSpec & { readonly costs?: readonly Readonly<Record<string, unknown>>[] };
+  const kind = raw.kind?.replace(/^cost\./, '');
+  if (!['additional', 'additional-cost'].includes(kind ?? '') && raw.costs === undefined && raw.keyword !== 'repeat') return undefined;
+  const cleanPayment = (payment: unknown): unknown => {
+    if (payment === null || typeof payment !== 'object' || Array.isArray(payment)) return payment;
+    const { choice: _choice, ...rest } = payment as Readonly<Record<string, unknown>>;
+    return rest;
+  };
+  // The binder uses the authored discriminator to select the additional-cost
+  // branch, then normalizes the resulting plan component to kind=repeat.
+  const clean: Record<string, unknown> = { ...structuredClone(raw), kind: raw.kind ?? 'additional', keyword: 'repeat', optional: true };
+  delete clean.stage;
+  if (Array.isArray(clean.payments)) clean.payments = clean.payments.map(cleanPayment);
+  if (Array.isArray(clean.costs)) {
+    clean.costs = clean.costs.map(entry => {
+      const nested = { ...structuredClone(entry), keyword: 'repeat', optional: true };
+      delete nested.stage;
+      if (Array.isArray(nested.payments)) nested.payments = nested.payments.map(cleanPayment);
+      return nested;
+    });
+  }
+  return clean as unknown as CostSpec;
+}
+
+function hasRepeatDeclaration(program: CardProgram, source: ObjectSnapshot): boolean {
+  return /\[repeat\]/i.test(program.sourceText) || source.keywords.some(keyword => keyword.id.toLowerCase().replace(/[\s_-]+/g, '') === 'repeat');
+}
+
 export function describePlay(registry: ProgramRegistry, action: Extract<GameAction, { type: 'play' }>, source: ObjectSnapshot): ChainDraft {
   const program = registry.get(source.cardId);
   const kind = cardKind(source);
@@ -108,7 +138,11 @@ export function describePlay(registry: ProgramRegistry, action: Extract<GameActi
   const id = `play:${source.ref.id}:${source.ref.zoneEntryId}:${action.player}:${++playSequence}`;
   const requirements = translateRequirements(ability?.requirements, program.canonicalCardId);
   const restrictions = translateRestriction(ability?.restriction, program.canonicalCardId);
-  const cost = bindProgramCost({ program, source, mode: 'play', id, ability, abilities: expanded.abilities });
+  const repeatCost = hasRepeatDeclaration(program, source) ? repeatAdditionalCost(ability?.cost) : undefined;
+  const costAbility = repeatCost === undefined ? ability : { ...ability!, cost: repeatCost };
+  // The normalized component carries keyword: 'repeat', so the cost binder
+  // takes its optionality from CR 820.1.b rather than from reminder prose.
+  const cost = bindProgramCost({ program, source, mode: 'play', id, ability: costAbility, abilities: expanded.abilities });
   return {
     id,
     controller: action.player,
