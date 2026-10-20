@@ -17,6 +17,8 @@ import {
   type HiddenState,
 } from '../zones/hidden/index.js';
 import { inheritTurnTaskCapability, registerTurnTaskCapability } from '../effects/instructions/effect.additional-turn.js';
+import type { StandardMoveFormationInput } from '../combat/flow.js';
+import type { StandardMoveBatchResult } from './movement.js';
 
 export class TurnCombatBlockedError extends Error {
   readonly status = 'blocked';
@@ -252,11 +254,24 @@ export class TurnFlow {
     this.chain.execute(draft);
     this.advance();
   }
-  move(player: PlayerId, object: ObjectRef, field: string): void {
+  move(player: PlayerId, object: ObjectRef, field: string): StandardMoveBatchResult {
     if (!this.chain.items.length && !this.combat.active) this.advance();
     if (this.phase !== 'main' || this.tasks.length || this.winnerValue) throw new Error('Standard Move requires Main Phase');
-    this.combat.move(player, object, field);
+    const result = this.combat.move(player, object, field);
     this.advance();
+    return result;
+  }
+  /** Internal formation entry used by the public v2 move command. */
+  moveFormation(input: StandardMoveFormationInput): StandardMoveBatchResult {
+    if (this.chain.items.length || this.combat.active) {
+      throw new TurnCombatBlockedError('standard-move-timing', 'Standard Move requires an idle Chain and no Combat');
+    }
+    if (this.phase !== 'main' || this.tasks.length || this.winnerValue) {
+      throw new TurnCombatBlockedError('standard-move-timing', 'Standard Move requires Main Phase');
+    }
+    const result = this.combat.moveFormation(input);
+    this.advance();
+    return result;
   }
   endTurn(player: PlayerId): void {
     if (!this.chain.items.length && !this.combat.active) this.advance();
