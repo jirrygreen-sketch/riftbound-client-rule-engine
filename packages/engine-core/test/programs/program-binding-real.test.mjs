@@ -63,9 +63,9 @@ test('default program binding connects static layers, live conditions, aura rule
       { id: 'might', cardId: 'card.static-might', types: ['unit'], might: 2 },
       { id: 'conditional', cardId: 'card.conditional-might', types: ['unit'], might: 2 },
       { id: 'aura', cardId: 'card.aura-restriction', types: ['unit'], might: 2 },
-      { id: 'keyword', cardId: 'card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7', types: ['unit'], tags: ['mech'], might: 2 },
+      { id: 'keyword', cardId: 'card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7', types: ['unit'], tags: ['Mech'], might: 2 },
       { id: 'entry', cardId: 'card.entry-ready', types: ['unit'], might: 2 },
-      { id: 'ally', types: ['unit'], tags: ['mech'], might: 2 },
+      { id: 'ally', types: ['unit'], tags: ['Mech'], might: 2 },
     ],
     describePlay: binding.describePlay,
   });
