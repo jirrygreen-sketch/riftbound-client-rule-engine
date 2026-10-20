@@ -15,6 +15,11 @@ import {
   createCombatDamagePlan,
   type CombatDamageRuntime,
 } from './transactions/damage.js';
+import {
+  commitCombatCleanupHeal,
+  commitCombatCleanupRecall,
+  type CombatSpecialCleanupRecord,
+} from './transactions/cleanup.js';
 
 export interface BattlefieldState {
   readonly id: string;
@@ -25,7 +30,7 @@ export interface BattlefieldState {
 type MutableField = { -readonly [K in keyof BattlefieldState]: BattlefieldState[K] };
 type Engagement = {
   field: string;
-  step: 'showdown' | 'damage' | 'result' | 'control';
+  step: 'showdown' | 'damage' | 'cleanup' | 'result' | 'control' | 'end';
   scorer?: PlayerId;
   queued?: boolean;
   attacker?: PlayerId;
@@ -38,6 +43,12 @@ type Engagement = {
   };
   designatedRoles?: Readonly<Record<string, 'attacker' | 'defender'>>;
   result?: CombatResult;
+  recalledUnitKeys?: readonly string[];
+  cleanup?: CombatSpecialCleanupRecord;
+  /** CR 468.3.d.1 and 468.5 action while the Combat-end wave scans. */
+  endState?: 'ordinary' | 'restage';
+  controlEstablished?: boolean;
+  controlGateReleased?: boolean;
   endEmitted?: boolean;
 };
 
@@ -57,7 +68,7 @@ export interface CombatDamageResult {
   readonly batchId: string;
 }
 
-export type CombatLifecyclePhase = 'showdown' | 'damage' | 'result' | 'control';
+export type CombatLifecyclePhase = 'showdown' | 'damage' | 'cleanup' | 'result' | 'control' | 'end';
 
 export interface CombatDamageAllocationView {
   readonly combatId: string;
@@ -216,17 +227,36 @@ export class CombatFlow {
     }
     for (const snapshot of captured) if (!flushed.has(snapshot)) original(snapshot);
   }
-  /** CR 468.1.a.1: heal every Unit only in this Combat Special Cleanup. */
-  private healCombatUnits(): void {
+  private runSpecialCleanup(): void {
     const active = this.engagement;
-    if (active === null) return;
-    for (const unit of this.units(active.field)) {
-      if (unit.damage === 0) continue;
-      const outcome = this.chain.commit({ type: 'heal', object: unit.ref, amount: unit.damage });
-      if (outcome.status !== 'done') {
-        throw new TurnCombatBlockedError('combat-cleanup-heal', 'Combat Special Cleanup could not heal a Unit');
-      }
+    if (active?.combatId === undefined || active.attacker === undefined || active.defender === undefined) {
+      throw new TurnCombatBlockedError('combat-cleanup-state', 'Combat Special Cleanup has no Combat identity');
     }
+    if (active.cleanup !== undefined) return;
+    this.chain.layers.setObjects(this.layerObjects());
+    const boardUnits = this.chain.layers.evaluateAll().filter(object => object.zone === 'board' &&
+      object.types.includes('unit') && object.damage > 0);
+    let healReceipt;
+    try {
+      healReceipt = commitCombatCleanupHeal(this.host, boardUnits, active.combatId);
+    }
+    catch (error) {
+      throw new TurnCombatBlockedError('combat-cleanup-heal',
+        `Combat Special Cleanup could not heal all Board Units: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const present = this.units(active.field);
+    const attackers = present.some(unit => unit.controller === active.defender) ?
+      present.filter(unit => this.role(unit) === 'attacker' && unit.controller === active.attacker) : [];
+    let recall;
+    try {
+      recall = commitCombatCleanupRecall(this.host, attackers, active.combatId, active.field, active.attacker);
+    }
+    catch (error) {
+      throw new TurnCombatBlockedError('combat-cleanup-recall',
+        `Combat Special Cleanup could not atomically Recall present Attackers: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    active.cleanup = Object.freeze({ combatId: active.combatId, healReceipt, recall });
+    active.recalledUnitKeys = recall?.unitKeys;
   }
   /** Contested is applied by the actual entry action, before its trigger wave. */
   entered(object: ObjectSnapshot): TimingEmission[] {
@@ -336,19 +366,49 @@ export class CombatFlow {
   }
   /** Called inside the Score action's host transaction, before its timing wave. */
   establish(player: PlayerId, fieldId: string): TimingEmission {
-    if (this.engagement?.step !== 'control' || this.engagement.field !== fieldId || this.engagement.scorer !== player) {
+    const active = this.engagement;
+    if (active?.step !== 'control' || active.field !== fieldId || active.scorer !== player) {
       throw new Error('No pending establishment for this player and Battlefield');
     }
     const field = this.fields.find(value => value.id === fieldId)!;
-    field.controller = player; field.contestedBy = null; field.staged = 'none'; this.engagement = null;
+    field.controller = player; field.contestedBy = null; field.staged = 'none';
+    this.chain.layers.setObjects(this.layerObjects());
+    for (const object of this.layerObjects()) {
+      if (object.combatRole === null || object.combatRole === undefined) continue;
+      if (object.location?.type === 'battlefield' && object.location.id === fieldId) continue;
+      this.combatRoles.delete(this.refKey(object.ref));
+    }
+    active.controlEstablished = true;
+    active.controlGateReleased = false;
     return { timingPoint: 'control-established', player, details: { battlefieldId: fieldId } };
   }
   establishWithoutScore(player: PlayerId, field: string): void {
     const saved = this.checkpoint();
+    const active = this.engagement;
     const event = this.establish(player, field);
-    try { this.chain.emit(event); }
+    try {
+      this.chain.emit(event);
+      if (active !== null && active.field === field && active.controlEstablished === true) {
+        if (this.chain.items.length === 0) {
+          active.controlGateReleased = true;
+          active.step = 'end';
+        }
+      }
+    }
     catch (error) { this.restore(saved); throw error; }
   }
+
+  /** Resume CR 468.7 only after the producer-owned 468.5/468.6 FEPR finished. */
+  settleControlFepr(): void {
+    const active = this.engagement;
+    if (active?.controlEstablished !== true ||
+        (active.step !== 'control' && active.step !== 'end' && active.step !== 'result') ||
+        this.chain.items.length > 0 || this.chain.turnState !== 'neutral-open') return;
+    active.controlGateReleased = true;
+    active.step = 'end';
+    this.finishCombat();
+  }
+
   move(player: PlayerId, ref: ObjectRef, fieldId: string): void {
     const field = this.fields.find(value => value.id === fieldId);
     const object = this.host.objects().find(value => value.ref.id === ref.id && value.ref.zoneEntryId === ref.zoneEntryId);
@@ -407,23 +467,66 @@ export class CombatFlow {
   /** Open staged work after Cleanup has exited, before another player command. */
   advance(): void {
     if (this.chain.items.length) return;
-    if (this.engagement?.result !== undefined && this.engagement.step === 'result' &&
-        this.chain.turnState === 'neutral-open') {
-      const damaged = this.units(this.engagement.field).some(unit => unit.damage > 0);
-      if (damaged) this.healCombatUnits();
-      else this.finishCombat();
+    const activeCombat = this.engagement;
+    if (activeCombat?.step === 'control' && activeCombat.result?.noResult === true &&
+        !activeCombat.controlEstablished && !this.units(activeCombat.field).length) {
+      activeCombat.endState = 'ordinary';
+      activeCombat.step = 'end';
+    }
+    if (activeCombat?.step === 'control' && activeCombat.controlEstablished === true) {
+      if (this.chain.turnState === 'neutral-open') this.settleControlFepr();
       return;
     }
-    if (this.engagement?.step === 'result' && this.chain.turnState === 'neutral-open') {
-      this.resolveCombatResult();
+    if (activeCombat?.endState === 'restage' && activeCombat.step === 'control') {
+      activeCombat.step = 'end';
+    }
+    if (activeCombat?.step === 'end' && this.chain.turnState === 'neutral-open') {
+      this.finishCombat();
+      return;
+    }
+    if (activeCombat?.step === 'cleanup' && this.chain.turnState === 'neutral-open' &&
+        activeCombat.cleanup === undefined) {
+      this.withTransaction(() => {
+        const active = this.engagement!;
+        this.runSpecialCleanup();
+        active.step = 'result';
+      });
+      return;
+    }
+    if (activeCombat?.step === 'result' && this.chain.turnState === 'neutral-open') {
+      this.withTransaction(() => {
+        this.resolveCombatResult();
+        this.finishCombat();
+      });
       return;
     }
     if (this.engagement) {
       const active = this.engagement;
-      if (active.step === 'control') {
-        if (!active.queued && active.scorer) { this.conquer(active.scorer, active.field); active.queued = true; }
+      if (active.step === 'control' && active.controlEstablished === true) {
+        this.settleControlFepr();
         return;
       }
+      if (active.step === 'control') {
+        if (active.scorer === undefined) {
+          const controllers = [...new Set(this.units(active.field).map(unit => unit.controller))];
+          if (controllers.length === 1) active.scorer = controllers[0]!;
+        }
+        if (!active.queued && active.scorer) {
+          active.queued = true;
+          try { this.withTransaction(() => this.conquer(active.scorer!, active.field)); }
+          catch (error) { active.queued = false; throw error; }
+        }
+        // control-established heads one producer-owned Score wave; only the
+        // successful establish action may advance to 468.7.
+        if (!active.queued || !active.controlEstablished) return;
+        // A no-op producer is not a completed 468.5/468.6 task.
+        if (!active.controlGateReleased) return;
+        active.step = 'end';
+        return;
+      }
+      if (active.step === 'cleanup') return;
+      if (active.step === 'result') return;
+      if (active.step === 'end') return;
       if (this.chain.turnState.startsWith('showdown')) {
         const field = this.fields.find(candidate => candidate.id === active.field)!;
         const controllers = new Set(this.units(active.field).map(unit => unit.controller));
@@ -435,20 +538,27 @@ export class CombatFlow {
         if (controllers.size === 2) return;
         return;
       }
-      if (active.step === 'damage') {
-        if (this.chain.turnState === 'neutral-open') this.finishCombat();
-        return;
+      if (active.combatId === undefined) {
+        const field = this.fields.find(value => value.id === active.field)!;
+        const controllers = [...new Set(this.units(active.field).map(unit => unit.controller))];
+        if (controllers.length === 1 && field.controller !== controllers[0]) {
+          // A non-Combat Showdown uses the same Control/Conquer task contract,
+          // but has no 468 Resolution step to preserve.
+          active.step = 'control';
+          active.scorer = controllers[0]!;
+          this.conquer(active.scorer, field.id);
+          active.queued = true;
+          return;
+        }
       }
-      const controllers = [...new Set(this.units(active.field).map(unit => unit.controller))];
-      const field = this.fields.find(value => value.id === active.field)!;
-      if (controllers.length === 1 && field.controller !== controllers[0]) {
-        // Control + Conquer form one structural Score wave. Do not allow a
-        // control trigger to Resolve between establishment and the Score.
-        active.step = 'control'; active.scorer = controllers[0]!;
-        this.conquer(active.scorer, field.id); active.queued = true;
-        return;
+      // Damage -> cleanup/result/control/end is the only live Combat path.
+      // The fallback below is reserved for a staged engagement that has not
+      // acquired a combat identity; a committed Combat must never bypass 468.1.
+      if (active.combatId === undefined) {
+        this.fields.find(value => value.id === active.field)!.staged = 'none';
+        this.fields.find(value => value.id === active.field)!.contestedBy = null;
+        this.engagement = null;
       }
-      field.contestedBy = null; field.staged = 'none'; this.engagement = null;
       return;
     }
     if (this.chain.turnState !== 'neutral-open') return;
@@ -701,7 +811,7 @@ export class CombatFlow {
         emitCombatWave(this.chain, this, damageEmissions, batchId);
         emitCombatWave(this.chain, this,
           [{ timingPoint: 'combat-damage-after', player: active.attacker, details }], `${batchId}:after`);
-        active.step = 'result';
+        active.step = 'cleanup';
         this.chain.requestCleanup('combat-damage-dealt');
         return Object.freeze({ field: active.field, combatId: active.combatId, attackerPlayerId: complete.sideIDs[0],
           defenderPlayerId: complete.sideIDs[1], batchId });
@@ -730,7 +840,13 @@ export class CombatFlow {
     const units = this.units(active.field);
     const attackerUnits = units.filter(unit => this.role(unit) === 'attacker');
     const defenderUnits = units.filter(unit => this.role(unit) === 'defender');
-    const noResult = attackerUnits.length > 0 && defenderUnits.length > 0 ||
+    const recallKeys = new Set(active.recalledUnitKeys ?? []);
+    const recalled = recallKeys.size > 0;
+    // CR 468.3/468.3.d.1 measure remaining Units at this Battlefield. A
+    // recalled Attacker in its Base remains in the game but is not here.
+    const attackerRemaining = attackerUnits.length > 0;
+    const defenderRemaining = defenderUnits.length > 0;
+    const noResult = recalled || attackerUnits.length > 0 && defenderUnits.length > 0 ||
       attackerUnits.length === 0 && defenderUnits.length === 0;
     const winner = noResult ? null : attackerUnits.length > 0 ? active.attacker! : active.defender!;
     const loser = noResult ? null : winner === active.attacker ? active.defender! : active.attacker!;
@@ -747,12 +863,17 @@ export class CombatFlow {
       [{ timingPoint: 'combat-result', player: winner ?? undefined, details: { ...details } }],
       `${active.combatId}:result`);
     active.result = details;
+    active.step = 'control';
+    active.controlEstablished = false;
+    active.queued = false;
+    if (noResult && attackerRemaining && defenderRemaining) active.endState = 'restage';
+    else active.endState = 'ordinary';
     return details;
   }
   private finishCombat(): void {
     const active = this.engagement;
     if (active === null) return;
-    if (active.step === 'control') return;
+    if (active.controlEstablished === true && active.controlGateReleased !== true) return;
     const field = this.fields.find(candidate => candidate.id === active.field);
     if (field === undefined) throw new TurnCombatBlockedError('unknown-battlefield', 'Combat references an unknown Battlefield');
     if (active.combatId === undefined) {
@@ -762,32 +883,63 @@ export class CombatFlow {
     const controllers = [...new Set(this.units(active.field).map(unit => unit.controller))];
     const result = active.result ?? this.resolveCombatResult();
     if (this.chain.items.length > 0) return;
-    this.clearRoles();
+    if (active.step === 'control') {
+      if (active.endState === 'restage') {
+        field.contestedBy = active.attacker!;
+        field.staged = 'combat';
+        active.step = 'end';
+        this.finishCombat();
+        return;
+      }
+      const controlEstablished = controllers.length === 1 && field.controller !== controllers[0];
+      if (controlEstablished) {
+        active.scorer = controllers[0]!;
+        active.queued = false;
+        active.step = 'control';
+      } else {
+        field.contestedBy = null;
+        field.staged = 'none';
+        if (controllers.length === 0) field.controller = null;
+        active.step = 'end';
+        this.finishCombat();
+        return;
+      }
+      return;
+    }
+    if (active.step !== 'end') return;
+    if (Boolean(active.controlEstablished) && active.controlGateReleased !== true) return;
     if (active.endEmitted !== true) {
+      if (active.endState === undefined) active.endState = 'ordinary';
+      if (active.endState === 'restage') {
+        field.contestedBy = active.attacker!;
+        field.staged = 'combat';
+      } else {
+        field.contestedBy = null;
+        if (controllers.length === 0) {
+          field.controller = null;
+        }
+        field.staged = 'none';
+      }
       emitCombatWave(this.chain, this,
         [{ timingPoint: 'combat-end', details: { combatId: active.combatId, battlefieldId: active.field } }],
         `${active.combatId}:end`);
       active.endEmitted = true;
     }
-    if (this.chain.items.length > 0) return;
-    if (!result.noResult && controllers.length === 1 && field.controller !== controllers[0]) {
-      active.step = 'control'; active.scorer = controllers[0]!;
-      this.conquer(active.scorer, field.id); active.queued = true;
-      return;
-    }
-    if (result.noResult && controllers.length === 2) {
-      // CR 468.3.d.1: a contested No Result with both sides still present
-      // stages the next Showdown and Combat. Keep Contested and let the normal
-      // Cleanup/advance path open the rematch instead of establishing control.
+    if (active.endState === 'restage') {
       field.contestedBy = active.attacker!;
       field.staged = 'combat';
-      this.engagement = null;
-      // finishCombat runs after Cleanup has reached neutral-open. Requesting a
-      // second Cleanup here would block the immediate 468.3.d.1 rematch.
-      return;
     }
-    if (controllers.length === 0 && field.controller !== null) field.controller = null;
-    field.contestedBy = null; field.staged = 'none'; this.engagement = null;
+    if (this.chain.items.length > 0) return;
+    if (active.endState === 'restage') {
+      // Cleanup runs while the end wave scans and treats the already-decided
+      // rematch as state that 468.3.d.1 committed during this same step.
+      field.contestedBy = active.attacker!;
+      field.staged = 'combat';
+    }
+    if (this.chain.items.length > 0) return;
+    this.clearRoles();
+    this.chain.layers.expireAt('combat-end');
+    this.engagement = null;
   }
   /** Legacy command entry cannot invent either player's assignment choice. */
   dealDamage(): never {

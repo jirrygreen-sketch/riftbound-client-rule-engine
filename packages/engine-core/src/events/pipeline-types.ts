@@ -1,6 +1,6 @@
 import type { ChoiceRequest, ContractGameAction, GameAction, GameEvent, Instruction, ObjectSnapshot, PlayerId, ResolveContext, ActionOutcome } from '../effects/contract.js';
 import type { TimingPointId } from './timing-points.js';
-import type { TriggerSpec } from './trigger-spec.js';
+import type { ObjectFilterType, PlayerSelector, TriggerSpec } from './trigger-spec.js';
 import type { CostPlanInput } from '../cost/plan-types.js';
 import type { TargetFinalizeOptions, TargetRequirement } from '../target/target-plan.js';
 
@@ -22,6 +22,18 @@ export interface TimingEmission {
   readonly details?: Readonly<Record<string, unknown>>;
   /** Multiple named timings of one physical event share simultaneous ordering. */
   readonly simultaneousGroup?: string;
+}
+/** Typed event predicate for the CR 709 below-five to five transition. */
+export interface MightChangedEventPattern {
+  readonly event: 'might-changed';
+  readonly object: {
+    readonly type: 'unit' | readonly ('unit' | ObjectFilterType)[];
+    readonly controller?: PlayerSelector;
+    readonly owner?: PlayerSelector;
+  };
+  readonly details: {
+    readonly becomesMighty: true;
+  };
 }
 export type PipelineEvent = GameEvent & TimingEmission & { readonly action?: GameAction; readonly eventId: number };
 

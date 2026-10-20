@@ -69,6 +69,22 @@ export interface DuelRecordedRuntimeP4 {
   /** Fresh actual owner replay, for an isolated mutation proposal. No shared linear capability. */
   readonly fork: () => DuelRecordedRuntimeP4;
 }
+/** Internal read-only operation access; it does not expose a mutator or fork. */
+interface DuelRecordedRuntimeP4ReadAccess {
+  readonly operations: () => readonly Operation[];
+}
+type RecordedSnapshot = { readonly journal: Journal; readonly operationCount: number;
+  readonly archive: DuelCommandArchiveP4 };
+const operationReadAccess = new WeakMap<object, DuelRecordedRuntimeP4ReadAccess>();
+const snapshots = new WeakMap<object, () => RecordedSnapshot>();
+export function operationsOfDuelRecordedRuntimeP4(recorded: DuelRecordedRuntimeP4): readonly Operation[] {
+  const access = operationReadAccess.get(recorded);
+  return access ? access.operations() : recorded.archive().operations;
+}
+/** Frozen recorder snapshot for the bridge; callers never expose this value. */
+export function archiveSnapshotOfDuelRecordedRuntimeP4(recorded: DuelRecordedRuntimeP4): DuelCommandArchiveP4 {
+  return snapshots.get(recorded)?.().archive ?? recorded.archive();
+}
 export interface DuelReplayGateP4 { readonly _duelReplayGateP4: unique symbol }
 const gates = new WeakMap<object, { options: DuelAuthoritativeRuntimeP4Options; digest: string; profile: DuelReplayProfileP4 | null }>();
 const journals = new WeakMap<object, () => DuelCommandArchiveP4>();
@@ -361,7 +377,9 @@ function createRecorded(options: DuelAuthoritativeRuntimeP4Options, policyChecke
       return capture(() => owner.dispatch(actor, packet), { kind: 'dispatch', actor, packet }) as ReturnType<DuelAuthoritativeRuntimeP4['dispatch']>;
     }, resumePending: () => capture(() => owner.resumePending(), { kind: 'resume' }) as ReturnType<DuelAuthoritativeRuntimeP4['resumePending']>,
   });
-  const archive = () => {
+  let cached: RecordedSnapshot | undefined;
+  const buildArchive = () => {
+    if (cached?.operationCount === operations.length) return cached.archive;
     const legacy = freeze(data(profile === DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY
     ? { kind: 'private-duel-command-journal-p4', schemaVersion: 9,
       profile: DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY, semanticVersion: DUEL_RUNTIME_SEMANTIC_VERSION_P4_OPTIONAL_UNIT_RESOLVED_HISTORY,
@@ -394,16 +412,28 @@ function createRecorded(options: DuelAuthoritativeRuntimeP4Options, policyChecke
       policyCheckedAt, contextDigest: initialContext, creation, operations }
     : { kind: 'private-duel-command-journal-p4', schemaVersion: 2,
       policyCheckedAt, contextDigest: initialContext, creation, operations })) as DuelCommandArchiveP4;
-    return toUnifiedP4Archive(legacy, options);
+    const value = toUnifiedP4Archive(legacy, options);
+    cached = Object.freeze({ journal: value.journal!, operationCount: operations.length, archive: value });
+    return value;
+  };
+  const archive = () => structuredClone(buildArchive());
+  const snapshot = (): RecordedSnapshot => {
+    check(!busy && !failed, 'unavailable recorder');
+    if (cached?.operationCount === operations.length) return cached;
+    const value = buildArchive();
+    cached = Object.freeze({ journal: value.journal!, operationCount: operations.length, archive: value });
+    return cached;
   };
   const recorded: DuelRecordedRuntimeP4 = Object.freeze({ profile, runtime, archive: () => { check(!busy && !failed, 'unavailable recorder'); return archive(); },
     fork: () => {
       check(!busy && !failed, 'unavailable recorder');
-      const snapshot = archive();
+      const snapshot = buildArchive();
       return replayDuelCommandArchiveP4(snapshot, createDuelReplayGateP4(options,
         digestDuelCommandArchiveP4(snapshot), profile));
     } });
+  operationReadAccess.set(recorded, { operations: () => operations });
   journals.set(recorded, archive);
+  snapshots.set(recorded, snapshot);
   finishLegacyReplay.set(recorded, () => { recordLegacyNullResume = false; });
   return recorded;
 }

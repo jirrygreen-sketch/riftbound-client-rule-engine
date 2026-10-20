@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { loadCardCatalogRuntime } from '../../src/card-catalog.js';
 import { createDuelRecordedRuntimeP4, createDuelReplayGateP4, digestDuelCommandArchiveP4,
+  operationsOfDuelRecordedRuntimeP4,
   replayDuelCommandArchiveP4, DUEL_RUNTIME_PROFILE_P4_LEGACY } from '../../src/duel/command-journal-p4.js';
 import { DUEL_COMMAND_PACKET_PROFILE_V3_ACTIONS_1 } from '@riftbound/protocol';
 import { setupAdapterFixtureCatalog, setupAdapterFixtureDecks } from './fixtures/setup-adapter-catalog.js';
+import { appendRecording, currentJournalOf } from
+  '../../src/duel/runtime/durable/recording.js';
 
 async function fixture() {
   const cards = setupAdapterFixtureCatalog.cards.map(card => ({ ...card,
@@ -54,6 +57,33 @@ function mulligan(recorded: Awaited<ReturnType<typeof fixture>>['recorded'], id:
   expect(recorded.runtime.dispatch(actor, packet).ack.ok).toBe(true);
   return { actor, packet };
 }
+
+describe('P4 journal incremental reads', () => {
+  it('keeps exact operation reads and public archive output identical without exposing a mutable cache', async () => {
+    const f = await fixture();
+    const archive = f.recorded.archive();
+    expect(operationsOfDuelRecordedRuntimeP4(f.recorded)).toEqual(archive.operations);
+    mulligan(f.recorded, 'incremental-m-1');
+    const updated = f.recorded.archive();
+    expect(updated.operations).toHaveLength(archive.operations.length + 1);
+    expect(operationsOfDuelRecordedRuntimeP4(f.recorded)).toEqual(updated.operations);
+    const detached = f.recorded.archive();
+    expect(detached).toEqual(updated);
+    (detached.operations as unknown as { pop: () => unknown }).pop();
+    expect(f.recorded.archive()).toEqual(updated);
+  });
+  it('accepts only one parent-linked publication and keeps internal reads owner-bound', async () => {
+    const f = await fixture(), before = currentJournalOf(f.recorded);
+    mulligan(f.recorded, 'publication-m-1');
+    const after = currentJournalOf(f.recorded);
+    expect(after.entries).toHaveLength(before.entries.length + 1);
+    expect(appendRecording(before, before.entries.length, f.recorded)).toEqual(after);
+    const detached = f.recorded.archive();
+    (detached.operations as unknown as { pop: () => unknown }).pop();
+    expect(f.recorded.archive()).not.toEqual(detached);
+    expect(currentJournalOf(f.recorded)).toEqual(after);
+  });
+});
 
 describe.skip('P4 private command replay [legacy-replay-e2cbcdf]', () => {
   it('omits repeated genuine null resumes at setup and Main without changing private state or future commands', async () => {

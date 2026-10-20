@@ -33,6 +33,8 @@ function combatFixture({
   programs = [],
   choose: suppliedChoose,
   cleanup = 'none',
+  extraUnits = [],
+  conquer,
 } = {}) {
   const builder = world().player('A').player('B')
     .unit(attacker.id, {
@@ -54,6 +56,17 @@ function combatFixture({
   for (const player of ['A', 'B']) {
     builder.deck([`${player}:deck:0`, `${player}:deck:1`], { owner: player });
     builder.rune([`${player}:rune:0`, `${player}:rune:1`], { owner: player });
+  }
+  for (const unit of extraUnits) {
+    builder.unit(unit.id, {
+      owner: unit.owner ?? unit.controller,
+      controller: unit.controller,
+      might: unit.might ?? 3,
+      power: unit.power ?? null,
+      keywords: unit.keywords ?? [],
+      damage: unit.damage ?? 0,
+      location: unit.location,
+    });
   }
   const kernel = builder.build();
   const answers = new Map();
@@ -103,13 +116,19 @@ function combatFixture({
     turnOrder: ['A', 'B'], turnPlayer: 'A', phase: 'main', host,
     cleanup: cleanup === 'lethal' ? lethalCleanup : () => false,
   });
-  const flow = new CombatFlow(chain, host,
+  let flow;
+  flow = new CombatFlow(chain, host,
     [{ id: 'bf1', controller: 'B' }, { id: 'bf2', controller: null }],
-    () => {}, { events: true, lifecycle: true });
+    conquer ?? (() => {}),
+    { events: true, lifecycle: true });
   const binding = createProgramBinding({ cardPrograms: programs.map(admitted) });
   const started = () => {
     flow.entered(kernel.getObject(attacker.id));
     flow.cleanup();
+    // The cleanupRequested from the committed entry wave is consumed by HOTFEPR
+    // before the direct production start assertion. This does not stage or
+    // mutate the Combat; it exercises the real Chain cleanup boundary.
+    chain.advance();
     return flow.startCombat('bf1');
   };
   const closeShowdown = () => {
@@ -142,6 +161,15 @@ function settle(f, budget = 40) {
   throw new Error('Combat chain did not settle');
 }
 
+function advanceUntil(f, predicate, budget = 40) {
+  for (let step = 0; step < budget; step++) {
+    if (predicate()) return;
+    assert.equal(f.chain.items.length, 0, 'test driver expected an idle production chain');
+    f.flow.advance();
+  }
+  assert.fail('Combat did not reach the requested production boundary');
+}
+
 test('EG-COMBAT opens a real Combat Showdown, preserves Focus, designates both sides, and fires both timing points', () => {
   const f = combatFixture();
   const result = f.started();
@@ -172,7 +200,6 @@ test('EG-COMBAT opens a real Combat Showdown, preserves Focus, designates both s
     });
   }
 });
-
 test('EG-COMBAT default TurnFlow production assembly opens staged Combat without explicit feature flags', () => {
   const builder = world().player('A').player('B')
     .unit('attacker', { owner: 'A', controller: 'A', might: 4, location: field('bf1') })
@@ -209,6 +236,174 @@ test('EG-COMBAT default TurnFlow production assembly opens staged Combat without
   assert.equal(turn.chain.pipeline.events.filter(event => event.timingPoint === 'combat-start').length, 1);
   assert.equal(turn.chain.pipeline.events.filter(event => event.timingPoint === 'attack-declared').length, 1);
   assert.equal(turn.chain.pipeline.events.filter(event => event.timingPoint === 'defense-declared').length, 1);
+});
+
+test('EG-COMBAT TurnFlow advances Combat Cleanup, Result, Control, Score, and End', () => {
+  const builder = world().player('A').player('B')
+    .unit('attacker', { owner: 'A', controller: 'A', might: 4, power: null, keywords: [], location: field('bf1') })
+    .unit('defender', { owner: 'B', controller: 'B', might: 3, power: null, keywords: [], location: field('bf2') });
+  for (const player of ['A', 'B']) {
+    builder.deck([`${player}:deck:0`, `${player}:deck:1`], { owner: player });
+    builder.rune([`${player}:rune:0`, `${player}:rune:1`], { owner: player });
+  }
+  const kernel = builder.build();
+  const choose = request => {
+    if (request.type === 'mode' && request.id.startsWith('engagement:')) return request.options[0];
+    if (request.type === 'select-objects' && request.min === request.max && request.options.length === request.min) return [...request.options];
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => kernel.test(registration.spec.condition),
+  });
+  const turn = new TurnFlow({ host, player: id => kernel.player(id), turnOrder: ['A', 'B'],
+    battlefields: [{ id: 'bf1', controller: 'B' }, { id: 'bf2', controller: null }] });
+  turn.start();
+  assert.equal(turn.chain.commit({ type: 'move-location', object: kernel.ref('defender'),
+    to: field('bf1') }).status, 'done');
+  turn.advance();
+  assert.equal(turn.chain.focus, 'A');
+  turn.chain.pass('A');
+  turn.chain.pass('B');
+  turn.combat.prepareDamage();
+  turn.combat.submitAttackerDamage('A', [{ uid: 'defender', amount: 4 }]);
+  turn.combat.submitDefenderDamage('B', [{ uid: 'attacker', amount: 3 }]);
+  turn.advance();
+  turn.advance();
+  const timings = turn.chain.pipeline.events.map(event => event.timingPoint);
+  const result = timings.indexOf('combat-result');
+  const control = timings.indexOf('control-established');
+  const conquer = timings.indexOf('conquer');
+  const score = timings.indexOf('score');
+  const end = timings.indexOf('combat-end');
+  assert.ok(result >= 0 && result < control && control < conquer && conquer < score && score < end);
+  assert.equal(turn.combat.active, false);
+  assert.equal(kernel.player('A').score, 1);
+});
+
+test('EG-COMBAT default TurnFlow consumes a real Conquer and Score before combat-end', () => {
+  // CR v1.5: https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+  // 468.1 Comparable Cleanup, 468.3 Combat Result, 468.5 Control + Conquer,
+  // 468.6 Outstanding establishment FEPR, and 468.7 Combat ends.
+  const builder = world().player('A').player('B')
+    .unit('attacker', { owner: 'A', controller: 'A', might: 4, power: null, keywords: [
+      { id: 'tank', value: null },
+    ], location: field('bf1') })
+    .unit('defender', { owner: 'B', controller: 'B', might: 3, power: null, keywords: [], location: field('bf1') });
+  for (const player of ['A', 'B']) {
+    builder.deck([`${player}:deck:0`, `${player}:deck:1`], { owner: player });
+    builder.rune([`${player}:rune:0`, `${player}:rune:1`], { owner: player });
+  }
+  const kernel = builder.build();
+  const choose = request => {
+    if (request.type === 'mode' && request.id.startsWith('engagement:')) return request.options[0];
+    if (request.type === 'select-objects' && request.min === request.max && request.options.length === request.min) return [...request.options];
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => kernel.test(registration.spec.condition),
+  });
+  const turn = new TurnFlow({ host, player: id => kernel.player(id), turnOrder: ['A', 'B'],
+    battlefields: [{ id: 'bf1', controller: 'B' }, { id: 'bf2', controller: null }] });
+  turn.start();
+  turn.pass('A');
+  turn.pass('B');
+  turn.combat.prepareDamage();
+  turn.combat.submitAttackerDamage('A', [{ uid: 'defender', amount: 4 }]);
+  turn.combat.submitDefenderDamage('B', [{ uid: 'attacker', amount: 3 }]);
+  turn.advance();
+  turn.advance();
+  assert.equal(turn.combat.lifecycle, null);
+  const timings = turn.chain.pipeline.events.map(event => event.timingPoint);
+  const result = timings.indexOf('combat-result');
+  const control = timings.indexOf('control-established');
+  const conquer = timings.indexOf('conquer');
+  const score = timings.indexOf('score');
+  const end = timings.indexOf('combat-end');
+  assert.ok(result >= 0 && result < control && control < conquer && conquer < score && score < end);
+  assert.deepEqual(turn.scored('A'), ['bf1']);
+  assert.equal(kernel.player('A').score, 1);
+  assert.equal(turn.combat.battlefields[0].controller, 'A');
+});
+test('EG-COMBAT TurnFlow waits for a control-established trigger before combat-end and retries once', () => {
+  let answer = false;
+  let asked = 0;
+  const builder = world().player('A').player('B')
+    .unit('attacker', { owner: 'A', controller: 'A', might: 4, power: null, keywords: [], location: field('bf1') })
+    .unit('defender', { owner: 'B', controller: 'B', might: 3, power: null, keywords: [], location: field('bf1') });
+  for (const player of ['A', 'B']) {
+    builder.deck([`${player}:deck:0`, `${player}:deck:1`], { owner: player });
+    builder.rune([`${player}:rune:0`, `${player}:rune:1`], { owner: player });
+  }
+  const kernel = builder.build();
+  const choose = request => {
+    if (request.type === 'mode' && request.id.startsWith('engagement:')) return request.options[0];
+    if (request.type === 'optional' && request.id.includes('control-watch')) {
+      asked++;
+      if (!answer) throw new AwaitChoice(request);
+      return true;
+    }
+    if (request.type === 'select-objects' && request.min === request.max && request.options.length === request.min) return [...request.options];
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => kernel.test(registration.spec.condition),
+  });
+  const turn = new TurnFlow({ host, player: id => kernel.player(id), turnOrder: ['A', 'B'],
+    battlefields: [{ id: 'bf1', controller: 'B' }, { id: 'bf2', controller: null }] });
+  turn.chain.pipeline.registerTrigger({
+    id: 'control-watch', source: kernel.getObject('attacker'), controller: 'A',
+    spec: { at: 'control-established', filter: { event: 'control-established' } }, body: [], optional: true,
+  });
+  turn.start();
+  turn.pass('A');
+  turn.pass('B');
+  turn.combat.prepareDamage();
+  turn.combat.submitAttackerDamage('A', [{ uid: 'defender', amount: 4 }]);
+  turn.combat.submitDefenderDamage('B', [{ uid: 'attacker', amount: 3 }]);
+  turn.advance();
+  assert.throws(() => turn.advance(), error => error instanceof AwaitChoice && error.request.id.includes('control-watch'));
+  assert.equal(asked, 1);
+  assert.equal(turn.chain.pipeline.events.some(event => event.timingPoint === 'control-established'), false);
+  assert.equal(turn.chain.pipeline.events.some(event => event.timingPoint === 'combat-end'), false);
+  answer = true;
+  turn.advance();
+  assert.equal(asked, 2);
+  while (turn.chain.items.length) {
+    assert.notEqual(turn.chain.priority, null);
+    turn.pass(turn.chain.priority);
+  }
+  turn.advance();
+  const control = turn.chain.pipeline.events.filter(event => event.timingPoint === 'control-established');
+  const end = turn.chain.pipeline.events.filter(event => event.timingPoint === 'combat-end');
+  assert.equal(control.length, 1);
+  assert.equal(end.length, 1);
+  assert.ok(control[0].eventId < end[0].eventId);
+  assert.equal(turn.combat.active, false);
+  assert.equal(turn.combat.snapshot(kernel.getObject('attacker')).combatRole, null);
 });
 
 test('EG-COMBAT converts an open Non-Combat Showdown into Combat without changing its Focus holder', () => {
@@ -573,7 +768,7 @@ test('EG-COMBAT a late Unit gains its controller role only in Cleanup and fires 
   assert.equal(f.events('defense-declared').length, 2);
 });
 
-test('EG-COMBAT lethal damage is cleaned, result is scored once, roles clear, and conquer reaches Score', () => {
+test('EG-COMBAT lethal damage stops at 468.5 control until the host performs the Score consumer', () => {
   const f = combatFixture({ cleanup: 'lethal' });
   f.started();
   f.closeShowdown();
@@ -586,18 +781,18 @@ test('EG-COMBAT lethal damage is cleaned, result is scored once, roles clear, an
   f.flow.advance();
   f.chain.advance();
   f.flow.advance();
-  f.flow.advance();
   assert.equal(f.kernel.getObject('defender').zone, 'trash');
   assert.equal(f.kernel.getObject('attacker').damage, 0);
   assert.equal(f.flow.lifecycle?.phase, 'control');
   assert.equal(f.events('control-established').length, 0);
   assert.equal(f.kernel.getObject('attacker').combatRole, null);
   assert.equal(f.events('combat-result').length, 1);
-  assert.equal(f.events('combat-end').length, 1);
+  assert.equal(f.events('combat-end').length, 0);
   assert.equal(f.events('combat-result')[0].details.noResult, false);
   assert.equal(f.events('combat-result')[0].details.winnerId, 'A');
   assert.equal(f.flow.battlefields[0].staged, 'none');
   assert.equal(f.flow.current?.step, 'control');
+  assert.equal(f.flow.snapshot(f.kernel.getObject('attacker')).combatRole, 'attacker');
 });
 
 test('EG-COMBAT no-result when both sides are removed produces neither Conquer nor Score', () => {
@@ -612,9 +807,7 @@ test('EG-COMBAT no-result when both sides are removed produces neither Conquer n
   f.flow.submitAttackerDamage('A', [{ uid: 'defender', amount: 3 }]);
   f.flow.submitDefenderDamage('B', [{ uid: 'attacker', amount: 3 }]);
   f.chain.advance();
-  f.flow.advance();
-  f.flow.advance();
-  f.flow.advance();
+  advanceUntil(f, () => f.flow.active === false);
   assert.equal(f.kernel.getObject('attacker').zone, 'trash');
   assert.equal(f.kernel.getObject('defender').zone, 'trash');
   assert.equal(f.events('combat-result')[0].details.noResult, true);
@@ -624,14 +817,238 @@ test('EG-COMBAT no-result when both sides are removed produces neither Conquer n
   assert.equal(f.flow.active, false);
 });
 
-test('EG-COMBAT CR 468.3.d.1 restages Showdown and Combat when both sides survive a No Result', () => {
+test('EG-COMBAT Result uses only current Battlefield Units for a side result', () => {
+  const f = combatFixture({
+    attacker: { id: 'attacker', might: 6, cardId: null, keywords: [] },
+    defender: { id: 'defender', might: 3, cardId: null, keywords: [] },
+    cleanup: 'lethal',
+    extraUnits: [
+      { id: 'attacker-away', controller: 'A', might: 9, location: { type: 'base', player: 'A' } },
+      { id: 'defender-away', controller: 'B', might: 9, location: { type: 'base', player: 'B' } },
+    ],
+  });
+  f.started();
+  f.closeShowdown();
+  f.flow.prepareDamage();
+  f.flow.submitAttackerDamage('A', [{ uid: 'defender', amount: 6 }]);
+  f.flow.submitDefenderDamage('B', [{ uid: 'attacker', amount: 3 }]);
+  f.chain.advance();
+  f.flow.advance();
+  f.flow.advance();
+  assert.equal(f.events('combat-result')[0].details.noResult, false);
+  assert.equal(f.events('combat-result')[0].details.winnerId, 'A');
+  assert.equal(f.events('combat-start').length, 1);
+});
+
+test('EG-COMBAT Recall leaves Attackers in Base and does not restage Combat at the old Battlefield', () => {
   // CR v1.5 468.3.d / 468.3.d.1 / 468.5. Timeline: simultaneous damage ->
-  // Combat Cleanup -> combat-result(noResult) -> combat-end -> staged rematch.
-  // The next open remains a real Combat Showdown and does not establish control.
+  // Combat Cleanup -> combat-result(noResult) -> local Control -> combat-end.
+  // Remaining means remaining AT THIS BATTLEFIELD; the recalled Attacker stays
+  // in its Base and cannot be treated as a phantom Combat participant here.
+  const f = combatFixture({
+    attacker: { id: 'attacker', might: 4, cardId: null, keywords: [] },
+    defender: { id: 'defender', might: 1, cardId: null, keywords: [] },
+    cleanup: 'none',
+  });
+  f.started();
+  f.closeShowdown();
+  f.flow.prepareDamage();
+  f.flow.submitAttackerDamage('A', [{ uid: 'defender', amount: 4 }]);
+  f.flow.submitDefenderDamage('B', [{ uid: 'attacker', amount: 1 }]);
+  f.chain.advance();
+  advanceUntil(f, () => f.events('combat-end').length === 1);
+  assert.equal(f.events('combat-result')[0].details.noResult, true);
+  assert.equal(f.kernel.getObject('attacker').location.type, 'base');
+  assert.deepEqual(f.kernel.getObject('defender').location, field('bf1'));
+  assert.notEqual(f.flow.battlefields[0].staged, 'combat');
+  assert.equal(f.flow.battlefields[0].contestedBy, null);
+  assert.equal(f.events('conquer').length, 0);
+  assert.equal(f.events('score').length, 0);
+  assert.equal(f.flow.active, false);
+  assert.equal(f.events('combat-start').length, 1);
+  assert.equal(f.kernel.player('A').score, 0);
+});
+
+test('EG-COMBAT CR 468.1 Special Cleanup heals all Board Units before combat-result', () => {
+  const f = combatFixture({
+    attacker: { id: 'attacker', might: 4, cardId: null, keywords: [] },
+    defender: { id: 'defender', might: 3, cardId: null, keywords: [] },
+    cleanup: 'none',
+    extraUnits: [{
+      id: 'outside-wounded', controller: 'A', might: 5, damage: 2,
+      location: field('bf2'),
+    }],
+  });
+  f.started();
+  f.closeShowdown();
+  f.flow.prepareDamage();
+  f.flow.submitAttackerDamage('A', [{ uid: 'defender', amount: 4 }]);
+  f.flow.submitDefenderDamage('B', [{ uid: 'attacker', amount: 3 }]);
+  f.chain.advance();
+  f.flow.advance();
+  f.flow.advance();
+  assert.equal(f.kernel.getObject('outside-wounded').damage, 0);
+  assert.equal(f.kernel.getObject('attacker').damage, 0);
+  assert.equal(f.kernel.getObject('defender').damage, 0);
+  assert.equal(f.events('combat-result').length, 1);
+  assert.equal(f.events('damage-dealt').some(event => event.target.ref.id === 'outside-wounded'), false,
+    'Special Cleanup healing is not a combat damage event');
+});
+
+test('EG-COMBAT CR 468.1.a.2 recalls Attackers through RecallAction and marks the Combat No Result', () => {
   const f = combatFixture({
     attacker: { id: 'attacker', might: 4, cardId: null, keywords: [] },
     defender: { id: 'defender', might: 4, cardId: null, keywords: [] },
-    cleanup: 'none',
+  });
+  f.started();
+  f.closeShowdown();
+  f.flow.prepareDamage();
+  f.flow.submitAttackerDamage('A', [{ uid: 'defender', amount: 4 }]);
+  f.flow.submitDefenderDamage('B', [{ uid: 'attacker', amount: 4 }]);
+  f.chain.advance();
+  f.flow.advance();
+  const recalled = f.kernel.getObject('attacker');
+  assert.deepEqual(recalled.location, { type: 'base', player: 'A' });
+  assert.equal(recalled.ref.zoneEntryId, 1, 'Recall preserves the exact incarnation');
+  assert.equal(recalled.controller, 'A');
+  assert.equal(recalled.damage, 0);
+  assert.equal(f.kernel.history({ action: 'move-location', object: recalled.ref }), 0);
+  assert.equal(f.kernel.history({ action: 'recall', object: recalled.ref }), 1);
+  assert.equal(f.events('object-moved').filter(event => event.object.ref.id === 'attacker').length, 0);
+  assert.equal(f.events('cleanup-end').length > 0, true);
+  assert.equal(f.flow.current?.cleanup?.recall?.receipt.transactionId, 'combat:bf1:1:recall');
+  assert.deepEqual(f.flow.current?.cleanup?.recall?.unitKeys, ['attacker:1']);
+  f.flow.advance();
+  assert.equal(f.events('combat-result')[0].details.noResult, true);
+});
+
+test('EG-COMBAT Recall ignores Base and other Battlefield Units when determining local Remaining', () => {
+  const f = combatFixture({
+    attacker: { id: 'attacker', might: 5, cardId: null, keywords: [] },
+    defender: { id: 'defender', might: 5, cardId: null, keywords: [] },
+    extraUnits: [
+      { id: 'nearby-a', controller: 'A', might: 9, location: { type: 'base', player: 'A' } },
+      { id: 'nearby-b', controller: 'B', might: 9, location: { type: 'base', player: 'B' } },
+    ],
+  });
+  f.started();
+  f.closeShowdown();
+  f.flow.prepareDamage();
+  f.flow.submitAttackerDamage('A', [{ uid: 'defender', amount: 5 }]);
+  f.flow.submitDefenderDamage('B', [{ uid: 'attacker', amount: 5 }]);
+  f.chain.advance();
+  f.flow.advance();
+  f.flow.advance();
+  assert.equal(f.events('combat-result')[0].details.noResult, true);
+  assert.equal(f.events('combat-result')[0].details.winnerId, null);
+  assert.equal(f.kernel.getObject('attacker').location.type, 'base');
+  assert.deepEqual(f.kernel.getObject('defender').location, field('bf1'));
+  assert.equal(f.flow.battlefields[0].staged, 'none');
+  assert.equal(f.flow.battlefields[0].contestedBy, null);
+  assert.equal(f.events('combat-start').length, 1);
+});
+
+test('EG-COMBAT multi-Attacker CR 468.1 Special Cleanup Recall is atomic and retryable', () => {
+  const f = combatFixture({
+    attacker: { id: 'attacker', might: 4, cardId: null, keywords: [] },
+    defender: { id: 'defender', might: 4, cardId: null, keywords: [] },
+    extraUnits: [{ id: 'attacker2', controller: 'A', might: 2, location: field('bf1') }],
+  });
+  f.started();
+  f.closeShowdown();
+  f.flow.prepareDamage();
+  f.flow.submitAttackerDamage('A', [{ uid: 'defender', amount: 6 }]);
+  f.flow.submitDefenderDamage('B', [
+    { uid: 'attacker', amount: 4 },
+  ]);
+  f.chain.advance();
+  let recallCalls = 0;
+  const executeContract = f.host.executeContract;
+  f.host.executeContract = action => {
+    if (action.type === 'batch' && action.actions.some(leaf => leaf.type === 'recall')) {
+      recallCalls++;
+      if (recallCalls === 1) throw new Error('second recall failed');
+    }
+    return executeContract(action);
+  };
+  assert.throws(() => f.flow.advance(), /second recall failed/);
+  assert.deepEqual(f.kernel.getObject('attacker').location, field('bf1'));
+  assert.deepEqual(f.kernel.getObject('attacker2').location, field('bf1'));
+  assert.equal(f.flow.current?.step, 'cleanup');
+  assert.equal(f.kernel.history({ action: 'recall' }), 0);
+  f.host.executeContract = executeContract;
+  f.flow.advance();
+  f.flow.advance();
+  assert.equal(recallCalls, 1);
+  assert.equal(f.kernel.history({ action: 'recall', object: f.kernel.ref('attacker') }), 1);
+  assert.equal(f.kernel.history({ action: 'recall', object: f.kernel.ref('attacker2') }), 1);
+  assert.equal(f.events('combat-result')[0].details.noResult, true);
+});
+
+test('EG-COMBAT Recall contract never emits object-moved or changes state when the batch rejects', () => {
+  const f = combatFixture({
+    attacker: { id: 'attacker', might: 4, cardId: null, keywords: [] },
+    defender: { id: 'defender', might: 4, cardId: null, keywords: [] },
+    extraUnits: [{ id: 'attacker2', controller: 'A', might: 2, location: field('bf1') }],
+  });
+  f.started();
+  f.closeShowdown();
+  f.flow.prepareDamage();
+  f.flow.submitAttackerDamage('A', [{ uid: 'defender', amount: 6 }]);
+  f.flow.submitDefenderDamage('B', [{ uid: 'attacker', amount: 4 }]);
+  f.chain.advance();
+  const original = f.host.executeContract;
+  f.host.executeContract = action => {
+    if (action.type === 'batch' && action.actions.some(leaf => leaf.type === 'recall')) {
+      return { outcome: { status: 'impossible', events: [], receipt: {
+        transactionId: action.transactionId, status: 'rolled-back',
+        actions: action.actions.map(leaf => ({ type: leaf.type, status: 'impossible' })),
+      } }, emissions: [] };
+    }
+    return original(action);
+  };
+  assert.throws(() => f.flow.advance(), /could not atomically Recall/);
+  assert.deepEqual(f.kernel.getObject('attacker').location, field('bf1'));
+  assert.deepEqual(f.kernel.getObject('attacker2').location, field('bf1'));
+  assert.equal(f.events('object-moved').length, 0);
+  assert.equal(f.kernel.history({ action: 'recall' }), 0);
+});
+
+test('EG-COMBAT CR 468.5 pauses at Control when no Score producer is attached', () => {
+  const f = combatFixture({ cleanup: 'lethal' });
+  f.started();
+  f.closeShowdown();
+  f.flow.prepareDamage();
+  f.flow.submitAttackerDamage('A', [{ uid: 'defender', amount: 4 }]);
+  f.flow.submitDefenderDamage('B', [{ uid: 'attacker', amount: 3 }]);
+  f.chain.advance();
+  f.flow.advance();
+  f.flow.advance();
+  assert.equal(f.flow.current?.step, 'control');
+  assert.equal(f.flow.snapshot(f.kernel.getObject('attacker')).combatRole, 'attacker');
+  assert.equal(f.events('combat-end').length, 0);
+  assert.equal(f.events('combat-result').length, 1);
+  f.flow.advance();
+  assert.equal(f.flow.current?.scorer, 'A');
+  assert.equal(f.events('conquer').length, 0);
+  assert.equal(f.events('control-established').length, 0);
+  assert.equal(f.events('combat-end').length, 0);
+  assert.equal(f.flow.current?.queued, true);
+  assert.equal(f.events('combat-result')[0].details.winnerId, 'A');
+});
+
+test('EG-COMBAT a combat-result trigger pauses Control FEPR until the control-established chain resolves', () => {
+  const f = combatFixture({
+    attacker: { id: 'attacker', might: 4, cardId: null, keywords: [] },
+    defender: { id: 'defender', might: 4, cardId: null, keywords: [] },
+  });
+  f.chain.pipeline.registerTrigger({
+    id: 'result-observer-a', source: f.kernel.getObject('attacker'), controller: 'A',
+    spec: { at: 'combat-result', filter: { event: 'combat-result' } }, body: [],
+  });
+  f.chain.pipeline.registerTrigger({
+    id: 'result-observer-b', source: f.kernel.getObject('defender'), controller: 'B',
+    spec: { at: 'combat-result', filter: { event: 'combat-result' } }, body: [],
   });
   f.started();
   f.closeShowdown();
@@ -641,19 +1058,32 @@ test('EG-COMBAT CR 468.3.d.1 restages Showdown and Combat when both sides surviv
   f.chain.advance();
   f.flow.advance();
   f.flow.advance();
-  f.flow.advance();
-  assert.equal(f.events('combat-result')[0].details.noResult, true);
-  assert.equal(f.flow.battlefields[0].staged, 'combat');
-  assert.equal(f.flow.battlefields[0].contestedBy, 'A');
-  assert.equal(f.events('conquer').length, 0);
-  assert.equal(f.events('score').length, 0);
+  assert.equal(f.chain.items.length, 2);
+  assert.deepEqual(f.chain.items.map(item => item.controller), ['A', 'B']);
+  assert.equal(f.chain.items.every(item => item.status === 'pending'), true);
+  assert.equal(f.flow.current?.step, 'control');
+});
 
+test('EG-COMBAT CR 468.6 waits for Control FEPR before Combat ends without a Score producer', () => {
+  const f = combatFixture({ cleanup: 'lethal' });
+  f.chain.pipeline.registerTrigger({
+    id: 'control-observer', source: f.kernel.getObject('attacker'), controller: 'A',
+    spec: { at: 'control-established', filter: { event: 'control-established' } }, body: [],
+  });
+  f.started();
+  f.closeShowdown();
+  f.flow.prepareDamage();
+  f.flow.submitAttackerDamage('A', [{ uid: 'defender', amount: 4 }]);
+  f.flow.submitDefenderDamage('B', [{ uid: 'attacker', amount: 3 }]);
   f.chain.advance();
   f.flow.advance();
-  assert.equal(f.flow.active, true);
-  assert.equal(f.flow.lifecycle?.attacker, 'A');
-  assert.equal(f.flow.lifecycle?.defender, 'B');
-  assert.equal(f.chain.turnState.startsWith('showdown'), true);
-  assert.equal(f.events('combat-start').length, 2);
-  assert.equal(f.kernel.player('A').score, 0);
+  f.flow.advance();
+  f.flow.advance();
+  f.flow.advance();
+  assert.equal(f.events('control-established').length, 0);
+  assert.equal(f.chain.items.length, 0);
+  assert.equal(f.events('combat-end').length, 0);
+  assert.equal(f.flow.snapshot(f.kernel.getObject('attacker')).combatRole, 'attacker');
+  assert.equal(f.flow.current?.step, 'control');
+  assert.equal(f.flow.current?.queued, true);
 });

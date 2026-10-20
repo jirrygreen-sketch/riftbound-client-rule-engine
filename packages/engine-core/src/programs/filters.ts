@@ -162,18 +162,58 @@ function triggerObject(input: Record<string, unknown>, sourceRefId: string): Rec
   return output;
 }
 
+function normalizeMightyTransition(output: Record<string, unknown>, becomesMighty: unknown): void {
+  const object = output.object;
+  const normalizedKind = output.event ?? output.type ?? output.kind;
+  if (normalizedKind === undefined || canonicalEventPatternType(normalizedKind as typeof EVENT_PATTERN_TYPES[number]) !== 'might-changed' ||
+      typeof object !== 'object' || object === null || Array.isArray(object) ||
+      becomesMighty !== true) {
+    throw new ProgramBindingError('judge-required', 'becomesMighty is supported only as true on might-changed Unit events');
+  }
+  const candidate = object as Record<string, unknown>;
+  const type = candidate.type;
+  if (type !== 'unit' && !(Array.isArray(type) && type.includes('unit'))) {
+    throw new ProgramBindingError('judge-required', 'becomesMighty requires a Unit object predicate');
+  }
+  if (output.details !== undefined && output.details !== null && typeof output.details === 'object' &&
+      Object.hasOwn(output.details, 'becomesMighty') &&
+      (output.details as Record<string, unknown>).becomesMighty !== true) {
+    throw new ProgramBindingError('invalid-program', 'Conflicting becomesMighty predicates');
+  }
+  output.details = { ...(record(output.details ?? {})), becomesMighty: true };
+}
+
 export function translateTriggerFilter(input: ObjectFilter | EventPattern | Record<string, unknown>, sourceRefId: string, defaultEvent = 'object-entered-zone'): ObjectFilter | EventPattern {
   const raw = record(input);
+  if (Object.hasOwn(raw, 'becomesMighty')) {
+    throw new ProgramBindingError('judge-required', 'becomesMighty must be inside a typed might-changed event pattern');
+  }
+  const rawBattlefieldWas = raw.battlefieldWas;
+  if (rawBattlefieldWas !== undefined && rawBattlefieldWas !== 'uncontrolled') {
+    throw new ProgramBindingError('judge-required', `Unsupported battlefieldWas ${String(rawBattlefieldWas)}`);
+  }
   const hasEventType = isEventType(raw.type);
+  const hasMightyPredicate = raw.object !== null && typeof raw.object === 'object' && Object.hasOwn(raw.object, 'becomesMighty');
+  const hasDetailsMightyPredicate = raw.details !== null && typeof raw.details === 'object' && !Array.isArray(raw.details) && Object.hasOwn(raw.details, 'becomesMighty');
   const pattern = raw.event !== undefined || raw.kind !== undefined || hasEventType || raw.filter !== undefined ||
-    ['player', 'fromZone', 'toZone', 'amount', 'details', 'relations'].some(key => key in raw) ||
-    ['object', 'source', 'target', 'it'].some(key => raw[key] !== undefined && !isSelector(raw[key]));
+    ['player', 'fromZone', 'toZone', 'amount', 'details', 'relations', 'battlefieldWas'].some(key => key in raw) ||
+    ['object', 'source', 'target', 'it'].some(key => raw[key] !== undefined && !isSelector(raw[key])) ||
+    hasMightyPredicate || hasDetailsMightyPredicate;
   if (!pattern) return triggerObject(raw, sourceRefId) as ObjectFilter;
 
   const output: Record<string, unknown> = {};
   const object: Record<string, unknown> = {};
+  const battlefieldWas = rawBattlefieldWas === 'uncontrolled' ? 'uncontrolled' : undefined;
+  let becomesMighty: unknown;
   const mergeObject = (filter: Record<string, unknown>) => {
-    for (const [key, value] of Object.entries(triggerObject(filter, sourceRefId))) {
+    if (Object.hasOwn(filter, 'becomesMighty')) {
+      if (becomesMighty !== undefined && !Object.is(becomesMighty, filter.becomesMighty)) {
+        throw new ProgramBindingError('invalid-program', 'Conflicting becomesMighty predicates');
+      }
+      becomesMighty = filter.becomesMighty;
+    }
+    const ordinary = Object.fromEntries(Object.entries(filter).filter(([key]) => key !== 'becomesMighty'));
+    for (const [key, value] of Object.entries(triggerObject(ordinary, sourceRefId))) {
       if (key === 'tags' || key === 'states') append(object, key, value);
       else put(object, key, value);
     }
@@ -190,6 +230,13 @@ export function translateTriggerFilter(input: ObjectFilter | EventPattern | Reco
     mergeObject(nested);
   }
   if (raw.object !== undefined && !isSelector(raw.object)) mergeObject(record(raw.object));
+  if (hasDetailsMightyPredicate) {
+    const detailMatcher = (raw.details as Record<string, unknown>).becomesMighty;
+    if (becomesMighty !== undefined && !Object.is(becomesMighty, detailMatcher)) {
+      throw new ProgramBindingError('invalid-program', 'Conflicting becomesMighty predicates');
+    }
+    becomesMighty = detailMatcher;
+  }
   const flat: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw)) {
     if (['object', 'source', 'target', 'it'].includes(key)) {
@@ -199,6 +246,8 @@ export function translateTriggerFilter(input: ObjectFilter | EventPattern | Reco
     else if (key === 'player') {
       const player = normalizePlayer(value);
       put(output, key, typeof player === 'string' && !['self', 'opponent', 'any'].includes(player) ? { playerId: player } : player);
+    } else if (key === 'battlefieldWas') {
+      // Captured above before ordinary object-filter normalization.
     } else if (key !== 'filter') {
       if (eventFields.has(key)) output[key] = value;
       else flat[key] = value;
@@ -207,6 +256,14 @@ export function translateTriggerFilter(input: ObjectFilter | EventPattern | Reco
   if (Object.keys(flat).length) mergeObject(flat);
   if (Object.keys(object).length || raw.object !== undefined) output.object = object;
   if (!['event', 'type', 'kind'].some(key => key in output)) output.event = defaultEvent;
+  if (becomesMighty !== undefined) normalizeMightyTransition(output, becomesMighty);
+  if (battlefieldWas !== undefined) {
+    const actual = output.event ?? output.type ?? output.kind;
+    if (canonicalEventPatternType(actual as typeof EVENT_PATTERN_TYPES[number]) !== 'conquer') {
+      throw new ProgramBindingError('judge-required', 'battlefieldWas is supported only for conquer events');
+    }
+    output.details = { ...(record(output.details ?? {})), battlefieldControllerBefore: null };
+  }
   const discriminants = ['event', 'type', 'kind'].filter(key => key in output);
   if (discriminants.every(key => isEventType(output[key])) && new Set(discriminants.map(key => canonicalEventPatternType(output[key] as typeof EVENT_PATTERN_TYPES[number]))).size > 1) {
     throw new ProgramBindingError('invalid-program', 'Conflicting event filter discriminants');
