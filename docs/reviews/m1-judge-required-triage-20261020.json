@@ -1,0 +1,3184 @@
+{
+  "schema": "riftbound.m1-judge-required-triage.v1",
+  "generatedAt": "2026-10-20",
+  "integration": {
+    "commit": "6bd463e330afe7a6fa4ddbb556b987c89a4e4815",
+    "commitSubject": "Merge task/RIFT-846-eg-layers-modifier-consumers",
+    "branchRelationship": "HEAD == integration == task/RIFT-875-m1-judge-required-triage"
+  },
+  "sources": {
+    "plan": "/root/swarm-rift/shared/m1-two-precons-plan.json",
+    "manifest": {
+      "path": "docs/plans/m1-two-precons-manifest.json",
+      "sha256": "54eb21b6e6b0eabe2d7fbed0ffafe0923ac997facb92a689da22365e26a412e6"
+    },
+    "deckManifest": {
+      "path": "docs/plans/m1-decks.json",
+      "sha256": "17227200ed8b5db2f09cd5e7e05949b72c7c13bdab50ac1e954739c76b14ff04"
+    },
+    "catalog": {
+      "path": "packages/card-data/data/deck-catalog.json",
+      "sha256": "06d99a589fed6046bff8072847946d5304a8ca43ef1e4e2c680c4a7a0f1df766"
+    },
+    "cardRegistry": {
+      "path": "packages/card-dsl/src/cards/registry.generated.ts",
+      "sha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+    },
+    "rules": {
+      "path": "/root/swarm-rift/shared/rules/CR-v1.5.txt",
+      "version": "Core Rules v1.5",
+      "published": "2026-10-09",
+      "effective": "2026-10-16",
+      "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf"
+    },
+    "officialPolicy": "/root/swarm-rift/shared/official-effect-order-policy.json",
+    "sourceSnapshots": "/root/swarm-rift/shared/rules/official-order/source-snapshots.json"
+  },
+  "summary": {
+    "canonicalCount": 51,
+    "programStatus": {
+      "judge-required": 25,
+      "executable": 22,
+      "no-ability": 4
+    },
+    "unlockedWritable": 2,
+    "contractBlocked": 1,
+    "dependency": 22,
+    "executableProductionGoldenMissing": 22,
+    "taskCardExpected": {
+      "executable": 23,
+      "judge-required": 24,
+      "no-ability": 4
+    },
+    "taskCardObservedCountMismatch": "Task card expected 23 executable / 24 judge-required / 4 no-ability; current manifest and registry (also unchanged from merge parent) are 22 / 25 / 4. The report uses the current snapshot.",
+    "verifiedNoAbility": 4
+  },
+  "cards": [
+    {
+      "canonicalCardId": "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+      "name": "Strike Down",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/strike-down.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/strike-down.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "「Choose an equipped friendly unit. It deals damage equal to its Might to an enemy unit.」已用 object-attribute 表达式表达，effect.damage 的 amount/source 都读取 pick 结果，golden 通过参考内核真实执行；effect.detach 也已合入并按 linkedTo 处理。仍不能标 executable 的当前缺口：(1) Chain Finalize 只为 instruction.targets 生成 TargetPlan，finalizeOrderedPickPlans 也只会锁定声明 zoneSlice/linked 的 pick；本卡两个 filter 驱动的 pick 实测得到空计划，没有填充 ObjectRef 的生产生命周期（非目标、非有序 pick）；(2)「equipped friendly unit」需要 ObjectFilter 的 equipped 谓词：programs/filters.ts 拒绝该字段，layers/filter.ts 又忽略未知键，缺了它会让任意友方单位都成为合法选择；(3) detach 的 Equipment 选择同样依赖该 pick 生命周期。把 Choose 误建成 TargetSpec 会错误触发成为目标效果（v1.5 355.10），故不近似实现。",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-COSTCHOICE/EG-FINALIZE/EG-PICKS",
+      "assessment": "Optional additional cost and authoritative object pick must be frozen at Finalize and paid atomically.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "Choose an equipped friendly unit. It deals damage equal to its Might to an enemy unit. Then detach an Equipment from it.",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: nontarget-picks-equipment",
+        "manifestDependencies": [
+          {
+            "key": "nontarget-picks-equipment",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/programs/filters.ts",
+              "packages/engine-core/src/chain/picks/plan.ts",
+              "packages/engine-core/src/target/picks/plan.ts",
+              "packages/engine-core/src/effects/instructions/effect.detach.ts",
+              "packages/engine-core/src/effects/keywords/Weaponmaster.ts"
+            ],
+            "reason": "Non-target picks, equipped/attached predicates, and authoritative Equip cost provenance need production Finalize consumers.",
+            "gapLabels": [
+              "EG-TARGETS",
+              "EG-GEAR",
+              "EG-FILTER",
+              "EG-FINALIZE"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/strike-down.test.mjs",
+          "sha256": "31e7beca7d59c831fa574ec426e28843dff360ca8383b0511d12886fb9f3f79a"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/strike-down.ts",
+        "test": "packages/card-dsl/test/cards/sfd/strike-down.test.mjs"
+      },
+      "priority": {
+        "rank": 1,
+        "headlessCurrent": 528,
+        "sharedGuardProbe": 356,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40",
+      "name": "Forecaster",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/forecaster.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/forecaster.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "当前缺口是运行时获得的 Vision 的生产消费路径：KeywordGrantLayerEngine.staticEffects 对运行时 Vision 实例抛 judge-required（原文 \"Dynamic triggered keyword abilities need a lifecycle binder\"，keyword-grants.ts:236），production lifecycle（attachProgramLifecycle）也不消费 keywordAbilities()，所以 Vision 展开的 817.1.b triggered Predict 能力没有被注册到真实链上。展开体本身有参考内核真实执行证据（补上有序 deck-top picks 与可选回答后 look+recycle 真实发生、牌库重排），但展开体没有 zoneSlice picks 声明，放进生产 ChainEngine 时 orderedPickSpecs 收集不到、inspect 静默查 0 张；player 仍是 constant(\"A\") 占位。装配层需要按真实控制者与牌库顶绑定展开体并提供 lifecycle binder；zoneSlice 锁定机制本身已合入并有他卡执行证据，此处不列为机制缺口。static binder、controller: \"controller\" 的相对玩家归一化和 continuous.grant-keyword 本体已有真实执行证据，但这些证据不等价于 Predict 已在生产链执行，不近似实现。",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-KEYWORDS/EG-TRIGGERS/EG-LIFECYCLE",
+      "assessment": "Vision still requires runtime keyword re-expansion plus triggered Predict and deck-top lifecycle support.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "Your Mechs have [Vision]. (When you play us, look at the top card of your Main Deck. You may recycle it.)",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: production-lifecycle-keyword-reexpansion",
+        "manifestDependencies": [
+          {
+            "key": "production-lifecycle-keyword-reexpansion",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/programs/lifecycle.ts",
+              "packages/engine-core/src/programs/keyword-grants.ts",
+              "packages/engine-core/src/programs/statics.ts",
+              "packages/engine-core/src/layers/rules/query.ts",
+              "packages/engine-core/src/replacement/bind.ts"
+            ],
+            "reason": "Production lifecycle does not consume every dynamic keyword and replacement condition. Target tax, Ganking, Vision, Assault designation, and entry-ready gating need real consumers.",
+            "gapLabels": [
+              "EG-GRANTS",
+              "EG-KEYWORDS",
+              "EG-LAYERS",
+              "EG-PERMISSIONS",
+              "EG-TAX",
+              "EG-REPLACEMENT"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/forecaster.test.mjs",
+          "sha256": "2dcbab63fb01d24d190eb8f9f51999b991319810ac447909eaa0ade3f43e404b"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/forecaster.ts",
+        "test": "packages/card-dsl/test/cards/sfd/forecaster.test.mjs"
+      },
+      "priority": {
+        "rank": 2,
+        "headlessCurrent": 339,
+        "sharedGuardProbe": 129,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7",
+      "name": "Veteran Poro",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/veteran-poro.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/veteran-poro.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "[Weaponmaster]（821.1.c.2-.5）仍缺所选 Equipment 的权威 Equip 费用绑定：cost.modify 的 source 分支能找到所选装备，但实测按 821.1.c.2 fail-closed（judge-required: missing authoritative Equip-cost binding; original [A]/[C] symbols required），reduce-equip-cost 也按 821.1.c.3 拒绝把六域 allowedDomains 当作原始 [A]/[C] 符号来源；不能用装备的打出费用或全价 Equip 近似。生产链路上该展开的费用子体同样不能消费：chain/interpreter-adapter.ts 的 LITERAL_FIELDS 没有 cost.modify，实测 resolveChainBody 对卡内 IR（source/modifier 都被 constant 信封包裹）抛 \"Invalid cost.modify modifier argument: value\"；在真实 Finalize 已锁定所选 Equipment 的情形下，原语 source 分支仍按 821.1.c.2 抛 judge-required \"missing authoritative Equip-cost binding ... original [A]/[C] symbols required\"。支付成功后的 cost.pay/effect.attach 成功门控与 Finalize 计划消费也仍未接通。已核实不再缺：Weaponmaster 展开的 card-played 触发经生产 lifecycle 注册、随实际打出事件触发并锁定所选 Equipment（golden 的真实打出场景）。不近似实现。",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-COSTCHOICE/EG-FINALIZE/EG-QUERY",
+      "assessment": "Equip cost and defeated-unit reference require authoritative choice/payment and history observation.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Weaponmaster]",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: nontarget-picks-equipment",
+        "manifestDependencies": [
+          {
+            "key": "nontarget-picks-equipment",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/programs/filters.ts",
+              "packages/engine-core/src/chain/picks/plan.ts",
+              "packages/engine-core/src/target/picks/plan.ts",
+              "packages/engine-core/src/effects/instructions/effect.detach.ts",
+              "packages/engine-core/src/effects/keywords/Weaponmaster.ts"
+            ],
+            "reason": "Non-target picks, equipped/attached predicates, and authoritative Equip cost provenance need production Finalize consumers.",
+            "gapLabels": [
+              "EG-TARGETS",
+              "EG-GEAR",
+              "EG-FILTER",
+              "EG-FINALIZE"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/veteran-poro.test.mjs",
+          "sha256": "ea7f5d4dbbd8bb64a6f45fa414ac40b158fb95bab7c86763b7b1240a3bae22bd"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/veteran-poro.ts",
+        "test": "packages/card-dsl/test/cards/sfd/veteran-poro.test.mjs"
+      },
+      "priority": {
+        "rank": 3,
+        "headlessCurrent": 189,
+        "sharedGuardProbe": 330,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9",
+      "name": "Gem Jammer",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/gem-jammer.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/gem-jammer.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "当前缺口是 production lifecycle 的动态重展开接线：运行时获得的 Ganking 已可由合入的 KeywordGrantLayerEngine消费成 810.1.b/810.1.c 的 movement permission，layers/rules/query 的 movement()/canGank 也能读取battlefield-to-battlefield route；但 production lifecycle 仍使用普通 LayerEngine，card-played 结算后的授予不会进入该 re-expander，标准移动合法性检查因此还不能消费这张卡的许可。continuous.grant-keyword、Ganking KeywordDef 与 card-played 触发注册本身已可执行；golden 经真实 ChainEngine 管线执行本卡 card-played 触发并断言授予范围与 end-of-turn 到期，不近似实现。",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-KEYWORDS/EG-GRANTS/EG-PERMISSIONS/EG-LIFECYCLE",
+      "assessment": "Default lifecycle does not publish Ganking as an executable play permission.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "When you play me, give a unit [Ganking] this turn. (It can move from battlefield to battlefield.)",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: production-lifecycle-keyword-reexpansion",
+        "manifestDependencies": [
+          {
+            "key": "production-lifecycle-keyword-reexpansion",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/programs/lifecycle.ts",
+              "packages/engine-core/src/programs/keyword-grants.ts",
+              "packages/engine-core/src/programs/statics.ts",
+              "packages/engine-core/src/layers/rules/query.ts",
+              "packages/engine-core/src/replacement/bind.ts"
+            ],
+            "reason": "Production lifecycle does not consume every dynamic keyword and replacement condition. Target tax, Ganking, Vision, Assault designation, and entry-ready gating need real consumers.",
+            "gapLabels": [
+              "EG-GRANTS",
+              "EG-KEYWORDS",
+              "EG-LAYERS",
+              "EG-PERMISSIONS",
+              "EG-TAX",
+              "EG-REPLACEMENT"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/gem-jammer.test.mjs",
+          "sha256": "bf152634e8f28395e2345f2fa8b539f4e0c0df8c0c1e88392a4209a1eaeb1f3c"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/gem-jammer.ts",
+        "test": "packages/card-dsl/test/cards/sfd/gem-jammer.test.mjs"
+      },
+      "priority": {
+        "rank": 4,
+        "headlessCurrent": 205,
+        "sharedGuardProbe": 290,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-569dc9079a6d404c0d850d27b510585b856ab3def5e1e0bbafa30a3bf9d48e82",
+      "name": "Plundering Poro",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/plundering-poro.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/plundering-poro.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "Two gaps. (1) The body cannot create the printed token: effect.token's frozen definition table deliberately omits the Gold gear token (CR 187.5 prints \"[Reaction][>] Kill this, [E]: [Add] [A]\", i.e. a definition with an ability, and the primitive's own contract keeps such definitions blocked), and effect.token supports no entry override, so the token cannot enter exhausted (CR 143.4 / 185.2.d); replacing the entry state with a later exhaust action would be an approximation. Token play mode itself is merged (create-token to chain + play). (2) The conquer timing point has no carrier identity: turn/flow.ts's Score wave emits { player, details: { battlefieldId } } only, so the source:self filter of a unit-relative Conquer Effect (CR 383.4.c.2.a) can never match, and neither EventPattern nor ObjectFilter offers a battlefield-relative anchor. Dependencies: a Gold token definition with its prin",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-TOKEN/EG-PLAY/EG-LIFECYCLE/EG-COMBAT",
+      "assessment": "Play-me Gold token path lacks the real token-program adapter and conquer/combat event payloads.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "When I conquer, play a Gold gear token exhausted.",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: token-entry-deathknell, combat-event-payload-location-hold",
+        "manifestDependencies": [
+          {
+            "key": "token-entry-deathknell",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/effects/instructions/effect.token.ts",
+              "packages/engine-core/src/effects/tokens/definitions.ts",
+              "packages/engine-core/src/effects/keywords/Deathknell.ts",
+              "packages/engine-core/src/programs/lifecycle.ts",
+              "packages/engine-core/src/chain/engine.ts"
+            ],
+            "reason": "Controller-base token location, Gold/Universal Power semantics, exhausted entry, and the real Deathknell body binding are incomplete. RIFT-831 lifecycle regressions are merged but do not prove these cards.",
+            "gapLabels": [
+              "EG-TOKEN",
+              "EG-LIFECYCLE",
+              "EG-POWER"
+            ]
+          },
+          {
+            "key": "combat-event-payload-location-hold",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/combat/flow.ts",
+              "packages/engine-core/src/turn/flow.ts",
+              "packages/engine-core/src/events/pipeline-match.ts",
+              "packages/engine-core/src/events/trigger-spec.ts",
+              "packages/engine-core/src/programs/filters.ts"
+            ],
+            "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+            "gapLabels": [
+              "EG-COMBAT",
+              "EG-COMBATPRIORITY",
+              "EG-PAYLOAD",
+              "EG-FILTER",
+              "EG-EVENTS",
+              "EG-TURN",
+              "EG-LOCATIONS",
+              "EG-MOVE"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/plundering-poro.test.mjs",
+          "sha256": "cab14c26ad7731650ab6ac0f94a8e5a8f1b67a2e2be95cc92b180348a82b7a40"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/plundering-poro.ts",
+        "test": "packages/card-dsl/test/cards/sfd/plundering-poro.test.mjs"
+      },
+      "priority": {
+        "rank": 5,
+        "headlessCurrent": 122,
+        "sharedGuardProbe": 267,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-d4e849d845765608b07bf4af4aa19877f6303dfff539b541d0d070320dd05d91",
+      "name": "Dangerous Duo",
+      "sourcePath": "packages/card-dsl/src/cards/ogn/dangerous-duo.ts",
+      "testPath": "packages/card-dsl/test/cards/ogn/dangerous-duo.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "缺 continuous.might 正文进链前的 Legion 历史条件适配（CR 812.1.b.1/812.1.c、383.2.c）：普通 count 表达式只查询当前对象，不读取 cards-finalized-this-turn 历史；condition.history 已是解释器指令，HistoryQuery.exclude:self 也已能排除本卡并保留同名的另一实体，但尚无将该查询用于 TriggerSpec.condition 的条件表达式。还须对齐本回合 Finalize 时点的记录与重置；程序触发注册本身已有实现。",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-TRIGGERS/EG-FINALIZE/EG-HISTORY",
+      "assessment": "The Finalize-time history condition requires authoritative event history and production trigger evaluation.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Legion] — When you play me, give a unit +2 :rb_might: this turn. (Get the effect if you've played another card this turn.)",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: legion-history-condition",
+        "manifestDependencies": [
+          {
+            "key": "legion-history-condition",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/events/pipeline-match.ts",
+              "packages/engine-core/src/events/trigger-spec.ts",
+              "packages/engine-core/src/programs/filters.ts",
+              "packages/engine-core/src/effects/interpreter/condition.ts"
+            ],
+            "reason": "Evaluate Legion from the authoritative finalized-card history at the trigger collection time, exclude the source correctly, reset at the turn boundary, and execute the original +2 Might body through the production chain.",
+            "gapLabels": [
+              "EG-TRIGGERS",
+              "EG-EXPR",
+              "EG-FILTER",
+              "EG-EVENTS"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/ogn/dangerous-duo.test.mjs",
+          "sha256": "7819aedea33a60d713d778d687a184e460951b7c67aaf086989e1625136acdef"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/ogn/dangerous-duo.ts",
+        "test": "packages/card-dsl/test/cards/ogn/dangerous-duo.test.mjs"
+      },
+      "priority": {
+        "rank": 6,
+        "headlessCurrent": 223,
+        "sharedGuardProbe": 115,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f",
+      "name": "Show of Strength",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/show-of-strength.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/show-of-strength.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "The amount expression counts 'your Mighty units' through the count filter { type: 'unit', controller: 'you', mightGte: 5 }. Mighty is CR v1.5 706-708 (a unit is Mighty while its Might is 5 or greater). The Mighty KeywordDef has merged (effects/keywords/Mighty.ts), but it only publishes a static `condition.value` 'is-mighty' shape: programs/statics.ts's layerFor has no mapping for it (golden: bindStatic throws ProgramBindingError \"Static ability kind condition.value has no layer mapping\"), layers/engine.ts conditionMatches only resolves always/never/type/has-tag/has-keyword, and ObjectFilter has no Might-threshold slot. Every merged filter matcher silently ignores the unknown `mightGte` key (layers/filter.ts matchesObjectFilter reads type/zone/controller/owner/tags/characteristics only — golden: a Might-1 unit still satisfies the filter once the controller placeholder is bound — the refer",
+      "blockerCategory": "unlocked-writable",
+      "blockingDependencies": "none for card semantics; owner must refresh status and stale test",
+      "assessment": "The production mightGte predicate selects only units with Might >= 5 and the authored draw resolves through ChainEngine.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Reaction] (Play any time, even before spells and abilities resolve.)\nDraw 1 for each of your [Mighty] units. (A unit is Mighty while it has 5+ :rb_might:.)",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: mighty-query-consumer",
+        "manifestDependencies": [
+          {
+            "key": "mighty-query-consumer",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/effects/keywords/Mighty.ts",
+              "packages/engine-core/src/layers/filter.ts",
+              "packages/engine-core/src/programs/filters.ts",
+              "packages/engine-core/src/programs/statics.ts",
+              "packages/engine-core/src/effects/interpreter/expr.ts"
+            ],
+            "reason": "Effective Might >= 5 is not consistently exposed to production filters and static evaluation. Unknown mightGte inputs remain fail-closed.",
+            "gapLabels": [
+              "EG-MIGHT",
+              "EG-EXPR",
+              "EG-FILTER",
+              "EG-STATIC"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/show-of-strength.test.mjs",
+          "sha256": "a3092c9cad437498fae93e49a2f6f51c08ac2006fdaca88ab509e0582d841988"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/show-of-strength.ts",
+        "test": "packages/card-dsl/test/cards/sfd/show-of-strength.test.mjs"
+      },
+      "priority": {
+        "rank": 7,
+        "headlessCurrent": 122,
+        "sharedGuardProbe": 184,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef",
+      "name": "Lucian, Merciless",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/lucian-merciless.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/lucian-merciless.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "Weaponmaster expansion and cost.modify/cost.pay are merged, but the Equipment source branch still blocks with judge-required: no authoritative Equip-cost binding (821.1.c.2), including the original [A]/[C] symbol provenance needed by reduce-equip-cost (821.1.c.3), and chain/interpreter-adapter.ts does not decode the constant modifier Exprs in Weaponmaster's own body (TypeError: Invalid cost.modify modifier argument: value). The conquer producer in turn/flow.ts emits player/details.battlefieldId without participating Unit objects (383.4.c.2.a); programs/filters.ts translates role:self to Lucian's objectId, which has no emitted object to match. effect.ready and once-per-turn registration exist, but neither isolated execution nor registration proves a real conquer trigger. Registration itself is not the gap: programs/triggers.ts produces the conquer and card-played registrations.",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-COSTCHOICE/EG-FINALIZE/EG-EVENTS",
+      "assessment": "Equip cost and the killed-unit history/event consumer require shared production wiring.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Weaponmaster] (When you play me, you may [Equip] one of your Equipment to me for :rb_rune_rainbow: less, even if it's already attached.)\nThe first time I conquer each turn, ready me.",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: combat-event-payload-location-hold, nontarget-picks-equipment",
+        "manifestDependencies": [
+          {
+            "key": "combat-event-payload-location-hold",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/combat/flow.ts",
+              "packages/engine-core/src/turn/flow.ts",
+              "packages/engine-core/src/events/pipeline-match.ts",
+              "packages/engine-core/src/events/trigger-spec.ts",
+              "packages/engine-core/src/programs/filters.ts"
+            ],
+            "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+            "gapLabels": [
+              "EG-COMBAT",
+              "EG-COMBATPRIORITY",
+              "EG-PAYLOAD",
+              "EG-FILTER",
+              "EG-EVENTS",
+              "EG-TURN",
+              "EG-LOCATIONS",
+              "EG-MOVE"
+            ]
+          },
+          {
+            "key": "nontarget-picks-equipment",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/programs/filters.ts",
+              "packages/engine-core/src/chain/picks/plan.ts",
+              "packages/engine-core/src/target/picks/plan.ts",
+              "packages/engine-core/src/effects/instructions/effect.detach.ts",
+              "packages/engine-core/src/effects/keywords/Weaponmaster.ts"
+            ],
+            "reason": "Non-target picks, equipped/attached predicates, and authoritative Equip cost provenance need production Finalize consumers.",
+            "gapLabels": [
+              "EG-TARGETS",
+              "EG-GEAR",
+              "EG-FILTER",
+              "EG-FINALIZE"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/lucian-merciless.test.mjs",
+          "sha256": "6173d1faa61def47b9dcf993eb93304859f2efa9049122230b0e90e224c605a9"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/lucian-merciless.ts",
+        "test": "packages/card-dsl/test/cards/sfd/lucian-merciless.test.mjs"
+      },
+      "priority": {
+        "rank": 8,
+        "headlessCurrent": 183,
+        "sharedGuardProbe": 72,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+      "name": "Fiora, Worthy",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "Fiora's IR, typed Mighty transition, frozen event:it, Finalize cost translation, and event:it ready consumer are source-backed and scoped-probed. The whole card remains blocked pending independent authoritative-host proof of the exact Order Power debit and universal/unknown cost handling; the legacy ResolveContext cannot represent Universal Power (CR 135.2.e.5.a / 163.2.b). No player target, Fiora source fallback, synthetic payment, or card-specific resolution is permitted.",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-POWER/EG-EVENTS/EG-LAYERS",
+      "assessment": "Authoritative host/Order-Power debit and default trigger/layer execution are not yet proven as one production interaction.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "When a unit you control becomes [Mighty], you may pay :rb_rune_order: to ready it. (A unit is Mighty while it has 5+ :rb_might:.)",
+        "manifestEvidenceGap": "872 source and executable component goldens merged; default 4-to-5 producer, TriggerSnapshot event:it assignment, and effect.ready event selector remain incomplete.",
+        "manifestDependencies": [
+          {
+            "key": "might-changed-becomes-mighty-trigger-binding",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/programs/filters.ts",
+              "packages/engine-core/src/events/pipeline-match.ts",
+              "packages/engine-core/src/events/pipeline-types.ts",
+              "packages/engine-core/src/events/action-adapter.ts",
+              "packages/engine-core/src/events/producers/might-change.ts"
+            ],
+            "gapLabels": [
+              "EG-TRIGGERS",
+              "EG-FILTER",
+              "EG-PAYLOAD",
+              "EG-EVENTS"
+            ],
+            "reason": "Matcher supports exact 4-to-5 incarnation transitions, but default programs/filters.ts still rejects object.becomesMighty and default Chain does not publish scanned layer might-changed events.",
+            "evidence": {
+              "parentProbe": "/root/swarm-rift/shared/parent-reviews/integration-f036b0e5-20261019-0745/full-seed-probe.json",
+              "parentProbeSha256": "e366720c974fcda8c18ccd742ef347386c071acc7cbed566be8af966d38c6c23",
+              "observedBlocker": "ProgramBindingError: Unsupported filter field becomesMighty",
+              "historicalSupersession": "The f036 becomesMighty ProgramBindingError was superseded by the merged 4-to-5 matcher/producer; it is not current expected behavior or an acceptance assertion."
+            }
+          },
+          {
+            "key": "event-it-authoritative-bridge",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/programs/trigger-adapters/event-it.ts",
+              "packages/engine-core/src/events/pipeline-types.ts",
+              "packages/engine-core/src/chain/engine.ts",
+              "packages/engine-core/src/effects/interpreter/selectors.ts"
+            ],
+            "gapLabels": [
+              "EG-TRIGGERS",
+              "EG-CONTRACT",
+              "EG-FINALIZE"
+            ],
+            "reason": "872 golden proves current effect.ready schema cannot consume {event:it}; frozen trigger event identity must reach Resolve.",
+            "evidence": {
+              "frozenBindingPath": "packages/engine-core/src/programs/trigger-adapters/event-it.ts",
+              "existingContractTest": "packages/engine-core/test/engine-gaps/event-it-contract.test.mjs",
+              "existingBridgeStatus": "event-it ready fails closed until the 835 bridge"
+            }
+          },
+          {
+            "key": "triggered-optional-order-power-finalize",
+            "owner": "RIFT-872 Fiora source/golden owner plus engine-core Finalize owner",
+            "state": "partially-merged",
+            "paths": [
+              "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+              "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+              "packages/engine-core/src/programs/trigger-adapters/leading-choice.ts",
+              "packages/engine-core/src/programs/trigger-adapters/finalize-cost.ts",
+              "packages/engine-core/src/programs/triggers.ts",
+              "packages/engine-core/src/chain/engine.ts"
+            ],
+            "gapLabels": [
+              "EG-TRIGGERS",
+              "EG-COSTCHOICE",
+              "EG-FINALIZE"
+            ],
+            "reason": "872 source now uses leading choice.optional -> cost.pay Order Power -> effect.ready(event-it); adapter, decline, exact payment, and unpayable removal goldens pass. Whole default trigger path awaits producer/event-it readiness.",
+            "evidence": {
+              "programPath": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+              "programSha256": "b7144c0eabd837204910095171cd0679c5bb8c29c52629a6ee412e63cd4d14db",
+              "observedOps": [
+                "choice.optional",
+                "cost.pay",
+                "effect.ready"
+              ],
+              "missingPaymentInstruction": false,
+              "triggeredAbilityCostFieldPresent": false
+            },
+            "requiredProgramShape": {
+              "trigger": "might-changed",
+              "filter": "friendly unit becomesMighty true",
+              "body": [
+                {
+                  "op": "choice.optional",
+                  "nestedFirst": "cost.pay Order Power"
+                },
+                {
+                  "op": "effect.ready",
+                  "object": "fixed event-it"
+                }
+              ]
+            },
+            "acceptance": [
+              "decline Finalize pays nothing and cancels the whole trigger",
+              "accept Finalize pays exactly one Order Power before Resolve",
+              "Resolve readies the exact frozen event.it incarnation",
+              "unpayable payment rolls back without readiness/receipt/frequency consumption"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs",
+          "sha256": "1ab60ba56f4641fd0582c2cc718ed4c421125ac9606e8a49b40966fc52349cd7",
+          "evidenceKind": "current-observed-not-lock"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/fiora-worthy.ts",
+        "test": "packages/card-dsl/test/cards/sfd/fiora-worthy.test.mjs"
+      },
+      "priority": {
+        "rank": 9,
+        "headlessCurrent": 42,
+        "sharedGuardProbe": 176,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
+      "name": "Wages of Pain",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/wages-of-pain.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/wages-of-pain.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "三处当前缺口（2026-10-18 复核实测；不近似实现）：(1) CR 187.5 的 Gold 仍不在 effect.token 的 frozen DEFINITIONS 表，实测 \"gold\" 走原语返回 negated 且 blockedReason \"token-definition-or-abilities-judge-required\"；内建 [Reaction][>] Kill this, [E]: [Add] [A] 也没有契约表示——[A] 是 Universal Power（135.2.e.5/163.2.b），六域封闭 Domain 无法表示任意域资源，sfd/gold.ts 记录同一缺口；不能用普通无能力 Gear 代替。(2) 184.1/185.2.d 的 exhausted 入场状态覆盖仍缺：effect.token 的 ARGUMENTS 集没有 entersExhausted，实测该参数抛 \"Invalid effect.token argument: entersExhausted\"，create-token 动作明确记录 \"Entry overrides are not supported\"，事后横置不等价（143.4）。(3) Hidden（811.1.b）仍无打出路径：关键词展开为 static cost.hidden，默认 binder 以 \"Static ability kind cost.hidden has no layer mapping\" 拒绝；Hide 行动、面朝下区域、下回合 Reaction 免费打出与 811.1.d.2 的原战场目标限制都没有消费方。已真实执行并可继续作为证据的部分：effect.damage 的 3 点伤害与 stale target 的 ignored(mistargeted) 边界。",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-TOKEN/EG-LIFECYCLE/EG-EVENTS",
+      "assessment": "Gold token creation, entry state and the associated lifecycle/trigger path need a default production adapter.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n[Action] (Play on your turn or in showdowns.)\nDeal 3 to a unit at a battlefield. Play a Gold gear token exhausted.",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: token-entry-deathknell",
+        "manifestDependencies": [
+          {
+            "key": "token-entry-deathknell",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/effects/instructions/effect.token.ts",
+              "packages/engine-core/src/effects/tokens/definitions.ts",
+              "packages/engine-core/src/effects/keywords/Deathknell.ts",
+              "packages/engine-core/src/programs/lifecycle.ts",
+              "packages/engine-core/src/chain/engine.ts"
+            ],
+            "reason": "Controller-base token location, Gold/Universal Power semantics, exhausted entry, and the real Deathknell body binding are incomplete. RIFT-831 lifecycle regressions are merged but do not prove these cards.",
+            "gapLabels": [
+              "EG-TOKEN",
+              "EG-LIFECYCLE",
+              "EG-POWER"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/wages-of-pain.test.mjs",
+          "sha256": "951001e9f23bc2700e37a336551f75d9fb2dd0ac9e6fec9b8feb9747edcaca0c"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/wages-of-pain.ts",
+        "test": "packages/card-dsl/test/cards/sfd/wages-of-pain.test.mjs"
+      },
+      "priority": {
+        "rank": 10,
+        "headlessCurrent": 56,
+        "sharedGuardProbe": 163,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+      "name": "Fiora, Peerless",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/fiora-peerless.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/fiora-peerless.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "one-on-one（740.2.a/740.2.b）现可由同地友方/敌方单位各为 1 的 count 条件表达，已有解释器边界测试；continuous.might 也已真实翻倍并使用 end-of-combat 时长（433.1/468.7.c）。剩余缺口是 CombatFlow.advance 的 combat-start-transaction（466.2 的同时角色/时点事务），attack-declared/defense-declared 尚无生产者；生产事件宿主还必须提供 testTrigger，在触发收集时求值此条件（383.2）。不再将专用 one-on-one opcode 当作必要依赖，整卡保持 judge-required。",
+      "blockerCategory": "unlocked-writable",
+      "blockingDependencies": "none for card semantics; owner must refresh source status and stale test",
+      "assessment": "Native CombatFlow declares attack/defense, testTrigger evaluates one-on-one, and the chain resolves the doubling effect.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "When I attack or defend one on one, double my Might this combat.",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: combat-event-payload-location-hold, mighty-query-consumer",
+        "manifestDependencies": [
+          {
+            "key": "combat-event-payload-location-hold",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/combat/flow.ts",
+              "packages/engine-core/src/turn/flow.ts",
+              "packages/engine-core/src/events/pipeline-match.ts",
+              "packages/engine-core/src/events/trigger-spec.ts",
+              "packages/engine-core/src/programs/filters.ts"
+            ],
+            "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+            "gapLabels": [
+              "EG-COMBAT",
+              "EG-COMBATPRIORITY",
+              "EG-PAYLOAD",
+              "EG-FILTER",
+              "EG-EVENTS",
+              "EG-TURN",
+              "EG-LOCATIONS",
+              "EG-MOVE"
+            ]
+          },
+          {
+            "key": "mighty-query-consumer",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/effects/keywords/Mighty.ts",
+              "packages/engine-core/src/layers/filter.ts",
+              "packages/engine-core/src/programs/filters.ts",
+              "packages/engine-core/src/programs/statics.ts",
+              "packages/engine-core/src/effects/interpreter/expr.ts"
+            ],
+            "reason": "Effective Might >= 5 is not consistently exposed to production filters and static evaluation. Unknown mightGte inputs remain fail-closed.",
+            "gapLabels": [
+              "EG-MIGHT",
+              "EG-EXPR",
+              "EG-FILTER",
+              "EG-STATIC"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/fiora-peerless.test.mjs",
+          "sha256": "1bc7887dcdd9e7d5c4d85005bf67e26bc9aa9b7c9d1cd3964fff42aa3bbae410"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/fiora-peerless.ts",
+        "test": "packages/card-dsl/test/cards/sfd/fiora-peerless.test.mjs"
+      },
+      "priority": {
+        "rank": 11,
+        "headlessCurrent": 139,
+        "sharedGuardProbe": 135,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3",
+      "name": "Ferrous Forerunner",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/ferrous-forerunner.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/ferrous-forerunner.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "Mech 定义（187.4）及链上创建/play（440.2.c/185.2.a）已合入；object-killed 的程序 → TriggerRegistration 绑定也已存在，不能继续列为泛化缺口。当前 effect.token 的 LocationRef 必须带实际 PlayerId，无法表达不依赖来源当前战场的「to your base」（本卡仍保留 controller 占位，不能当成 PlayerId 执行）。此外 Deathknell.ts 的关键词骨架引用 trigger.leave，其正文挂接入口尚不可执行（808.1.c）；本卡显式 object-killed 正文只提供子效果结构证据，不证明关键词完整接通。保留 judge-required；请求 effect.token 支持 controller-base 及 Deathknell 正文绑定。",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-TOKEN/EG-LIFECYCLE/EG-PLAY/EG-POWER",
+      "assessment": "Token body creates two controller-base Mechs, but the whole-card production play route needs a token CardProgram adapter; Deathknell still needs lifecycle proof.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Deathknell] — Play two 3 :rb_might: Mech unit tokens to your base. (When I die, get the effect.)",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: token-entry-deathknell",
+        "manifestDependencies": [
+          {
+            "key": "token-entry-deathknell",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/effects/instructions/effect.token.ts",
+              "packages/engine-core/src/effects/tokens/definitions.ts",
+              "packages/engine-core/src/effects/keywords/Deathknell.ts",
+              "packages/engine-core/src/programs/lifecycle.ts",
+              "packages/engine-core/src/chain/engine.ts"
+            ],
+            "reason": "Controller-base token location, Gold/Universal Power semantics, exhausted entry, and the real Deathknell body binding are incomplete. RIFT-831 lifecycle regressions are merged but do not prove these cards.",
+            "gapLabels": [
+              "EG-TOKEN",
+              "EG-LIFECYCLE",
+              "EG-POWER"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/ferrous-forerunner.test.mjs",
+          "sha256": "7f2aa81baabdb18d8dcb9aeed7ab0c5130156fb8910a5b460f63be2f2e9ea7b7"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/ferrous-forerunner.ts",
+        "test": "packages/card-dsl/test/cards/sfd/ferrous-forerunner.test.mjs"
+      },
+      "priority": {
+        "rank": 12,
+        "headlessCurrent": 125,
+        "sharedGuardProbe": 91,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab",
+      "name": "Breakneck Mech",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/breakneck-mech.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/breakneck-mech.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "复核 2026-10-18，两处当前缺口，均不近似实现：(1)「Your Mechs have [Deflect] and [Ganking]」的continuous.grant-keyword 已有 KeywordGrantLayerEngine 的运行时重展开；Ganking 的 permission 也会被归一化为movement().canGank，Deflect 则展开为 target.tax。当前 production static binder/ChainEngine 仍不会把 live granted target.tax 派生为 target-plan.ts 消费的 TargetTaxSpec：税只能由调用方显式提供 TargetTaxAdapter/effect 列表，对手选择本方 Mech 时的自动加费仍未接线。(2)「I enter ready if you control another Mech」的入场改写已在 replacement/bind.ts 中绑定并生效，但 matchesEnterAction 在 testCondition 之前直接 return true，能力 condition 不在入场匹配路径求值，\"another Mech\" 门控不会被强制。已修：该 condition 原先用单数 tag / other 键，layers/filter.ts 只认 tags 列表、也没有 other-exclusion 语义，计数恒为 0；现按引擎词汇改写为 tags: [\"Mech\"] 加 exclude: \"self\" 锚点（契约 3.6），\"another Mech\" 的计数在解释器与链的 query 归一化下都正确（golden 用合并的 evaluateCondition 真实求值）。另按 CR 133.3.a/133.8 修正授予范围：Mech 是标签，不额外限制为 unit。执行证据：test/cards/templates/static-replacement-effect-ready-677.test.mjs；仅覆盖已",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-GRANTS/EG-KEYWORDS/EG-LAYERS/EG-TAX",
+      "assessment": "Default lifecycle must re-expand dynamic Ganking/Deflect grants and consume target tax.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "Your Mechs have [Deflect] and [Ganking]. (Opponents must pay :rb_rune_rainbow: to choose us with a spell or ability. We can move from battlefield to battlefield.)\nI enter ready if you control another Mech.",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: production-lifecycle-keyword-reexpansion",
+        "manifestDependencies": [
+          {
+            "key": "production-lifecycle-keyword-reexpansion",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/programs/lifecycle.ts",
+              "packages/engine-core/src/programs/keyword-grants.ts",
+              "packages/engine-core/src/programs/statics.ts",
+              "packages/engine-core/src/layers/rules/query.ts",
+              "packages/engine-core/src/replacement/bind.ts"
+            ],
+            "reason": "Production lifecycle does not consume every dynamic keyword and replacement condition. Target tax, Ganking, Vision, Assault designation, and entry-ready gating need real consumers.",
+            "gapLabels": [
+              "EG-GRANTS",
+              "EG-KEYWORDS",
+              "EG-LAYERS",
+              "EG-PERMISSIONS",
+              "EG-TAX",
+              "EG-REPLACEMENT"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/breakneck-mech.test.mjs",
+          "sha256": "6e513be219a6030687a4bc5ae430d722c3f8794511525bb67542e809d88ee5d5"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/breakneck-mech.ts",
+        "test": "packages/card-dsl/test/cards/sfd/breakneck-mech.test.mjs"
+      },
+      "priority": {
+        "rank": 13,
+        "headlessCurrent": 123,
+        "sharedGuardProbe": 98,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+      "name": "Rumble, Hotheaded",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/rumble-hotheaded.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "四处当前缺口，均不近似实现（复核 2026-10-18）：(1)「Your Mechs each have [Assault]」的 continuous.grant-keyword 静态登记已真实生效；KeywordGrantLayerEngine 还能把运行时授予的 Assault 展开成attacker-only Might，并把 designation 映射到 combatRole。production lifecycle 仍使用普通 LayerEngine，不会在真实 card-program 路径中自动采用该 re-expander，但 Assault 规则消费本身已有独立执行证据。(2)「When I conquer」（383.4.c/383.4.c.2.a）的触发已改用封闭判别值 conquered + source:self，可注册且通过 trigger-spec 校验，但 turn/flow.ts 的 Score wave 只发 { player, details: { battlefieldId } }，没有本单位 object，events/pipeline-match.ts 的 matchesTriggerObject 对 undefined object 仅在过滤器为空时命中，实测真实 conquer 发射恒不匹配，无法判定本单位在被征服战场。(3) 回收作为「to」费用依 355.10.c.1 不应是目标：印文的「another friendly unit」需要相对锚（除本单位外），当前 role:other-friendly 键被程序绑定 fail-closed 拒绝（实测 \"Unsupported filter field role\"），IR 的 exclude 锚虽已存在，但 programs/filters.ts 的 translateObjectFilter 同样拒绝该键（实测 \"Unsupported filter field exclude\"）。(4) cost.modify/cost.pay 均已合入且减费计算真实可执行（实测",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-GRANTS/EG-KEYWORDS/EG-LAYERS/EG-COSTCHOICE",
+      "assessment": "Dynamic Assault and recycle-to-play cost reduction require production keyword re-expansion and Finalize cost binding.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "Your Mechs each have [Assault]. (+1 :rb_might: while we're attackers.)\nWhen I conquer, you may recycle another friendly unit to play a Mech from your trash. Reduce its Energy cost by the Might of the unit you recycled.",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: production-lifecycle-keyword-reexpansion, combat-event-payload-location-hold, cost-repeat-additional-cost",
+        "manifestDependencies": [
+          {
+            "key": "production-lifecycle-keyword-reexpansion",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/programs/lifecycle.ts",
+              "packages/engine-core/src/programs/keyword-grants.ts",
+              "packages/engine-core/src/programs/statics.ts",
+              "packages/engine-core/src/layers/rules/query.ts",
+              "packages/engine-core/src/replacement/bind.ts"
+            ],
+            "reason": "Production lifecycle does not consume every dynamic keyword and replacement condition. Target tax, Ganking, Vision, Assault designation, and entry-ready gating need real consumers.",
+            "gapLabels": [
+              "EG-GRANTS",
+              "EG-KEYWORDS",
+              "EG-LAYERS",
+              "EG-PERMISSIONS",
+              "EG-TAX",
+              "EG-REPLACEMENT"
+            ]
+          },
+          {
+            "key": "combat-event-payload-location-hold",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/combat/flow.ts",
+              "packages/engine-core/src/turn/flow.ts",
+              "packages/engine-core/src/events/pipeline-match.ts",
+              "packages/engine-core/src/events/trigger-spec.ts",
+              "packages/engine-core/src/programs/filters.ts"
+            ],
+            "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+            "gapLabels": [
+              "EG-COMBAT",
+              "EG-COMBATPRIORITY",
+              "EG-PAYLOAD",
+              "EG-FILTER",
+              "EG-EVENTS",
+              "EG-TURN",
+              "EG-LOCATIONS",
+              "EG-MOVE"
+            ]
+          },
+          {
+            "key": "cost-repeat-additional-cost",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/programs/play.ts",
+              "packages/engine-core/src/chain/engine.ts",
+              "packages/engine-core/src/chain/interpreter-adapter.ts",
+              "packages/engine-core/src/effects/keywords/Repeat.ts",
+              "packages/engine-core/src/effects/instructions/effect.repeat.ts",
+              "packages/engine-core/src/cost/discounts/collect.ts",
+              "packages/engine-core/src/programs/statics.ts"
+            ],
+            "reason": "Optional additional/Repeat payments and CardProgram static costs lack complete Finalize collection, paid-instance binding, and rollback.",
+            "gapLabels": [
+              "EG-COSTBIND",
+              "EG-COSTCHOICE",
+              "EG-DISCOUNTS",
+              "EG-FINALIZE",
+              "EG-PLAY",
+              "EG-STATIC"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs",
+          "sha256": "b15e24f1adb84fc57653dfbd5bd4d1818c14662f72eac0e3d83158943bc29851"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/rumble-hotheaded.ts",
+        "test": "packages/card-dsl/test/cards/sfd/rumble-hotheaded.test.mjs"
+      },
+      "priority": {
+        "rank": 14,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 111,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+      "name": "Jaull-Fish",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/jaull-fish.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/jaull-fish.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "cost.modify 原语与 cost/discounts/collect.ts 已能把静态声明的表达式金额送入费用计划，但本卡仍有两处真实缺口：「I cost 2 less for each of your Mighty units」（356.4/356.4.b）的计数过滤需要对每个友方单位求当前 Might >= 5；费用侧 matchesCostFilter 对 mightGte 会以 Unsupported cost filter field mightGte fail-closed，Mighty.ts 的 condition.value 也没有接入费用求值。另有生产接线缺口：programs/statics.ts 的 layerFor 不映射continuous.cost-modification，chain/engine.ts Finalize 没有把 CardProgram static 传给finalizeCostPlan。[Accelerate]（805）的展开与入场 ready replacement 已由 golden 真实执行，但不构成整卡可执行证据。不近似实现。",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-COSTCHOICE/EG-FINALIZE/EG-STATIC",
+      "assessment": "The static pay-power modifier and Finalize-time cost choice are shared consumers; no single-card substitute is valid.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Accelerate] (You may pay :rb_energy_1::rb_rune_body: as an additional cost to have me enter ready.)\nI cost :rb_energy_2: less for each of your [Mighty] units. (A unit is Mighty while it has 5+ :rb_might:.)",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: mighty-query-consumer, cost-repeat-additional-cost",
+        "manifestDependencies": [
+          {
+            "key": "mighty-query-consumer",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/effects/keywords/Mighty.ts",
+              "packages/engine-core/src/layers/filter.ts",
+              "packages/engine-core/src/programs/filters.ts",
+              "packages/engine-core/src/programs/statics.ts",
+              "packages/engine-core/src/effects/interpreter/expr.ts"
+            ],
+            "reason": "Effective Might >= 5 is not consistently exposed to production filters and static evaluation. Unknown mightGte inputs remain fail-closed.",
+            "gapLabels": [
+              "EG-MIGHT",
+              "EG-EXPR",
+              "EG-FILTER",
+              "EG-STATIC"
+            ]
+          },
+          {
+            "key": "cost-repeat-additional-cost",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/programs/play.ts",
+              "packages/engine-core/src/chain/engine.ts",
+              "packages/engine-core/src/chain/interpreter-adapter.ts",
+              "packages/engine-core/src/effects/keywords/Repeat.ts",
+              "packages/engine-core/src/effects/instructions/effect.repeat.ts",
+              "packages/engine-core/src/cost/discounts/collect.ts",
+              "packages/engine-core/src/programs/statics.ts"
+            ],
+            "reason": "Optional additional/Repeat payments and CardProgram static costs lack complete Finalize collection, paid-instance binding, and rollback.",
+            "gapLabels": [
+              "EG-COSTBIND",
+              "EG-COSTCHOICE",
+              "EG-DISCOUNTS",
+              "EG-FINALIZE",
+              "EG-PLAY",
+              "EG-STATIC"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/jaull-fish.test.mjs",
+          "sha256": "ad0dec7a4c838eda7bea61d3ebc48c6c37ce51b95bf5785a920ea1906190ae9f"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/jaull-fish.ts",
+        "test": "packages/card-dsl/test/cards/sfd/jaull-fish.test.mjs"
+      },
+      "priority": {
+        "rank": 15,
+        "headlessCurrent": 92,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-3c1c01b405853556e3e1c12bbd758e94d73f5ed474a5643bb068eaa7cb549c6e",
+      "name": "Danger Zone",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/danger-zone.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/danger-zone.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "[Repeat] 追加费用仍无可执行收取路径：programs/play.ts 的 translateCost 拒绝 optional/keyword 字段及 kind additional-cost；KeywordAbility / expandProgram 也不能将印刷费用传给 Repeat.expand。effects/keywords/Repeat.ts 输出的 repeat.cost 静态能力没有图层映射与 Finalize 消费方，已付费 Repeat 实例数与解释器 repeat 节点也无接线（820.1.c.1/820.1.d.1/820.2）。追加费用（1 能量 + 1 彩虹符文）已按契约 3.1 声明为 play 的可选 CostSpec，属待接线声明，不写死第二次结算、不近似实现。「Give your Mechs +1 :rb_might: this turn」半段已可执行：continuous.might 原语对 355.10.d 的程序化集合注册 arithmetic 层修正并在回合末到期，golden 已用生产解释器适配器真实执行正文；不代表整卡经测试台打出。",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-COSTCHOICE/EG-FINALIZE/EG-STATIC",
+      "assessment": "Reaction and static discount cannot be consumed unless the static cost modifier and Finalize path are wired.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Reaction] (Play any time, even before spells and abilities resolve.)\n[Repeat] :rb_energy_1::rb_rune_rainbow: (You may pay the additional cost to repeat this spell's effect.)\nGive your Mechs +1 :rb_might: this turn.",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: cost-repeat-additional-cost",
+        "manifestDependencies": [
+          {
+            "key": "cost-repeat-additional-cost",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/programs/play.ts",
+              "packages/engine-core/src/chain/engine.ts",
+              "packages/engine-core/src/chain/interpreter-adapter.ts",
+              "packages/engine-core/src/effects/keywords/Repeat.ts",
+              "packages/engine-core/src/effects/instructions/effect.repeat.ts",
+              "packages/engine-core/src/cost/discounts/collect.ts",
+              "packages/engine-core/src/programs/statics.ts"
+            ],
+            "reason": "Optional additional/Repeat payments and CardProgram static costs lack complete Finalize collection, paid-instance binding, and rollback.",
+            "gapLabels": [
+              "EG-COSTBIND",
+              "EG-COSTCHOICE",
+              "EG-DISCOUNTS",
+              "EG-FINALIZE",
+              "EG-PLAY",
+              "EG-STATIC"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/danger-zone.test.mjs",
+          "sha256": "c0e7f1ce2658262da22126d40d6d38154bf75837d906f82aa33a7d228273e75e"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/danger-zone.ts",
+        "test": "packages/card-dsl/test/cards/sfd/danger-zone.test.mjs"
+      },
+      "priority": {
+        "rank": 16,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 54,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6",
+      "name": "Laurent Duelist",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/laurent-duelist.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/laurent-duelist.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "实测（2026-10-17）Assault 的 KeywordDef（effects/keywords/Assault.ts，807.1.c）已合入并解析为 continuous.might 静态效果 + 「我是攻击者」条件（golden 验证展开形状），但条件读取的 designation 特征没有生产方：combat/flow.ts 的战斗角色事务尚未实现（明确抛 combat-start-transaction；ObjectSnapshot.combatRole 字段存在但无人写入），且默认表达式求值路径（effects/interpreter/expr.ts）只读快照自有字段，实测对 designation 抛 Unavailable characteristic，programs/statics.ts 的条件闭包捕获后返回 false（layers/engine.ts 的 conditionMatches 也不消费 compare）；实测经生产 binder 绑定该 static 后，combatRole 为 attacker 时 Might 仍为印刷值 4。故 +2 Might 在攻击期间不生效。依赖：战斗 designation 的赋值（战斗事务）与 designation 的默认求值/图层接线。不近似实现。",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-LAYERS/EG-EXPR/EG-COMBAT",
+      "assessment": "Combat roles and continuous registration exist, but the layered Might modifier is not consumed by the default evaluation path.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Assault 2] (+2 :rb_might: while I'm an attacker.)",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: combat-event-payload-location-hold",
+        "manifestDependencies": [
+          {
+            "key": "combat-event-payload-location-hold",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/combat/flow.ts",
+              "packages/engine-core/src/turn/flow.ts",
+              "packages/engine-core/src/events/pipeline-match.ts",
+              "packages/engine-core/src/events/trigger-spec.ts",
+              "packages/engine-core/src/programs/filters.ts"
+            ],
+            "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+            "gapLabels": [
+              "EG-COMBAT",
+              "EG-COMBATPRIORITY",
+              "EG-PAYLOAD",
+              "EG-FILTER",
+              "EG-EVENTS",
+              "EG-TURN",
+              "EG-LOCATIONS",
+              "EG-MOVE"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/laurent-duelist.test.mjs",
+          "sha256": "8dfc7ad20d7116886a42ba592a34f545ebabbab6677a66f61afb44aead795890"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/laurent-duelist.ts",
+        "test": "packages/card-dsl/test/cards/sfd/laurent-duelist.test.mjs"
+      },
+      "priority": {
+        "rank": 17,
+        "headlessCurrent": 14,
+        "sharedGuardProbe": 45,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c",
+      "name": "Rumble, Scrapper",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/rumble-scrapper.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/rumble-scrapper.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "「When I hold」仍缺消费方：触发已在程序里写作封闭判别值 held（管线映射到 hold 时点），production 绑定后 spec 为 { at: \"hold\", filter: { event: \"held\", object: { objectId: <本卡> } } }，可注册但恒不命中——turn/flow.ts 的 scheduleScore 只发 { player, details: { battlefieldId } }，没有携带被固守战场上的单位，events/pipeline-match.ts 的 matchesTriggerObject 对 undefined object 仅在过滤器为空时返回 true。因此 CR v1.5 383.4.d.2.a 的「本单位在 Hold 时在场」与 473.2.b 的按战场归属无法判定；依赖 RIFT-120 后续（hold 发射补齐被固守对象或战场身份，使 source: self 锚点可判定；sfd/guardian-of-the-passage、sfd/dunebreaker 同缺口，RIFT-120 仍未合入）。第一条 continuous.might 光环的默认 static 注册、tag→tags 与 controller→来源控制者归一如实执行（golden 用生产绑定器断言只加友方 Mech）；effect.token 的 mech/play 子效果经 condition.value + location 绑定能力控制者基地，再以 linked-value 交给原语，真实执行 create-token + play。不把所有己方 Hold 或无关单位的 Hold 当作本单位 Hold。",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-COMBAT/EG-PAYLOAD/EG-LOCATIONS",
+      "assessment": "Hold payload lacks participating object and battlefield identity; static Mech Might plus hold token lifecycle remain unproven.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "Your Mechs have +1 :rb_might: (including me).\nWhen I hold, play a 3 :rb_might: Mech unit token to your base.",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: combat-event-payload-location-hold",
+        "manifestDependencies": [
+          {
+            "key": "combat-event-payload-location-hold",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/combat/flow.ts",
+              "packages/engine-core/src/turn/flow.ts",
+              "packages/engine-core/src/events/pipeline-match.ts",
+              "packages/engine-core/src/events/trigger-spec.ts",
+              "packages/engine-core/src/programs/filters.ts"
+            ],
+            "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+            "gapLabels": [
+              "EG-COMBAT",
+              "EG-COMBATPRIORITY",
+              "EG-PAYLOAD",
+              "EG-FILTER",
+              "EG-EVENTS",
+              "EG-TURN",
+              "EG-LOCATIONS",
+              "EG-MOVE"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/rumble-scrapper.test.mjs",
+          "sha256": "9500707faa7e56dcb9bbbdc6304ed8411202fc3d24f4a042f2322a3669e20151"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/rumble-scrapper.ts",
+        "test": "packages/card-dsl/test/cards/sfd/rumble-scrapper.test.mjs"
+      },
+      "priority": {
+        "rank": 18,
+        "headlessCurrent": 128,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-153eb4df721b70662a63652ba1602985ceed08d81a0b23fc0d6b10349ee15ca9",
+      "name": "Frigid Touch",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/frigid-touch.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/frigid-touch.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "两处当前缺口：(1)「[Repeat] :rb_energy_2:」（820.1.c.1）的费用原语、费用计划和 effect.repeat 本体都已存在，但 Play/Finalize 不读取关键词展开的 repeat.cost 静态效果，也没有把实际付费实例数接到本卡的 repeat 节点；本卡不把 count 写成固定 1。(2) effect.repeat 的闭集动作集合（契约 3.6）没有 Might 修改动作，用 buff 动作重复会把 -2 Might 变成 Buff counter（702/703），属禁止的近似。「Give a unit -2 :rb_might: this turn」半段已可执行：continuous.might 注册 arithmetic 层修正、回合末到期，golden 已用生产链适配器真实执行（含目标失效 ignored）。依赖：关键词费用收集、付费实例到 repeat 的接线以及 effect.repeat 的 Might 动作契约。不近似实现。",
+      "blockerCategory": "contract-blocked",
+      "blockingDependencies": "EG-COSTCHOICE/EG-FINALIZE/EG-CONTRACT",
+      "assessment": "Repeat requires optional additional-cost choice/payment and a repeat-safe continuous Might action; current primitive actions cannot represent the second application faithfully.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Reaction] (Play any time, even before spells and abilities resolve.)\n[Repeat] :rb_energy_2: (You may pay the additional cost to repeat this spell's effect.)\nGive a unit -2 :rb_might: this turn.",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: cost-repeat-additional-cost",
+        "manifestDependencies": [
+          {
+            "key": "cost-repeat-additional-cost",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/programs/play.ts",
+              "packages/engine-core/src/chain/engine.ts",
+              "packages/engine-core/src/chain/interpreter-adapter.ts",
+              "packages/engine-core/src/effects/keywords/Repeat.ts",
+              "packages/engine-core/src/effects/instructions/effect.repeat.ts",
+              "packages/engine-core/src/cost/discounts/collect.ts",
+              "packages/engine-core/src/programs/statics.ts"
+            ],
+            "reason": "Optional additional/Repeat payments and CardProgram static costs lack complete Finalize collection, paid-instance binding, and rollback.",
+            "gapLabels": [
+              "EG-COSTBIND",
+              "EG-COSTCHOICE",
+              "EG-DISCOUNTS",
+              "EG-FINALIZE",
+              "EG-PLAY",
+              "EG-STATIC"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/frigid-touch.test.mjs",
+          "sha256": "9bce8b9366edfade174d081ed440f743c0453ab33d25ecfacbca725699b61a0b"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/frigid-touch.ts",
+        "test": "packages/card-dsl/test/cards/sfd/frigid-touch.test.mjs"
+      },
+      "priority": {
+        "rank": 19,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-0c36f22df8ffa7bed49f59fd138d24b9b0a52a7b8ad4c720afcaa12ec816eee4",
+      "name": "Minefield",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/minefield.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/minefield.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "实测 2026-10-17（HEAD 9be41b14）：effect.mill 原语与卡牌程序绑定都已合入，整卡仍不可执行，缺的是 「conquer here」的战场相对锚点：programs/filters.ts 的 translateTriggerFilter 拒绝 printed here 键（ProgramBindingError: Unsupported filter field here），而 turn/flow.ts 的 conquer 发射只发布 player/details（{ battlefieldId }）、没有 battlefield 对象，translateTriggerFilter 又原样复制 details，因此无法从本卡身份构成“本战场”比较（CR 468.5.d / 471.1 / 473.2.a）。触发过滤器的控制者锚点已按闭合词表写成 player: self（validateTriggerSpec 现在只剩 here 一处 unknown-field，不再是 invalid-player-selector；programs/filters.ts 的 normalizePlayer 同样归一为 self）。已支持的 mill 本体经真实解释器执行（黄金测试断言 top 2 进 trash 与牌序）。依赖：Battlefield-relative conquer 锚点（here 键或等价载荷绑定）；不近似实现（不订阅任意 conquer）。",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-EVENTS/EG-PAYLOAD/EG-LOCATIONS/EG-MOVE",
+      "assessment": "Conquer trigger body and location identity are not yet consumed by the default headless path.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "When you conquer here, put the top 2 cards of your Main Deck into your trash.",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: combat-event-payload-location-hold",
+        "manifestDependencies": [
+          {
+            "key": "combat-event-payload-location-hold",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/combat/flow.ts",
+              "packages/engine-core/src/turn/flow.ts",
+              "packages/engine-core/src/events/pipeline-match.ts",
+              "packages/engine-core/src/events/trigger-spec.ts",
+              "packages/engine-core/src/programs/filters.ts"
+            ],
+            "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+            "gapLabels": [
+              "EG-COMBAT",
+              "EG-COMBATPRIORITY",
+              "EG-PAYLOAD",
+              "EG-FILTER",
+              "EG-EVENTS",
+              "EG-TURN",
+              "EG-LOCATIONS",
+              "EG-MOVE"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/minefield.test.mjs",
+          "sha256": "e2ddc65c331479c832c2834c49686745e5424e6911e61d9f9c0b334dbfccd220"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/minefield.ts",
+        "test": "packages/card-dsl/test/cards/sfd/minefield.test.mjs"
+      },
+      "priority": {
+        "rank": 20,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-5a86b358540e9ab2512400c77f3291739c2aa6ccb7b537449298a640b02b0e82",
+      "name": "Ravenbloom Conservatory",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/ravenbloom-conservatory.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/ravenbloom-conservatory.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "两处依赖仍未合入，均不近似实现：(1) defense-declared 缺少发射方：combat/flow.ts 的 advance() 在把 staged battlefield 转成 Combat 时抛 TurnCombatBlockedError('combat-start-transaction', \"Combat start needs an atomic simultaneous timing wave + roles (CR 466.2)\")，因此 Defender 身份指派（466.2/323.2、383.4.f.2）尚未接入事件管线，events/action-adapter.ts 的 ACTION_TIMINGS 也没有 defense-declared；(2) here（CR 053.3）需要「事件发生在本战场」的表达：EventPattern / ObjectFilter 无战场相对锚、Static 程序也无法知道运行期 details.battlefieldId，且合并后的 trigger-spec 校验把 here 判为 unknown-field、程序绑定实测抛 \"Unsupported filter field here\"。正文已可执行：RIFT-358 的 zoneSlice 在 Finalize 锁定牌库顶 1 张，effect.reveal 的 pick Expr 已可解包；回手 pick 直接绑定 reveal.revealed，compare(spell in object-property(types)) 决定回手或 effect.recycle 回收。golden 用未改写的正文通过 ChainEngine 验证展示、链接与两个分支，未以未知战斗事件近似触发。",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-LOCATIONS/EG-EVENTS/EG-PAYLOAD",
+      "assessment": "Battlefield tap/channel and location-sensitive trigger need current location identity and production event consumers.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "When you defend here, reveal the top card of your Main Deck. If it's a spell, put it in your hand. Otherwise, recycle it.",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: combat-event-payload-location-hold",
+        "manifestDependencies": [
+          {
+            "key": "combat-event-payload-location-hold",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/combat/flow.ts",
+              "packages/engine-core/src/turn/flow.ts",
+              "packages/engine-core/src/events/pipeline-match.ts",
+              "packages/engine-core/src/events/trigger-spec.ts",
+              "packages/engine-core/src/programs/filters.ts"
+            ],
+            "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+            "gapLabels": [
+              "EG-COMBAT",
+              "EG-COMBATPRIORITY",
+              "EG-PAYLOAD",
+              "EG-FILTER",
+              "EG-EVENTS",
+              "EG-TURN",
+              "EG-LOCATIONS",
+              "EG-MOVE"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/ravenbloom-conservatory.test.mjs",
+          "sha256": "12dd4d2db4437d39b60b1114b6dc1d7a917d2fec67a27e162e402792af1628a2"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/ravenbloom-conservatory.ts",
+        "test": "packages/card-dsl/test/cards/sfd/ravenbloom-conservatory.test.mjs"
+      },
+      "priority": {
+        "rank": 21,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-9daf60cdf4c82e4fba1f685af1c9b0d748003f7e9ad9c68f02f429bdd0cf85e5",
+      "name": "Veiled Temple",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/veiled-temple.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/veiled-temple.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "触发绑定仍缺 battlefield-relative 的「here」：已合入的时点发射方（由 turn/flow.ts 的 scheduleScore('conquer') 发出 conquer 时点，载荷 details.battlefieldId）与程序侧已合入的 conquer 消费路径之间没有把载荷解析成位置过滤的消费方——发射方虽提供 details.battlefieldId，EventPattern 没有 here 锚点，programs/filters.ts translateObjectFilter 对 `here` 直接 fail-closed（ProgramBindingError judge-required），照原样绑定会报错、去掉则会把「here」近似成任意战场的征服。触发体本身已可执行：「may ready a friendly gear」（403.1/355.7/355.12，目标随 may 动作锁定）走 effect.ready（416.1），「If it's an Equipment」用已合入的 Condition 与契约 3.6 对象锚点求值（compare/in + object-property(target).tags），「you may detach it」是非目标 pick（436.3）并经 effect.detach（436.1）提交；golden 用解释器 + 参考内核真实执行 Equipment 与 非 Equipment 两条分支（非 Equipment 时 detach 分支被 negated/skipped，不会脱离）。依赖：conquer 事件载荷 details.battlefieldId → 位置过滤的「here」锚点接线；programs/filters.ts 当前对未解析字段 fail-closed。不近似实现。",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-TOKEN/EG-PAYLOAD/EG-LOCATIONS",
+      "assessment": "Battlefield token and unit-at-here payload need production location/event identity.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "When you conquer here, you may ready a friendly gear. If it's an Equipment, you may detach it.",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: combat-event-payload-location-hold",
+        "manifestDependencies": [
+          {
+            "key": "combat-event-payload-location-hold",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/combat/flow.ts",
+              "packages/engine-core/src/turn/flow.ts",
+              "packages/engine-core/src/events/pipeline-match.ts",
+              "packages/engine-core/src/events/trigger-spec.ts",
+              "packages/engine-core/src/programs/filters.ts"
+            ],
+            "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+            "gapLabels": [
+              "EG-COMBAT",
+              "EG-COMBATPRIORITY",
+              "EG-PAYLOAD",
+              "EG-FILTER",
+              "EG-EVENTS",
+              "EG-TURN",
+              "EG-LOCATIONS",
+              "EG-MOVE"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/veiled-temple.test.mjs",
+          "sha256": "6e2b2e5bc42567e526a2e12238eb1e1306adbb7f91f1b969992bb43f0b0a9f3c"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/veiled-temple.ts",
+        "test": "packages/card-dsl/test/cards/sfd/veiled-temple.test.mjs"
+      },
+      "priority": {
+        "rank": 22,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-44e95dd0a87b7dfcd7565b73a33e204f85c97ac82e004a6127ff7ed649fb41ad",
+      "name": "Ornn's Forge",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/ornns-forge.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/ornns-forge.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "Re-checked 2026-10-18 against merged sources. The cost.modify/cost.pay primitives and the cost/discounts/collect.ts first-play/history collector are merged; a caller that supplies the static binding and finalized-play history gets the declared -1 Energy discount. The printed discount is still not executable in the production card path, and nothing is approximated: (1) the production static binder refuses this shape — programs/statics.ts staticTarget rejects the authored appliesTo anchor (\"Unsupported static appliesTo \\\"play-cost\\\"\") before any filter is translated, and layerFor then rejects the kind itself (\"Static ability kind cost.modify has no layer mapping\"; the layer union is only copy/trait/ability/arithmetic, CR 356.4); (2) no CardProgram → CostPlanInput consumer exists — chain/engine.ts Finalize builds the cost plan from the caller's own input only, so the declared discount never",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-COSTCHOICE/EG-FINALIZE/EG-STATIC",
+      "assessment": "Equipment discount and attach/action timing require shared cost and static consumers.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "While you control this battlefield, the first friendly non-token gear played each turn costs :rb_energy_1: less.",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: cost-repeat-additional-cost",
+        "manifestDependencies": [
+          {
+            "key": "cost-repeat-additional-cost",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/programs/play.ts",
+              "packages/engine-core/src/chain/engine.ts",
+              "packages/engine-core/src/chain/interpreter-adapter.ts",
+              "packages/engine-core/src/effects/keywords/Repeat.ts",
+              "packages/engine-core/src/effects/instructions/effect.repeat.ts",
+              "packages/engine-core/src/cost/discounts/collect.ts",
+              "packages/engine-core/src/programs/statics.ts"
+            ],
+            "reason": "Optional additional/Repeat payments and CardProgram static costs lack complete Finalize collection, paid-instance binding, and rollback.",
+            "gapLabels": [
+              "EG-COSTBIND",
+              "EG-COSTCHOICE",
+              "EG-DISCOUNTS",
+              "EG-FINALIZE",
+              "EG-PLAY",
+              "EG-STATIC"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/ornns-forge.test.mjs",
+          "sha256": "966ed89fc248449672f574587f4070c496f9fe446c85d243bf833aabba8fca13"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/ornns-forge.ts",
+        "test": "packages/card-dsl/test/cards/sfd/ornns-forge.test.mjs"
+      },
+      "priority": {
+        "rank": 23,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-77763eae5320de558954776a37677e8638b6d4af73399e5a7c4f5d5321a2b564",
+      "name": "Treasure Hoard",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/treasure-hoard.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/treasure-hoard.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "Gold gear token definition (CR v1.5 187.5: domainless gear token with \"[Reaction][>] Kill this, [E]: [Add] [A].\") is absent from the frozen effect.token definition table; the merged primitive returns blockedReason \"token-definition-or-abilities-judge-required\". Playing the new token needs the chain-create + cost-waived play flow (440.2.c/185.2.a/350.2/354): effect.token mode \"play\" already creates on the Chain and hands the object to the play flow; tokens carry null costs (185.3), so no separate cost-waived effect.play is authored. The create-token action does not support the 'exhausted' entry override (143.4/185.2.d). The conquer trigger's `here` anchor still needs the event battlefield identity to become a location filter from details.battlefieldId; programs/filters.ts currently rejects the unresolved field. The printed Energy payment is represented by the merged cost.pay primitive.",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-TOKEN/EG-LIFECYCLE/EG-LOCATIONS",
+      "assessment": "Treasure token and hold/pay interaction need token lifecycle and battlefield scoring consumers.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "When you conquer here, you may pay :rb_energy_1: to play a Gold gear token exhausted.",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: token-entry-deathknell, combat-event-payload-location-hold",
+        "manifestDependencies": [
+          {
+            "key": "token-entry-deathknell",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/effects/instructions/effect.token.ts",
+              "packages/engine-core/src/effects/tokens/definitions.ts",
+              "packages/engine-core/src/effects/keywords/Deathknell.ts",
+              "packages/engine-core/src/programs/lifecycle.ts",
+              "packages/engine-core/src/chain/engine.ts"
+            ],
+            "reason": "Controller-base token location, Gold/Universal Power semantics, exhausted entry, and the real Deathknell body binding are incomplete. RIFT-831 lifecycle regressions are merged but do not prove these cards.",
+            "gapLabels": [
+              "EG-TOKEN",
+              "EG-LIFECYCLE",
+              "EG-POWER"
+            ]
+          },
+          {
+            "key": "combat-event-payload-location-hold",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/combat/flow.ts",
+              "packages/engine-core/src/turn/flow.ts",
+              "packages/engine-core/src/events/pipeline-match.ts",
+              "packages/engine-core/src/events/trigger-spec.ts",
+              "packages/engine-core/src/programs/filters.ts"
+            ],
+            "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+            "gapLabels": [
+              "EG-COMBAT",
+              "EG-COMBATPRIORITY",
+              "EG-PAYLOAD",
+              "EG-FILTER",
+              "EG-EVENTS",
+              "EG-TURN",
+              "EG-LOCATIONS",
+              "EG-MOVE"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/treasure-hoard.test.mjs",
+          "sha256": "ff1ef34c28dc3bb5d195b9cf5f21154db0b5910436b3e1f857786ee1eb3f65d7"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/treasure-hoard.ts",
+        "test": "packages/card-dsl/test/cards/sfd/treasure-hoard.test.mjs"
+      },
+      "priority": {
+        "rank": 24,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-c225141f743b61c67ddf269932c6bbdef739f37888f62163906faa7fa1e6dc2b",
+      "name": "Sunken Temple",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/sunken-temple.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/sunken-temple.test.mjs",
+      "status": "judge-required",
+      "judgeReasonSummary": "仍有两个规则数据缺口：(1)「conquer here」需要把触发载荷中的 battlefieldId 与本卡宿主的运行时 位置绑定；当前 EventPattern 没有 payload-location/here 锚点，静态 filter 里的 here: true 会被 programs/filters.ts 直接以 Unsupported filter field here 拒绝，触发器实测无法注册。(2)「one or more Mighty units」需要对本次征服的单位集合执行 Might >= 5 的计数；count 表达式不消费它的 subject，ObjectFilter/图层匹配器也没有 Might 阈值（未知键被忽略），因此既不能命名 conquering-units，也无法只统计 Mighty 单位。cost.pay、choice.optional 与 effect.draw 已合入并在正文中使用（golden 实测真实支付 1 Energy 并抽 1），不把缺失的条件放宽为任意单位。",
+      "blockerCategory": "dependency",
+      "blockingDependencies": "EG-EVENTS/EG-PAYLOAD/EG-LOCATIONS/EG-MOVE",
+      "assessment": "Hold payload and friendly-unit location query are not fully wired into default lifecycle.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "When you conquer here with one or more [Mighty] units, you may pay :rb_energy_1: to draw 1. (A unit is Mighty while it has 5+ :rb_might:.)",
+        "manifestEvidenceGap": "Mapped shared dependency remains executable-unproven: combat-event-payload-location-hold, mighty-query-consumer",
+        "manifestDependencies": [
+          {
+            "key": "combat-event-payload-location-hold",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/combat/flow.ts",
+              "packages/engine-core/src/turn/flow.ts",
+              "packages/engine-core/src/events/pipeline-match.ts",
+              "packages/engine-core/src/events/trigger-spec.ts",
+              "packages/engine-core/src/programs/filters.ts"
+            ],
+            "reason": "Conquer and Hold emissions need participating object plus battlefield identity, and trigger filters need a here anchor. Combat designation and simultaneous damage remain fail-closed transactions.",
+            "gapLabels": [
+              "EG-COMBAT",
+              "EG-COMBATPRIORITY",
+              "EG-PAYLOAD",
+              "EG-FILTER",
+              "EG-EVENTS",
+              "EG-TURN",
+              "EG-LOCATIONS",
+              "EG-MOVE"
+            ]
+          },
+          {
+            "key": "mighty-query-consumer",
+            "owner": "engine-core",
+            "state": "dependency-not-ready",
+            "paths": [
+              "packages/engine-core/src/effects/keywords/Mighty.ts",
+              "packages/engine-core/src/layers/filter.ts",
+              "packages/engine-core/src/programs/filters.ts",
+              "packages/engine-core/src/programs/statics.ts",
+              "packages/engine-core/src/effects/interpreter/expr.ts"
+            ],
+            "reason": "Effective Might >= 5 is not consistently exposed to production filters and static evaluation. Unknown mightGte inputs remain fail-closed.",
+            "gapLabels": [
+              "EG-MIGHT",
+              "EG-EXPR",
+              "EG-FILTER",
+              "EG-STATIC"
+            ]
+          }
+        ],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/sunken-temple.test.mjs",
+          "sha256": "8872acb268d681010c74c42a13b16e2c4d212818b18a25e110d9f05a845a71ef"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/sunken-temple.ts",
+        "test": "packages/card-dsl/test/cards/sfd/sunken-temple.test.mjs"
+      },
+      "priority": {
+        "rank": 25,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-d490b51d08bdd7f97b1708aabfa6309995106f10de815b6fd927368e4a630569",
+      "name": "Assembly Rig",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/assembly-rig.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/assembly-rig.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": ":rb_energy_1::rb_rune_fury:, Recycle a unit from your trash, :rb_exhaust:: Play a 3 :rb_might: Mech unit token to your base.",
+        "manifestEvidenceGap": "Independent golden exists; whole-card default production acceptance is still pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/assembly-rig.test.mjs",
+          "sha256": "1a5067ee716a79cc54a17207698c9ac04e51f88f5f86ef727bf705f18e1eb7ca"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/assembly-rig.ts",
+        "test": "packages/card-dsl/test/cards/sfd/assembly-rig.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-959c19d68f06f8f929625bfde93a1132701da5a5d0b49e91583db341384f0bfe",
+      "name": "B.F. Sword",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/bf-sword.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/bf-sword.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Equip] :rb_rune_order: (:rb_rune_order:: Attach this to a unit you control.)",
+        "manifestEvidenceGap": "Independent golden exists; whole-card default production acceptance is still pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/bf-sword.test.mjs",
+          "sha256": "683c41fe50124b704c35785fc143f36438f462266171ab7ff9a5ef490d5c53ea"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/bf-sword.ts",
+        "test": "packages/card-dsl/test/cards/sfd/bf-sword.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-a2227b03e9e13c8e2ddae7a973c746cc4243ff631dfaf462dc9823e687bbbf17",
+      "name": "Body Rune",
+      "sourcePath": "packages/card-dsl/src/cards/ogn/body-rune.ts",
+      "testPath": "packages/card-dsl/test/cards/ogn/body-rune.test.mjs",
+      "status": "no-ability",
+      "judgeReasonSummary": null,
+      "blockerCategory": "verified-no-ability",
+      "blockingDependencies": "none",
+      "assessment": "Printed card has no executable ability; no effect body is required.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "",
+        "manifestEvidenceGap": null,
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/ogn/body-rune.test.mjs",
+          "sha256": "2bfb05b820f0164d5fbaa4d97900afc97954c006750d80d986cfde704ca70d24"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/ogn/body-rune.ts",
+        "test": "packages/card-dsl/test/cards/ogn/body-rune.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "not-applicable",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-34880fcae16bd9461e4c318dfb455365ff9e353db357f948b4a15dea7e01b389",
+      "name": "Bubble Bot",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/bubble-bot.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/bubble-bot.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "When you play me, ready another friendly Mech.",
+        "manifestEvidenceGap": "Independent golden exists; whole-card default production acceptance is still pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/bubble-bot.test.mjs",
+          "sha256": "d53a1761cec81c8df1a40804e2b12605907e55fe3f966e94131831f4ef51da5d"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/bubble-bot.ts",
+        "test": "packages/card-dsl/test/cards/sfd/bubble-bot.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-2ebf1fe6e5ed7bb875f1c112b3e0ed1635b557c0c0ad550d752b8dd376243007",
+      "name": "Consult the Past",
+      "sourcePath": "packages/card-dsl/src/cards/ogn/consult-the-past.ts",
+      "testPath": "packages/card-dsl/test/cards/ogn/consult-the-past.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n[Reaction] (Play any time, even before spells and abilities resolve.)\nDraw 2.",
+        "manifestEvidenceGap": "Independent golden exists; whole-card default production acceptance is still pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/ogn/consult-the-past.test.mjs",
+          "sha256": "44c2def5e162570631744bf633246505ff29f1dec3698dcaf2d99559debd3b0e"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/ogn/consult-the-past.ts",
+        "test": "packages/card-dsl/test/cards/ogn/consult-the-past.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-cf0b322a78010676e3d8b287830194a3bdc8970e65a141578ae8a3074ebd956f",
+      "name": "Dauntless Vanguard",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/dauntless-vanguard.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/dauntless-vanguard.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "You may play me to an occupied enemy battlefield.",
+        "manifestEvidenceGap": "Independent golden exists; whole-card default production acceptance is still pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/dauntless-vanguard.test.mjs",
+          "sha256": "f166105d1444a041f9e170b177bc61498f8cf6ed194424ddd528e9bf8cb9bc7f"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/dauntless-vanguard.ts",
+        "test": "packages/card-dsl/test/cards/sfd/dauntless-vanguard.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-a1ee07f71d453092ab7d54f9491684e972b735b22bb1f3fda73f2641bcedbfe1",
+      "name": "Doran's Blade",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/dorans-blade.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/dorans-blade.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Equip] :rb_rune_body: (:rb_rune_body:: Attach this to a unit you control.)",
+        "manifestEvidenceGap": "Independent golden exists; whole-card default production acceptance is still pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/dorans-blade.test.mjs",
+          "sha256": "88d5da0ab9ed59ea6e30c0049fd423eb03cb45f013aa556e07d238c2eb70fba1"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/dorans-blade.ts",
+        "test": "packages/card-dsl/test/cards/sfd/dorans-blade.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-30497c69657abd1d3abf17f9b3766e7d064817473a88828ca2ef4ab9b51f7902",
+      "name": "Fury Rune",
+      "sourcePath": "packages/card-dsl/src/cards/ogn/fury-rune.ts",
+      "testPath": "packages/card-dsl/test/cards/ogn/fury-rune.test.mjs",
+      "status": "no-ability",
+      "judgeReasonSummary": null,
+      "blockerCategory": "verified-no-ability",
+      "blockingDependencies": "none",
+      "assessment": "Printed card has no executable ability; no effect body is required.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "",
+        "manifestEvidenceGap": null,
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/ogn/fury-rune.test.mjs",
+          "sha256": "641b88a3339223c731ff053045f228950c8d49287a662b696defba89e95f4218"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/ogn/fury-rune.ts",
+        "test": "packages/card-dsl/test/cards/ogn/fury-rune.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "not-applicable",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-ccfc067dad8a1bf92c6ae1aa5f7110e9d211a1842a9254bb9320705c2f96c6c4",
+      "name": "Grand Duelist",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/grand-duelist.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/grand-duelist.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "When one of your units becomes [Mighty], you may exhaust me to channel 1 rune exhausted. (A unit is Mighty while it has 5+ :rb_might:.)",
+        "manifestEvidenceGap": "Independent golden exists; whole-card default production acceptance is still pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/grand-duelist.test.mjs",
+          "sha256": "c806a6df96c6a7369c2e13bc0c32147b73310aa8915134135f36481c913f8bfe"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/grand-duelist.ts",
+        "test": "packages/card-dsl/test/cards/sfd/grand-duelist.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-cab923a670e4baa826aa3de381c8b992bf33987fcb0d65feb75ca538a8681010",
+      "name": "Long Sword",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/long-sword.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/long-sword.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Quick-Draw] (This has [Reaction]. When you play it, attach it to a unit you control.)\n[Equip] :rb_rune_fury: (:rb_rune_fury:: Attach this to a unit you control.)",
+        "manifestEvidenceGap": "Independent golden exists; whole-card default production acceptance is still pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/long-sword.test.mjs",
+          "sha256": "2d34070bb937064ac24746f85d8a1590ca16731be1c5dfe88975c8466fdaad64"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/long-sword.ts",
+        "test": "packages/card-dsl/test/cards/sfd/long-sword.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7",
+      "name": "Mechanized Menace",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/mechanized-menace.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/mechanized-menace.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "Your Mechs have [Shield]. (+1 :rb_might: while they're defenders.)",
+        "manifestEvidenceGap": "Independent golden exists; whole-card default production acceptance is still pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/mechanized-menace.test.mjs",
+          "sha256": "6b19cc68a107737f09b39d67c4e65ec6421adff1933776cf78202f49f8ac2fa9"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/mechanized-menace.ts",
+        "test": "packages/card-dsl/test/cards/sfd/mechanized-menace.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-a8a4cb783649a0339782e2d3808d6144661c621634da7c9f79b4f87981fac97b",
+      "name": "Mind Rune",
+      "sourcePath": "packages/card-dsl/src/cards/ogn/mind-rune.ts",
+      "testPath": "packages/card-dsl/test/cards/ogn/mind-rune.test.mjs",
+      "status": "no-ability",
+      "judgeReasonSummary": null,
+      "blockerCategory": "verified-no-ability",
+      "blockingDependencies": "none",
+      "assessment": "Printed card has no executable ability; no effect body is required.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "",
+        "manifestEvidenceGap": null,
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/ogn/mind-rune.test.mjs",
+          "sha256": "6ee3d61426a9e1fb2e239d4a5614a4bf8b64ddc18d21eb40884d54dcf1d33e9b"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/ogn/mind-rune.ts",
+        "test": "packages/card-dsl/test/cards/ogn/mind-rune.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "not-applicable",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-e0efe08be77e60ed68f2e43ba425b763efd364eb44b0c760d26ef1fcc1b6df67",
+      "name": "Order Rune",
+      "sourcePath": "packages/card-dsl/src/cards/ogn/order-rune.ts",
+      "testPath": "packages/card-dsl/test/cards/ogn/order-rune.test.mjs",
+      "status": "no-ability",
+      "judgeReasonSummary": null,
+      "blockerCategory": "verified-no-ability",
+      "blockingDependencies": "none",
+      "assessment": "Printed card has no executable ability; no effect body is required.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "",
+        "manifestEvidenceGap": null,
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/ogn/order-rune.test.mjs",
+          "sha256": "6938849bea41fd35eae8ebb0d0e91bc327acf450d1e954c0b6faccca07828405"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/ogn/order-rune.ts",
+        "test": "packages/card-dsl/test/cards/ogn/order-rune.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "not-applicable",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-e2638655ff5ed3a1e60a501be3c23d74e46ef7f1900bed31b436f1a579b316ed",
+      "name": "Pit Rookie",
+      "sourcePath": "packages/card-dsl/src/cards/ogn/pit-rookie.ts",
+      "testPath": "packages/card-dsl/test/cards/ogn/pit-rookie.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "When you play me, buff another friendly unit. (If it doesn't have a buff, it gets a +1 :rb_might: buff.)",
+        "manifestEvidenceGap": "Independent golden exists; whole-card default production acceptance is still pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/ogn/pit-rookie.test.mjs",
+          "sha256": "ea836ea2c83f9988e27cfa580bd513237fe471d1b65e726477b2e067a66f283d"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/ogn/pit-rookie.ts",
+        "test": "packages/card-dsl/test/cards/ogn/pit-rookie.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-1504d8f14af5ce1b9f7a3663c23e6ef7cb57d59a6274dc921cd9296ee8e2494b",
+      "name": "Production Surge",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/production-surge.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/production-surge.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "This costs :rb_energy_2: less if you control a Mech.\nPlay a 3 :rb_might: Mech unit token to your base.\nDraw 1.",
+        "manifestEvidenceGap": "Independent golden exists; whole-card default production acceptance is still pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/production-surge.test.mjs",
+          "sha256": "452cc2ea39ae02624429f2f6b2faacf4ddd3936bdb51eb9c40c104aed0e795ab"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/production-surge.ts",
+        "test": "packages/card-dsl/test/cards/sfd/production-surge.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-8d49727ab9ae782b8a21802c9ae0b51e5d712a37a072d991629bfbf3645535b3",
+      "name": "Punch First",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/punch-first.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/punch-first.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Action] (Play on your turn or in showdowns.)\nGive a unit +5 :rb_might: this turn.",
+        "manifestEvidenceGap": "Independent golden exists; whole-card default production acceptance is still pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/punch-first.test.mjs",
+          "sha256": "2f4b4bd657ea5c295d3bb8f21cf24d0bbd13af7372e1aa15a4473963e8a8dc85"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/punch-first.ts",
+        "test": "packages/card-dsl/test/cards/sfd/punch-first.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
+      "name": "Riposte",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/riposte.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/riposte.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": null,
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "source-evidence-review",
+      "assessment": "Executable program exists, but upstream audit marks an unmatched functional clause; source-evidence review and production golden remain required.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Reaction] (Play any time, even before spells and abilities resolve.)\nChoose a friendly unit and a spell. Counter that spell and give that unit +:rb_might: equal to that spell's Energy cost this turn.",
+        "manifestEvidenceGap": null,
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/riposte.test.mjs",
+          "sha256": "cd02b3c07b7e2de3019dbf57d75ef71eac28529423f6c792dcec1380223260fa"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/riposte.ts",
+        "test": "packages/card-dsl/test/cards/sfd/riposte.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-0ba141b975db96cac65aab56bfd7dbb63904c538cc3d9c32bdfb3b2d98e486de",
+      "name": "Royal Guard",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/royal-guard.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/royal-guard.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "When you play me, play a 2 :rb_might: Sand Soldier unit token here.",
+        "manifestEvidenceGap": "Independent golden exists; whole-card default production acceptance is still pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/royal-guard.test.mjs",
+          "sha256": "ea350a24724650d9d8f3d5e0e4994fd7020054e0a01f3b0e2720abb96b4a150c"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/royal-guard.ts",
+        "test": "packages/card-dsl/test/cards/sfd/royal-guard.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-d3579e6825470471f5ce05c53533806a5244c5e84364fe57b2aab0b7cc0f14e0",
+      "name": "Sacred Shears",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/sacred-shears.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/sacred-shears.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Equip] :rb_rune_order: (:rb_rune_order:: Attach this to a unit you control.)",
+        "manifestEvidenceGap": "Independent golden exists; whole-card default production acceptance is still pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/sacred-shears.test.mjs",
+          "sha256": "be0063f360923cb58d471a55a0827d73218fa4709bc8dd20551878a85c3a92af"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/sacred-shears.ts",
+        "test": "packages/card-dsl/test/cards/sfd/sacred-shears.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b",
+      "name": "Singularity",
+      "sourcePath": "packages/card-dsl/src/cards/ogn/singularity.ts",
+      "testPath": "packages/card-dsl/test/cards/ogn/singularity.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "Deal 6 to each of up to two units.",
+        "manifestEvidenceGap": "Independent golden exists; whole-card default production acceptance is still pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/ogn/singularity.test.mjs",
+          "sha256": "3f0194478539f085448069acf197e9aaad92698ece98ba0c728386b3498b03e8"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/ogn/singularity.ts",
+        "test": "packages/card-dsl/test/cards/ogn/singularity.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-5b08b5b8648e8c5c057d15279d1b4e677457eb0b43fcf2810e2ec4f4c4d1b7cf",
+      "name": "Stupefy",
+      "sourcePath": "packages/card-dsl/src/cards/ogn/stupefy.ts",
+      "testPath": "packages/card-dsl/test/cards/ogn/stupefy.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Reaction] (Play any time, even before spells and abilities resolve.)\nGive a unit -1 :rb_might: this turn, to a minimum of 1 :rb_might:. Draw 1.",
+        "manifestEvidenceGap": "Independent golden exists; whole-card default production acceptance is still pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/ogn/stupefy.test.mjs",
+          "sha256": "072b913c37092a47c0dd500f31472229fa33733d3b7d41ff2232fe306d32b694"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/ogn/stupefy.ts",
+        "test": "packages/card-dsl/test/cards/ogn/stupefy.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-afc40c373a9fb4e48492323d7af26d3a58b824c385707dd3c269e97fee236103",
+      "name": "Unsung Hero",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/unsung-hero.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/unsung-hero.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Deathknell] — If I was [Mighty], draw 2. (When I die, get the effect. I'm Mighty while I have 5+ :rb_might:.)",
+        "manifestEvidenceGap": "Independent golden exists; whole-card default production acceptance is still pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/unsung-hero.test.mjs",
+          "sha256": "cba25f5780ca82e46eb86258ab5a4ecf639717b6c57e89d052d218b1c8ee93a1"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/unsung-hero.ts",
+        "test": "packages/card-dsl/test/cards/sfd/unsung-hero.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-f67321dac096b3ad1e49b55231663e26f3f9d96efafe79d75719a6eb72fc5caa",
+      "name": "Vengeance",
+      "sourcePath": "packages/card-dsl/src/cards/ogn/vengeance.ts",
+      "testPath": "packages/card-dsl/test/cards/ogn/vengeance.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "Kill a unit.",
+        "manifestEvidenceGap": "Independent golden exists; whole-card default production acceptance is still pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/ogn/vengeance.test.mjs",
+          "sha256": "233e4f76b151fcc7bf6ec49590d1bf38e456eb080e9a38439f1f913234b43aad"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/ogn/vengeance.ts",
+        "test": "packages/card-dsl/test/cards/ogn/vengeance.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-600e0796e82099284b213e87b112b1c5df42777ef72b70a3b4cd49a84d27dd10",
+      "name": "Void Seeker",
+      "sourcePath": "packages/card-dsl/src/cards/ogn/void-seeker.ts",
+      "testPath": "packages/card-dsl/test/cards/ogn/void-seeker.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Action] (Play on your turn or in showdowns.)\nDeal 4 to a unit at a battlefield. Draw 1.",
+        "manifestEvidenceGap": "Independent golden exists; whole-card default production acceptance is still pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/ogn/void-seeker.test.mjs",
+          "sha256": "cbaa68849228b40ed5d747a1c839c3595ea68a7e5e83f8cbb0fbddcec5fbaf53"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/ogn/void-seeker.ts",
+        "test": "packages/card-dsl/test/cards/ogn/void-seeker.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-902c6a1366a1a0e653ccb65102ff621b109af3b0b40f5bbeb7d8d3a5aeae2322",
+      "name": "Warmog's Armor",
+      "sourcePath": "packages/card-dsl/src/cards/sfd/warmogs-armor.ts",
+      "testPath": "packages/card-dsl/test/cards/sfd/warmogs-armor.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Independent golden exists; whole-card default production acceptance is still pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Equip] :rb_rune_body: (:rb_rune_body:: Attach this to a unit you control.)",
+        "manifestEvidenceGap": "Independent golden exists; whole-card default production acceptance is still pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/sfd/warmogs-armor.test.mjs",
+          "sha256": "1dc084c6e9bb7c66a6999148865562c506e5e862bf71caf199e5d1332eeb6d0e"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/sfd/warmogs-armor.ts",
+        "test": "packages/card-dsl/test/cards/sfd/warmogs-armor.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    },
+    {
+      "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
+      "name": "Yone, Blademaster",
+      "sourcePath": "packages/card-dsl/src/cards/rad/yone-blademaster.ts",
+      "testPath": "packages/card-dsl/test/cards/rad/yone-blademaster.test.mjs",
+      "status": "executable",
+      "judgeReasonSummary": "Official Spiritforged NEW TEXT matches the current uncontrolled CardProgram; whole-card default combat acceptance remains pending.",
+      "blockerCategory": "executable-production-golden-missing",
+      "blockingDependencies": "production-golden",
+      "assessment": "Official Spiritforged NEW TEXT matches the current uncontrolled CardProgram; whole-card default combat acceptance remains pending.",
+      "sourceJudgement": {
+        "present": true,
+        "basis": "current source status/judgeReason plus latest dependency manifest; source file is the authority for this row"
+      },
+      "evidence": {
+        "rulesetVersion": "core-1.5",
+        "printedAbility": "[Weaponmaster] (When you play me, you may [Equip] one of your Equipment to me for :rb_rune_rainbow: less, even if it's already attached.)\nWhen I conquer an open battlefield, deal damage equal to my Might to an enemy unit in a base.",
+        "manifestEvidenceGap": "Official Spiritforged NEW TEXT matches the current uncontrolled CardProgram; whole-card default combat acceptance remains pending.",
+        "manifestDependencies": [],
+        "independentGolden": {
+          "path": "packages/card-dsl/test/cards/rad/yone-blademaster.test.mjs",
+          "sha256": "f8252e33a5823ac859faa6e48809aa4306489b79529673a160af5078406499c1"
+        },
+        "registrySha256": "8b10ba3c98f1e11d4b522e5b9d302dcf0274548df7efb16dec6fb62073341927"
+      },
+      "suggestedWriteScope": {
+        "source": "packages/card-dsl/src/cards/rad/yone-blademaster.ts",
+        "test": "packages/card-dsl/test/cards/rad/yone-blademaster.test.mjs"
+      },
+      "priority": {
+        "rank": 1000,
+        "headlessCurrent": 0,
+        "sharedGuardProbe": 0,
+        "criterion": "observed judge-required rejection frequency, then dependency leverage for natural terminal play"
+      },
+      "productionAcceptance": "pending",
+      "semanticChangeMade": false
+    }
+  ],
+  "priorityOrder": [
+    "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+    "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40",
+    "card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7",
+    "card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9",
+    "card.hash-569dc9079a6d404c0d850d27b510585b856ab3def5e1e0bbafa30a3bf9d48e82",
+    "card.hash-d4e849d845765608b07bf4af4aa19877f6303dfff539b541d0d070320dd05d91",
+    "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f",
+    "card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef",
+    "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+    "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
+    "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+    "card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3",
+    "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab",
+    "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+    "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+    "card.hash-3c1c01b405853556e3e1c12bbd758e94d73f5ed474a5643bb068eaa7cb549c6e",
+    "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6",
+    "card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c",
+    "card.hash-153eb4df721b70662a63652ba1602985ceed08d81a0b23fc0d6b10349ee15ca9",
+    "card.hash-0c36f22df8ffa7bed49f59fd138d24b9b0a52a7b8ad4c720afcaa12ec816eee4",
+    "card.hash-5a86b358540e9ab2512400c77f3291739c2aa6ccb7b537449298a640b02b0e82",
+    "card.hash-9daf60cdf4c82e4fba1f685af1c9b0d748003f7e9ad9c68f02f429bdd0cf85e5",
+    "card.hash-44e95dd0a87b7dfcd7565b73a33e204f85c97ac82e004a6127ff7ed649fb41ad",
+    "card.hash-77763eae5320de558954776a37677e8638b6d4af73399e5a7c4f5d5321a2b564",
+    "card.hash-c225141f743b61c67ddf269932c6bbdef739f37888f62163906faa7fa1e6dc2b"
+  ],
+  "probes": [
+    {
+      "id": "headless-canonical-001",
+      "command": "node --experimental-strip-types packages/integration-tests/src/headless/cli.ts --games=1 --decks=rumble-sfd,fiora-sfd --seeds=RIFT-857-m1-seed-001 --max-turns=40 --max-actions=10000",
+      "exitCode": 0,
+      "artifact": "/tmp/RIFT-875-m1-judge-required-triage/headless-canonical-001-rerun.json",
+      "result": {
+        "termination": "guard",
+        "guardReason": "turn-limit",
+        "turnNumber": 41,
+        "winner": null,
+        "judgeRequiredRejections": 2630,
+        "replayMatches": true,
+        "privacySafe": true
+      }
+    },
+    {
+      "id": "unlocked-card-native-probes",
+      "command": "node /tmp/RIFT-875-m1-judge-required-triage/probe-unlocked.mjs",
+      "exitCode": 0,
+      "artifact": "/tmp/RIFT-875-m1-judge-required-triage/probe-unlocked.out",
+      "result": {
+        "showOfStrength": "status-only lift; real runCardScenario; weak Might 1 excluded; Might 5/6 counted; drew 2",
+        "fioraPeerless": "status-only lift; native CombatFlow attack/defense declarations; 2 triggers registered; chain resolved; Might 3 -> 6"
+      }
+    },
+    {
+      "id": "card-dsl-build",
+      "command": "pnpm --filter @riftbound/card-dsl build",
+      "exitCode": 0,
+      "result": {
+        "purpose": "refresh ignored dist only before inspecting registry; no tracked source changes"
+      }
+    },
+    {
+      "id": "card-own-test-inventory",
+      "command": "node --test <24 per-card test paths>",
+      "exitCode": 1,
+      "artifact": "/tmp/RIFT-875-m1-judge-required-triage/judge-required-tests.out",
+      "perCardArtifacts": "/tmp/RIFT-875-m1-judge-required-triage/card-tests/",
+      "result": {
+        "tests": 225,
+        "pass": 177,
+        "fail": 20,
+        "todo": 28,
+        "interpretation": "test inventory, not proof of implementation or absence of a blocker"
+      }
+    },
+    {
+      "id": "order-evidence-tests",
+      "command": "node --test <14 rule-focused test files>",
+      "exitCode": 0,
+      "artifact": "/tmp/RIFT-875-m1-judge-required-triage/order-evidence-tests.out",
+      "result": {
+        "tests": 18,
+        "pass": 13,
+        "fail": 0,
+        "todo": 5,
+        "scope": "general rule contracts; not a whole-card production acceptance"
+      }
+    }
+  ],
+  "contractChangeRequests": [
+    {
+      "id": "RIFT-875-CCR-1",
+      "cards": [
+        "card.hash-153eb4df721b70662a63652ba1602985ceed08d81a0b23fc0d6b10349ee15ca9"
+      ],
+      "request": "Add or approve a repeat-safe primitive/cost-binding route for applying the spell effect once per paid Repeat selection. Do not substitute effect.buff for continuous.might and do not silently mark this card executable.",
+      "owner": "parent/shared contract owner"
+    }
+  ],
+  "verification": [
+    {
+      "check": "whitelist one-to-one",
+      "result": "pass"
+    },
+    {
+      "check": "status distribution",
+      "result": "pass",
+      "actual": {
+        "judge-required": 25,
+        "executable": 22,
+        "no-ability": 4
+      }
+    },
+    {
+      "check": "all source and test paths exist",
+      "result": "pass"
+    }
+  ],
+  "effectfulOrderEvidence": [
+    {
+      "id": "priority-focus-response",
+      "cards": [
+        "general"
+      ],
+      "sources": [
+        {
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "version": "Core Rules 1.5",
+          "published": "2026-10-09",
+          "effective": "2026-10-16",
+          "rules": [
+            "312",
+            "312.1",
+            "312.2",
+            "313",
+            "313.2",
+            "313.4",
+            "346",
+            "346.1"
+          ]
+        },
+        {
+          "url": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+          "version": "Core Rules 1.5 Radiance patch notes",
+          "published": "2026-10-09",
+          "effective": "2026-10-16"
+        }
+      ],
+      "timeline": [
+        "Only one player has Priority.",
+        "Focus holders in Showdown Open also need Priority.",
+        "A legal action closes into a Chain; responses require a legal timing and Priority.",
+        "Showdown-chain Focus normally passes, except trigger-opened or Add-opened chains under CR346.1."
+      ],
+      "canonicalCards": [],
+      "productionEvidence": [
+        "packages/engine-core/test/rules/chain/346-340.2.a-focus-passes-after-showdown-chain.test.mjs",
+        "packages/engine-core/test/rules/chain/346.1-focus-not-passed-after-trigger-opened-chain.test.mjs"
+      ],
+      "exitCode": 0,
+      "status": "general-verified; M1 production acceptance separate"
+    },
+    {
+      "id": "pending-finalize-execute-pass-resolve",
+      "cards": [],
+      "sources": [
+        {
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "version": "Core Rules 1.5",
+          "published": "2026-10-09",
+          "effective": "2026-10-16",
+          "rules": [
+            "329",
+            "334",
+            "337.1",
+            "337.2",
+            "340.1",
+            "340.4"
+          ]
+        }
+      ],
+      "timeline": [
+        "Add Pending item.",
+        "Finalize oldest Pending item; Units/Gear/Add abilities resolve immediately.",
+        "Execute/Priority response cycle, then Pass.",
+        "Newest Finalized item resolves."
+      ],
+      "canonicalCards": [],
+      "productionEvidence": [
+        "packages/engine-core/test/rules/chain/337.1-multiple-pending-finalized-oldest-first.test.mjs",
+        "packages/engine-core/test/rules/chain/340.1-lifo-resolution-order.test.mjs"
+      ],
+      "exitCode": 0,
+      "status": "general-verified; not a universal FIFO/LIFO claim"
+    },
+    {
+      "id": "cost-choice-payment-response",
+      "cards": [
+        "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870"
+      ],
+      "sources": [
+        {
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "version": "Core Rules 1.5",
+          "published": "2026-10-09",
+          "effective": "2026-10-16",
+          "rules": [
+            "355.1.a",
+            "356",
+            "356.2.b.1",
+            "357",
+            "358.5",
+            "820.1"
+          ]
+        }
+      ],
+      "timeline": [
+        "Choose optional additional cost, modes, targets and destination while playing.",
+        "Compute the total in rule order.",
+        "Pay resource and nonstandard components atomically.",
+        "Check legality and Finalize; failure rolls back.",
+        "Opponents respond only after Finalize."
+      ],
+      "canonicalCards": [
+        "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870"
+      ],
+      "productionEvidence": [
+        "packages/engine-core/test/rules/costs/356.4.f.1-optional-additional-reduced-to-zero.test.mjs",
+        "packages/engine-core/test/rules/costs/357.2-nonstandard-costs-any-order.test.mjs"
+      ],
+      "exitCode": 0,
+      "cardStatus": "Rumble, Hotheaded remains dependency-blocked; general contracts pass"
+    },
+    {
+      "id": "continuous-layer-and-dependency-order",
+      "cards": [
+        "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+        "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6"
+      ],
+      "sources": [
+        {
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "version": "Core Rules 1.5",
+          "published": "2026-10-09",
+          "effective": "2026-10-16",
+          "rules": [
+            "478",
+            "478.1",
+            "478.1.b",
+            "479",
+            "480",
+            "482",
+            "706",
+            "708",
+            "740.2",
+            "433.1",
+            "468.7.c"
+          ]
+        }
+      ],
+      "timeline": [
+        "Apply layers repeatedly until applicable effects are each applied once.",
+        "Resolve object dependencies first; looped dependency sets evaluate layer by layer.",
+        "Apply copy, trait, ability, arithmetic; retry after arithmetic can enable another layer.",
+        "Combat Might modifiers expire simultaneously at combat end under 468.7.c."
+      ],
+      "canonicalCards": [
+        "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+        "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6"
+      ],
+      "productionEvidence": [
+        "packages/engine-core/test/rules/layers/478.1.b-dependency-chain-evaluate-from-endpoint.test.mjs",
+        "packages/engine-core/test/rules/layers/479.4.e-arithmetic-increases-before-decreases.test.mjs",
+        "/tmp/RIFT-875-m1-judge-required-triage/probe-unlocked.mjs"
+      ],
+      "exitCode": 0,
+      "cardStatus": "Fiora, Peerless native combat probe passed; Laurent layered consumer remains dependency-blocked"
+    },
+    {
+      "id": "simultaneous-trigger-order",
+      "cards": [],
+      "sources": [
+        {
+          "url": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+          "version": "Core Rules 1.5 Radiance patch notes",
+          "published": "2026-10-09",
+          "effective": "2026-10-16"
+        },
+        {
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "version": "Core Rules 1.5",
+          "published": "2026-10-09",
+          "effective": "2026-10-16",
+          "rules": [
+            "303.2.a",
+            "383.3.d",
+            "383.3.d.1",
+            "340.1",
+            "466.2.d.1"
+          ]
+        }
+      ],
+      "timeline": [
+        "Collect simultaneous trigger hits.",
+        "Each controller orders its own group.",
+        "Controller groups append from Turn Player in Turn Order; Combat uses Attacker first under 466.2.d.1.",
+        "FEPR then finalizes and resolves in its own order."
+      ],
+      "canonicalCards": [],
+      "productionEvidence": [
+        "packages/engine-core/test/rules/chain/303.2.a-simultaneous-triggers-turn-order.test.mjs",
+        "packages/engine-core/test/rules/chain/383.3.d-simultaneous-triggers-same-player-orders.test.mjs"
+      ],
+      "exitCode": 0,
+      "status": "general-verified; CR303.2.a is not an all-chain uniform FIFO/LIFO instruction"
+    },
+    {
+      "id": "target-lki-linked",
+      "cards": [
+        "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+        "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c"
+      ],
+      "sources": [
+        {
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+          "version": "Core Rules 1.5",
+          "published": "2026-10-09",
+          "effective": "2026-10-16",
+          "rules": [
+            "355.5",
+            "355.7",
+            "355.10",
+            "359.3.e.5",
+            "359.3.e.6",
+            "359.3.e.12",
+            "359.3.e.13",
+            "359.3.e.14.a",
+            "359.3.e.14.b",
+            "808.1.c"
+          ]
+        }
+      ],
+      "timeline": [
+        "Choices/targets lock at Finalize; opponents may respond.",
+        "Resolve rechecks captured identity and legality.",
+        "Illegal target/information instructions are Ignored; unrelated instructions may still execute.",
+        "Ignored earlier links suppress dependent links; use captured LKI rather than current lookup."
+      ],
+      "canonicalCards": [
+        "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+        "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c"
+      ],
+      "productionEvidence": [
+        "packages/engine-core/test/rules/targeting/359.3.e.14.a-linked-ignored.test.mjs",
+        "packages/engine-core/test/rules/targeting/359.3.e.14.b-negated-linked-still-executes.test.mjs"
+      ],
+      "exitCode": 0,
+      "cardStatus": "general contracts pass; Strike Down pick lifecycle and Wages Gold/Deathknell remain blocked"
+    },
+    {
+      "id": "radiance-chronobreak-303.2.a",
+      "cards": [],
+      "sources": [
+        {
+          "url": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+          "version": "Core Rules 1.5 Radiance patch notes",
+          "published": "2026-10-09",
+          "effective": "2026-10-16"
+        }
+      ],
+      "timeline": [
+        "Apply CR303.2.a to the specific mixed immediate/permanent interaction described.",
+        "Do not infer a universal all-chain ordering rule from that example."
+      ],
+      "canonicalCards": [],
+      "productionEvidence": [
+        "packages/engine-core/test/rules/chain/303.2.a-chronobreak-multiplayer-turn-order.test.mjs",
+        "packages/engine-core/test/rules/chain/337.1-multiple-pending-finalized-oldest-first.test.mjs",
+        "packages/engine-core/test/rules/chain/340.1-lifo-resolution-order.test.mjs"
+      ],
+      "exitCode": 0,
+      "status": "specific example only; no global FIFO/LIFO priority"
+    }
+  ],
+  "nonClaims": [
+    "No card semantics, source, tests, card status, profile, replay schema, or lockfile changed by this task.",
+    "Energy/power null remains null; no printed cost was normalized to zero.",
+    "An expressible IR shape, isolated primitive probe, test.todo, or partial executable view is not whole-card production acceptance.",
+    "Priority ordering is dispatch guidance and does not authorize semantic implementation before dependencies close."
+  ]
+}
