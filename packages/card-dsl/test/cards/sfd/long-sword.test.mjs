@@ -9,6 +9,8 @@ import { bindResolveContext, createActionPipelineHost } from "../../../../engine
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { productionPlay } from "../../fixtures/production-play.mjs";
+import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 
 const CANONICAL_ID = "card.hash-cab923a670e4baa826aa3de381c8b992bf33987fcb0d65feb75ca538a8681010";
 
@@ -17,12 +19,8 @@ test("Long Sword card program passes validateCardProgram", () => {
   assert.equal(result.ok, true, JSON.stringify(result.ok ? null : result.issues));
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /CR 819\.1\.b\/819\.1\.c/);
-  assert.match(program.judgeReason, /draft\.speed "normal"/);
-  assert.match(program.judgeReason, /Action is not legally timed/);
-  assert.match(program.judgeReason, /RIFT-884/);
-  assert.match(program.judgeReason, /RIFT-883/);
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.equal(
     program.sourceText,
     "[Quick-Draw] (This has [Reaction]. When you play it, attach it to a unit you control.)\n[Equip] :rb_rune_fury: (:rb_rune_fury:: Attach this to a unit you control.)"
@@ -51,12 +49,8 @@ test("Long Sword carries its printed Equip cost as exactly one Fury Power throug
   assert.equal(equip.params.cost.payments.some(payment => payment.kind === "equip"), false);
 });
 
-// Component-level production fixture. Only the status metadata is admitted so
-// the binding accepts the card; both keyword abilities and params.cost are the
-// unchanged source IR. This proves the executed slices below, not the whole
-// card: the Quick-Draw Reaction timing is still pending (RIFT-884).
-const admitted = { ...program, status: "executable", judgeReason: undefined };
-
+// Production fixture: the unchanged registry program bound through
+// createProgramBinding and a real ChainEngine whose describePlay is the binding's.
 function fixture({ zone, energy = 2, power = ["Fury"] }) {
   const kernel = world()
     .player("A", { energy, power })
@@ -92,7 +86,7 @@ function fixture({ zone, energy = 2, power = ["Fury"] }) {
     choose,
     context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose })
   });
-  const binding = createProgramBinding({ cardPrograms: [admitted] });
+  const binding = createProgramBinding({ cardPrograms: [program] });
   const engine = new ChainEngine({
     turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false, describePlay: binding.describePlay
   });
@@ -151,4 +145,26 @@ test("Long Sword: Equip without Fury Power is rejected atomically", () => {
   assert.deepEqual(f.engine.items, []);
 });
 
-test.todo("Long Sword: [Quick-Draw] Reaction — play it into a Closed Chain while holding Priority on another player's turn (CR 819.1.b, 819.1.c); production describePlay still reports speed \"normal\" (RIFT-884)");
+test("Long Sword: [Quick-Draw] Reaction - played into a Closed Chain on the opponent's turn, attached, +2 Might Bonus (CR 819.1.b/819.1.c, 137.3)", () => {
+  const VOID_SEEKER = "card.hash-600e0796e82099284b213e87b112b1c5df42777ef72b70a3b4cd49a84d27dd10";
+  const f = productionPlay({
+    programs: [program, cardProgramsById.get(VOID_SEEKER)],
+    turnPlayer: "B",
+    answers: { "target:unit-at-battlefield": ["ally"] },
+    build: w => w.player("A", { energy: 2, power: ["Fury"] }).player("B", { energy: 3, power: ["Fury"] })
+      .object("sword", { owner: "A", controller: "A", cardId: CANONICAL_ID, types: ["gear"], tags: ["Equipment"], zone: "hand", energy: 2, power: ["Fury"], might: 2 })
+      .object("vs", { owner: "B", controller: "B", cardId: VOID_SEEKER, types: ["spell"], zone: "hand", energy: 3, power: ["Fury"] })
+      .unit("ally", { owner: "A", controller: "A", might: 3, location: { type: "battlefield", id: "bf1" } })
+  });
+  f.engine.execute(f.describe("vs", "B"));
+  f.engine.pass("B");
+  assert.equal(f.engine.priority, "A");
+  const draft = f.describe("sword", "A");
+  assert.equal(draft.speed, "reaction");
+  f.engine.execute(draft);
+  f.settle();
+  assert.equal(f.kernel.getObject("sword").zone, "board");
+  assert.deepEqual(f.kernel.getObject("sword").attachedTo, f.kernel.ref("ally"));
+  assert.equal(f.might("ally"), 5, "printed Might 3 + Long Sword Might Bonus 2");
+  assert.equal(f.kernel.getObject("vs").zone, "trash", "the opposing spell still resolved afterwards");
+});

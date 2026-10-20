@@ -14,26 +14,18 @@
  * Power and no Energy, passed to the expansion through params.cost (contract
  * 3.8.3). `value` / `costDomain` remain the descriptive record of the symbol.
  *
- * status = judge-required. Verified through the real ProgramBinding /
- * ChainEngine path (test/cards/sfd/long-sword.test.mjs): a Main-Phase play
- * pays 2 Energy + 1 Fury and the Quick-Draw trigger attaches it to the only
- * friendly Unit; the Equip activation pays exactly one Fury Power and is
- * rejected atomically without one. Not yet executable: the production
- * describePlay does not consume Quick-Draw's continuous.timing Reaction grant
- * (draft.speed is "normal"), so the Gear cannot be played into a Closed Chain
- * while holding Priority (CR 819.1.b, 819.1.c); RIFT-884. The Equipment Might Bonus
- * (CR 137.3 / 435.1.d) is a rules-engine characteristic tracked by RIFT-883.
+ * Execution evidence (test/cards/sfd/long-sword.test.mjs, real ProgramBinding /
+ * ChainEngine path): a Main-Phase play pays 2 Energy + 1 Fury and Quick-Draw
+ * attaches it to the only friendly Unit (CR 819.1.d); with Priority in a
+ * Closed Chain on the opponent's turn it is played at Reaction speed
+ * (CR 819.1.b/819.1.c, consumed since RIFT-884); the attached Unit gains the
+ * +2 Might Bonus (CR 137.3, RIFT-883); Equip pays exactly one Fury Power and
+ * is rejected atomically without one.
  */
 export default {
   canonicalCardId: "card.hash-cab923a670e4baa826aa3de381c8b992bf33987fcb0d65feb75ca538a8681010",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "[Quick-Draw] 的 Reaction 出牌速度（CR 819.1.b/819.1.c）在默认生产路径未生效：programs/play.ts 的 abilitySpeed 不消费 Quick-Draw 展开的 " +
-    "continuous.timing（value reaction，permissions play/attach），实测 binding.describePlay 得到 draft.speed \"normal\"，" +
-    "持 Priority 的封闭链中 ChainEngine.execute 抛 \"Action is not legally timed\"；依赖 RIFT-884，不近似实现。" +
-    "已真实执行：主阶段打出（2 Energy + 1 Fury）后 card-played 触发把本装备附着到唯一友方单位；[Equip] 经 params.cost 恰好支付 1 Fury Power 并附着，" +
-    "无 Fury 时原子拒绝。装备 Might Bonus（CR 137.3/435.1.d）属规则引擎，由 RIFT-883 负责。",
+  status: "executable",
   abilities: [
     { kind: "keyword", keyword: "quick-draw" },
     {
