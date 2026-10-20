@@ -62,6 +62,8 @@ export type ObjectState = "ready" | "exhausted" | "stunned" | "attached" | "face
 
 export interface ObjectFilter {
   readonly objectId?: string;
+  /** The object is at the same Battlefield as the triggering source (CR 053.3). */
+  readonly here?: true;
   readonly cardId?: string;
   readonly canonicalCardId?: string;
   readonly type?: ObjectFilterType | readonly ObjectFilterType[];
@@ -202,6 +204,8 @@ export interface EventPattern {
   readonly event?: EventPatternType;
   readonly type?: EventPatternType;
   readonly kind?: EventPatternType;
+  /** The event's Battlefield is the triggering source's Battlefield (CR 053.3). */
+  readonly here?: true;
   readonly object?: ObjectFilter;
   readonly source?: ObjectFilter;
   readonly target?: ObjectFilter;
@@ -354,7 +358,7 @@ function validateObjectFilterInternal(
   }
 
   const allowed = new Set([
-    "objectId", "cardId", "canonicalCardId", "type", "controller", "owner", "zone",
+    "objectId", "here", "cardId", "canonicalCardId", "type", "controller", "owner", "zone",
     "location", "states", "tags", "characteristics"
   ]);
   for (const key of Object.keys(value)) {
@@ -362,6 +366,9 @@ function validateObjectFilterInternal(
   }
   for (const key of ["objectId", "cardId", "canonicalCardId", "location"] as const) {
     if (hasOwn(value, key)) validateNonEmptyString(value[key], `${path}.${key}`, issues);
+  }
+  if (hasOwn(value, "here") && value.here !== true) {
+    addIssue(issues, `${path}.here`, "invalid-here-anchor", "here 只能为 true，并由触发源战场绑定。");
   }
   if (hasOwn(value, "type")) {
     validateEnumOrArray(value.type, OBJECT_FILTER_TYPES, `${path}.type`, issues, "invalid-object-type");
@@ -443,7 +450,7 @@ function validateEventPatternInternal(
     return false;
   }
   const allowed = new Set([
-    "event", "type", "kind", "object", "source", "target", "player", "fromZone", "toZone",
+    "event", "type", "kind", "here", "object", "source", "target", "player", "fromZone", "toZone",
     "amount", "details"
   ]);
   for (const key of Object.keys(value)) {
@@ -461,6 +468,9 @@ function validateEventPatternInternal(
   }
   for (const key of ["object", "source", "target"] as const) {
     if (hasOwn(value, key)) validateObjectFilterInternal(value[key], `${path}.${key}`, issues);
+  }
+  if (hasOwn(value, "here") && value.here !== true) {
+    addIssue(issues, `${path}.here`, "invalid-here-anchor", "here 只能为 true，并由触发源战场绑定。");
   }
   if (hasOwn(value, "player")) validatePlayerSelector(value.player, `${path}.player`, issues);
   for (const key of ["fromZone", "toZone"] as const) {
