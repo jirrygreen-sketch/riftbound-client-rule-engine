@@ -12,6 +12,7 @@ import { world } from '../../dist/effects/testing/test-kernel.js';
 import { bindResolveContext, createActionPipelineHost } from '../../dist/events/action-adapter.js';
 import { createMatch } from '../../dist/game/lifecycle.js';
 import { createMatchCommandAdapter } from '../../dist/game/command-adapter.js';
+import { normalizeLegacyEventTrigger } from '../../dist/programs/lifecycle.js';
 import { queryTargetCandidates } from '../../dist/target/target-plan.js';
 
 const MECHANIZED_MENACE = mechanizedMenace.canonicalCardId;
@@ -96,9 +97,8 @@ function makeHost(builder) {
 function makeMatch(legendProgram, setup) {
   const builder = world().player('A').player('B');
   setup?.(builder);
-  // Each seat's Champion Legend must be backed by its own registry entry. For
-  // the generic B seat, use a no-op Legend program whose identity still keys
-  // the production lifecycle directly from that seat's deck.
+  // Seat B has no registered program. Keeping that object unbacked is the
+  // production no-effect case, not a synthetic lifecycle closure.
   const genericLegend = card('generic-legend', {
     canonicalCardId: 'trained:generic-legend', cardId: 'trained:generic-legend',
     cardType: 'Legend', types: ['legend'], name: 'Trained Generic Legend',
@@ -110,10 +110,6 @@ function makeMatch(legendProgram, setup) {
   const registry = new Map([
     [mechanizedMenace.canonicalCardId, executableMechanizedMenace],
     [grandDuelist.canonicalCardId, grandDuelist],
-    ['trained:generic-legend', {
-      canonicalCardId: 'trained:generic-legend', rulesetVersion: 'core-1.5',
-      status: 'executable', sourceText: 'Synthetic no-op Legend witness', abilities: [],
-    }],
   ]);
   registry.set(legendProgram.canonicalCardId, legendProgram);
   const made = makeHost(builder);
@@ -169,25 +165,7 @@ test('RIFT-891 createMatch establishes the Champion Legend in legend and the rea
 });
 
 test('RIFT-891 Grand Duelist trigger binds against its exact Legend-zone incarnation', () => {
-  // The card-dsl program is the authoritative source for the trigger and the
-  // optional exhaust/channel body. Its legacy nested `filter.becameMighty`
-  // spelling is normalized here to the typed event shape that current Fiora
-  // production coverage exercises. programs/filters.ts remains outside this
-  // task's write scope and owns the general legacy-spelling adapter fix.
-  const grandDuelistWithTypedMighty = {
-    ...grandDuelist,
-    abilities: grandDuelist.abilities.map(ability => ({
-      ...ability,
-      trigger: {
-        ...ability.trigger,
-        filter: {
-          event: 'might-changed',
-          object: { type: 'unit', controller: 'self', becomesMighty: true },
-        },
-      },
-    })),
-  };
-  const { kernel, match } = makeMatch(grandDuelistWithTypedMighty);
+  const { kernel, match } = makeMatch(grandDuelist);
   const legend = legendObject(kernel, GRAND_DUELIST);
   assert.equal(legend.zone, 'legend');
 
@@ -207,6 +185,18 @@ test('RIFT-891 Grand Duelist trigger binds against its exact Legend-zone incarna
   } finally {
     adapter.detach();
   }
+});
+
+test('RIFT-891 legacy becameMighty normalization preserves the source and typed event predicate', () => {
+  const [sourceAbility] = grandDuelist.abilities;
+  const normalized = normalizeLegacyEventTrigger(sourceAbility);
+  assert.deepEqual(normalized.trigger.filter, {
+    event: 'might-changed',
+    filter: { type: 'unit', controller: 'controller' },
+    details: { becomesMighty: true },
+  });
+  assert.deepEqual(normalized.body, sourceAbility.body);
+  assert.equal(normalized.optional, sourceAbility.optional);
 });
 
 test('RIFT-891 a Legend is outside Board Unit, attack-target and public Standard Move sets', () => {

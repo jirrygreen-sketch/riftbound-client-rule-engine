@@ -22,6 +22,39 @@ interface Binding {
 
 type Undo = () => void;
 
+type ExpandedAbility = ReturnType<typeof expandProgram>['abilities'][number];
+
+/**
+ * Older authored programs may keep `becomesMighty` inside an event's nested
+ * object filter. The unified matcher consumes the typed equivalent in
+ * `details`. Normalize that fallback shape only for a real might-changed
+ * predicate with the exact boolean `true`; malformed or conflicting shapes
+ * still flow to the matcher and fail closed there.
+ */
+export function normalizeLegacyEventTrigger<T extends ExpandedAbility>(ability: T): T {
+  if (ability.kind !== 'triggered') return ability;
+  const triggerFilter = ability.trigger.filter as Record<string, unknown>;
+  const nested = triggerFilter.filter;
+  if ((triggerFilter.event ?? triggerFilter.kind ?? triggerFilter.type) !== 'might-changed' ||
+      nested === null || typeof nested !== 'object' || Array.isArray(nested) ||
+      (nested as Record<string, unknown>).becameMighty !== true) return ability;
+  const details = triggerFilter.details;
+  if (details !== undefined && (details === null || typeof details !== 'object' || Array.isArray(details) ||
+      Object.hasOwn(details, 'becomesMighty') && (details as Record<string, unknown>).becomesMighty !== true)) return ability;
+  const { becameMighty: _becomesMighty, ...ordinaryFilter } = nested as Record<string, unknown>;
+  return {
+    ...ability,
+    trigger: {
+      ...ability.trigger,
+      filter: {
+        ...triggerFilter,
+        filter: ordinaryFilter,
+        details: { ...(details as Record<string, unknown> | undefined), becomesMighty: true },
+      },
+    },
+  } as T;
+}
+
 export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramRegistry, binder?: ProgramStaticBinder, onError?: (error: unknown, source: ObjectSnapshot) => void): ProgramLifecycleHandle {
   const effectiveBinder = binder ?? createEngineStaticBinder(engine);
   const bindReplacementOnChain = binder === undefined;
@@ -137,7 +170,8 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
         // Bind each expanded trigger through the normal program adapter. A
         // keyword skeleton with a currently unsupported filter must not erase
         // an unrelated, executable static or replacement on the same card.
-        const isolated = new ProgramRegistry([{ ...program, status: 'executable', sourceText: '[lifecycle isolated trigger]', abilities: [ability] }]);
+        const normalizedAbility = normalizeLegacyEventTrigger(ability);
+        const isolated = new ProgramRegistry([{ ...program, status: 'executable', sourceText: '[lifecycle isolated trigger]', abilities: [normalizedAbility] }]);
         const [registration] = triggerRegistrations(isolated, source);
         if (!registration) throw new Error('Trigger adapter returned no registration');
         const id = `program:${source.ref.id}:${source.ref.zoneEntryId}:${index}`;
