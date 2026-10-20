@@ -514,6 +514,46 @@ function choiceMatch() {
   return { match, kernel: made.kernel, ...made };
 }
 
+function opponentChoiceProgram() {
+  return {
+    canonicalCardId: 'card.hash.parent-opponent-choice',
+    rulesetVersion: 'core-1.5', status: 'executable',
+    sourceText: 'Synthetic generic command-adapter contract fixture',
+    abilities: [
+      { kind: 'play', body: [] },
+      {
+        kind: 'activated', timing: 'action',
+        cost: { kind: 'activated', energy: constant(1) },
+        body: [
+          {
+            id: 'parent-opponent-mode', op: 'choice.each-player', args: {
+              choosers: constant('each-player'), choose: constant({ kind: 'mode', options: ['left', 'right'] }),
+              currentTurnPlayer: constant('A'),
+            },
+          },
+          { id: 'parent-draw-once', op: 'effect.draw', args: { amount: constant(1) } },
+        ],
+      },
+    ],
+  };
+}
+
+function opponentChoiceMatch() {
+  const program = opponentChoiceProgram();
+  const made = makeHost(world().player('A').player('B'));
+  const match = createMatch({
+    host: made.host,
+    decks: [
+      deck({ id: 'source-a', canonicalCardId: program.canonicalCardId, energy: 0, power: [], might: 2 }),
+      deck({ id: 'source-b', canonicalCardId: program.canonicalCardId, energy: 0, power: [], might: 2 }),
+    ],
+    programs: { programs: [program] },
+    seed: 'parent-836-opponent-choice', battlefieldChoice: [0, 0], mulligans: [[], []], firstPlayer: 0,
+  });
+  assert.equal(match.flow.chain.commit({ type: 'gain-energy', player: 'A', amount: 20 }).status, 'done');
+  return { ...made, match, program };
+}
+
 function playChoiceCard(adapter, sequence) {
   const source = findHand(adapter.match, 'A', 'card.hash.match-choice');
   assert.ok(source);
@@ -698,11 +738,21 @@ test('a legal Choose whose replayed command fails restores every authoritative a
   const source = playChoiceCard(adapter, 'rollback');
   assert.ok(source);
   assert.equal(match.flow.chain.commit({ type: 'gain-energy', player: 'A', amount: 1 }).status, 'done');
-  const paused = adapter.execute('A', {
+  const activated = adapter.execute('A', {
     type: 'activate', commandId: 'rollback-activate', stateVersion: adapter.stateVersion,
     sourceObjectId: source.ref.id, abilityId: '2',
   });
-  assert.equal(paused.type, 'activate');
+  assert.equal(activated.type, 'activate');
+  assert.equal(adapter.pendingChoice, null);
+  let pass = 0;
+  while (adapter.pendingChoice === null) {
+    assert.ok(++pass < 10);
+    const actor = match.flow.chain.priority;
+    assert.ok(actor);
+    adapter.execute(actor, {
+      type: 'pass', commandId: `rollback-pass-${pass}`, stateVersion: adapter.stateVersion,
+    });
+  }
   assert.equal(adapter.pendingChoice?.request.type, 'optional');
 
   const beforeFailure = {
@@ -712,7 +762,7 @@ test('a legal Choose whose replayed command fails restores every authoritative a
     receipts: receipts.length,
   };
   made.injectPerform(action => {
-    if (action.type === 'pay') throw new Error('injected continuation failure');
+    if (action.type === 'draw') throw new Error('injected continuation failure');
     return kernel.perform(action);
   });
   const answerRequest = adapter.pendingChoice.request.id;
@@ -735,6 +785,194 @@ test('a legal Choose whose replayed command fails restores every authoritative a
     'a failed replay restores records, pending answers and ChoiceMemory');
   assert.equal(adapter.stateVersion, beforeFailure.version);
   assert.equal(receipts.length, beforeFailure.receipts, 'a failed continuation emits no receipt');
+  adapter.detach();
+});
+
+test('an opponent choice resumes the original command actor while receipts belong to the actual chooser', () => {
+  const made = opponentChoiceMatch();
+  const { match, kernel } = made;
+  const receipts = [];
+  const adapter = createMatchCommandAdapter({
+    match, stateVersion: 0,
+    onCommand: (record, receipt) => receipts.push({ record, receipt }),
+  });
+  const source = findHand(match, 'A', made.program.canonicalCardId);
+  assert.ok(source);
+  adapter.execute('A', {
+    type: 'play', commandId: 'opponent-play', stateVersion: adapter.stateVersion, cardObjectId: source.ref.id,
+  });
+  settle(adapter, 'opponent-play-settle');
+  adapter.execute('A', {
+    type: 'activate', commandId: 'opponent-activate', stateVersion: adapter.stateVersion,
+    sourceObjectId: source.ref.id, abilityId: '0',
+  });
+
+  let pass = 0;
+  while (adapter.pendingChoice === null) {
+    assert.ok(++pass < 10);
+    const actor = match.flow.chain.priority;
+    assert.ok(actor);
+    adapter.execute(actor, {
+      type: 'pass', commandId: `opponent-pass-${pass}`, stateVersion: adapter.stateVersion,
+    });
+  }
+  const first = adapter.pendingChoice;
+  assert.ok(first);
+  assert.equal(first.playerId, 'B');
+  assert.equal(first.command.type, 'pass');
+  assert.equal(first.request.chooser, 'A');
+  assert.equal(first.request.type, 'mode');
+
+  const beforeInvalid = {
+    state: authoritativeState(kernel, match), snapshot: structuredClone(adapter.snapshot()),
+    receipts: receipts.length,
+  };
+  assert.throws(() => adapter.execute('B', {
+    type: 'choose', commandId: 'opponent-wrong-actor', stateVersion: adapter.stateVersion,
+    choiceId: first.request.id, answer: 'left',
+  }), error => error instanceof MatchCommandError && error.code === 'choice-cursor');
+  assert.deepEqual(authoritativeState(kernel, match), beforeInvalid.state);
+  assert.deepEqual(adapter.snapshot(), beforeInvalid.snapshot);
+  assert.equal(receipts.length, beforeInvalid.receipts);
+
+  assert.throws(() => adapter.execute('A', {
+    type: 'choose', commandId: 'opponent-wrong-choice', stateVersion: adapter.stateVersion,
+    choiceId: 'not-the-pending-choice', answer: 'left',
+  }), error => error instanceof MatchCommandError && error.code === 'choice-cursor');
+  assert.throws(() => adapter.execute('A', {
+    type: 'choose', commandId: 'opponent-stale-version', stateVersion: adapter.stateVersion + 1,
+    choiceId: first.request.id, answer: 'left',
+  }), /stateVersion mismatch/);
+  assert.deepEqual(authoritativeState(kernel, match), beforeInvalid.state);
+  assert.deepEqual(adapter.snapshot(), beforeInvalid.snapshot);
+  assert.equal(receipts.length, beforeInvalid.receipts);
+
+  const beforeDraw = kernel.player('A').handCount;
+  const firstReceipt = adapter.execute('A', {
+    type: 'choose', commandId: 'opponent-answer-a', stateVersion: adapter.stateVersion,
+    choiceId: first.request.id, answer: 'left',
+  });
+  assert.equal(firstReceipt.commandId, 'opponent-answer-a');
+  assert.equal(firstReceipt.type, 'choose');
+  assert.equal(receipts.at(-1).record.playerId, 'A');
+  assert.equal(receipts.at(-1).record.command.commandId, 'opponent-answer-a');
+  const second = adapter.pendingChoice;
+  assert.ok(second);
+  assert.equal(second.playerId, 'B');
+  assert.equal(second.command.type, 'pass');
+  assert.equal(second.request.chooser, 'B');
+  assert.equal(receipts.length, beforeInvalid.receipts + 1);
+
+  const secondReceipt = adapter.execute('B', {
+    type: 'choose', commandId: 'opponent-answer-b', stateVersion: adapter.stateVersion,
+    choiceId: second.request.id, answer: 'right',
+  });
+  assert.equal(secondReceipt.commandId, 'opponent-answer-b');
+  assert.equal(secondReceipt.type, 'choose');
+  assert.equal(adapter.pendingChoice, null);
+  assert.equal(kernel.player('A').handCount, beforeDraw + 1, 'the body draw executes once');
+  const paidEnergy = kernel.player('A').energy;
+  assert.equal(paidEnergy, 19, 'the one-Energy activation is paid exactly once');
+  assert.equal(receipts.at(-1).record.playerId, 'B');
+  assert.equal(receipts.at(-1).record.command.commandId, 'opponent-answer-b');
+
+  const records = structuredClone(adapter.snapshot().records);
+  const eventSummary = match.events().map(event => ({
+    eventId: event.eventId, timingPoint: event.timingPoint, sourceCardId: event.sourceCardId,
+  }));
+  adapter.detach();
+  const replay = opponentChoiceMatch();
+  const rebuilt = createMatchCommandAdapter({ match: replay.match, stateVersion: 0 });
+  const result = rebuilt.replay(records);
+  assert.deepEqual(result, { recordCount: records.length, stateVersion: rebuilt.stateVersion, choiceCursor: null });
+  assert.equal(replay.kernel.player('A').handCount, beforeDraw + 1, 'replay draws exactly once');
+  assert.equal(replay.kernel.player('A').energy, paidEnergy, 'replay pays the activation cost exactly once');
+  assert.equal(rebuilt.snapshot().records.filter(record => record.command.commandId === 'opponent-answer-b').length, 1);
+  assert.deepEqual(replay.match.events().map(event => ({
+    eventId: event.eventId, timingPoint: event.timingPoint, sourceCardId: event.sourceCardId,
+  })), eventSummary);
+  rebuilt.detach();
+});
+
+test('a failed opponent choice replay restores original actor, pending answers, ChoiceMemory and receipts', () => {
+  const made = opponentChoiceMatch();
+  const { match, kernel } = made;
+  const receipts = [];
+  const adapter = createMatchCommandAdapter({
+    match, stateVersion: 0,
+    onCommand: (record, receipt) => receipts.push({ record, receipt }),
+  });
+  const source = findHand(match, 'A', made.program.canonicalCardId);
+  assert.ok(source);
+  const sourceEnergy = source.energy;
+  adapter.execute('A', {
+    type: 'play', commandId: 'opponent-rollback-play', stateVersion: adapter.stateVersion, cardObjectId: source.ref.id,
+  });
+  settle(adapter, 'opponent-rollback-play-settle');
+  adapter.execute('A', {
+    type: 'activate', commandId: 'opponent-rollback-activate', stateVersion: adapter.stateVersion,
+    sourceObjectId: source.ref.id, abilityId: '0',
+  });
+  let pass = 0;
+  while (adapter.pendingChoice === null) {
+    assert.ok(++pass < 10);
+    const actor = match.flow.chain.priority;
+    assert.ok(actor);
+    adapter.execute(actor, {
+      type: 'pass', commandId: `opponent-rollback-pass-${pass}`, stateVersion: adapter.stateVersion,
+    });
+  }
+  const pending = adapter.pendingChoice;
+  assert.ok(pending);
+  assert.equal(pending.request.chooser, 'A');
+  assert.equal(kernel.getObject(source.ref.id).energy, sourceEnergy, 'the original ability is not paid before Finalize resumes');
+  const beforeFirstAnswer = {
+    state: authoritativeState(kernel, match), snapshot: structuredClone(adapter.snapshot()),
+    receipts: receipts.length,
+  };
+  const firstReceipt = adapter.execute('A', {
+    type: 'choose', commandId: 'opponent-rollback-answer-a', stateVersion: adapter.stateVersion,
+    choiceId: pending.request.id, answer: 'left',
+  });
+  assert.equal(firstReceipt.commandId, 'opponent-rollback-answer-a');
+  assert.equal(firstReceipt.type, 'choose');
+  assert.equal(receipts.at(-1).record.playerId, 'A');
+  const secondPending = adapter.pendingChoice;
+  assert.ok(secondPending);
+  assert.equal(secondPending.playerId, 'B');
+  assert.equal(secondPending.command.type, 'pass');
+  assert.equal(secondPending.request.chooser, 'B');
+  const afterFirstAnswer = {
+    state: authoritativeState(kernel, match), snapshot: structuredClone(adapter.snapshot()),
+    receipts: receipts.length,
+  };
+  assert.ok(afterFirstAnswer.receipts > beforeFirstAnswer.receipts);
+  assert.notDeepEqual(afterFirstAnswer.snapshot, beforeFirstAnswer.snapshot);
+
+  const observedOpponentActions = [];
+  made.injectPerform(action => {
+    observedOpponentActions.push(action.type);
+    if (action.type === 'draw') throw new Error('injected opponent continuation failure');
+    return kernel.perform(action);
+  });
+  try {
+    adapter.execute('B', {
+      type: 'choose', commandId: 'opponent-rollback-answer-b', stateVersion: adapter.stateVersion,
+      choiceId: secondPending.request.id, answer: 'right',
+    });
+    assert.fail(`expected downstream failure, observed ${JSON.stringify(observedOpponentActions)}`);
+  } catch (error) {
+    assert.match(String(error), /injected opponent continuation failure/);
+  }
+  made.injectPerform(action => kernel.perform(action));
+  assert.deepEqual(authoritativeState(kernel, match), afterFirstAnswer.state);
+  assert.deepEqual(adapter.snapshot(), afterFirstAnswer.snapshot);
+  assert.equal(receipts.length, afterFirstAnswer.receipts);
+  assert.equal(adapter.pendingChoice.playerId, secondPending.playerId);
+  assert.equal(adapter.pendingChoice.command.type, secondPending.command.type);
+  assert.equal(adapter.pendingChoice.chooser, secondPending.request.chooser);
+  assert.equal(observedOpponentActions.length, 1, 'the accepted answer reaches the Draw once');
+  assert.equal(observedOpponentActions[0], 'draw');
   adapter.detach();
 });
 

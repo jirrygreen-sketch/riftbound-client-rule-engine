@@ -267,7 +267,7 @@ class MatchCommand implements MatchCommandAdapter {
         match: this.match,
         stateVersion: this.version,
         binding: this.match.programBinding!,
-      }, playerId, pending.command);
+      }, pending.playerId, pending.command);
       this.version += 1;
       const continuationReceipt = {
         ...receipt,
