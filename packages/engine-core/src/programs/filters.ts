@@ -126,7 +126,7 @@ export function translateObjectFilter(input: ObjectFilter | Record<string, unkno
   return output as EngineObjectFilter;
 }
 
-const eventFields = new Set(['event', 'kind', 'filter', 'object', 'source', 'target', 'it', 'relations', 'player', 'fromZone', 'toZone', 'amount', 'details']);
+const eventFields = new Set(['event', 'kind', 'filter', 'here', 'object', 'source', 'target', 'it', 'relations', 'player', 'fromZone', 'toZone', 'amount', 'details']);
 const isEventType = (value: unknown): value is typeof EVENT_PATTERN_TYPES[number] => typeof value === 'string' && (EVENT_PATTERN_TYPES as readonly string[]).includes(value);
 const isSelector = (value: unknown): boolean => value === 'self' || value === 'source' || typeof value === 'object' && value !== null && Object.keys(value).length === 1 && ['target', 'pick', 'linked'].some(key => key in value);
 
@@ -134,8 +134,12 @@ const isSelector = (value: unknown): boolean => value === 'self' || value === 's
  * relation. Keep this boundary closed until its owner connects the unified
  * matcher, the registration source and immutable event/LKI snapshots. */
 function triggerObject(input: Record<string, unknown>, sourceRefId: string): Record<string, unknown> {
-  if (input.here !== undefined) throw new ProgramBindingError('judge-required', 'Unsupported filter field here');
-  const output = { ...translateObjectFilter(input) } as Record<string, unknown>;
+  const { here, ...ordinary } = input;
+  if (here !== undefined && here !== true) {
+    throw new ProgramBindingError('judge-required', `Unsupported filter here: ${String(here)}`);
+  }
+  const output = { ...translateObjectFilter(ordinary) } as Record<string, unknown>;
+  if (here === true) output.here = true;
   for (const key of ['object', 'source', 'target', 'it', 'host']) {
     if (!(key in output)) continue;
     if (output[key] !== 'self' && output[key] !== 'source') throw new ProgramBindingError('judge-required', `Trigger filter ${key} requires runtime object binding`);
@@ -185,6 +189,9 @@ function normalizeMightyTransition(output: Record<string, unknown>, becomesMight
 
 export function translateTriggerFilter(input: ObjectFilter | EventPattern | Record<string, unknown>, sourceRefId: string, defaultEvent = 'object-entered-zone'): ObjectFilter | EventPattern {
   const raw = record(input);
+  if (raw.here !== undefined && raw.event === undefined && raw.kind === undefined && !isEventType(raw.type)) {
+    throw new ProgramBindingError('judge-required', 'Unsupported filter field here');
+  }
   if (Object.hasOwn(raw, 'becomesMighty')) {
     throw new ProgramBindingError('judge-required', 'becomesMighty must be inside a typed might-changed event pattern');
   }
@@ -196,7 +203,7 @@ export function translateTriggerFilter(input: ObjectFilter | EventPattern | Reco
   const hasMightyPredicate = raw.object !== null && typeof raw.object === 'object' && Object.hasOwn(raw.object, 'becomesMighty');
   const hasDetailsMightyPredicate = raw.details !== null && typeof raw.details === 'object' && !Array.isArray(raw.details) && Object.hasOwn(raw.details, 'becomesMighty');
   const pattern = raw.event !== undefined || raw.kind !== undefined || hasEventType || raw.filter !== undefined ||
-    ['player', 'fromZone', 'toZone', 'amount', 'details', 'relations', 'battlefieldWas'].some(key => key in raw) ||
+    ['player', 'fromZone', 'toZone', 'amount', 'details', 'relations', 'battlefieldWas', 'here'].some(key => key in raw) ||
     ['object', 'source', 'target', 'it'].some(key => raw[key] !== undefined && !isSelector(raw[key])) ||
     hasMightyPredicate || hasDetailsMightyPredicate;
   if (!pattern) return triggerObject(raw, sourceRefId) as ObjectFilter;
@@ -220,6 +227,9 @@ export function translateTriggerFilter(input: ObjectFilter | EventPattern | Reco
   };
   if (raw.filter !== undefined) {
     const nested = { ...record(raw.filter) };
+    if (nested.here !== undefined) {
+      throw new ProgramBindingError('judge-required', 'Unsupported nested filter field here');
+    }
     // This legacy spelling nests the acting player next to object predicates.
     // It still constrains the event, rather than the object's controller.
     if (nested.player !== undefined) {
@@ -243,6 +253,10 @@ export function translateTriggerFilter(input: ObjectFilter | EventPattern | Reco
       if (isSelector(value)) flat[key] = value;
       else if (key !== 'object') output[key] = triggerObject(record(value), sourceRefId);
     } else if (key === 'event' || key === 'kind' || key === 'type' && hasEventType) output[key] = value;
+    else if (key === 'here') {
+      if (value !== true) throw new ProgramBindingError('judge-required', `Unsupported event here anchor ${String(value)}`);
+      output.here = true;
+    }
     else if (key === 'player') {
       const player = normalizePlayer(value);
       put(output, key, typeof player === 'string' && !['self', 'opponent', 'any'].includes(player) ? { playerId: player } : player);
