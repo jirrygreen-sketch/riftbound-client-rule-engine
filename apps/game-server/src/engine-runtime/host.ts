@@ -16,9 +16,12 @@ import type {
   TokenSpec,
   FinalizedCostPlan,
   PowerPaymentSource,
+  ContractGameAction,
   ZoneDestination,
   ZoneId,
 } from "../../../../packages/engine-core/dist/effects/contract.js";
+import { executeContractAction as executeTypedContractAction }
+  from "../../../../packages/engine-core/dist/events/contract-actions/bridge.js";
 import { disempowerTransition, empoweredState, empowerTransition, readEmpowered }
   from "../../../../packages/engine-core/dist/zones/empower-state.js";
 
@@ -61,6 +64,25 @@ export interface RuntimeHostCheckpoint {
   readonly nextToken: number;
   readonly visibility: readonly RuntimeVisibilityGrant[];
   readonly runeDomains?: readonly [string, readonly Domain[]][];
+  readonly hidden?: HiddenRuntimeCheckpoint;
+}
+
+interface HiddenRuntimeCard { readonly ref: ObjectRef; readonly battlefieldId: string }
+interface HiddenRuntimeZone {
+  readonly battlefieldId: string;
+  readonly controller: PlayerId;
+  readonly capacity: number;
+  readonly cards: ReadonlyMap<string, HiddenRuntimeCard>;
+}
+interface HiddenRuntimeState {
+  turn: number;
+  zones: Map<string, HiddenRuntimeZone>;
+  played: Map<string, { readonly battlefieldId: string; readonly location: LocationRef }>;
+}
+interface HiddenRuntimeCheckpoint {
+  readonly turn: number;
+  readonly zones: readonly [string, HiddenRuntimeZone][];
+  readonly played: readonly [string, { readonly battlefieldId: string; readonly location: LocationRef }][];
 }
 
 export interface RuntimeVisibilityGrant {
@@ -122,6 +144,7 @@ export class EngineRuntimeHost {
   private readonly grants: RuntimeVisibilityGrant[] = [];
   private readonly runeDomainsByObject = new Map<string, readonly Domain[]>();
   private readonly catalogDomainsByCardId = new Map<string, readonly Domain[]>();
+  private hidden: HiddenRuntimeState = { turn: 1, zones: new Map(), played: new Map() };
 
   constructor(
     readonly seatNames: Readonly<Record<PlayerId, string>> = { A: "Player A", B: "Player B" },
@@ -173,6 +196,7 @@ export class EngineRuntimeHost {
       objects: clone([...this.objectMap.values()]), players: clone([...this.players.values()]),
       lastKnown: clone([...this.lastKnown.entries()]), nextToken: this.nextToken, visibility: clone(this.grants),
       runeDomains: clone([...this.runeDomainsByObject.entries()]),
+      hidden: clone({ turn: this.hidden.turn, zones: [...this.hidden.zones.entries()], played: [...this.hidden.played.entries()] }),
     };
   }
 
@@ -192,6 +216,9 @@ export class EngineRuntimeHost {
         if (value !== undefined) this.runeDomainsByObject.set(object.ref.id, value);
       }
     }
+    this.hidden = saved.hidden === undefined
+      ? { turn: 1, zones: new Map(), played: new Map() }
+      : { turn: saved.hidden.turn, zones: new Map(clone(saved.hidden.zones)), played: new Map(clone(saved.hidden.played)) };
   }
 
   objects(): readonly ObjectSnapshot[] {
@@ -244,6 +271,28 @@ export class EngineRuntimeHost {
   }
 
   visibility(): readonly RuntimeVisibilityGrant[] { return clone(this.grants); }
+
+  /** Current Hidden cards only; deck/rune cards are not Facedown Zone cards. */
+  hiddenObjects(): readonly ObjectSnapshot[] {
+    return [...this.hidden.zones.values()].flatMap(zone => [...zone.cards.values()].flatMap(card => {
+      const object = this.objectMap.get(card.ref.id);
+      return object?.ref.zoneEntryId === card.ref.zoneEntryId && object.faceDown ? [clone(object)] : [];
+    }));
+  }
+
+  registerBattlefield(player: PlayerId, id: string, capacity = 1): void {
+    if (!this.players.has(player) || !validCount(capacity)) throw new Error("Invalid Facedown Zone registration");
+    const battlefield = this.objectMap.get(id);
+    if (!battlefield || !battlefield.types.some(type => type.toLowerCase() === "battlefield")) {
+      throw new Error(`Unknown Battlefield ${id}`);
+    }
+    if (!this.hidden.zones.has(id)) this.hidden.zones.set(id, { battlefieldId: id, controller: player, capacity, cards: new Map() });
+  }
+
+  advanceTurn(turn: number): void {
+    if (!validCount(turn) || turn < this.hidden.turn) throw new Error("Hidden turn cannot move backwards");
+    this.hidden.turn = turn;
+  }
 
   perform(action: GameAction): ActionOutcome {
     try {
@@ -313,13 +362,52 @@ export class EngineRuntimeHost {
         }
         case "score": { const player = this.requirePlayer(action.player); player.score += action.amount; return this.done(player.score); }
         case "win": this.requirePlayer(action.player); return this.done(action.player);
-        case "play": return this.impossible();
-        case "counter": return this.impossible();
+        case "play": return this.play(action);
+        case "counter": return this.counter(action);
       }
       return this.impossible();
     } catch {
       return this.impossible();
     }
+  }
+
+  /** Versioned direct consumer for actions outside the closed GameAction union. */
+  performContract(action: ContractGameAction): ActionOutcome {
+    const checkpoint = this.checkpoint();
+    const outcome = this.performContractInternal(action);
+    if (outcome.status !== "done") this.restore(checkpoint);
+    return outcome;
+  }
+
+  /** Install the authoritative Facedown Zone capacity/controller for one Battlefield. */
+  configureFacedownZone(battlefieldId: string, controller: PlayerId, capacity: number): void {
+    const battlefield = this.objectMap.get(battlefieldId);
+    if (!battlefield || !battlefield.types.some(type => type.toLowerCase() === "battlefield") ||
+        !this.players.has(controller) || !validCount(capacity)) throw new Error("Invalid Facedown Zone configuration");
+    const existing = this.hidden.zones.get(battlefieldId);
+    if (existing !== undefined && existing.cards.size > capacity) throw new Error("Facedown Zone capacity is below occupancy");
+    this.hidden.zones.set(battlefieldId, {
+      battlefieldId,
+      controller,
+      capacity,
+      cards: existing?.cards ?? new Map(),
+    });
+  }
+
+  private performContractInternal(action: ContractGameAction): ActionOutcome {
+    if (action.type === "recall") return this.recall(action);
+    if (action.type === "hide") return this.hide(action);
+    if (action.type === "batch") {
+      return executeTypedContractAction(action, {
+        checkpoint: () => this.checkpoint(),
+        restore: value => this.restore(value),
+        objects: () => this.objects(),
+        perform: leaf => this.perform(leaf),
+        performContract: leaf => this.performContractInternal(leaf),
+        performBatchLeaf: (leaf, batchId) => this.performKillBatchWithDeathBoundary([leaf as Extract<GameAction, { type: "kill" }>], batchId, () => {}).outcome,
+      }).outcome;
+    }
+    return this.perform(action);
   }
 
   /** Confirmed Kill seam: validate the exact Board incarnation before notifying. */
@@ -441,6 +529,151 @@ export class EngineRuntimeHost {
     const zone = player.zones[target.zone] ?? (player.zones[target.zone] = []);
     if (target.bottom) zone.push(object.ref.id); else zone.unshift(object.ref.id);
     return this.done(objectRef(object));
+  }
+
+  /**
+   * The state half of Play. Cost selection, Finalize and card-program binding
+   * stay with ChainEngine; this primitive validates the authoritative current
+   * incarnation, pays a supplied finalized plan as one unit, and enters Chain.
+   */
+  private play(action: Extract<GameAction, { type: "play" }>): ActionOutcome {
+    const checkpoint = this.checkpoint();
+    const outcome = this.playChecked(action);
+    if (outcome.status !== "done") this.restore(checkpoint);
+    return outcome;
+  }
+
+  private playChecked(action: Extract<GameAction, { type: "play" }>): ActionOutcome {
+    const object = this.requireObject(action.object);
+    if (!this.players.has(action.player)) return this.impossible();
+    if (object.zone !== "hand" && object.zone !== "banishment" && object.zone !== "chain") return this.impossible();
+    if (object.controller !== action.player) return this.impossible();
+    if (object.faceDown && !this.hidden.zones.get(
+      object.facedownLocation?.type === "battlefield" ? object.facedownLocation.id : "",
+    )?.cards.has(refKey(object.ref))) return this.impossible();
+    if (action.location?.type === "base" && action.location.player !== action.player) return this.impossible();
+    if (action.location !== undefined && object.types.some(type => type.toLowerCase() === "spell")) return this.impossible();
+    if (action.location?.type === "battlefield" && !this.hasBattlefield(action.location.id)) return this.impossible();
+    if (!object.types.some(type => ["unit", "spell", "gear"].includes(type.toLowerCase()))) return this.impossible();
+    const fields = this.battlefieldIds();
+    if (action.location?.type === "battlefield" && !fields.includes(action.location.id)) return this.impossible();
+    if (fields.length > 0 && !this.battlefieldChoiceLegal(action, object)) return this.impossible();
+    if (action.cost !== undefined) {
+      const payment = this.pay(action.player, action.cost);
+      if (payment.status !== "done") return payment;
+    }
+    if (object.zone === "chain") return this.done(objectRef(object));
+    const entered = this.move(object.ref, "chain");
+    if (entered.status === "done") {
+      const current = this.objectMap.get(action.object.id)!;
+      current.faceDown = false;
+      current.facedownLocation = null;
+      const hiddenProvenance = object.faceDown && object.facedownLocation?.type === "battlefield"
+        ? object.facedownLocation.id : "";
+      if (hiddenProvenance !== "") {
+        const zone = this.hidden.zones.get(hiddenProvenance)!;
+        this.hidden.zones.set(hiddenProvenance, {
+          ...zone,
+          cards: new Map([...zone.cards].filter(([key]) => key !== refKey(object.ref))),
+        });
+        this.hidden.played.set(refKey(current.ref), {
+          battlefieldId: hiddenProvenance,
+          location: action.location ?? object.location ?? { type: "base", player: action.player },
+        });
+      }
+    }
+    return entered;
+  }
+
+  private battlefieldChoiceLegal(action: Extract<GameAction, { type: "play" }>, object: ObjectSnapshot): boolean {
+    if (object.types.some(type => type.toLowerCase() === "spell")) return action.location === undefined;
+    if (action.location?.type === "battlefield") return object.types.some(type => type.toLowerCase() === "unit");
+    return object.types.some(type => type.toLowerCase() === "unit" || type.toLowerCase() === "gear");
+  }
+
+  private battlefieldIds(): readonly string[] {
+    const fields = new Set<string>();
+    for (const object of this.objectMap.values()) {
+      if (object.zone !== "board" || !object.types.some(type => type.toLowerCase() === "battlefield")) continue;
+      fields.add(object.ref.id);
+      if (object.location?.type === "battlefield") fields.add(object.location.id);
+    }
+    return [...fields];
+  }
+
+  /** CR 426.1: only a current Chain item can be countered; its owner receives Trash. */
+  private counter(action: Extract<GameAction, { type: "counter" }>): ActionOutcome {
+    const checkpoint = this.checkpoint();
+    const object = this.objectMap.get(action.object.id);
+    const outcome = !object || object.ref.zoneEntryId !== action.object.zoneEntryId || object.zone !== "chain"
+      ? this.impossible()
+      : this.move(action.object, "trash");
+    if (outcome.status !== "done") this.restore(checkpoint);
+    return outcome;
+  }
+
+  /** CR 457-460: independent relocation that preserves the exact incarnation. */
+  private recall(action: import("../../../../packages/engine-core/dist/effects/contract.js").RecallAction): ActionOutcome {
+    const object = this.object(action.object);
+    if (!object || object.zone !== "board" || object.location === null || object.controller !== action.player ||
+        !object.types.some(type => type === "unit" || type === "gear")) return this.impossible();
+    const before = this.checkpoint();
+    this.objectMap.get(object.ref.id)!.location = { type: "base", player: object.controller };
+    const after = this.object(object.ref);
+    if (!after) {
+      this.restore(before);
+      return this.impossible();
+    }
+    return {
+      ...this.done(action.object),
+      receipt: { status: "committed", actions: [{ type: "recall", status: "done" }] },
+      events: [{
+        type: "task-resolved", seq: 0, turnNumber: this.hidden.turn, activePlayerId: action.player,
+        taskId: `recall:${refKey(action.object)}`, sourceCardId: object.cardId ?? "",
+        reason: "recall", autoResolved: true, action: "recall",
+        details: { recall: true, from: object.location, to: after.location },
+      } as never],
+    };
+  }
+
+  private hide(action: import("../../../../packages/engine-core/dist/effects/contract.js").HideAction): ActionOutcome {
+    const object = this.object(action.object);
+    if (!object || object.zone !== "hand" || object.controller !== action.player || !object.keywords.some(keyword =>
+      keyword.id.toLowerCase().replace(/[\s_-]+/g, "") === "hidden")) return this.impossible();
+    if (!object.types.some(type => ["unit", "spell", "gear"].includes(type.toLowerCase()))) return this.impossible();
+    const battlefield = this.objectMap.get(action.location.id);
+    if (!battlefield || battlefield.controller !== action.player ||
+        !battlefield.types.some(type => type.toLowerCase() === "battlefield")) return this.impossible();
+    const checkpoint = this.checkpoint();
+    const zone = this.hidden.zones.get(action.location.id) ?? {
+      battlefieldId: action.location.id, controller: action.player, capacity: 1, cards: new Map(),
+    };
+    if (zone.controller !== action.player || zone.cards.size >= zone.capacity) return this.impossible();
+    if (action.cost !== undefined && this.pay(action.player, action.cost).status !== "done") {
+      this.restore(checkpoint);
+      return this.impossible();
+    }
+    const transition = this.move(action.object, "battlefield", action.location);
+    if (transition.status !== "done") {
+      this.restore(checkpoint);
+      return transition;
+    }
+    const current = this.objectMap.get(action.object.id)!;
+    const hiddenZone = this.hidden.zones.get(action.location.id)!;
+    this.hidden.zones.set(action.location.id, {
+      ...hiddenZone,
+      cards: new Map([...hiddenZone.cards, [refKey(current.ref), { ref: current.ref, battlefieldId: action.location.id }]]),
+    });
+    current.faceDown = true;
+    current.facedownLocation = action.location;
+    return this.done(objectRef(current));
+  }
+
+  private hasBattlefield(id: string): boolean {
+    const current = this.objectMap.get(id);
+    if (current?.zone === "board" && current.types.some(type => type.toLowerCase() === "battlefield")) return true;
+    return this.objects().some(object => object.zone === "board" && object.types.some(type => type.toLowerCase() === "battlefield") &&
+      (object.ref.id === id || object.location?.type === "battlefield" && object.location.id === id));
   }
 
   private moveLocation(ref: ObjectRef, location: LocationRef): ActionOutcome { const object = this.requireObject(ref); object.location = location; return this.done(objectRef(object)); }
