@@ -16,8 +16,10 @@ test("sfd-181-221 Mechanized Menace: identity and status", () => {
     "card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7"
   );
   assert.equal(mechanizedMenace.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(mechanizedMenace.status, "executable");
-  assert.equal(mechanizedMenace.judgeReason, undefined);
+  assert.equal(mechanizedMenace.status, "judge-required");
+  assert.match(mechanizedMenace.judgeReason, /CR 111/);
+  assert.match(mechanizedMenace.judgeReason, /create-token to chain/);
+  assert.match(mechanizedMenace.judgeReason, /RIFT-891/);
 });
 
 test("sfd-181-221 Mechanized Menace: single static keyword-grant ability", () => {
@@ -50,8 +52,10 @@ test("sfd-181-221 Mechanized Menace: sourceText is the printed ability text", ()
 // because the engine has no Legend zone yet (RIFT-891); this proves the grant
 // itself, not the in-match Legend placement.
 //
-// Status stays executable: the grant executes through the real binding; the
-// missing Legend zone is an engine/match gap shared by every Legend.
+// The card is judge-required, so the binding receives a component view that
+// admits only the status metadata; abilities, filter and tag are the unchanged
+// registry IR. These tests prove the grant, not the in-match Legend placement.
+const admitted = { ...mechanizedMenace, status: "executable", judgeReason: undefined };
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
@@ -77,7 +81,7 @@ function legendOnBoard() {
     context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose })
   });
   const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
-  const binding = createProgramBinding({ cardPrograms: [mechanizedMenace] });
+  const binding = createProgramBinding({ cardPrograms: [admitted] });
   binding.attachLifecycle(engine, error => { throw error; });
   engine.commit({ type: "move-zone", object: kernel.ref("legend"), to: "chain" });
   engine.commit({ type: "move-zone", object: kernel.ref("legend"), to: "base", location: { type: "base", player: "A" } });

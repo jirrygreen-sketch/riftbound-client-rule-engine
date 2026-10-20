@@ -21,7 +21,12 @@ test('default program binding connects static layers, live conditions, aura rule
     'card.hash-cf0b322a78010676e3d8b287830194a3bdc8970e65a141578ae8a3074ebd956f',
     'card.hash-1504d8f14af5ce1b9f7a3663c23e6ef7cb57d59a6274dc921cd9296ee8e2494b',
     'card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7',
-  ].map(id => cardProgramsById.get(id));
+  ].map(id => cardProgramsById.get(id))
+    // Mechanized Menace is judge-required until Legends bind in their own zone
+    // (RIFT-891); admit only its status metadata so its unchanged grant IR
+    // still exercises the default static-layer binding here.
+    .map(program => program?.canonicalCardId === 'card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7'
+      ? { ...program, status: 'executable', judgeReason: undefined } : program);
   assert.equal(mergedCards.every(Boolean), true, 'the merged card programs are present');
   const programs = [
     ...mergedCards,
