@@ -346,6 +346,9 @@ class MatchRuntime implements EngineRuntime {
     }
     if (command.type === "play") {
       if (!this.binding) throw new Error("No trusted card-program registry is bound");
+      if (command.picks !== undefined && command.picks.length > 0) {
+        throw new Error("Wire picks require the authoritative Finalize pick adapter");
+      }
       const source = this.resolveObject(command.cardObjectId);
       this.assertCanControl(playerId, source.ref);
       const base = this.binding.describePlay({ type: "play", object: source.ref, player: playerId }, source);

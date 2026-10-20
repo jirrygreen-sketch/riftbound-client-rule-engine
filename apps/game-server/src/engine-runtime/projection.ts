@@ -130,8 +130,8 @@ export function projectRuntime(
   const zones = players.flatMap(player => zoneNames.map(zone => {
     const sourceZone = zone === "trash" ? "trash" : zone === "rune-zone" ? "rune-zone" : zone as never;
     const visibleObjects = objects.filter(object => object.ownerPlayerId === player.playerId && object.zone === zone);
-    const count = zone === "facedown" ? host.zoneObjects(player.playerId, "board").filter(object => object.faceDown &&
-      hidden.has(`${object.ref.id}:${object.ref.zoneEntryId}`)).length : host.zoneObjects(player.playerId, sourceZone).length;
+    const count = zone === "facedown" ? [...hidden.values()].filter(object => object.owner === player.playerId).length
+      : host.zoneObjects(player.playerId, sourceZone).length;
     const canList = zone !== "deck" && zone !== "rune-deck" && zone !== "facedown" && (zone !== "hand" || viewer === player.playerId);
     return { zone, ownerPlayerId: player.playerId, count, ...(canList ? { objects: visibleObjects } : {}) };
   }));

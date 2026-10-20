@@ -67,7 +67,11 @@ export interface RuntimeHostCheckpoint {
   readonly hidden?: HiddenRuntimeCheckpoint;
 }
 
-interface HiddenRuntimeCard { readonly ref: ObjectRef; readonly battlefieldId: string }
+interface HiddenRuntimeCard {
+  readonly ref: ObjectRef;
+  readonly battlefieldId: string;
+  readonly hiddenTurn: number;
+}
 interface HiddenRuntimeZone {
   readonly battlefieldId: string;
   readonly controller: PlayerId;
@@ -523,11 +527,26 @@ export class EngineRuntimeHost {
 
   private move(ref: ObjectRef, destination: ZoneDestination, location?: LocationRef): ActionOutcome {
     const object = this.requireObject(ref), player = this.requirePlayer(object.owner), target = asZone(destination);
+    const hiddenSource = object.faceDown ? this.hiddenEntry(object) : null;
     this.removeFromZone(object); this.lastKnown.set(refKey(object.ref), clone(object));
     object.zone = target.zone; object.location = location ?? null; object.ref = { id: object.ref.id, zoneEntryId: (object.ref.zoneEntryId ?? 0) + 1 };
     object.faceDown = target.zone === "deck" || target.zone === "rune-deck";
+    object.facedownLocation = null;
     const zone = player.zones[target.zone] ?? (player.zones[target.zone] = []);
     if (target.bottom) zone.push(object.ref.id); else zone.unshift(object.ref.id);
+    if (hiddenSource !== null) {
+      const hiddenZone = this.hidden.zones.get(hiddenSource.battlefieldId)!;
+      this.hidden.zones.set(hiddenSource.battlefieldId, {
+        ...hiddenZone,
+        cards: new Map([...hiddenZone.cards].filter(([key, card]) => key !== refKey(card.ref))),
+      });
+      if (target.zone === "chain") {
+        this.hidden.played.set(refKey(object.ref), {
+          battlefieldId: hiddenSource.battlefieldId,
+          location: hiddenSource.location,
+        });
+      }
+    }
     return this.done(objectRef(object));
   }
 
@@ -538,7 +557,13 @@ export class EngineRuntimeHost {
    */
   private play(action: Extract<GameAction, { type: "play" }>): ActionOutcome {
     const checkpoint = this.checkpoint();
-    const outcome = this.playChecked(action);
+    let outcome: ActionOutcome;
+    try {
+      outcome = this.playChecked(action);
+    } catch {
+      this.restore(checkpoint);
+      return this.impossible();
+    }
     if (outcome.status !== "done") this.restore(checkpoint);
     return outcome;
   }
@@ -546,43 +571,33 @@ export class EngineRuntimeHost {
   private playChecked(action: Extract<GameAction, { type: "play" }>): ActionOutcome {
     const object = this.requireObject(action.object);
     if (!this.players.has(action.player)) return this.impossible();
-    if (object.zone !== "hand" && object.zone !== "banishment" && object.zone !== "chain") return this.impossible();
+    const suppliedCost = Object.hasOwn(action, "cost") ? action.cost as FinalizedCostPlan : undefined;
+    if (action.cost !== undefined && action.cost.finalized !== true) return this.impossible();
+    const hiddenSource = this.hiddenEntry(object);
+    if (object.types.some(type => type.toLowerCase() === "spell") && hiddenSource === null && action.location !== undefined) return this.impossible();
+    if (hiddenSource === null && object.zone !== "hand" && object.zone !== "banishment" && object.zone !== "chain") return this.impossible();
+    if (hiddenSource !== null && object.zone !== "board" && (object.zone as string) !== "battlefield") return this.impossible();
     if (object.controller !== action.player) return this.impossible();
-    if (object.faceDown && !this.hidden.zones.get(
-      object.facedownLocation?.type === "battlefield" ? object.facedownLocation.id : "",
-    )?.cards.has(refKey(object.ref))) return this.impossible();
     if (action.location?.type === "base" && action.location.player !== action.player) return this.impossible();
-    if (action.location !== undefined && object.types.some(type => type.toLowerCase() === "spell")) return this.impossible();
-    if (action.location?.type === "battlefield" && !this.hasBattlefield(action.location.id)) return this.impossible();
     if (!object.types.some(type => ["unit", "spell", "gear"].includes(type.toLowerCase()))) return this.impossible();
+    if (hiddenSource !== null) {
+      // A Hidden permanent remains tied to its Facedown Zone Battlefield for
+      // Finalize, even after the card itself enters the public Chain.
+      const destination = action.location ?? hiddenSource.location;
+      if (destination.type !== "battlefield" || destination.id !== hiddenSource.battlefieldId) return this.impossible();
+    }
     const fields = this.battlefieldIds();
     if (action.location?.type === "battlefield" && !fields.includes(action.location.id)) return this.impossible();
-    if (fields.length > 0 && !this.battlefieldChoiceLegal(action, object)) return this.impossible();
-    if (action.cost !== undefined) {
-      const payment = this.pay(action.player, action.cost);
+    if (fields.length > 0 && action.location !== undefined && !this.battlefieldChoiceLegal(action, object)) return this.impossible();
+    // CR 811.1.c.3: Hidden play is unlocked on a later turn. Check this
+    // before payment so a same-turn attempt cannot consume resources.
+    if (hiddenSource !== null && !(this.hidden.turn > hiddenSource.hiddenTurn)) return this.impossible();
+    if (suppliedCost !== undefined) {
+      const payment = this.pay(action.player, suppliedCost);
       if (payment.status !== "done") return payment;
     }
     if (object.zone === "chain") return this.done(objectRef(object));
-    const entered = this.move(object.ref, "chain");
-    if (entered.status === "done") {
-      const current = this.objectMap.get(action.object.id)!;
-      current.faceDown = false;
-      current.facedownLocation = null;
-      const hiddenProvenance = object.faceDown && object.facedownLocation?.type === "battlefield"
-        ? object.facedownLocation.id : "";
-      if (hiddenProvenance !== "") {
-        const zone = this.hidden.zones.get(hiddenProvenance)!;
-        this.hidden.zones.set(hiddenProvenance, {
-          ...zone,
-          cards: new Map([...zone.cards].filter(([key]) => key !== refKey(object.ref))),
-        });
-        this.hidden.played.set(refKey(current.ref), {
-          battlefieldId: hiddenProvenance,
-          location: action.location ?? object.location ?? { type: "base", player: action.player },
-        });
-      }
-    }
-    return entered;
+    return this.move(object.ref, "chain");
   }
 
   private battlefieldChoiceLegal(action: Extract<GameAction, { type: "play" }>, object: ObjectSnapshot): boolean {
@@ -662,7 +677,9 @@ export class EngineRuntimeHost {
     const hiddenZone = this.hidden.zones.get(action.location.id)!;
     this.hidden.zones.set(action.location.id, {
       ...hiddenZone,
-      cards: new Map([...hiddenZone.cards, [refKey(current.ref), { ref: current.ref, battlefieldId: action.location.id }]]),
+      cards: new Map([...hiddenZone.cards, [refKey(current.ref), {
+        ref: current.ref, battlefieldId: action.location.id, hiddenTurn: this.hidden.turn,
+      }]]),
     });
     current.faceDown = true;
     current.facedownLocation = action.location;
@@ -674,6 +691,19 @@ export class EngineRuntimeHost {
     if (current?.zone === "board" && current.types.some(type => type.toLowerCase() === "battlefield")) return true;
     return this.objects().some(object => object.zone === "board" && object.types.some(type => type.toLowerCase() === "battlefield") &&
       (object.ref.id === id || object.location?.type === "battlefield" && object.location.id === id));
+  }
+
+  private hiddenEntry(object: ObjectSnapshot): {
+    readonly battlefieldId: string;
+    readonly location: LocationRef;
+    readonly hiddenTurn: number;
+  } | null {
+    if (!object.faceDown || object.facedownLocation?.type !== "battlefield") return null;
+    const battlefieldId = object.facedownLocation.id;
+    const zone = this.hidden.zones.get(battlefieldId);
+    const card = zone?.cards.get(refKey(object.ref));
+    if (card === undefined) return null;
+    return { battlefieldId, location: object.facedownLocation, hiddenTurn: card.hiddenTurn };
   }
 
   private moveLocation(ref: ObjectRef, location: LocationRef): ActionOutcome { const object = this.requireObject(ref); object.location = location; return this.done(objectRef(object)); }
