@@ -33,7 +33,6 @@ import type {
   LocationRef,
   ObjectRef,
   ResolveContext,
-  TokenSpec,
   Value
 } from "../contract.js";
 import {
@@ -41,7 +40,12 @@ import {
   resolveLocationSelector,
   sameLocation
 } from "../../target/location/index.js";
-import { getTokenDefinition, type TokenEntryState } from "../tokens/definitions.js";
+import {
+  getTokenDefinition,
+  type RuntimeTokenSpec,
+  type TokenDefinition,
+  type TokenEntryState
+} from "../tokens/definitions.js";
 
 export interface TokenArgs {
   readonly token: Expr;
@@ -57,7 +61,13 @@ export interface TokenArgs {
   readonly linkKey?: Expr;
 }
 
-type RuntimeTokenSpec = TokenSpec & { readonly exhausted: boolean };
+function withEntryState(
+  definition: TokenDefinition,
+  entry: TokenEntryState
+): RuntimeTokenSpec | null {
+  if (entry === null) return null;
+  return { ...definition.spec, exhausted: entry === "exhausted" };
+}
 
 const ARGUMENTS = new Set([
   "token", "amount", "mode", "location", "target", "pick", "locations",
@@ -360,7 +370,8 @@ function run(ctx: ResolveContext, args: TokenArgs): InstructionResult {
   if (location !== null && isGear && !hasDeploy && location.type !== "base") return negate("impossible", "token-gear-requires-base");
   if (location !== null && isUnit && location.type === "base" && location.player !== ctx.controller) return negate();
 
-  const token: RuntimeTokenSpec = { ...definition.spec, exhausted: entry === "exhausted" };
+  const token = withEntryState(definition, entry);
+  if (token === null) return negate("impossible", "token-entry-state-undefined");
   for (let index = 0; index < amount; index++) {
     const requestId = dynamicLocations && amount > 1 ? `${choiceId}:${index}` : choiceId;
     const currentLocation = chooseLocation(ctx, locations, requestId);

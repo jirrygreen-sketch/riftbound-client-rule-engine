@@ -21,6 +21,13 @@ export interface TokenDefinition {
   readonly blockedReason?: string;
 }
 
+/**
+ * Newly created Permanents with a Unit/Gear type carry an explicit entry
+ * state. The shared TokenSpec remains frozen for old replay/adapters; this
+ * local additive shape is the runtime carrier verified after create and play.
+ */
+export type RuntimeTokenSpec = TokenSpec & { readonly exhausted: boolean };
+
 const unit = (name: string, might: number, tags: readonly string[] = [], extra: Partial<TokenSpec> = {}): TokenSpec => ({
   cardId: null,
   name,
