@@ -20,9 +20,7 @@ import test from 'node:test';
 import { AwaitChoice, world } from '../../dist/effects/testing/index.js';
 import { ChainEngine } from '../../dist/chain/engine.js';
 import { bindResolveContext, createActionPipelineHost } from '../../dist/events/action-adapter.js';
-import { resolveChainBody } from '../../dist/chain/interpreter-adapter.js';
 import { movement } from '../../dist/layers/rules/query.js';
-import { matchesObjectFilter } from '../../dist/layers/filter.js';
 import { createProgramBinding } from '../../dist/programs/index.js';
 import { boundTargetTaxes } from '../../dist/programs/statics.js';
 import { collectTargetTaxes } from '../../dist/target/tax/index.js';
@@ -33,7 +31,6 @@ import gemJammer from '../../../card-dsl/dist/cards/sfd/gem-jammer.js';
 import breakneckMech from '../../../card-dsl/dist/cards/sfd/breakneck-mech.js';
 import rumbleHotheaded from '../../../card-dsl/dist/cards/sfd/rumble-hotheaded.js';
 
-const c = value => ({ kind: 'constant', value });
 const field = id => ({ type: 'battlefield', id });
 const admitted = program => ({ ...program, status: 'executable', judgeReason: undefined });
 
@@ -119,8 +116,6 @@ test('Forecaster: default lifecycle grants Vision to the controller Mechs and ex
   assert.deepEqual(keywordIds(f, 'plain-ally'), []);
   assert.deepEqual(keywordIds(f, 'enemy-mech'), []);
   assert.deepEqual(keywordIds(f, 'forecaster'), ['Vision']);
-
-  f.settle();
   assert.ok(f.asked.some(request => request.type === 'select-objects'), 'the real Vision trigger performed Predict');
   assert.equal(f.kernel.zone('A', 'deck')[0].id, 'second-card');
 });

@@ -173,7 +173,11 @@ function installKeywordReexpansion(engine: ChainEngine): void {
     if (unchanged) return;
     for (const effect of generated) if (engine.layers.registry.get(effect.id) !== undefined) engine.layers.removeContinuous(effect.id);
     for (const effect of normalized) {
-      if (engine.layers.registry.get(effect.id) !== undefined) throw new ProgramBindingError('invalid-program', `Duplicate keyword lifecycle effect ${effect.id}`);
+      const existing = engine.layers.registry.get(effect.id);
+      if (existing !== undefined) {
+        if (JSON.stringify(existing.effect) === JSON.stringify(effect)) continue;
+        throw new ProgramBindingError('invalid-program', `Duplicate keyword lifecycle effect ${effect.id}`);
+      }
       engine.layers.addContinuous(effect, { type: 'permanent' });
     }
     generated = Object.freeze([...normalized]);
@@ -255,18 +259,25 @@ function installKeywordReexpansion(engine: ChainEngine): void {
   protocol.keywordTriggerRegistrations = keywordTriggerRegistrations;
   const add = engine.layers.addContinuous.bind(engine.layers);
   const remove = engine.layers.removeContinuous.bind(engine.layers);
+  let syncingView = false;
+  const syncView = () => {
+    if (syncingView) return;
+    syncingView = true;
+    try {
+      const objects = engine.pipeline.host.objects();
+      exp.setObjects(objects);
+      keywordEngine.setObjects(objects);
+      for (const object of exp.evaluateAll()) syncObject(object.ref);
+    } finally { syncingView = false; }
+  };
   engine.layers.addContinuous = ((effect, duration, timestamp) => {
     const entry = add(effect, duration, timestamp);
-    if (!effect.id.startsWith('program-keyword:') && !effect.id.startsWith('program-keyword-capability:')) {
-      exp.invalidateKeywordView(); keywordEngine.invalidateKeywordView();
-    }
+    if (!effect.id.startsWith('program-keyword:') && !effect.id.startsWith('program-keyword-capability:')) syncView();
     return entry;
   }) as typeof engine.layers.addContinuous;
   engine.layers.removeContinuous = ((id: string) => {
     const removed = remove(id);
-    if (!id.startsWith('program-keyword:') && !id.startsWith('program-keyword-capability:')) {
-      exp.invalidateKeywordView(); keywordEngine.invalidateKeywordView();
-    }
+    if (!id.startsWith('program-keyword:') && !id.startsWith('program-keyword-capability:')) syncView();
     return removed;
   }) as typeof engine.layers.removeContinuous;
   const detach = () => {

@@ -214,9 +214,6 @@ export class KeywordGrantLayerEngine extends LayerEngine {
   private grantedAbilities = new Map<string, readonly GrantedKeywordAbilityEntry[]>();
   private readonly priorGrantedRefs = new Map<string, ObjectRef>();
   private refreshing = false;
-  private computed = false;
-  private consumedRegistryRevision = -1;
-  private consumedGenerationRevision = -1;
 
   constructor(objects: readonly ObjectSnapshot[], private readonly options: KeywordGrantLayerOptions) {
     super(objects, options.registry);
@@ -248,29 +245,17 @@ export class KeywordGrantLayerEngine extends LayerEngine {
   override setObjects(objects: Parameters<LayerEngine['setObjects']>[0]): void {
     this.clearGenerated();
     super.setObjects(objects);
-    this.computed = false;
-  }
-  /** Re-evaluate when only the live object characteristics changed. */
-  invalidateKeywordView(): void {
-    this.computed = false;
   }
   override addContinuous(effect: ContinuousEffectSpec, duration: Duration, timestamp?: number): RegisteredContinuousEffect {
     this.clearGenerated();
-    this.computed = false;
-    const registered = super.addContinuous(effect, duration, timestamp);
-    this.computed = false;
-    return registered;
+    return super.addContinuous(effect, duration, timestamp);
   }
   override removeContinuous(id: string): boolean {
     this.clearGenerated();
-    this.computed = false;
-    const removed = super.removeContinuous(id);
-    this.computed = false;
-    return removed;
+    return super.removeContinuous(id);
   }
   override advance(event: TimingEvent): readonly string[] {
     this.clearGenerated();
-    this.computed = false;
     const expired = super.advance(event);
     this.refresh();
     return expired;
@@ -304,7 +289,6 @@ export class KeywordGrantLayerEngine extends LayerEngine {
 
   /** Re-materialize the current keyword snapshot after a production registry write. */
   refreshNow(): void {
-    this.computed = false;
     this.refresh();
   }
 
@@ -361,7 +345,12 @@ export class KeywordGrantLayerEngine extends LayerEngine {
             ...(declaration.params === undefined ? {} : { params: declaration.params as Keyword['params'] }) };
         });
         const kind = String(effect.kind);
-        const ids = new Set(keywords.map(keyword => definition(keyword.id).keyword.toLowerCase()));
+        // Only a single-stacking keyword is redundant across grant sources.
+        // Sum/separate instances must remain independently represented so the
+        // common expansion path can aggregate or duplicate them by CR 807.2 and
+        // 817.2; pruning every same-id grant silently dropped earlier values.
+        const ids = new Set(keywords.filter(keyword => definition(keyword.id).stacking === 'single')
+          .map(keyword => definition(keyword.id).keyword.toLowerCase()));
         for (const [id, prior] of changes) {
           const merged = prior.keywords.filter(keyword => !ids.has(definition(keyword.id).keyword.toLowerCase()));
           changes.set(id, { ...prior, keywords: merged });
@@ -446,7 +435,6 @@ export class KeywordGrantLayerEngine extends LayerEngine {
       this.registry.register(effect, { type: 'permanent' });
       this.generated.add(effect.id);
     }
-    this.computed = false;
   }
 
   private registryFor(entries: readonly RegisteredContinuousEffect[]): ContinuousEffectRegistry {
@@ -528,8 +516,6 @@ export class KeywordGrantLayerEngine extends LayerEngine {
 
   private refresh(): void {
     if (this.refreshing) return;
-    if (this.computed && this.consumedRegistryRevision === this.registry.revision &&
-        this.consumedGenerationRevision === this.registry.revision) return;
     this.refreshing = true;
     this.clearGenerated();
     try {
@@ -551,8 +537,22 @@ export class KeywordGrantLayerEngine extends LayerEngine {
       for (let pass = 0; pass < limit; pass++) {
         const changes = new Map(prefix.map(object => [refKey(object.ref), this.changes(entries,
           this.view.get(refKey(object.ref)) ?? object, id => this.preGrantView(prefix, remaining, applied, id))]));
-        const expansions = new Map(prefix.map(object => [refKey(object.ref), expandEffectiveKeywords(object,
-          [...changes.get(refKey(object.ref))!.values()])]));
+        const expansions = new Map(prefix.map(object => {
+          const keywordChanges = [...changes.get(refKey(object.ref))!.values()];
+          if (this.options.grantedOnly !== true) return [refKey(object.ref), expandEffectiveKeywords(object, keywordChanges)];
+          try {
+            return [refKey(object.ref), expandEffectiveKeywords(object, keywordChanges)];
+          } catch (error) {
+            // Printed keyword expansion remains the ordinary CardProgram
+            // lifecycle's responsibility in granted-only mode. An unsupported
+            // printed keyword on one object must not prevent dynamic grants on
+            // unrelated objects from reaching their production consumers.
+            if (error instanceof ProgramBindingError && error.code === 'judge-required') {
+              return [refKey(object.ref), { keywords: object.keywords, abilities: [], entries: [] }];
+            }
+            throw error;
+          }
+        }));
         granted = new Map(prefix.map(object => [refKey(object.ref), this.options.grantedOnly === true
           ? this.grantedExpansion(object, [...changes.get(refKey(object.ref))!.values()])
           : expansions.get(refKey(object.ref))!]));
@@ -566,9 +566,6 @@ export class KeywordGrantLayerEngine extends LayerEngine {
             this.generated.add(effect.id);
           }
           this.reconcileGrantedAbilities(grantedAbilities);
-          this.consumedRegistryRevision = this.registry.revision - generated.length;
-          this.consumedGenerationRevision = this.registry.revision;
-          this.computed = true;
           return;
         }
         previous = signature;
@@ -581,7 +578,6 @@ export class KeywordGrantLayerEngine extends LayerEngine {
       this.view.clear();
       this.expansions.clear();
       this.reconcileGrantedAbilities(new Map());
-      this.computed = false;
       throw error;
     } finally {
       this.refreshing = false;
