@@ -10,43 +10,56 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * Rules evidence (Core Rules v1.5):
  * - "When you conquer here" is the Conquer trigger (468.5.d / 471.1); the
  *   `conquer` timing point is emitted by the scoring flow (turn/flow.ts
- *   scheduleScore('conquer') -> emissions.push({ timingPoint: 'conquer' }) with
- *   details.battlefieldId). The battlefield-relative "here" is the missing piece
- *   (see judgeReason): the frozen EventPattern has no here anchor and
- *   programs/filters.ts rejects `here` fail-closed.
+ *   scheduleScore('conquer') with details.battlefieldId). The merged event
+ *   contract now has the battlefield-relative `here` anchor: EventPattern
+ *   accepts it (events/trigger-spec.ts:203-216), programs/filters.ts preserves
+ *   it (256-259), and events/pipeline-match.ts compares the event battlefield
+ *   identity with the live source location (89-94).
  * - "you may ready a friendly gear" is one optional decision (403.1 / contract
  *   3.9): the chosen gear is a target (355.7 / 355.9.a.1) and per 355.12 it is
  *   locked together with the may-action, so the TargetSpec sits on the
  *   choice.optional node. effect.ready performs the real readied state change
  *   (416.1) and links { count, objects } under its link key.
- * - "If it's an Equipment" is a tag test on the gear that was just readied.
- *   The merged Condition vocabulary can express it at Resolve time with the
- *   contract 3.6 object-anchored expression
+ * - "If it's an Equipment" is a tag test on the gear selected by the may
+ *   action. An already-ready gear changes nothing (416.1.c), while the locked
+ *   target remains the antecedent of "it". The merged Condition vocabulary can
+ *   express the test at Resolve time with the contract 3.6 expression
  *   `{ kind: "compare", left: "Equipment", operator: "in", right: { kind:
  *   "object-property", object: { target: "veiled-temple.gear" }, property:
  *   "tags" } }` — the same shape the layer-anchored conditions already use. The
  *   golden executes both branches through the real interpreter.
- * - "you may detach it" is a non-target pick (436.3) over the just-readied gear
- *   (`{ kind: "linked-value", instructionId: "veiled-temple.ready-gear", key:
- *   "readied" }`) and submits the merged detach action (436.1).
+ * - "you may detach it" is a non-target pick (436.3) over that same selected
+ *   gear and submits the merged detach action (436.1). The merged ready
+ *   primitive yields only objects that actually changed state; when the
+ *   selected gear was already ready, 416.1.c yields an empty receipt. PickSpec
+ *   cannot yet consume the locked TargetSpec directly, so the current IR keeps
+ *   the executable receipt neighborhood without claiming that boundary.
  *
- * Status: judge-required. Every in-body step executes, but the trigger itself
- * cannot be bound: `programs/filters.ts translateObjectFilter` rejects the `here`
- * key with ProgramBindingError(judge-required) and no merged consumer resolves
- * "here" to the triggering battlefield (nothing in chain/ or events/ maps
- * event.details.battlefieldId to a location filter). Emitting the conquer timing
- * exists; the battlefield-relative anchor does not. Nothing is approximated: the
- * detach branch is gated by the real Equipment tag test instead of dropping the
- * clause, and the trigger keeps the printed condition for the future binding.
+ * Status: judge-required. The `here` trigger and the individual in-body
+ * primitives are executable, but production trigger registration still fails
+ * closed on this two-decision ability. The leading may must be decided during Finalize
+ * (383.3.a), while the later may is decided during Resolve (383.3.a.3).
+ * programs/trigger-adapters/leading-choice.ts:78-81 rejects the nested
+ * choice.optional, programs/triggers.ts:23-31 then reports "unsupported leading
+ * may shape", and its adapted-target extraction at 38-45 would not lift the
+ * TargetSpec printed on the outer choice. Even if the control node were merely
+ * admitted, chain/finalize/choices.ts:207-217 asks every nested
+ * choice.optional during Finalize, so it would wrongly ask "you may detach it"
+ * at Finalize instead of Resolve. Even after separating the timings, the detach
+ * pick cannot consume the locked TargetSpec: target/picks/plan.ts:220-236
+ * accepts linked receipts, queries, and static options, not a symbolic target
+ * source. The card is not approximated by moving either decision or dropping
+ * the conditional detach clause.
  */
 const abilities: Ability[] = [
   {
     kind: "triggered",
     trigger: {
       at: "conquer",
-      // 468.5.d / 471.1: "here" means the battlefield this ability is printed
-      // on; kept as the printed anchor because the filter translator rejects
-      // `here` (see judgeReason) instead of silently matching every conquer.
+      // 468.5.d / 471.1 and 053.3: "here" means the battlefield this ability is
+      // printed on. The production translator preserves this anchor and the
+      // pipeline compares it with details.battlefieldId; never widen to every
+      // conquer.
       filter: { event: "conquer", here: true, player: "controller" }
     },
     optional: true,
@@ -59,7 +72,7 @@ const abilities: Ability[] = [
         targets: [
           {
             id: "veiled-temple.gear",
-            filter: { type: "gear", controller: "controller" },
+            filter: { type: "gear", zone: "board", controller: "controller" },
             min: 1,
             max: 1,
             selection: "one"
@@ -82,8 +95,8 @@ const abilities: Ability[] = [
                 id: "veiled-temple.detach-opt",
                 op: "choice.optional",
                 linkedTo: "veiled-temple.ready-gear",
-                // "If it's an Equipment": a real tag membership test on the
-                // gear that was just readied (contract 3.6 object anchor).
+                // "If it's an Equipment": a real tag membership test on the gear
+                // selected by the may action (contract 3.6 object anchor).
                 condition: {
                   kind: "compare",
                   left: { kind: "constant", value: "Equipment" },
@@ -133,15 +146,20 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "触发绑定仍缺 battlefield-relative 的「here」：已合入的时点发射方（由 turn/flow.ts 的 scheduleScore('conquer') 发出 conquer 时点，载荷 details.battlefieldId）" +
-    "与程序侧已合入的 conquer 消费路径之间没有把载荷解析成位置过滤的消费方——发射方虽提供 details.battlefieldId，EventPattern 没有 here 锚点，programs/filters.ts translateObjectFilter 对 `here` 直接 fail-closed" +
-    "（ProgramBindingError judge-required），照原样绑定会报错、去掉则会把「here」近似成任意战场的征服。" +
-    "触发体本身已可执行：「may ready a friendly gear」（403.1/355.7/355.12，目标随 may 动作锁定）走 effect.ready（416.1），" +
-    "「If it's an Equipment」用已合入的 Condition 与契约 3.6 对象锚点求值（compare/in + object-property(target).tags），" +
-    "「you may detach it」是非目标 pick（436.3）并经 effect.detach（436.1）提交；golden 用解释器 + 参考内核真实执行 Equipment 与 " +
-    "非 Equipment 两条分支（非 Equipment 时 detach 分支被 negated/skipped，不会脱离）。" +
-    "依赖：conquer 事件载荷 details.battlefieldId → 位置过滤的「here」锚点接线；" +
-    "programs/filters.ts 当前对未解析字段 fail-closed。不近似实现。",
+    "「here」与触发体已接通：turn/flow.ts 的真实 conquer 波携带 details.battlefieldId，" +
+    "events/trigger-spec.ts:203-216、programs/filters.ts:256-259 与 events/pipeline-match.ts:89-94 已能绑定并比较战场位置；" +
+    "effect.ready（416.1）、Equipment 条件（355.7/355.12）与 effect.detach（436.1/436.3）原语单独执行可用，" +
+    "a friendly gear 不必横置；gear 本来已 ready 时，416.1.c 使 ready 的 readied 回执为空，" +
+    "但原文的 it 仍是已锁定的 gear，不能退化成「没有 detach 选项」。" +
+    "target/picks/plan.ts:220-236 只接 linked receipt、query 与 static options，没有 symbolic target source，" +
+    "因此现有 IR 只能在没有发生 ready 状态变化时 fail-closed。" +
+    "整卡仍不能注册：程序首段是应当于 Finalize 决定的 may（383.3.a），但其 body 内还有应在 Resolve 决定的第二个 may（383.3.a.3）。" +
+    "programs/trigger-adapters/leading-choice.ts:78-81 把嵌套 choice.optional 当作不可提升的控制体，程序绑定实测抛 " +
+    "ProgramBindingError(judge-required)「unsupported leading may shape」（programs/triggers.ts:23-31）；" +
+    "programs/triggers.ts:38-45 的 target 搬运也只读取被提升 body 内的 TargetSpec，不能保留挂在外层 may 上、须按 355.12 随该动作锁定的 friendly gear。" +
+    "此外，chain/finalize/choices.ts:207-217 会把任何嵌套 choice.optional 在 Finalize 询问；若只放行控制体而不区分阶段，" +
+    "「If it's an Equipment, you may detach it」会在错误时点被询问。" +
+    "不移动、删除或近似任何一句，待引擎提供外层 Finalize may + 内层 Resolve may 的精确提升、外层 TargetSpec 搬运与 target-backed pick。",
   abilities,
   sourceText: "When you conquer here, you may ready a friendly gear. If it's an Equipment, you may detach it."
 } satisfies CardProgram;
