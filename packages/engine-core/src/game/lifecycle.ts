@@ -331,7 +331,7 @@ function objectPower(card: MatchCard): readonly Domain[] | null {
   return domains;
 }
 
-function tokenCard(card: MatchCard, types: readonly string[]) {
+function tokenCard(card: MatchCard, types: readonly string[], championLegend = false) {
   const normalizedTypes = types.map(type => type.trim().toLowerCase());
   if (normalizedTypes.includes('legend') || normalizedTypes.includes('champion')) {
     return {
@@ -342,6 +342,7 @@ function tokenCard(card: MatchCard, types: readonly string[]) {
       might: null,
       energy: null,
       power: null,
+      ...(championLegend ? { championLegend: true as const } : {}),
     };
   }
   return {
@@ -584,7 +585,7 @@ export function createMatch(options: MatchOptions): Match {
   // Zone for the whole game (174.2.b); CR 112 keeps the Chosen Champion in the
   // existing Champion placement path.
   for (const seat of [{ id: 'A', deck: deckA! }, { id: 'B', deck: deckB! }] as const) {
-    createToken(host, seat.id, tokenCard(seat.deck.championLegend, ['legend']), 'legend');
+    createToken(host, seat.id, tokenCard(seat.deck.championLegend, ['legend'], true), 'legend');
     report.legendZone[seat.id] = [seat.deck.championLegend.cardId ?? seat.deck.championLegend.id];
     createToken(host, seat.id, tokenCard(seat.deck.chosenChampion, ['champion']));
     report.championZone[seat.id] = [seat.deck.chosenChampion.cardId ?? seat.deck.chosenChampion.id];

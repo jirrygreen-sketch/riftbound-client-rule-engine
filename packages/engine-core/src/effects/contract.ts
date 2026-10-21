@@ -207,6 +207,8 @@ export interface TokenSpec {
   readonly might: number | null;
   readonly energy: number | null;
   readonly power: readonly Domain[] | null;
+  /** Setup-only identity; absence means the created object is not a Champion Legend. */
+  readonly championLegend?: true;
 }
 /** Valid destinations for a zone action. */
 export type ZoneDestination = "hand" | "deck-top" | "deck-bottom" | "trash" | "banishment" | "base" | "battlefield" | "rune-deck" | "rune-zone" | "chain";

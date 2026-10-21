@@ -20,11 +20,13 @@ import test from 'node:test';
 
 import grandDuelist from '../../../card-dsl/dist/cards/sfd/grand-duelist.js';
 import mechanizedMenace from '../../../card-dsl/dist/cards/sfd/mechanized-menace.js';
+import { ChainEngine } from '../../dist/chain/engine.js';
 import { world } from '../../dist/effects/testing/test-kernel.js';
 import { bindResolveContext, createActionPipelineHost } from '../../dist/events/action-adapter.js';
 import { createMatch } from '../../dist/game/lifecycle.js';
 import { createMatchCommandAdapter } from '../../dist/game/command-adapter.js';
 import { projectFor } from '../../dist/projection/v2/index.js';
+import { createProgramBinding } from '../../dist/programs/index.js';
 import { normalizeLegacyEventTrigger } from '../../dist/programs/lifecycle.js';
 import { queryTargetCandidates } from '../../dist/target/target-plan.js';
 
@@ -269,23 +271,168 @@ test('RIFT-891 a Legend is outside Board Unit, attack-target and public Standard
   }
 });
 
-test('RIFT-891 a real Legend-zone departure removes its static registration', () => {
-  const { kernel, match } = makeMatch(executableMechanizedMenace, builder => {
+test('RIFT-891 a Champion Legend rejects every attempted departure without changing state', () => {
+  const { kernel } = makeMatch(executableMechanizedMenace, builder => {
     builder.unit('friendly-mech', { controller: 'A', tags: ['Mech'], might: 3 });
   });
   const legend = legendObject(kernel, MECHANIZED_MENACE);
+  const actions = [
+    { type: 'move-zone', object: legend.ref, to: 'battlefield', location: { type: 'battlefield', id: 'legend-forbidden-field' } },
+    { type: 'move-zone', object: legend.ref, to: 'banishment' },
+    { type: 'move-zone', object: legend.ref, to: 'hand' },
+    { type: 'banish', object: legend.ref },
+    { type: 'kill', object: legend.ref },
+    { type: 'return-to-hand', object: legend.ref },
+    { type: 'discard', object: legend.ref },
+    { type: 'recycle', object: legend.ref },
+    { type: 'counter', object: legend.ref },
+    { type: 'play', object: legend.ref, player: 'A' },
+  ];
+  for (const action of actions) {
+    const before = kernel.getObject(legend.ref.id);
+    assert.equal(kernel.perform(action).status, 'prevented', action.type);
+    assert.deepEqual(kernel.getObject(legend.ref.id), before);
+    assert.deepEqual(kernel.objectsInZone('A', 'legend').map(ref => ref.id), [legend.ref.id]);
+  }
+});
+
+test('RIFT-891 a non-Champion Legend may enter Banishment and unbinds its static', () => {
+  const kernel = world().player('A').player('B')
+    .unit('friendly-mech', { controller: 'A', tags: ['Mech'], might: 3 }).build();
+  const created = kernel.perform({ type: 'create-token', player: 'A', to: 'legend', token: {
+    cardId: MECHANIZED_MENACE, name: 'Removable Legend', types: ['legend'], tags: [], keywords: [],
+    might: null, energy: null, power: null,
+  } });
+  assert.equal(created.status, 'done');
+  const removable = kernel.getObject(created.result.id);
+  const choose = request => { throw new Error(`Unexpected choice ${request.id}`); };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects, perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId), choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => kernel.test(registration.spec.condition),
+  });
+  host.player = id => kernel.player(id);
+  const engine = new ChainEngine({ turnOrder: ['A', 'B'], turnPlayer: 'A', phase: 'main', host, cleanup: () => false });
+  const lifecycle = createProgramBinding({ cardPrograms: [executableMechanizedMenace] }).attachLifecycle(engine, error => { throw error; });
+  try {
+    assert.equal(engine.layers.registry.list().length, 1);
+    assert.equal(engine.commit({ type: 'move-zone', object: removable.ref, to: 'hand' }).status, 'prevented');
+    assert.equal(engine.commit({ type: 'move-zone', object: removable.ref, to: 'banishment' }).status, 'done');
+    assert.equal(kernel.getObject(removable.ref.id).zone, 'banishment');
+    assert.equal(engine.layers.registry.list().length, 0);
+  } finally { lifecycle.detach(); }
+});
+
+
+const constant = value => ({ kind: 'constant', value });
+const ACTIVATING_LEGEND = 'trained:activating-legend';
+const ACTIVATING_UNIT = 'trained:activating-unit';
+
+const activatedLegend = {
+  canonicalCardId: ACTIVATING_LEGEND, rulesetVersion: 'core-1.5', status: 'executable',
+  sourceText: 'Synthetic Champion Legend activated draw fixture.',
+  abilities: [{ kind: 'activated', timing: 'action', cost: { kind: 'activated' },
+    body: [{ id: 'legend.draw', op: 'effect.draw', args: { amount: constant(1) } }] }],
+};
+const activatedUnit = {
+  canonicalCardId: ACTIVATING_UNIT, rulesetVersion: 'core-1.5', status: 'executable',
+  sourceText: 'Synthetic Unit activated draw fixture.',
+  abilities: [{ kind: 'activated', timing: 'action', cost: { kind: 'activated' },
+    body: [{ id: 'unit.draw', op: 'effect.draw', args: { amount: constant(1) } }] }],
+};
+
+function r891Card(id, values = {}) {
+  return { id, cardId: values.canonicalCardId ?? id, canonicalCardId: values.canonicalCardId ?? id,
+    types: values.types ?? ['unit'], ...values };
+}
+function r891Deck(legendId) {
+  return {
+    mainDeck: Array.from({ length: 16 }, (_, index) => r891Card(`main:${legendId}:${index}`, {
+      canonicalCardId: `main:${legendId}:${index}`, types: ['unit'], energy: 1, power: [], might: 1,
+    })),
+    runeDeck: Array.from({ length: 4 }, (_, index) => r891Card(`rune:${legendId}:${index}`, {
+      canonicalCardId: `rune:${legendId}:${index}`, types: ['rune'], energy: null, power: null, might: null,
+    })),
+    championLegend: r891Card(`legend:${legendId}`, {
+      canonicalCardId: legendId, cardId: legendId, types: ['legend'], name: legendId,
+      energy: null, power: null, might: null,
+    }),
+    chosenChampion: r891Card(`champion:${legendId}`, {
+      canonicalCardId: `champion:${legendId}`, types: ['champion'], energy: null, power: null, might: null,
+    }),
+    battlefields: [0, 1, 2].map(index => r891Card(`battlefield:${legendId}:${index}`, {
+      canonicalCardId: `battlefield:${legendId}:${index}`, types: ['battlefield'], energy: null, power: null, might: null,
+    })),
+  };
+}
+function r891RecheckMatch(program, setup) {
+  const builder = world().player('A').player('B');
+  setup?.(builder);
+  const kernel = builder.build();
+  let pipeline;
+  let adapterDefaultChoose;
+  const choose = request => {
+    if (pipeline !== undefined && pipeline.choose !== adapterDefaultChoose) return pipeline.choose(request);
+    throw new Error(`Unexpected match choice ${request.id}`);
+  };
+  pipeline = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects, perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId), choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => kernel.test(registration.spec.condition),
+  });
+  adapterDefaultChoose = pipeline.choose;
+  pipeline.player = id => kernel.player(id);
+  const programs = new Map([[program.canonicalCardId, program],
+    [ACTIVATING_LEGEND, activatedLegend], [ACTIVATING_UNIT, activatedUnit]]);
+  const match = createMatch({ decks: [r891Deck(program.canonicalCardId), r891Deck('trained:generic-legend')],
+    programs: { programs }, host: pipeline, seed: `rift-891:${program.canonicalCardId}`,
+    battlefieldChoice: [0, 0], mulligans: [[], []], firstPlayer: 0 });
+  return { kernel, match };
+}
+function r891Settle(adapter) {
+  let guard = 0;
+  while (adapter.match.flow.chain.items.length) {
+    assert.ok(++guard < 20);
+    adapter.execute(adapter.match.flow.chain.priority, { type: 'pass', commandId: `settle-${guard}`, stateVersion: adapter.stateVersion });
+  }
+}
+
+test('RIFT-891 real Activate executes a Legend ability from Legend', () => {
+  const { kernel, match } = r891RecheckMatch(activatedLegend);
+  const source = kernel.objects.find(object =>
+    object.cardId === ACTIVATING_LEGEND && object.owner === 'A' && object.zone === 'legend');
+  assert.ok(source);
   const adapter = createMatchCommandAdapter({ match, stateVersion: 0 });
   try {
-    assert.ok(layerKeywords(match, kernel, 'friendly-mech').some(keyword => keyword.id.toLowerCase() === 'shield'));
-    assert.equal(match.flow.chain.layers.registry.list().length, 1);
+    const handBefore = kernel.player('A').handCount;
+    assert.equal(source.zone, 'legend');
+    adapter.execute('A', { type: 'activate', commandId: 'legend-activate', stateVersion: adapter.stateVersion,
+      sourceObjectId: source.ref.id, abilityId: '0' });
+    r891Settle(adapter);
+    assert.equal(kernel.player('A').handCount, handBefore + 1, 'the activated body draws exactly once');
+    assert.deepEqual(kernel.ref(source.ref.id), source.ref);
+    assert.equal(kernel.getObject(source.ref.id).zone, 'legend');
+  } finally { adapter.detach(); }
+});
 
-    const outcome = match.flow.chain.commit({ type: 'move-zone', object: legend.ref, to: 'banishment' });
-    assert.equal(outcome.status, 'done');
-    assert.equal(kernel.getObject(legend.ref.id).zone, 'banishment');
-    assert.equal(kernel.objectsInZone('A', 'legend').length, 0);
-    assert.equal(match.flow.chain.layers.registry.list().length, 0);
-    assert.ok(layerKeywords(match, kernel, 'friendly-mech').every(keyword => keyword.id.toLowerCase() !== 'shield'));
-  } finally {
-    adapter.detach();
-  }
+test('RIFT-891 non-Legend Hand Unit cannot activate across zones', () => {
+  const { kernel, match } = r891RecheckMatch(activatedUnit, builder => {
+    builder.hand('hand-unit', { cardId: ACTIVATING_UNIT, types: ['unit'], energy: 0, power: [], might: 2 });
+  });
+  const source = kernel.getObject('hand-unit');
+  const adapter = createMatchCommandAdapter({ match, stateVersion: 0 });
+  try {
+    assert.throws(() => adapter.execute('A', { type: 'activate', commandId: 'unit-activate',
+      stateVersion: adapter.stateVersion, sourceObjectId: source.ref.id, abilityId: '0' }),
+    error => error?.code === 'illegal-activation-zone');
+    assert.equal(kernel.getObject(source.ref.id).zone, 'hand');
+  } finally { adapter.detach(); }
 });
