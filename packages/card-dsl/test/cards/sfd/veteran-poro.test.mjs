@@ -5,14 +5,32 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/sfd/veteran-poro.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { ProgramRegistry, createEngineStaticBinder, describePlay } from "../../../../engine-core/dist/programs/index.js";
-import { attachProgramLifecycle } from "../../../../engine-core/dist/programs/lifecycle.js";
-import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { runInstruction } from "../../../../engine-core/dist/effects/testing/index.js";
+import { productionPlay } from "../../fixtures/production-play.mjs";
 
 const CARD_ID = "card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7";
+
+const production = { ...program, status: "executable", judgeReason: undefined };
+
+const veteranPoroBoard = ({ equip = false } = {}) => w => {
+  let table = w
+    .player("A", { energy: 20, power: ["Body"] })
+    .player("B", { energy: 20, power: ["Body"] })
+    .unit("poro", {
+      owner: "A", controller: "A", cardId: CARD_ID, name: "Veteran Poro",
+      types: ["unit"], tags: ["Poro"], zone: "hand", location: null,
+      energy: 2, power: [], might: 2
+    });
+  if (equip) table = table.object("sword", {
+    owner: "A", controller: "A", cardId: "card:long-sword", name: "Long Sword",
+    types: ["gear"], tags: ["Equipment"], zone: "board",
+    location: { type: "base", player: "A" }, energy: null, power: null, might: null
+  });
+  return table;
+};
 
 const weaponmasterExpansion = () => {
   const definition = keywordDefinitionsById.get("Weaponmaster");
@@ -86,7 +104,7 @@ test("sfd-099-221 Veteran Poro: selecting no Equipment skips the whole cost/atta
   assert.deepEqual(kernel.events, []);
 });
 
-test("sfd-099-221 Veteran Poro: the chosen Equipment's Equip cost still fails closed without an authoritative binding (821.1.c.2/.3)", () => {
+test("sfd-099-221 Veteran Poro: the chosen Equipment's Equip cost still fails closed without an authoritative binding (821.1.c.2)", () => {
   // The merged cost.modify source branch resolves the exact selected Equipment
   // and then raises judge-required because ObjectSnapshot carries play costs and
   // keyword names, never the Equip ability's cost or original [A]/[C] symbols.
@@ -113,58 +131,107 @@ test("sfd-099-221 Veteran Poro: the chosen Equipment's Equip cost still fails cl
   assert.equal(kernel.getObject("sword").attachedTo, null);
 });
 
-test("sfd-099-221 Veteran Poro: the chain adapter cannot yet decode the expanded cost.modify body", () => {
-  // Measured against chain/interpreter-adapter.ts: LITERAL_FIELDS has no entry
-  // for cost.modify, so the expansion's constant-wrapped modifier reaches the
-  // primitive's schema unchanged and the chain body cannot execute.
+test("sfd-099-221 Veteran Poro: reduce-equip-cost still refuses six-domain Power as original [A]/[C] provenance (821.1.c.3)", () => {
+  // A six-domain Power requirement does not preserve whether the printed Equip
+  // cost used the original [A] symbol. Treating it as [A] would turn a printed
+  // [C] into a discountable symbol, so the primitive fails closed.
   const [ability] = weaponmasterExpansion();
   const [sequence] = ability.body;
   const [costInstruction] = sequence.args.body.value;
-  const f = fixture();
-  assert.throws(() => resolveChainBody([costInstruction], f.kernel), /Invalid cost\.modify modifier argument: value/);
+  const modifier = costInstruction.args.modifier.value;
+  const kernel = world()
+    .player("A", { energy: 20, power: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] })
+    .object("gear-host", { types: ["unit"], zone: "board", location: { type: "base", player: "A" }, might: 3 })
+    .build();
+  const context = kernel.clone({
+    sourceSnapshot: kernel.getObject("gear-host"),
+    controller: "A"
+  });
+  assert.throws(() => runInstruction(costModify, {
+    id: costInstruction.id,
+    cost: {
+      kind: "explicit",
+      payments: [{
+        kind: "power",
+        amount: { kind: "constant", value: modifier.amount },
+        allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]
+      }]
+    },
+    modifier
+  }, { world: context }), /821\.1\.c\.3: Equip discounts require original \[A\] symbols/);
+  assert.equal(context.linked("cost"), undefined, "a failed profile does not publish a cost plan");
 });
 
-test("sfd-099-221 Veteran Poro: the expanded card-played trigger registers and locks the chosen Equipment on a real play", () => {
-  // The previously-recorded "match the played object" gap is closed: the
-  // production lifecycle registers the keyword expansion's trigger, the real
-  // play emits card-played with matching object/source, and Finalize locks the
-  // selected Equipment. The cost half still fails closed, so resolution is
-  // asserted to stop on the missing Equip binding rather than to attach.
-  const live = { ...program, status: "executable", judgeReason: undefined };
-  const registry = new ProgramRegistry([live]);
-  const f = fixture({ describePlay: (action, source) => describePlay(registry, action, source) });
-  attachProgramLifecycle(f.engine, registry, createEngineStaticBinder(f.engine));
-
-  const base = f.kernel.getObject("source");
-  f.kernel.addObject({
-    ...base, ref: { id: "poro", zoneEntryId: 1 }, cardId: CARD_ID, name: "Veteran Poro",
-    types: ["unit"], tags: ["Poro"], zone: "hand", location: null, energy: 2, power: [], might: 3
+test("sfd-099-221 Veteran Poro production: declining the optional Equipment leaves it unattached", () => {
+  // This uses the registry program through createProgramBinding and a real
+  // ChainEngine. The real card-played event registers Weaponmaster; the empty
+  // up-to-one choice skips cost and attachment without a second prompt.
+  const f = productionPlay({
+    programs: [production],
+    answers: { "target:weaponmaster-equipment": [] },
+    build: veteranPoroBoard({ equip: true })
   });
-  f.kernel.addObject({
-    ...base, ref: { id: "sword", zoneEntryId: 1 }, cardId: null, name: "Long Sword",
-    types: ["gear"], tags: ["Equipment"], zone: "board", location: { type: "base", player: "A" },
-    energy: null, power: null, might: null
-  });
-  const sword = f.kernel.ref("sword");
-  f.answers.set("target:weaponmaster-equipment", [sword]);
-
-  assert.equal(f.engine.commit({ type: "play", object: f.kernel.ref("poro"), player: "A" }).status, "done");
-  f.engine.advance();
-  const played = f.engine.pipeline.events.filter((event) => event.timingPoint === "card-played");
-  assert.equal(played.length, 1);
-  assert.equal(played[0].object.ref.id, "poro");
-  assert.equal(played[0].object.cardId, CARD_ID);
-  assert.equal(played[0].source.ref.id, "poro");
-  const triggers = [...f.engine.pipeline["triggers"].keys()].filter((id) => id.startsWith("program:poro"));
-  assert.ok(triggers.length > 0, "the keyword expansion's card-played trigger must be registered for the played unit");
-  // One triggered chain item is installed from the real event; its locked pick
-  // is the Equipment chosen through the scenario answer above.
-  const item = f.engine.items.find((entry) => entry.kind === "triggered");
-  assert.ok(item, "the card-played trigger must have produced a chain item");
-  // Resolution stops on the un-decoded cost.modify body above; whatever the
-  // failure, no Equipment cost may be paid and nothing may become attached.
-  assert.throws(() => { while (f.engine.items.length) f.engine.pass(f.engine.priority); },
-    /Invalid cost\.modify modifier argument: value/);
-  assert.equal(f.kernel.player("A").energy, 20 - 2, "only the printed play cost may have been paid");
+  const draft = f.play("poro");
+  assert.equal(draft.speed, "normal");
+  assert.equal(f.kernel.player("A").energy, 18, "only Veteran Poro's printed 2 Energy is paid");
+  assert.equal(f.kernel.getObject("poro").zone, "board");
   assert.equal(f.kernel.getObject("sword").attachedTo, null);
+  assert.deepEqual(f.engine.items, []);
+  assert.deepEqual(f.targetRequests().map(request => request.id), ["target:weaponmaster-equipment"]);
+  assert.deepEqual(f.targetRequests()[0].options, [f.kernel.ref("sword")]);
+  assert.equal(
+    f.engine.pipeline.events.filter(event => event.timingPoint === "card-played" && event.object.ref.id === "poro").length,
+    1
+  );
+  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "object-attached"), false);
+});
+
+test("sfd-099-221 Veteran Poro production: an opponent's Equipment is not a legal choice (821.1.c)", () => {
+  const f = productionPlay({
+    programs: [production],
+    build: w => w.player("A", { energy: 20, power: ["Body"] })
+      .player("B", { energy: 20, power: ["Body"] })
+      .unit("poro", {
+        owner: "A", controller: "A", cardId: CARD_ID, name: "Veteran Poro",
+        types: ["unit"], tags: ["Poro"], zone: "hand", location: null,
+        energy: 2, power: [], might: 2
+      })
+      .object("enemy-sword", {
+        owner: "B", controller: "B", cardId: "card:long-sword", name: "Long Sword",
+        types: ["gear"], tags: ["Equipment"], zone: "board",
+        location: { type: "base", player: "B" }, energy: null, power: null, might: null
+      })
+  });
+  f.play("poro");
+  assert.equal(f.kernel.player("A").energy, 18);
+  assert.equal(f.kernel.getObject("poro").zone, "board");
+  assert.equal(f.kernel.getObject("enemy-sword").attachedTo, null);
+  assert.deepEqual(f.targetRequests().map(request => ({ min: request.min, options: request.options })), [
+    { min: 0, options: [] }
+  ]);
+  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "object-attached"), false);
+});
+
+test("sfd-099-221 Veteran Poro production: a selected Equipment fails closed without paying or attaching (821.1.c.2)", () => {
+  // The production Finalize path really locks the selected Equipment before
+  // resolution. The trigger then reaches cost.modify and stops on the current
+  // engine gap; Poro itself has already been played and only its own cost paid.
+  const f = productionPlay({
+    programs: [production],
+    answers: { "target:weaponmaster-equipment": ["sword"] },
+    build: veteranPoroBoard({ equip: true })
+  });
+  assert.throws(
+    () => f.play("poro"),
+    /821\.1\.c\.2: missing authoritative Equip-cost binding for sword; original \[A\]\/\[C\] symbols required/
+  );
+  assert.equal(f.kernel.player("A").energy, 18, "the failed Weaponmaster trigger pays no play or Equip cost");
+  assert.equal(f.kernel.getObject("poro").zone, "board");
+  assert.equal(f.kernel.getObject("sword").attachedTo, null);
+  assert.equal(f.kernel.getObject("sword").zone, "board");
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "card-played" && event.object.ref.id === "poro").length, 1);
+  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "object-attached"), false);
+  assert.deepEqual(f.targetRequests().map(request => ({ id: request.id, options: request.options })), [
+    { id: "target:weaponmaster-equipment", options: [f.kernel.ref("sword")] }
+  ]);
 });
