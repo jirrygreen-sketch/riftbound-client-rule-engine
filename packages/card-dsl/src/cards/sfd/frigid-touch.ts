@@ -13,38 +13,39 @@ import type { CardProgram } from "../../ir/index.js";
  * - [Repeat] [2] (820) is an Optional Additional Cost keyword: 820.1.d makes
  *   the paid instance execute the spell's instructions one additional time
  *   during resolution, with choices re-made (820.2 / 820.2.a). The 2-energy
- *   optional additional cost is declared on the play CostSpec (contract 3.1);
- *   the extra executions stay represented by an effect.repeat node whose
- *   count must come from the paid-instance receipt (820.1.c.1), never as a
- *   fixed count written into the card.
+ *   optional additional cost is declared on the play CostSpec (contract 3.1).
+ *   The production resolver reads the exact paid instance ids from the frozen
+ *   cost plan/receipt and repeats this body; the card does not write a fixed
+ *   repeat count or carry an effect.repeat action template as a substitute.
  * - "Give a unit -2 [M] this turn" is a temporary Might modification executed
  *   by the merged continuous.might primitive (RIFT-258): contract 3.4's
- *   arithmetic layer, end-of-turn duration, and the printed wording's use of
- *   the same TargetSpec for a re-made choice (820.2.a).
+ *   arithmetic layer and end-of-turn duration. The body can therefore be
+ *   repeated directly without translating -2 Might into Buff counters.
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，两处当前缺口：
- * - [Repeat] 的费用原语、费用计划和 effect.repeat 本体都已存在，但 Play/Finalize
- *   还没有从关键词展开的 repeat.cost 静态效果收集可选附加费用，也没有把实际付费实例数
- *   接到本卡的 repeat 节点。程序因此不把 count 写成固定 1（会近似成未付费也重复）。
- * - effect.repeat 的闭集动作里没有 Might 修改动作：契约 3.6 的 GameAction 集合无 might
- *   动作，用 buff 动作代替会把 -2 Might 写成 Buff counter（702/703），属禁止的近似。
- * 已合入并真实执行：Reaction 关键词声明、continuous.might 的临时 -2 Might 注册与
- * 回合末到期（golden 经生产链适配器执行，含目标失效 ignored）。
+ * status 判定（cards/README.md 第 2 节）：judge-required，唯一剩余缺口是
+ * CR 820.2.a 的额外执行重选。Payment collection and paid-instance execution
+ * now work in production, but chain/interpreter-adapter.ts:228 wraps a paid
+ * whole body in `repeat` with `reselectTargets: false`; chain/engine.ts:724
+ * finalizes the original TargetSpec only once and chain/engine.ts:661 merges
+ * those selections by specification id. The paid execution therefore cannot
+ * choose a different legal unit, although 820.2.a explicitly permits it.
+ * Card IR cannot manufacture that second Finalize choice, so the card remains
+ * judge-required until the engine freezes one target choice per paid instance.
  */
 const frigidTouch = {
   canonicalCardId: "card.hash-153eb4df721b70662a63652ba1602985ceed08d81a0b23fc0d6b10349ee15ca9",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处当前缺口：(1)「[Repeat] :rb_energy_2:」（820.1.c.1）的费用原语、费用计划和 effect.repeat 本体都已存在，" +
-    "但 Play/Finalize 不读取关键词展开的 repeat.cost 静态效果，也没有把实际付费实例数接到本卡的 repeat 节点；" +
-    "本卡不把 count 写成固定 1。(2) effect.repeat 的闭集动作集合（契约 3.6）没有 Might 修改动作，" +
-    "用 buff 动作重复会把 -2 Might 变成 Buff counter（702/703），属禁止的近似。" +
-    "「Give a unit -2 :rb_might: this turn」半段已可执行：continuous.might 注册 arithmetic 层修正、" +
-    "回合末到期，golden 已用生产链适配器真实执行（含目标失效 ignored）。依赖：关键词费用收集、付费实例到 repeat 的接线" +
-    "以及 effect.repeat 的 Might 动作契约。不近似实现。",
+    "当前唯一缺口是 CR 820.2. / 820.2.a 的 Repeat 额外执行重选：付费费用收集与 paid-instance 次数接线已合入，" +
+    "但 packages/engine-core/src/chain/interpreter-adapter.ts:228-239 把整个正文包装成 repeat 时固定 " +
+    "reselectTargets: false；packages/engine-core/src/chain/engine.ts:724-766 只为原始 TargetSpec finalize 一次，" +
+    "engine.ts:661-671 又按 spec id 合并目标计划。因此额外执行只能复用第一次选择的单位，不能按 820.2.a 另选另一个“unit”。" +
+    "卡牌 IR 不伪造第二个 Finalize choice，也不使用 buff 代替 Might。已由生产 golden 验证：拒绝 Repeat 时只支付 2 能量并执行一次，" +
+    "支付后总计 4 能量且真实重复 continuous.might；目标在结算前失效时 ignored，均不产生 Buff counter；整卡因缺少额外执行重选仍保持 judge-required。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
+    { kind: "keyword", keyword: "repeat" },
     {
       kind: "play",
       cost: {
@@ -68,8 +69,8 @@ const frigidTouch = {
           args: {
             amount: { kind: "constant", value: -2 },
             duration: { kind: "constant", value: "this-turn" },
-            // 契约 3.6：作用对象经 objects 描述符指向 Finalize 锁定的 TargetSpec；
-            // 生产链适配器按该描述符读取 ctx.targets，重选目标（820.2.a）由 repeat 承担。
+            // 契约 3.6：作用对象经 objects 描述符指向 Finalize 锁定的 TargetSpec。
+            // CR 820.2.a 的重选仍由引擎的额外执行生命周期承担。
             objects: {
               kind: "constant",
               value: { kind: "target", id: "affected-unit" }
@@ -78,28 +79,11 @@ const frigidTouch = {
           targets: [
             {
               id: "affected-unit",
-              filter: { types: "unit" },
+              // CR 355.9.a.1: an unqualified "unit" is an object on the Board.
+              filter: { type: "unit", zone: "board" },
               selection: "one"
             }
           ]
-        },
-        {
-          id: "repeat-effect",
-          op: "effect.repeat",
-          args: {
-            count: { kind: "constant", value: 1 },
-            actions: {
-              kind: "constant",
-              value: [
-                {
-                  type: "buff",
-                  values: { amount: { kind: "constant", value: -2 } },
-                  targets: { object: "affected-unit" }
-                }
-              ]
-            }
-          },
-          linkedTo: "give-minus-2-might"
         }
       ]
     }
