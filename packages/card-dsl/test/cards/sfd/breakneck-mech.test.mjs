@@ -1,5 +1,6 @@
-// Breakneck Mech execution evidence. The production tests at the end use the
-// original registry program, createProgramBinding, ChainEngine and lifecycle.
+// Scenario execution evidence: ../templates/static-replacement-effect-ready-677.test.mjs
+// (one row per card; the printed expectations the merged engine cannot produce
+// yet are reported there as TODO rows, never as a pass).
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -16,11 +17,6 @@ import { bindReplacement } from "../../../../engine-core/dist/replacement/index.
 import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { productionPlay } from "../../fixtures/production-play.mjs";
-import defiantDance from "../../../dist/cards/sfd/defiant-dance.js";
-import { createDuelBoard, placeDuelUnit, selectDuelBattlefields } from "../../../../engine-core/dist/duel/battlefields.js";
-import { moveDuelUnitsStandard } from "../../../../engine-core/dist/zones/movement.js";
-import { mainTiming, readinessFor } from "../../../../engine-core/test/rules/movement/support.mjs";
 
 const CARD_ID = "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab";
 const SOURCE_TEXT =
@@ -100,13 +96,23 @@ test("breakneck-mech program is registered and validates", () => {
   assert.deepEqual(result.issues, []);
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "executable");
-  assert.equal(program.judgeReason, undefined);
+  assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("breakneck-mech no longer carries an obsolete judge-required reason", () => {
-  assert.equal(Object.hasOwn(program, "judgeReason"), false);
+test("breakneck-mech judgeReason names the current Deflect tax and entry-condition gaps", () => {
+  assert.match(program.judgeReason, /Deflect/);
+  assert.match(program.judgeReason, /Ganking/);
+  assert.match(program.judgeReason, /target\.tax/);
+  assert.match(program.judgeReason, /matchesEnterAction/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /TargetTaxSpec/);
+  // The tag/other count-filter gap was fixed in this resweep, so the reason
+  // records the repair instead of still claiming the counting is broken.
+  assert.match(program.judgeReason, /已修/);
+  assert.match(program.judgeReason, /exclude/);
+  assert.ok(!/unmerged KeywordDef|keywords registry is empty/.test(program.judgeReason));
+  assert.ok(!/permission\.routes|no layer mapping|Ganking.*false/.test(program.judgeReason));
 });
 
 test("breakneck-mech structure: static grant + enter-ready replacement", () => {
@@ -209,7 +215,7 @@ test("breakneck-mech golden: the battlefield-to-battlefield permission is readab
 test("breakneck-mech golden: the granted keywords re-expand through the merged keyword layer", () => {
   // The declared grant is a single ability-layer grant-keyword effect over the
   // controller's Mechs (802.2 style). The layer engine applies the grants to
-  // exactly that set.
+  // exactly that set; the missing piece is the production registration path.
   const kernel = world().player("A")
     .unit("mech", { tags: ["Mech"], might: 2, controller: "A" })
     .unit("ally-non-mech", { tags: [], might: 2, controller: "A" })
@@ -353,165 +359,7 @@ test("breakneck-mech golden: 'if you control another Mech' really counts the oth
   assert.equal(evaluateCondition(condition, conditionEnvironment(withoutOther, "mech")), false);
 });
 
-const BF1 = { type: "battlefield", id: "bf1" };
-
-function breakneckBuild({ controlsOther = true, controlsTaggedGear = false } = {}) {
-  return w => {
-    let builder = w.player("A", { energy: 20, power: ["Mind", "Body"] })
-      .player("B", { energy: 20, power: ["Calm", "Calm"] })
-      .object("breakneck", {
-        owner: "A", controller: "A", cardId: CARD_ID, types: ["unit"], tags: ["Mech"],
-        zone: "hand", energy: 8, power: ["Mind"], might: 7
-      });
-    if (controlsOther) {
-      builder = builder.unit("other-mech", {
-        owner: "A", controller: "A", types: ["unit"], tags: ["Mech"], might: 3,
-        location: { type: "base", player: "A" }
-      });
-    }
-    if (controlsTaggedGear) {
-      // 133.8: Mech is a tag and may appear on types other than Unit.
-      builder = builder.object("mech-gear", { owner: "A", controller: "A", types: ["gear"], tags: ["Mech"], zone: "board", location: { type: "base", player: "A" } });
-    }
-    return builder
-      .unit("ally-non-mech", { owner: "A", controller: "A", types: ["unit"], tags: [], might: 3, location: { type: "base", player: "A" } })
-      .unit("enemy-mech", { owner: "B", controller: "B", types: ["unit"], tags: ["Mech"], might: 3, location: { type: "base", player: "B" } })
-      .deck(["a1", "a2", "a3"], { owner: "A" })
-      .deck(["b1", "b2", "b3"], { owner: "B" });
-  };
-}
-
-function playBreakneck(options) {
-  const f = productionPlay({ programs: [program], build: breakneckBuild(options) });
-  const draft = f.play("breakneck");
-  return { f, draft };
-}
-
-test("breakneck-mech production: another Mech makes it enter ready and activates Deflect/Ganking only for friendly Mechs", () => {
-  const { f, draft } = playBreakneck({ controlsTaggedGear: true });
-  const entered = f.kernel.getObject("breakneck");
-  assert.equal(draft.speed, "normal");
-  assert.equal(entered.zone, "board");
-  assert.deepEqual(entered.location, { type: "base", player: "A" });
-  assert.equal(entered.exhausted, false, "the replacement condition is true and the entry is ready");
-
-  f.engine.layers.setObjects(f.kernel.objects);
-  const granted = f.engine.layers.snapshot(f.kernel.ref("other-mech"));
-  const taggedGear = f.engine.layers.snapshot(f.kernel.ref("mech-gear"));
-  const nonMech = f.engine.layers.snapshot(f.kernel.ref("ally-non-mech"));
-  const enemy = f.engine.layers.snapshot(f.kernel.ref("enemy-mech"));
-  assert.deepEqual(granted.keywords.map(keyword => keyword.id).sort(), ["Deflect", "Ganking"]);
-  assert.deepEqual(taggedGear.keywords.map(keyword => keyword.id).sort(), ["Deflect", "Ganking"]);
-  assert.equal(granted.movement.canGank, true);
-  assert.equal(nonMech.movement.canGank, false);
-  assert.deepEqual(nonMech.keywords, []);
-  assert.deepEqual(enemy.keywords, []);
-  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "object-enters-board" && event.object?.ref.id === "breakneck"), true);
-  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "object-readied" && event.object?.ref.id === "breakneck"), false);
-  assert.deepEqual(f.requests, [], "the replacement and static grant add no player choices");
-});
-
-test("breakneck-mech production: without another friendly Mech it enters exhausted", () => {
-  const { f } = playBreakneck({ controlsOther: false });
-  const entered = f.kernel.getObject("breakneck");
-  assert.equal(entered.zone, "board");
-  assert.equal(entered.exhausted, true, "the enemy Mech does not satisfy 'another Mech'");
-  assert.deepEqual(f.requests, []);
-});
-
-test("breakneck-mech production: opponent-targeting a friendly Mech pays the granted Deflect as any-domain Power", () => {
-  const inspect = productionPlay({
-    programs: [program, defiantDance],
-    answers: {
-      "target:defiant-dance.unit": ["other-mech"],
-      "target:defiant-dance.another-unit": ["ally-non-mech"]
-    },
-    build: w => w.player("A", { energy: 20, power: ["Mind", "Body"] })
-      .player("B", { energy: 20, power: ["Calm", "Calm"] })
-      .object("breakneck", {
-        owner: "A", controller: "A", cardId: CARD_ID, types: ["unit"], tags: ["Mech"],
-        zone: "hand", energy: 8, power: ["Mind"], might: 7
-      })
-      .unit("other-mech", { owner: "A", controller: "A", types: ["unit"], tags: ["Mech"], might: 3, location: BF1 })
-      .unit("ally-non-mech", { owner: "A", controller: "A", types: ["unit"], tags: [], might: 3, location: BF1 })
-      .object("dance", {
-        owner: "B", controller: "B", cardId: defiantDance.canonicalCardId, types: ["spell"],
-        zone: "hand", energy: 1, power: ["Calm"], might: null
-      })
-      .deck(["a1", "a2", "a3"], { owner: "A" })
-      .deck(["b1", "b2", "b3"], { owner: "B" })
-  });
-  inspect.play("breakneck");
-  inspect.engine.layers.setObjects(inspect.kernel.objects);
-  const source = inspect.kernel.getObject("dance");
-  const draft = inspect.binding.describePlay({ type: "play", object: source.ref, player: "B" }, source);
-  inspect.engine.openShowdown("A");
-  inspect.engine.pass("A");
-  inspect.engine.execute(draft);
-  const finalized = inspect.engine.items[0];
-  assert.equal(finalized.status, "finalized");
-  assert.deepEqual(finalized.targetPlans.map(plan => plan.selected.map(ref => ref.id)), [
-    ["other-mech"],
-    ["ally-non-mech"]
-  ]);
-  assert.deepEqual(finalized.costPlan.total.power, [
-    // Defiant Dance's printed Calm cost.
-    { amount: 1, allowedDomains: ["Calm"] },
-    // The extra cost comes only from the Deflect granted to the selected Mech.
-    { amount: 1, allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] }
-  ]);
-  assert.deepEqual(finalized.payment.power.power, [
-    { requirementIndex: 0, from: "Calm", amount: 1 },
-    { requirementIndex: 1, from: "Calm", amount: 1 }
-  ]);
-  assert.equal(inspect.kernel.player("B").energy, 19);
-  assert.deepEqual(inspect.kernel.player("B").power, [], "one Calm paid the printed cost and one paid Deflect");
-
-  inspect.settle();
-  assert.equal(inspect.might("other-mech"), 5, "+2 applied to the targeted Mech");
-  assert.equal(inspect.might("ally-non-mech"), 1, "-2 applied to the other targeted non-Mech");
-});
-
-test("breakneck-mech production: granted Ganking permits a real Battlefield-to-Battlefield Standard Move", () => {
-  const { f } = playBreakneck();
-  const mover = f.kernel.getObject("other-mech");
-  assert.equal(mover.zone, "board");
-  assert.equal(f.engine.layers.snapshot(mover.ref).movement.canGank, true);
-
-  const given = createDuelBoard(selectDuelBattlefields([
-    { playerId: "A", battlefields: [
-      { instanceId: "a1", cardId: "print-a1" },
-      { instanceId: "a2", cardId: "print-a2" },
-      { instanceId: "a3", cardId: "print-a3" }
-    ] },
-    { playerId: "B", battlefields: [
-      { instanceId: "b1", cardId: "print-b1" },
-      { instanceId: "b2", cardId: "print-b2" },
-      { instanceId: "b3", cardId: "print-b3" }
-    ] }
-  ], () => 0));
-  const board = placeDuelUnit(given, {
-    objectId: mover.ref.id,
-    controllerPlayerId: "A",
-    locationId: given.battlefields[0].locationId
-  });
-  const request = {
-    actor: "A",
-    unitUIDs: [mover.ref.id],
-    destinationLocationId: given.battlefields[1].locationId,
-    timing: mainTiming("A")
-  };
-  assert.throws(
-    () => moveDuelUnitsStandard(board, readinessFor(board, { ganking: [] }), request),
-    /needs Ganking/,
-    "the caller boolean is intentionally false; the layer query must grant the route"
-  );
-  const moved = moveDuelUnitsStandard(board, readinessFor(board, { ganking: [] }), request, {
-    registry: f.engine.layers.registry,
-    refForUnit: unit => f.kernel.ref(unit.objectId),
-    objectForUnit: unit => f.engine.layers.snapshot(f.kernel.ref(unit.objectId))
-  });
-  assert.equal(moved.board.units[0].locationId, given.battlefields[1].locationId);
-  assert.equal(moved.group.exhaustedCount, 1);
-  assert.equal(moved.readiness[0].readied, false);
-});
+test.todo(
+    "matchesEnterAction returns before testCondition, so 'if you control another Mech' never gates the " +
+    "entry rewrite (CR 371.1)"
+);
