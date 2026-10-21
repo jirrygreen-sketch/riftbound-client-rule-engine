@@ -21,7 +21,7 @@ const SOURCE_TEXT =
 
 const [ability] = program.abilities;
 const [readyChoice] = ability.body;
-const [readyGear, detachChoice] = readyChoice.args.body.value;
+const [readSelected, readyGear, detachChoice] = readyChoice.args.body.value;
 const [detach] = detachChoice.args.body.value;
 
 // Card filters spell the ability controller "controller"; the reference kernel
@@ -74,10 +74,8 @@ test("sfd-221-221 Veiled Temple: program validates, is registered and stays judg
   assert.match(program.judgeReason, /chain\/finalize\/choices\.ts:207-217/);
   assert.match(program.judgeReason, /unsupported leading may shape/);
   assert.match(program.judgeReason, /TargetSpec/);
-  assert.match(program.judgeReason, /target-backed pick/);
-  assert.match(program.judgeReason, /target\/picks\/plan\.ts:220-236/);
-  assert.match(program.judgeReason, /target-plan\.ts:255-259/);
-  assert.match(program.judgeReason, /already-ready|本来已 ready/);
+  assert.match(program.judgeReason, /condition\.value/);
+  assert.match(program.judgeReason, /本来已 ready/);
   assert.match(program.judgeReason, /383\.3\.a/);
   assert.match(program.judgeReason, /383\.3\.a\.3/);
   assert.match(program.judgeReason, /355\.12/);
@@ -117,9 +115,16 @@ test("sfd-221-221 Veiled Temple: optional conquer structure with ready, Equipmen
     value: { kind: "target", id: "veiled-temple.gear" }
   });
 
-  // "If it's an Equipment": a real tag membership test on the readied gear.
+  assert.equal(readSelected.op, "condition.value");
+  assert.deepEqual(readSelected.args.value, {
+    kind: "object-attribute",
+    object: { target: "veiled-temple.gear" },
+    attribute: "ref"
+  });
+
+  // "If it's an Equipment": a real tag membership test on the selected gear.
   assert.equal(detachChoice.op, "choice.optional");
-  assert.equal(detachChoice.linkedTo, "veiled-temple.ready-gear");
+  assert.equal(detachChoice.linkedTo, "veiled-temple.read-selected");
   assert.deepEqual(detachChoice.condition, {
     kind: "compare",
     left: { kind: "constant", value: "Equipment" },
@@ -131,11 +136,11 @@ test("sfd-221-221 Veiled Temple: optional conquer structure with ready, Equipmen
     }
   });
 
-  // 436.3: detaching the readied gear is a non-target pick over the linked result.
+  // 436.3: detaching the selected gear is a non-target pick over the saved ref.
   assert.equal(detach.op, "effect.detach");
   assert.equal(detach.args.pick.kind, "constant");
   assert.deepEqual(detach.picks[0].options, [
-    { kind: "linked-value", instructionId: "veiled-temple.ready-gear", key: "readied" }
+    { kind: "linked-value", instructionId: "veiled-temple.read-selected", key: "selected" }
   ]);
 });
 
@@ -211,9 +216,9 @@ test("sfd-221-221 Veiled Temple golden: declining the ready skips the detach pro
   assert.deepEqual(kernel.events, []);
 });
 
-test("sfd-221-221 Veiled Temple golden: a selected Equipment that was already ready still keeps \"it\" for detach", () => {
+test("sfd-221-221 Veiled Temple golden: an already-ready Equipment is still \"it\" for detach", () => {
   // 416.1.c means the first may changes nothing, but "it" still refers to the
-  // selected Equipment. The current linked-receipt pick loses that identity.
+  // selected Equipment; condition.value preserves the locked target reference.
   const kernel = fixture({ tags: ["Equipment"], attached: true, exhausted: false });
   kernel.setTargets("veiled-temple.gear", [kernel.ref("gear-1")]);
   kernel.setPicks("veiled-temple.detached-gear", [kernel.ref("gear-1")]);
@@ -222,14 +227,10 @@ test("sfd-221-221 Veiled Temple golden: a selected Equipment that was already re
     "veiled-temple.ready-opt/veiled-temple.detach-opt/optional": true
   });
 
-  // With the published linked receipt this valid detach choice cannot name its
-  // source. The test records the current fail-closed boundary and does not
-  // mutate attachment through a fixture-only shortcut.
-  assert.throws(
-    () => resolveChainBody(ability.body, productionContext(kernel)),
-    error => error?.name === "PickSelectionError" && error.code === "invalid-choice" &&
-      /veiled-temple\.detached-gear/.test(error.message)
-  );
+  const outcome = resolveChainBody(ability.body, productionContext(kernel));
+  assert.equal(outcome.status, "executed");
+  assert.equal(kernel.getObject("gear-1").exhausted, false);
+  assert.equal(kernel.getObject("gear-1").attachedTo, null);
 });
 
 function pipelineFixture(sourceLocation) {
