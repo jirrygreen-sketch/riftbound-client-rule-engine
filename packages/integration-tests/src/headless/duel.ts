@@ -583,6 +583,14 @@ function makeWorld(seed: string): HeadlessWorld {
       invalidateProjection();
       return kernel.perform(action);
     },
+    // Recall/Hide are contract-only leaves (not GameActions); route them to the
+    // kernel's authoritative contract entry exactly as the game-server host does.
+    performContract: action => {
+      objectRevision += 1;
+      checkpoints.invalidate();
+      invalidateProjection();
+      return kernel.performContract(action);
+    },
     choose,
     context: (source, controller, timingPoint) => bindResolveContext(kernel, {
       source,
