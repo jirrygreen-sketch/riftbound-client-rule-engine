@@ -82,3 +82,39 @@ test('RIFT-927: a later pass sees host changes made after the previous pass', ()
   kernel.perform({ type: 'exhaust', object: kernel.ref('unit-1') });
   assert.equal(engine.pipeline.host.objects().find(object => object.ref.id === 'unit-1').might, 2);
 });
+
+// RIFT-927 review: a nested read must still see layered characteristics. The
+// first static lifts the source from 2 to 5 Might; the second grants Showdown
+// timing only to units with 5+ Might. Returning raw host objects to the nested
+// read lost the Showdown grant; the in-flight layer engine keeps it.
+test('RIFT-927: a nested read keeps layered Might for a mightGte timing filter', () => {
+  const program = {
+    canonicalCardId: 'synthetic:rift-927:timing-filter',
+    rulesetVersion: 'core-1.5',
+    status: 'executable',
+    sourceText: 'synthetic layered timing filter',
+    abilities: [
+      { kind: 'static', effect: { kind: 'continuous.might', layer: 'arithmetic', appliesTo: 'self', amount: c(3) } },
+      { kind: 'static', effect: { kind: 'continuous.timing', layer: 'ability', filter: { type: 'unit', zone: 'board', mightGte: 5 }, timings: ['showdown'] } },
+    ],
+  };
+  const kernel = world().player('A').player('B')
+    .unit('subject', { cardId: program.canonicalCardId, might: 2, location: { type: 'base', player: 'A' } })
+    .build();
+  const choose = request => { throw new Error(`Unexpected choice ${request.id}`); };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+  });
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const engine = new ChainEngine({ turnOrder: ['A', 'B'], turnPlayer: 'A', phase: 'main', host, cleanup: () => false });
+  binding.attachLifecycle(engine, error => { throw error; });
+  engine.pipeline.emit({ timingPoint: 'object-enters-board', object: kernel.getObject('subject'), player: 'A' });
+  const subject = engine.pipeline.host.objects().find(object => object.ref.id === 'subject');
+  assert.equal(subject.might, 5);
+  assert.deepEqual(subject.actionTimings, ['showdown']);
+});
