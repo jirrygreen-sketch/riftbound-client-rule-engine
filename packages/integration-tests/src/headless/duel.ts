@@ -12,6 +12,7 @@ import type { PipelineEvent, PipelineHost } from "../../../engine-core/dist/even
 import type { M1PreconId } from "./decks.js";
 
 import { TurnCombatBlockedError } from "../../../engine-core/dist/turn/flow.js";
+import { moveUnits } from "../../../engine-core/dist/game/commands/index.js";
 import { CostPlanError } from "../../../engine-core/dist/cost/plan-types.js";
 import { TriggerSpecValidationError } from "../../../engine-core/dist/events/trigger-spec.js";
 import { TargetSelectionError } from "../../../engine-core/dist/target/target-plan.js";
@@ -582,6 +583,14 @@ function makeWorld(seed: string): HeadlessWorld {
       invalidateProjection();
       return kernel.perform(action);
     },
+    // Recall/Hide are contract-only leaves (not GameActions); route them to the
+    // kernel's authoritative contract entry exactly as the game-server host does.
+    performContract: action => {
+      objectRevision += 1;
+      checkpoints.invalidate();
+      invalidateProjection();
+      return kernel.performContract(action);
+    },
     choose,
     context: (source, controller, timingPoint) => bindResolveContext(kernel, {
       source,
@@ -906,8 +915,15 @@ function executeCommand(context: HeadlessContext, command: HeadlessCommand): voi
       case "combat-damage": match.flow.combat.dealDamage(); return;
       case "move":
         if (command.to.type === "base") {
-          throw new HeadlessContractBlockedError("standard-move-base-destination",
-            "TurnFlow.move accepts only a Battlefield id; no public atomic Standard Move command accepts a Base destination (CR 144.4.b)");
+          // Battlefield -> own Base (CR 144.4.b) goes through the public atomic
+          // Standard Move command (RIFT-886), which validates the route, the
+          // mover's controller and Priority, and commits Exhaust + Move together.
+          if (command.to.player !== command.player) {
+            throw new HeadlessContractBlockedError("standard-move-base-destination",
+              "A Standard Move may only return a Unit to its controller's own Base (CR 144.4.b)");
+          }
+          moveUnits({ match, stateVersion: 0 }, command.player, [command.object.id], { zone: "base" });
+          return;
         }
         match.flow.move(command.player, command.object, command.to.id);
         return;
