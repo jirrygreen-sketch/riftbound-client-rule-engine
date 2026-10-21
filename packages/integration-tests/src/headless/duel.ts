@@ -9,6 +9,7 @@ import type { CardProgram } from "../../../card-dsl/dist/ir/types.js";
 import { ChainContractBlockedError, type ChainDraft } from "../../../engine-core/dist/chain/engine.js";
 import type { LocationRef, ObjectRef, ObjectSnapshot, PlayerId } from "../../../engine-core/dist/effects/contract.js";
 import type { PipelineEvent, PipelineHost } from "../../../engine-core/dist/events/pipeline-types.js";
+import type { DuelBaseCombatPlan } from "../../../engine-core/dist/combat/base-combat-allocation.js";
 import type { M1PreconId } from "./decks.js";
 
 import { TurnCombatBlockedError } from "../../../engine-core/dist/turn/flow.js";
@@ -142,6 +143,7 @@ export interface HeadlessCommandTraceObject {
   readonly exhausted: boolean;
   readonly canMove: boolean;
   readonly canGank: boolean;
+  readonly might: number | null;
   readonly movementRestrictions: readonly string[];
 }
 
@@ -165,6 +167,7 @@ export interface HeadlessCommandTrace {
   readonly boardUnits: readonly HeadlessCommandTraceObject[];
   readonly basicRunes: readonly HeadlessBasicRuneTrace[];
   readonly runePool: Readonly<Record<PlayerId, { readonly energy: number; readonly power: readonly string[] }>>;
+  readonly battlefields: Match["flow"]["battlefields"];
   readonly candidates: readonly {
     readonly type: HeadlessCommandType;
     readonly id: string | null;
@@ -178,6 +181,22 @@ export interface HeadlessCommandTrace {
   /** The public flow predicate that decides whether this Command may end Main. */
   readonly canEndTurn: boolean;
   readonly emptyRunePoolBlocked: boolean;
+}
+
+export type HeadlessBotCommandPriority =
+  | "rune-energy"
+  | "affordable-unit-play"
+  | "winning-enemy-move"
+  | "enemy-move"
+  | "open-field-move"
+  | "controlled-field-move"
+  | "affordable-other-play"
+  | "other"
+  | "base-move";
+
+export interface HeadlessBotCommandTier {
+  readonly priority: HeadlessBotCommandPriority;
+  readonly commands: readonly HeadlessCommand[];
 }
 
 export interface HeadlessObservedActionCoverage extends HeadlessActionCoverage {
@@ -905,6 +924,42 @@ function isLegalRejection(error: unknown): boolean {
     "Play destination is not legally allowed", "Finalize legality failed", "Illegal Standard Move"].includes(error.message);
 }
 
+/** Choose one legal basic allocation from the engine's frozen Combat plan. */
+function combatAllocations(
+  side: DuelBaseCombatPlan["attacker"],
+): readonly { readonly uid: string; readonly amount: number }[] {
+  const rank = { first: 0, normal: 1, choice: 1, last: 2 } as const;
+  const targets = [...side.targets].filter(target => target.canReceiveDamage)
+    .sort((left, right) => rank[left.assignmentPriority] - rank[right.assignmentPriority]);
+  const assignments: { readonly uid: string; readonly amount: number }[] = [];
+  let remaining = side.budget;
+  for (const [index, target] of targets.entries()) {
+    if (remaining <= 0) break;
+    const lethal = Math.max(target.lethalNeed, target.minAssignable);
+    const hasAnotherTarget = index < targets.length - 1;
+    const amount = hasAnotherTarget ? Math.min(remaining, lethal) : remaining;
+    const bounded = target.maxAssignable === null ? amount : Math.min(amount, target.maxAssignable);
+    if (bounded < target.minAssignable) continue;
+    assignments.push({ uid: target.uid, amount: bounded });
+    remaining -= bounded;
+    if (bounded < lethal) break;
+  }
+  return assignments;
+}
+
+function executeCombatDamage(combat: Match["flow"]["combat"]): void {
+  const active = combat.current;
+  if (active?.step === "showdown") {
+    const plan: DuelBaseCombatPlan = combat.prepareDamage();
+    combat.submitAttackerDamage(plan.attacker.playerId as PlayerId, combatAllocations(plan.attacker));
+    combat.submitDefenderDamage(plan.defender.playerId as PlayerId, combatAllocations(plan.defender));
+    return;
+  }
+  // This legacy entry deliberately remains a legal-timing probe/blocker for
+  // every other Combat phase; the bot never force-advances the engine.
+  combat.dealDamage();
+}
+
 function executeCommand(context: HeadlessContext, command: HeadlessCommand): void {
   const { match, state, programs } = context;
   try {
@@ -912,7 +967,7 @@ function executeCommand(context: HeadlessContext, command: HeadlessCommand): voi
       case "idle": match.flow.endTurn(command.player); return;
       case "pass": match.flow.pass(command.player); return;
       case "advance": match.flow.advance(); return;
-      case "combat-damage": match.flow.combat.dealDamage(); return;
+      case "combat-damage": executeCombatDamage(match.flow.combat); return;
       case "move":
         if (command.to.type === "base") {
           // Battlefield -> own Base (CR 144.4.b) goes through the public atomic
@@ -1077,7 +1132,7 @@ function traceObject(context: HeadlessContext, object: ObjectSnapshot): Headless
   const permission = movement(context.match.flow.chain.layers.registry, object.ref, object, object.controller);
   return { id: object.ref.id, cardId: object.cardId, name: object.name, controller: object.controller,
     zone: object.zone, location: object.location, exhausted: object.exhausted,
-    canMove: permission.canMove, canGank: permission.canGank,
+    canMove: permission.canMove, canGank: permission.canGank, might: object.might,
     movementRestrictions: restrictions(context.match.flow.chain.layers.registry, "move",
       object.ref, object, object.controller).flatMap(rule => rule.name === undefined ? [] : [rule.name]) };
 }
@@ -1109,7 +1164,7 @@ function commandTrace(context: HeadlessContext, candidates: readonly HeadlessCom
       const player = state.kernel.player(id);
       return player.energy !== 0 || player.power.length !== 0;
     }),
-    candidateCounts: counts, boardUnits: boardUnitTrace(context),
+    candidateCounts: counts, battlefields: match.flow.battlefields, boardUnits: boardUnitTrace(context),
     basicRunes: state.kernel.objects.filter(object => object.zone === "rune-zone" &&
       object.types.some(type => type.toLowerCase() === "rune")).map(object => ({ id: object.ref.id,
         name: object.name, cardId: object.cardId, domain: context.basicRuneDomain(object.cardId),
@@ -1131,6 +1186,115 @@ function observedActionCoverage(commands: readonly HeadlessJournalEntry[], actio
     committedPlays: commands.filter(entry => entry.command.type === "play" && entry.failure === null).length,
     rejectedPlays: commands.filter(entry => entry.command.type === "play" &&
       entry.failure?.code === "cannot-pay-cost").length };
+}
+
+/**
+ * Rank only commands already admitted by the active Player's timing and layer
+ * predicates. The caller still executes the selected Command through the same
+ * authoritative Match/Flow entry, so this function cannot make an illegal play
+ * or movement legal.
+ */
+export function rankHeadlessBotCommands(
+  candidates: readonly HeadlessCommand[],
+  trace: HeadlessCommandTrace,
+): readonly HeadlessBotCommandTier[] {
+  const tracedByID = new Map(trace.candidates.flatMap(candidate =>
+    candidate.id === null ? [] : [[candidate.id, candidate] as const]));
+  const affordable = (command: Extract<HeadlessCommand, { type: "play" }>): boolean => {
+    const candidate = tracedByID.get(command.id);
+    if (candidate === undefined) return false;
+    const pool = trace.runePool[command.player]!;
+    if (candidate.energy !== null && candidate.energy > pool.energy) return false;
+    if (candidate.power === null) return true;
+    const available = [...pool.power];
+    for (const domain of candidate.power) {
+      const index = available.indexOf(domain);
+      if (index < 0) return false;
+      available.splice(index, 1);
+    }
+    return true;
+  };
+  const affordablePlays = candidates.filter((command): command is Extract<HeadlessCommand, { type: "play" }> =>
+    command.type === "play" && affordable(command));
+  const candidatePlays = candidates.filter((command): command is Extract<HeadlessCommand, { type: "play" }> =>
+    command.type === "play");
+  const unitPlays = candidatePlays.filter(command =>
+    tracedByID.get(command.id)?.types.includes("unit") === true);
+  const affordableOtherPlays = affordablePlays.filter(command =>
+    tracedByID.get(command.id)?.types.includes("unit") !== true);
+
+  const runeFundedUnits = unitPlays.filter(command => {
+    const candidate = tracedByID.get(command.id)!;
+    const pool = trace.runePool[command.player]!.energy;
+    return candidate.energy !== null && candidate.energy > pool &&
+      candidate.energy <= pool + trace.candidateCounts["rune-energy"];
+  }).sort((left, right) =>
+    (tracedByID.get(left.id)?.energy ?? Infinity) - (tracedByID.get(right.id)?.energy ?? Infinity));
+  const runeAdds = runeFundedUnits.length > 0
+    ? candidates.filter(command => command.type === "rune-energy")
+    : [];
+  const moves = candidates.filter((command): command is Extract<HeadlessCommand, { type: "move" }> =>
+    command.type === "move");
+  const unitsAt = (field: string, player: PlayerId) => trace.boardUnits.filter(unit =>
+    unit.controller === player && unit.location?.type === "battlefield" && unit.location.id === field);
+  const mightOf = (units: readonly HeadlessCommandTraceObject[]): number | null => {
+    if (units.some(unit => unit.might === null)) return null;
+    return units.reduce((total, unit) => total + (unit.might ?? 0), 0);
+  };
+  const moveTier = (command: Extract<HeadlessCommand, { type: "move" }>): HeadlessBotCommandPriority => {
+    if (command.to.type !== "battlefield") return "base-move";
+    const destination = command.to.id;
+    const battlefield = trace.battlefields.find(field => field.id === destination);
+    const ownAtField = unitsAt(destination, command.player);
+    const enemyAtField = unitsAt(destination, command.player === "A" ? "B" : "A");
+    if (enemyAtField.length === 0) {
+      return battlefield?.controller === command.player ? "controlled-field-move" : "open-field-move";
+    }
+    const mover = trace.boardUnits.find(unit => unit.controller === command.player &&
+      unit.id === command.object.id);
+    if (mover === undefined || mover.location?.type === "battlefield" &&
+        mover.location.id === destination) return "enemy-move";
+    const ownMight = mightOf([...ownAtField, mover]);
+    const enemyMight = mightOf(enemyAtField);
+    return ownMight !== null && enemyMight !== null && ownMight >= enemyMight
+      ? "winning-enemy-move" : "enemy-move";
+  };
+  const byMovePriority = (priority: HeadlessBotCommandPriority) => moves.filter(command =>
+    moveTier(command) === priority);
+  const runeCommands = new Set(runeAdds);
+  const moveCommands = new Set(moves);
+  const others = candidates.filter(command => command.type !== "play" &&
+    !runeCommands.has(command as never) && !moveCommands.has(command as never));
+  const tiers: readonly HeadlessBotCommandTier[] = [
+    { priority: "rune-energy", commands: runeAdds },
+    { priority: "affordable-unit-play", commands: unitPlays },
+    { priority: "winning-enemy-move", commands: byMovePriority("winning-enemy-move") },
+    { priority: "enemy-move", commands: byMovePriority("enemy-move") },
+    { priority: "open-field-move", commands: byMovePriority("open-field-move") },
+    { priority: "controlled-field-move", commands: byMovePriority("controlled-field-move") },
+    { priority: "affordable-other-play", commands: affordableOtherPlays },
+    { priority: "other", commands: others },
+    { priority: "base-move", commands: byMovePriority("base-move") },
+  ];
+  return tiers.filter(tier => tier.commands.length > 0);
+}
+
+/** Prefer deterministic engine progression, then ordinary legal bot choices. */
+export function prioritizedHeadlessCommands(
+  candidates: readonly HeadlessCommand[],
+  trace: HeadlessCommandTrace,
+  combat: Match["flow"]["combat"],
+): readonly HeadlessCommand[] {
+  const active = combat.current;
+  if (active === null) return rankHeadlessBotCommands(candidates, trace)
+    .flatMap(tier => tier.commands);
+  if (active.step === "showdown" && trace.turnState === "neutral-open") {
+    return [{ type: "combat-damage" }];
+  }
+  if (active.step === "cleanup" || active.step === "result" || active.step === "control" || active.step === "end") {
+    return [{ type: "advance" }];
+  }
+  return candidates;
 }
 
 export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {}): HeadlessStats {
@@ -1168,35 +1332,12 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
     if (match.flow.turn > maxTurns) { guardReason = "turn-limit"; break; }
     if (commands.length >= maxActions) { guardReason = "action-limit"; break; }
     noProgress.before = noProgress.peek(context);
-  const allCandidates = enumerateCandidates(context, commands.length);
+    const allCandidates = enumerateCandidates(context, commands.length);
     const candidates = allCandidates.filter(command => !rejected.has(commandKey(command)));
     const trace = commandTrace(context, allCandidates);
-    const movements = candidates.filter(command => command.type === "move" && command.to.type === "battlefield");
-    const unitPlays = candidates.filter(command => command.type === "play" && trace.boardUnits.length === 0 &&
-      trace.candidates.some(candidate => candidate.type === "play" && candidate.id === command.id &&
-        candidate.types.includes("unit") && candidate.power === null &&
-        candidate.energy !== null && candidate.energy <= state.kernel.player(command.player).energy));
-    const traceCommand = (id: string | null) => trace.candidates.find(candidate => candidate.id === id);
-    const pool = state.kernel.player(match.flow.turnPlayer).energy;
-    const availableHandUnits = trace.candidates.filter(candidate => candidate.type === "play" &&
-      candidate.types.includes("unit") && candidate.energy !== null).length;
-    const runeCount = pool > 0 || availableHandUnits > 0 ? trace.candidateCounts["rune-energy"] : 0;
-    const targetUnit = candidates.filter((command): command is Extract<HeadlessCommand, { type: "play" }> =>
-      command.type === "play" && trace.boardUnits.length === 0 &&
-      (() => {
-        const candidate = traceCommand(command.id);
-        return candidate?.types.includes("unit") === true &&
-          candidate.destination?.type === "base" && candidate.energy !== null &&
-          candidate.energy > pool && candidate.energy <= pool + runeCount;
-      })()).sort((left, right) =>
-        (traceCommand(left.id)?.energy ?? Infinity) - (traceCommand(right.id)?.energy ?? Infinity))[0];
-    const runeAdds = targetUnit ? candidates.filter(command => command.type === "rune-energy") : [];
-    const command = runeAdds.length ? runeAdds[random.next(runeAdds.length)]! :
-      targetUnit?.type === "play" && pool >= (traceCommand(targetUnit.id)?.energy ?? Infinity) ? targetUnit :
-      unitPlays.length ? unitPlays[random.next(unitPlays.length)]! :
-      movements.length ? movements[random.next(movements.length)]! : candidates.length
-      ? candidates[random.next(candidates.length)]!
-      : match.flow.chain.priority
+    const preferred = prioritizedHeadlessCommands(candidates, trace, match.flow.combat);
+    const command = preferred.length ? preferred[random.next(preferred.length)]! :
+      match.flow.chain.priority
         ? match.flow.phase === "main" && !match.flow.chain.items.length && !match.flow.combat.active &&
           match.flow.chain.canAct(match.flow.turnPlayer, "normal")
           ? { type: "idle" as const, player: match.flow.turnPlayer }

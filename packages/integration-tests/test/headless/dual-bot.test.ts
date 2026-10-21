@@ -15,6 +15,9 @@ import {
 import { headlessTerminationClass } from "../../src/headless/duel.js";
 
 describe("M1 headless dual-bot regression", () => {
+  // These are full-card, full-match regressions. Since the bot now keeps
+  // deploying and entering Combat, a single game routinely takes 40–180s even
+  // though each case's assertions and action/turn guards are unchanged.
   const run = createHeadlessRegressionHarness();
 
   it("classifies committed natural wins separately from unfinished guards", () => {
@@ -54,7 +57,7 @@ describe("M1 headless dual-bot regression", () => {
     expect(headlessTerminationClass({ ...blocked, blockers: [] })).toBe("invalid");
     expect(headlessTerminationClass({ ...exception, exceptions: [] })).toBe("invalid");
     expect(headlessTerminationClass(concession)).toBe("nonNatural");
-  });
+  }, 60_000);
 
   it("runs five fixed seeds for every pair of the four M1 decks", () => {
     const summary = run.matrix();
@@ -110,7 +113,7 @@ describe("M1 headless dual-bot regression", () => {
         expect.objectContaining({ code: expect.stringMatching(/^(standard-move-transaction|empty-rune-pool)$/) }),
       ]));
     }
-  }, 30_000);
+  }, 180_000);
 
   it("finds a ready base Unit and its Standard Move candidates in the production path", () => {
     let journal: HeadlessJournal | undefined;
@@ -128,7 +131,7 @@ describe("M1 headless dual-bot regression", () => {
       expect.objectContaining({ code: "standard-move-transaction" }),
     ]));
     expect(result.actionCoverage.commands.concede).toBe(0);
-  }, 30_000);
+  }, 180_000);
 
   it("holds six seeded mixed-orientation games to real unit and move candidate coverage", () => {
     const plan = [
@@ -183,7 +186,7 @@ describe("M1 headless dual-bot regression", () => {
     expect(second.actionCoverage).toEqual(first.actionCoverage);
     expect(second.replayMatches).toBe(true);
     expect(second.privacySafe).toBe(true);
-  }, 30_000);
+  }, 180_000);
 
   it("keeps blocked runs unfinished instead of awarding a concession win", () => {
     const result = run.blocked();
@@ -206,7 +209,7 @@ describe("M1 headless dual-bot regression", () => {
       }
       if (result.termination === "guard") expect(result.guardReason).not.toBeNull();
     }
-  });
+  }, 180_000);
 
   it("answers target choices through the ResolveContext instead of throwing AwaitChoice", () => {
     const result = run.targets();
@@ -215,7 +218,7 @@ describe("M1 headless dual-bot regression", () => {
     expect(result.replayMatches).toBe(true);
     expect(result.privacySafe).toBe(true);
     expect(result.actionCoverage.commands.concede).toBe(0);
-  }, 30_000);
+  }, 180_000);
 
   it("preserves unsupported source-trigger diagnostics without advancing or fabricating a winner", () => {
     const result = run.sourceTrigger();
@@ -238,7 +241,7 @@ describe("M1 headless dual-bot regression", () => {
       expect(result.guardReason).toBeNull();
       expect(result.blockers).toEqual([]);
     }
-  }, 30_000);
+  }, 180_000);
 
   it("rejects altered journal commands, events and state even when scores and winner still match", () => {
     const journal: HeadlessJournal = run.tamper().journal;
@@ -255,7 +258,7 @@ describe("M1 headless dual-bot regression", () => {
     expect(replayHeadlessJournal({ ...journal, final: { ...journal.final, stateDigest: "altered" } })).toBe(false);
     expect(replayHeadlessJournal({ ...journal, commands: journal.commands.map(entry => ({ ...entry,
       failure: entry.failure ? { ...entry.failure, message: "altered" } : { name: "Error", code: "fake", message: "fake" } })) })).toBe(false);
-  }, 30_000);
+  }, 180_000);
 
   it("keeps legacy journals without an integrity field strictly replayable", () => {
     let journal: HeadlessJournal | undefined;
@@ -264,7 +267,7 @@ describe("M1 headless dual-bot regression", () => {
     const { integrity: _integrity, ...legacy } = journal!;
     expect(replayHeadlessJournal(legacy)).toBe(true);
     expect(replayHeadlessJournal({ ...legacy, events: legacy.events.slice(1) })).toBe(false);
-  });
+  }, 60_000);
 
   it("aggregates actual winners, turns and committed battle events", () => {
     const summary = run.aggregate();
@@ -277,7 +280,7 @@ describe("M1 headless dual-bot regression", () => {
     }
     expect(Object.values(summary.blockerReasons).reduce((sum, count) => sum + count, 0))
       .toBe(summary.results.reduce((sum, result) => sum + result.blockers.length, 0));
-  }, 30_000);
+  }, 180_000);
 
   it.each([
     [{ maxTurns: 1 }, "turn-limit"],
@@ -292,7 +295,7 @@ describe("M1 headless dual-bot regression", () => {
     expect(result.turnNumber).toBe(2);
     expect(result.replayMatches).toBe(true);
     expect(result.privacySafe).toBe(true);
-  });
+  }, 60_000);
 
   it("uses a forty-turn default and rejects invalid guards", () => {
     expect(DEFAULT_TURN_LIMIT).toBe(40);
