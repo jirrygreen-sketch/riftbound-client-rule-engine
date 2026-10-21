@@ -419,8 +419,21 @@ export class ChainEngine {
     this.grantIdle();
   }
   get items(): readonly ChainItem[] { return structuredClone(this.entries); }
+  private inFlightLayerInput: readonly ObjectSnapshot[] | null = null;
   private layerObjects(): readonly ObjectSnapshot[] {
-    this.layers.setObjects(this.options.host.objects()); return this.layers.evaluateAll();
+    // RIFT-927: static/keyword adapters resolve live sources through the
+    // pipeline host, which is this layered view. Re-entering it while a layered
+    // pass is already in flight re-set and re-evaluated the whole board at
+    // every nesting level (exponential in bound statics), and each nested read
+    // cloned every host object again. A layered pass is pure, so a nested
+    // request sees exactly the host state that pass started from: it reuses
+    // that same input instead of starting another full pass.
+    if (this.inFlightLayerInput !== null) return this.inFlightLayerInput;
+    const input = this.options.host.objects();
+    this.inFlightLayerInput = input;
+    try {
+      this.layers.setObjects(input); return this.layers.evaluateAll();
+    } finally { this.inFlightLayerInput = null; }
   }
   private executeStateAction(action: GameAction) {
     const key = (object: ObjectSnapshot) => JSON.stringify(object.ref);
