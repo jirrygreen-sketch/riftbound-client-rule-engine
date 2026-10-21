@@ -84,8 +84,8 @@ test("sfd-066-221 Frigid Touch: valid registered program remains judge-required 
 
   assert.match(program.judgeReason, /820\.2\.a/);
   assert.match(program.judgeReason, /reselectTargets: false/);
-  assert.match(program.judgeReason, /interpreter-adapter\.ts:230-238/);
-  assert.match(program.judgeReason, /engine\.ts:727-762/);
+  assert.match(program.judgeReason, /interpreter-adapter\.ts:228-239/);
+  assert.match(program.judgeReason, /engine\.ts:724-766/);
   assert.doesNotMatch(program.judgeReason, /Buff counter 是无.*缺口|两处当前缺口/);
 });
 
