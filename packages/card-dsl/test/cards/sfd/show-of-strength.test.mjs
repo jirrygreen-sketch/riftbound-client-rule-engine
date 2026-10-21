@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import program from "../../../dist/cards/sfd/show-of-strength.js";
+import defiantDance from "../../../dist/cards/sfd/defiant-dance.js";
 import premonition from "../../../dist/cards/sfd/premonition.js";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
@@ -20,6 +21,7 @@ import { runCardScenario } from "../../../../engine-core/dist/effects/testing/sc
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { abilitySpeed } from "../../../../engine-core/dist/programs/keywords.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { productionPlay } from "../../fixtures/production-play.mjs";
 
 const CARD_ID = "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f";
 const SOURCE_TEXT =
@@ -60,7 +62,7 @@ test("sfd-106-221 Show of Strength: structure — Reaction plus a count-driven d
     amount: {
       kind: "count",
       subject: "unit",
-      filter: { type: "unit", controller: "you", mightGte: 5 }
+      filter: { type: "unit", zone: "board", controller: "you", mightGte: 5 }
     }
   });
   // "your Mighty units" is a programmatic set query, never a target or pick
@@ -70,6 +72,118 @@ test("sfd-106-221 Show of Strength: structure — Reaction plus a count-driven d
   assert.equal(drawInstruction.linkedTo, undefined);
   assert.equal(drawInstruction.condition, undefined);
   assert.equal(program.sourceText, SOURCE_TEXT);
+});
+
+test("sfd-106-221 Show of Strength production golden: count current Mighty Board units controlled by the resolver", () => {
+  const fixture = productionPlay({
+    programs: [program],
+    build: kernel => kernel
+      .player("A", { energy: 5, power: ["Body"] })
+      .player("B", { energy: 1 })
+      .object("show", {
+        owner: "A",
+        controller: "A",
+        cardId: CARD_ID,
+        types: ["spell"],
+        zone: "hand",
+        energy: 2,
+        power: ["Body"],
+        might: null
+      })
+      .unit("friendly-four", { owner: "A", might: 4 })
+      .unit("friendly-five", { owner: "A", might: 5 })
+      .unit("enemy-eight", { owner: "B", might: 8 })
+      .unit("a-controls-b-unit", { owner: "B", controller: "A", might: 6 })
+      .unit("b-controls-a-unit", { owner: "A", controller: "B", might: 7 })
+      .hand("handed-unit", { owner: "A", types: ["unit"], might: 6 })
+      .object("trashed-unit", { owner: "A", types: ["unit"], zone: "trash", might: 7 })
+      .deck(["deck-one", "deck-two", "deck-three"], { owner: "A", types: ["unit"], might: 1 })
+  });
+
+  fixture.play("show");
+
+  assert.deepEqual(fixture.requests, []);
+  assert.equal(fixture.might("friendly-four"), 4);
+  assert.equal(fixture.might("friendly-five"), 5);
+  assert.equal(fixture.might("enemy-eight"), 8);
+  assert.equal(fixture.might("a-controls-b-unit"), 6);
+  assert.equal(fixture.might("b-controls-a-unit"), 7);
+  assert.equal(fixture.kernel.player("A").energy, 3);
+  assert.deepEqual(fixture.kernel.player("A").power, []);
+  assert.equal(fixture.kernel.getObject("show").zone, "trash");
+  // CR 133.3 and 355.9.a.1: an unqualified "unit" is a current Board unit.
+  // A high-Might unit card in hand or trash is not part of this query.
+  assert.equal(fixture.kernel.player("A").handSize, 3, "the pre-existing hand unit plus two controlled Mighty units");
+  assert.equal(fixture.kernel.player("A").deckSize, 1);
+  const draws = fixture.engine.pipeline.events.filter(event => event.timingPoint === "card-drawn");
+  assert.equal(draws.length, 2);
+  assert.deepEqual(draws.map(event => event.action), [
+    { type: "draw", player: "A", amount: 2 },
+    { type: "draw", player: "A", amount: 2 }
+  ]);
+  assert.equal(fixture.engine.items.length, 0);
+});
+
+test("sfd-106-221 Show of Strength production golden: a same-chain layer change after Finalize is counted at Resolve", () => {
+  const fixture = productionPlay({
+    programs: [program, defiantDance],
+    answers: {
+      "target:defiant-dance.unit": ["rise"],
+      "target:defiant-dance.another-unit": ["fall"]
+    },
+    build: kernel => kernel
+      .player("A", { energy: 9, power: ["Body", "Calm"] })
+      .player("B", { energy: 1 })
+      .object("show", {
+        owner: "A",
+        controller: "A",
+        cardId: CARD_ID,
+        types: ["spell"],
+        zone: "hand",
+        energy: 2,
+        power: ["Body"],
+        might: null
+      })
+      .object("dance", {
+        owner: "A",
+        controller: "A",
+        cardId: defiantDance.canonicalCardId,
+        types: ["spell"],
+        zone: "hand",
+        energy: 1,
+        power: ["Calm"],
+        might: null
+      })
+      .unit("rise", { owner: "A", might: 3 })
+      .unit("fall", { owner: "A", might: 3 })
+      .unit("enemy", { owner: "B", might: 5 })
+      .hand("handed-unit", { owner: "A", types: ["unit"], might: 6 })
+      .object("trashed-unit", { owner: "A", types: ["unit"], zone: "trash", might: 7 })
+      .deck(["deck-one", "deck-two", "deck-three"], { owner: "A", types: ["unit"], might: 1 })
+  });
+
+  fixture.engine.execute(fixture.describe("show"));
+  fixture.engine.execute(fixture.describe("dance"));
+  const showFinalize = fixture.engine.pipeline.events.findIndex(event =>
+    event.timingPoint === "chain-item-finalize" && event.object?.ref.id === "show");
+  assert.ok(showFinalize >= 0,
+    "Show of Strength has a Finalize checkpoint before the lower spell resolves");
+  fixture.settle();
+
+  assert.deepEqual(fixture.requests.map(request => request.id), [
+    "target:defiant-dance.unit",
+    "target:defiant-dance.another-unit"
+  ]);
+  assert.equal(fixture.might("rise"), 5);
+  assert.equal(fixture.might("fall"), 1);
+  assert.equal(fixture.might("enemy"), 5);
+  assert.equal(fixture.might("handed-unit"), 6);
+  assert.equal(fixture.might("trashed-unit"), 7);
+  assert.equal(fixture.kernel.player("A").energy, 6);
+  assert.deepEqual(fixture.kernel.player("A").power, []);
+  assert.equal(fixture.kernel.player("A").handSize, 2, "the pre-existing hand unit plus one drawn card");
+  assert.equal(fixture.kernel.player("A").deckSize, 2);
+  assert.equal(fixture.engine.items.length, 0);
 });
 
 const playAndResolve = [
