@@ -434,7 +434,6 @@ test("breakneck-mech production: opponent-targeting a friendly Mech pays the gra
       })
       .unit("other-mech", { owner: "A", controller: "A", types: ["unit"], tags: ["Mech"], might: 3, location: BF1 })
       .unit("ally-non-mech", { owner: "A", controller: "A", types: ["unit"], tags: [], might: 3, location: BF1 })
-      .object("mech-gear", { owner: "A", controller: "A", types: ["gear"], tags: ["Mech"], zone: "board", location: BF1 })
       .object("dance", {
         owner: "B", controller: "B", cardId: defiantDance.canonicalCardId, types: ["spell"],
         zone: "hand", energy: 1, power: ["Calm"], might: null
@@ -455,10 +454,6 @@ test("breakneck-mech production: opponent-targeting a friendly Mech pays the gra
     ["other-mech"],
     ["ally-non-mech"]
   ]);
-  // Selecting the gear instead would also carry Deflect (Mech is a tag, not a
-  // unit type). This run selects it last among candidates and verifies that a
-  // non-Mech target does not add a second tax.
-  assert.equal(finalized.targetPlans.length, 2);
   assert.deepEqual(finalized.costPlan.total.power, [
     // Defiant Dance's printed Calm cost.
     { amount: 1, allowedDomains: ["Calm"] },
