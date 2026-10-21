@@ -16,10 +16,12 @@ import type { CardProgram } from "../../ir/index.js";
  * - A single `effect.draw` instruction whose amount is a count expression over
  *   the controller's Mighty units. Mighty is a description, not a keyword
  *   (CR v1.5 706-708: a unit "is Mighty" as long as its Might is 5 or
- *   greater; 710: Board units use current Might); "your Mighty units" is a
- *   non-target collection query (no targets are chosen, so nothing triggers
- *   "becomes a target"). The amount is evaluated when this CardProgram
- *   resolves, after lower Chain items such as layer changes have resolved.
+ *   greater; 710: Board units use current Might); 133.3 and 355.9.a.1 make an
+ *   unqualified "unit" a current Board unit, so the query includes
+ *   `zone: "board"`. "Your Mighty units" is a non-target collection query
+ *   (no targets are chosen, so nothing triggers "becomes a target"). The
+ *   amount is evaluated when this CardProgram resolves, after lower Chain
+ *   items such as layer changes have resolved.
  * - effect.draw submits one { type: "draw" } action for the controller
  *   (309.1.a + 813.1.b/c permission in a Closed State; 414.1/414.3
  *   "Draw X"); deck-shortage Burn Out handling (414.4) stays with the kernel.
@@ -51,7 +53,7 @@ export default {
             amount: {
               kind: "count",
               subject: "unit",
-              filter: { type: "unit", controller: "you", mightGte: 5 }
+              filter: { type: "unit", zone: "board", controller: "you", mightGte: 5 }
             }
           }
         }
