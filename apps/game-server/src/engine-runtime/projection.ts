@@ -36,7 +36,8 @@ function hiddenId(viewer: string | null, object: ObjectSnapshot): string {
 }
 
 function isPublic(object: ObjectSnapshot, viewer: string | null, grants: ReturnType<EngineRuntimeHost["visibility"]>): boolean {
-  if (object.zone !== "hand" && object.zone !== "deck" && object.zone !== "rune-deck" && object.faceDown === false) return true;
+  if (object.faceDown) return false;
+  if (object.zone !== "hand" && object.zone !== "deck" && object.zone !== "rune-deck") return true;
   if (viewer !== null && object.controller === viewer) return true;
   return grants.some(grant => grant.active && grant.object.id === object.ref.id && grant.object.zoneEntryId === object.ref.zoneEntryId && grant.viewers.includes(viewer ?? ""));
 }
@@ -116,11 +117,21 @@ export function projectRuntime(
       zoneCounts: Object.fromEntries(zoneNames.map(zone => [zone, host.objects().filter(object => object.owner === playerId && v2Zone(object.zone) === zone).length])),
     };
   });
-  const objects = host.objects().map(object => projectedObject(object, viewer, host.visibility()));
+  // Hidden Facedown Zone cards have their own authoritative record. Ordinary
+  // opponent hands also use the protocol's `facedown` zone for redaction, but
+  // they are not treated as Hidden cards and cannot be played there.
+  const hidden = new Map(host.hiddenObjects().map(object => [`${object.ref.id}:${object.ref.zoneEntryId}`, object]));
+  const publicObjects = host.objects().filter(object => !hidden.has(`${object.ref.id}:${object.ref.zoneEntryId}`));
+  const objects = [
+    ...publicObjects.filter(object => !object.faceDown || object.zone === "deck" || object.zone === "rune-deck")
+      .map(object => projectedObject(object, viewer, host.visibility())),
+    ...[...hidden.values()].map(object => projectedObject(object, viewer, host.visibility())),
+  ];
   const zones = players.flatMap(player => zoneNames.map(zone => {
     const sourceZone = zone === "trash" ? "trash" : zone === "rune-zone" ? "rune-zone" : zone as never;
     const visibleObjects = objects.filter(object => object.ownerPlayerId === player.playerId && object.zone === zone);
-    const count = zone === "facedown" ? host.objects().filter(object => object.owner === player.playerId && object.faceDown).length : host.zoneObjects(player.playerId, sourceZone).length;
+    const count = zone === "facedown" ? [...hidden.values()].filter(object => object.owner === player.playerId).length
+      : host.zoneObjects(player.playerId, sourceZone).length;
     const canList = zone !== "deck" && zone !== "rune-deck" && zone !== "facedown" && (zone !== "hand" || viewer === player.playerId);
     return { zone, ownerPlayerId: player.playerId, count, ...(canList ? { objects: visibleObjects } : {}) };
   }));

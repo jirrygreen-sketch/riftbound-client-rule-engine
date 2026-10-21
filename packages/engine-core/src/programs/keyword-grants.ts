@@ -26,6 +26,10 @@ export interface EffectiveKeywordExpansion {
   readonly abilities: readonly Ability[];
   readonly entries: readonly { readonly id: string; readonly ability: Ability }[];
 }
+export interface GrantedKeywordAbilityEntry {
+  readonly id: string;
+  readonly ability: Ability;
+}
 type AppliedKeywordChanges = ReadonlyMap<string, ReadonlyMap<string, KeywordChange>>;
 interface PreGrantView {
   readonly view: Map<string, LayeredObjectSnapshot>;
@@ -59,6 +63,70 @@ function keywordInstances(source: ObjectSnapshot, changes: readonly KeywordChang
     }
   }
   return instances;
+}
+
+const TOP_DECK_PICK_PLAYER = Object.freeze({ kind: 'constant' as const, value: 'A' });
+
+/**
+ * KeywordDefs own the functional ability, while the lifecycle assembler owns
+ * the current controller and ordered-zone binding. Add those two runtime facts
+ * to a triggered keyword's authored inspect step when it explicitly requests a
+ * top-of-deck pick. The source selector remains the exact object whose keyword
+ * supplied this ability.
+ */
+function bindKeywordLifecycle(ability: Ability): Ability {
+  if (ability.kind !== 'triggered') return ability;
+  return {
+    ...ability,
+    trigger: {
+      ...ability.trigger,
+      filter: ability.trigger.filter.objectId === 'self'
+        ? { objectId: 'self' }
+        : ability.trigger.filter,
+    },
+    body: ability.body.map(instruction => {
+      if (instruction.op !== 'effect.inspect') return instruction;
+      const args = record(instruction.args);
+      const constantString = (value: unknown): string | null => {
+        const expression = record(value);
+        return (expression.kind === 'constant' || expression.kind === 'literal') && typeof expression.value === 'string'
+          ? expression.value : null;
+      };
+      const picksId = constantString(args.picksSpecId);
+      if (constantString(args.scope) !== 'top' || constantString(args.zone) !== 'deck' || picksId === null) return instruction;
+      const picks = instruction.picks ?? [];
+      return {
+        ...instruction,
+        args: { ...instruction.args, player: TOP_DECK_PICK_PLAYER },
+        picks: picks.some(pick => pick.id === picksId) ? picks : [
+          ...picks,
+          {
+            id: picksId,
+            options: [],
+            ordered: true,
+            selection: 'all',
+            zoneSlice: { zone: 'deck', from: 'top', count: args.amount as Expr },
+          },
+        ],
+      };
+    }),
+  };
+}
+
+/** Keyword conditions read the effective host, including combatRole. */
+function bindLayerCondition(condition: unknown, host?: ObjectRef): unknown {
+  if (condition === undefined || typeof condition !== 'object' || condition === null) return condition;
+  const value = record(condition);
+  const rewrite = (item: unknown): unknown => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) return item;
+    const expression = record(item);
+    if (expression.kind === 'object-property' || expression.kind === 'object-attribute') {
+      return { ...expression, object: 'self' };
+    }
+    return Object.fromEntries(Object.entries(expression).map(([key, child]) =>
+      [key, Array.isArray(child) ? child.map(rewrite) : rewrite(child)]));
+  };
+  return rewrite(value);
 }
 
 /** CR 801.3, 807.2, 809.2, 810.2, 814.2: merge instances before expanding. */
@@ -96,7 +164,10 @@ export function expandEffectiveKeywords(source: ObjectSnapshot, changes: readonl
       const { expanded } = expandProgram({ canonicalCardId: source.cardId ?? source.ref.id,
         rulesetVersion: 'core-1.5', status: 'executable', sourceText: '[effective keyword expansion]', abilities: [],
       }, { ...source, keywords: [{ ...keyword, ...(instanceParams === undefined ? {} : { params: instanceParams }) }] });
-      entries.push(...expanded.map((ability, ordinal) => ({ id: `${def.keyword.toLowerCase()}:${String(instance)}:${ordinal}`, ability })));
+      entries.push(...expanded.map((ability, ordinal) => ({
+        id: `${def.keyword.toLowerCase()}:${String(instance)}:${ordinal}`,
+        ability: bindKeywordLifecycle(ability),
+      })));
     }
   }
   const abilities = entries.map(entry => entry.ability);
@@ -112,6 +183,22 @@ export interface KeywordGrantLayerOptions {
   /** A real host context; expressions and conditions use the shared interpreter. */
   readonly context: (source: ObjectSnapshot) => ResolveContext;
   readonly registry?: ContinuousEffectRegistry;
+  /**
+   * Produce only the effects supplied by keyword changes. The production
+   * CardProgram lifecycle already binds printed keyword expansions, so this
+   * mode avoids charging or applying the same printed keyword twice.
+   */
+  readonly grantedOnly?: boolean;
+  /** Lifecycle hook for non-static keyword abilities such as Vision. */
+  readonly onKeywordAbilities?: (ref: ObjectRef, entries: readonly GrantedKeywordAbilityEntry[]) => void;
+  /** Lifecycle hook for static effects expanded from keyword changes. */
+  readonly onKeywordEffects?: (effects: readonly ContinuousEffectSpec[]) => void;
+  /** The lifecycle consumer owns registration of the generated effects. */
+  readonly deferGeneratedEffects?: boolean;
+  /** Keep every printed or granted keyword-expanded lifecycle ability. */
+  readonly includeAllKeywordAbilities?: boolean;
+  /** Restrict generated lifecycle entries to these effective keywords. */
+  readonly lifecycleKeywords?: readonly string[];
 }
 
 /**
@@ -126,10 +213,32 @@ export class KeywordGrantLayerEngine extends LayerEngine {
   private readonly generated = new Set<string>();
   private view = new Map<string, LayeredObjectSnapshot>();
   private expansions = new Map<string, EffectiveKeywordExpansion>();
+  private grantedAbilities = new Map<string, readonly GrantedKeywordAbilityEntry[]>();
+  private readonly priorGrantedRefs = new Map<string, ObjectRef>();
+  private readonly lifecycleKeywords: Set<string>;
   private refreshing = false;
 
   constructor(objects: readonly ObjectSnapshot[], private readonly options: KeywordGrantLayerOptions) {
     super(objects, options.registry);
+    this.lifecycleKeywords = new Set(options.lifecycleKeywords?.map(keyword => keyword.toLowerCase()));
+  }
+
+  /** Current source for an exact host-bound condition. */
+  private sourceSnapshot(ref: ObjectRef): ObjectSnapshot | null {
+    return this.objectsView().find(object => sameRef(object.ref, ref)) ?? null;
+  }
+
+  private conditionMatches(condition: unknown, source: ObjectSnapshot, host: ObjectSnapshot = source): boolean {
+    if (condition === undefined || condition === true) return true;
+    if (condition === false) return false;
+    if (typeof condition === 'function') return Boolean((condition as (object: ObjectSnapshot) => unknown)(source));
+    const environment = this.environment(source);
+    const context = new Proxy(environment.context, { get: (target, key) => {
+      if (key === 'object') return (ref: ObjectRef) => sameRef(ref, host.ref) ? { ...host, designation: host.combatRole } : Reflect.get(target, key)(ref);
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    } });
+    return evaluateCondition(condition as Condition, { ...environment, context, host: host.ref });
   }
 
   private clearGenerated(): void {
@@ -180,6 +289,11 @@ export class KeywordGrantLayerEngine extends LayerEngine {
   private value(value: unknown, source: ObjectSnapshot): unknown {
     return typeof value === 'object' && value !== null && 'kind' in value
       ? evaluateExpression(value as Expr, this.environment(source)) : value;
+  }
+
+  /** Re-materialize the current keyword snapshot after a production registry write. */
+  refreshNow(): void {
+    this.refresh();
   }
 
   private matches(entry: RegisteredContinuousEffect, object: LayeredObjectSnapshot): boolean {
@@ -235,6 +349,16 @@ export class KeywordGrantLayerEngine extends LayerEngine {
             ...(declaration.params === undefined ? {} : { params: declaration.params as Keyword['params'] }) };
         });
         const kind = String(effect.kind);
+        // Only a single-stacking keyword is redundant across grant sources.
+        // Sum/separate instances must remain independently represented so the
+        // common expansion path can aggregate or duplicate them by CR 807.2 and
+        // 817.2; pruning every same-id grant silently dropped earlier values.
+        const ids = new Set(keywords.filter(keyword => definition(keyword.id).stacking === 'single')
+          .map(keyword => definition(keyword.id).keyword.toLowerCase()));
+        for (const [id, prior] of changes) {
+          const merged = prior.keywords.filter(keyword => !ids.has(definition(keyword.id).keyword.toLowerCase()));
+          changes.set(id, { ...prior, keywords: merged });
+        }
         changes.set(entry.effect.id, { kind: kind.includes('remove') || kind.includes('lose') ? 'remove' : 'grant', keywords });
       } finally {
         this.view = savedView;
@@ -244,8 +368,13 @@ export class KeywordGrantLayerEngine extends LayerEngine {
   }
 
   private staticEffects(source: LayeredObjectSnapshot, expansion: EffectiveKeywordExpansion): ContinuousEffectSpec[] {
-    return expansion.abilities.map((ability, index) => {
-      if (ability.kind !== 'static') return blocked(`Dynamic ${ability.kind} keyword abilities need a lifecycle binder`);
+    return expansion.abilities.flatMap((ability, index) => {
+      const keyword = expansion.entries[index]?.id.split(':', 1)[0];
+      if (this.lifecycleKeywords.size > 0 && (keyword === undefined || !this.lifecycleKeywords.has(keyword))) return [];
+      if (ability.kind !== 'static') {
+        if (this.options.includeAllKeywordAbilities === true && ability.kind === 'triggered') return [];
+        return blocked(`Dynamic ${ability.kind} keyword abilities need a lifecycle binder`);
+      }
       const effect = record(ability.effect);
       if (!['continuous.might', 'continuous.movement', 'continuous.combat', 'continuous.timing', 'target.tax'].includes(String(effect.kind))) {
         blocked(`Keyword static ${String(effect.kind)} needs a layer adapter`);
@@ -254,18 +383,64 @@ export class KeywordGrantLayerEngine extends LayerEngine {
         ? { permission: { routes: [effect.permission], move: effect.move, source: effect.source, destination: effect.destination }, canGank: effect.permission === 'battlefield-to-battlefield' }
         : {};
       const normalized = Object.fromEntries(Object.entries(effect).map(([key, value]) => [key, this.value(value, source)]));
-      return {
-        id: `program-keyword:${JSON.stringify([source.ref.id, source.ref.zoneEntryId, index])}`,
+      const staticCondition = (object: ObjectSnapshot) => sameRef(object.ref, source.ref);
+      const authoredCondition = bindLayerCondition(ability.condition, source.ref);
+      const condition = authoredCondition === undefined ? undefined : (object: ObjectSnapshot) => {
+        const current = this.sourceSnapshot(source.ref);
+        if (current === null || !sameRef(object.ref, source.ref)) return false;
+        return this.conditionMatches(authoredCondition, current, object);
+      };
+      const registration: ContinuousEffectSpec = {
+        id: `program-keyword:${JSON.stringify([source.ref.id, source.ref.zoneEntryId, ability.kind, effect.kind, index, expansion.entries[index]?.id ?? null])}`,
         source: source.ref,
         layer: effect.kind === 'continuous.might' ? 'arithmetic' : 'ability',
         filter: { objectId: source.ref.id, zoneEntryId: source.ref.zoneEntryId, zone: source.zone },
         effect: {
           ...normalized, ...movement, kind: String(effect.kind),
-          condition: (object: LayeredObjectSnapshot) => sameRef(object.ref, source.ref) &&
-            (!ability.condition || evaluateCondition(ability.condition, this.environment(this.view.get(refKey(source.ref)) ?? source))),
+          condition: condition ?? ((object: LayeredObjectSnapshot) => sameRef(object.ref, source.ref)),
+          // Movement rules consume the Static key as a separate admission
+          // marker; they do not infer it from a layer's object characteristics.
+          ...(effect.kind === 'continuous.movement' ? { staticCondition } : {}),
+          ...(authoredCondition === undefined ? {} : { abilityCondition: authoredCondition }),
         },
       };
+      if (effect.kind !== 'target.tax') return [registration];
+      // target.tax is queried through the capability inventory used by Chain
+      // Finalize rather than through object characteristics. Publish the same
+      // expanded effect in that inventory so a granted Deflect is priced.
+      const capability: ContinuousEffectSpec = {
+        id: `program-keyword-capability:${JSON.stringify([source.ref.id, source.ref.zoneEntryId, ability.kind, effect.kind, index, expansion.entries[index]?.id ?? null])}`,
+        source: source.ref,
+        layer: 'ability',
+        filter: {},
+        effect: {
+          kind: 'static.capability',
+          capabilityKind: 'target-tax',
+          ability: {
+            kind: 'static',
+            effect: {
+              ...normalized,
+              ...(typeof normalized.value === 'number'
+                ? { value: { kind: 'constant', value: normalized.value } }
+                : {}),
+              kind: 'target.tax',
+            },
+            ...(ability.condition === undefined ? {} : { condition: ability.condition }),
+          },
+          ordinal: index,
+        } as never,
+      };
+      return [capability];
     });
+  }
+
+  /** Publish keyword-derived static rules into an existing production registry. */
+  publishStaticEffects(effects: readonly ContinuousEffectSpec[]): void {
+    for (const effect of effects) {
+      if (this.registry.get(effect.id) !== undefined) throw new ProgramBindingError('invalid-program', `Duplicate generated keyword effect ${effect.id}`);
+      this.registry.register(effect, { type: 'permanent' });
+      this.generated.add(effect.id);
+    }
   }
 
   private registryFor(entries: readonly RegisteredContinuousEffect[]): ContinuousEffectRegistry {
@@ -275,14 +450,56 @@ export class KeywordGrantLayerEngine extends LayerEngine {
   }
 
   private applyExpansions(prefix: readonly LayeredObjectSnapshot[], remaining: readonly RegisteredContinuousEffect[],
-    expansions: ReadonlyMap<string, EffectiveKeywordExpansion>): ContinuousEffectSpec[] {
+    expansions: ReadonlyMap<string, EffectiveKeywordExpansion>,
+    generatedExpansions: ReadonlyMap<string, EffectiveKeywordExpansion> = expansions): ContinuousEffectSpec[] {
     const objects = prefix.map(object => ({ ...object, keywords: expansions.get(refKey(object.ref))!.keywords }));
     this.view = new Map(objects.map(object => [refKey(object.ref), object]));
-    const generated = objects.flatMap(object => this.staticEffects(object, expansions.get(refKey(object.ref))!));
+    const generated = objects.flatMap(object => this.staticEffects(object, generatedExpansions.get(refKey(object.ref))!));
     const registry = this.registryFor(remaining);
-    for (const effect of generated) registry.register(effect, { type: 'permanent' });
+    for (const effect of generated) if (registry.get(effect.id) === undefined) registry.register(effect, { type: 'permanent' });
     this.view = new Map(new LayerEngine(objects, registry).evaluateAll().map(object => [refKey(object.ref), object]));
     return generated;
+  }
+
+  private grantedExpansion(object: LayeredObjectSnapshot, changes: readonly KeywordChange[]): EffectiveKeywordExpansion {
+    if (changes.some(change => change.kind === 'remove')) {
+      blocked('Dynamic keyword removal needs an explicit printed-effect revocation binder');
+    }
+    const grants = changes.flatMap(change => change.keywords);
+    if (grants.length === 0) return { keywords: [], abilities: [], entries: [] };
+    const singles = new Set(grants.map(keyword => { const def = definition(keyword.id); return def.stacking === 'single' ? def.keyword.toLowerCase() : null; })
+      .filter((id): id is string => id !== null));
+    const unique = grants.filter((keyword, index, all) => !singles.has(definition(keyword.id).keyword.toLowerCase()) ||
+      all.findIndex(candidate => candidate.id.toLowerCase() === keyword.id.toLowerCase()) === index);
+    const expansion = expandEffectiveKeywords({ ...object, keywords: [] }, [{ kind: 'grant', keywords: unique }]);
+    return {
+      keywords: expansion.keywords,
+      abilities: expansion.abilities,
+      entries: expansion.entries,
+    };
+  }
+
+  private reconcileGrantedAbilities(next: ReadonlyMap<string, readonly GrantedKeywordAbilityEntry[]>): void {
+    if (this.options.onKeywordAbilities === undefined) return;
+    const keys = new Set([...this.grantedAbilities.keys(), ...next.keys()]);
+    for (const key of keys) {
+      const entries = next.get(key) ?? [];
+      const object = this.view.get(key);
+      if (object === undefined && entries.length === 0) continue;
+      const previous = this.grantedAbilities.get(key);
+      if (object !== undefined) {
+        const unchanged = previous !== undefined && previous.length === entries.length &&
+          previous.every((entry, index) => entry.id === entries[index]?.id);
+        if (!unchanged) this.options.onKeywordAbilities(object.ref, entries);
+        if (entries.length !== 0) this.priorGrantedRefs.set(key, object.ref);
+      } else {
+        const priorRef = this.priorGrantedRefs.get(key);
+        if (priorRef !== undefined) this.options.onKeywordAbilities(priorRef, []);
+        this.priorGrantedRefs.delete(key);
+      }
+      if (entries.length === 0) this.priorGrantedRefs.delete(key);
+    }
+    this.grantedAbilities = new Map(next);
   }
 
   private preGrantView(prefix: readonly LayeredObjectSnapshot[], remaining: readonly RegisteredContinuousEffect[],
@@ -309,7 +526,8 @@ export class KeywordGrantLayerEngine extends LayerEngine {
     this.clearGenerated();
     try {
       const raw = this.objectsView();
-      const entries = this.registry.active(undefined, ref => raw.find(object => sameRef(object.ref, ref)) ?? null);
+      const entries = this.registry.active(undefined, ref => raw.find(object => sameRef(object.ref, ref)) ?? null)
+        .filter(entry => !entry.effect.id.startsWith('program-keyword:'));
       const prefix = new LayerEngine(raw, this.registryFor(entries.filter(entry => ['copy', 'trait'].includes(entry.effect.layer)))).evaluateAll();
       const remaining = entries.filter(entry => !['copy', 'trait'].includes(entry.effect.layer) && !this.keywordEffect(entry));
       // Begin from current printed/copy characteristics on every query. A
@@ -319,30 +537,53 @@ export class KeywordGrantLayerEngine extends LayerEngine {
       let previous = '';
       let applied: AppliedKeywordChanges = new Map();
       let generated: ContinuousEffectSpec[] = [];
+      let granted = new Map<string, EffectiveKeywordExpansion>();
+      let grantedAbilities = new Map<string, readonly GrantedKeywordAbilityEntry[]>();
       const limit = entries.length + prefix.length + 4;
       for (let pass = 0; pass < limit; pass++) {
         const changes = new Map(prefix.map(object => [refKey(object.ref), this.changes(entries,
           this.view.get(refKey(object.ref)) ?? object, id => this.preGrantView(prefix, remaining, applied, id))]));
-        const expansions = new Map(prefix.map(object => [refKey(object.ref), expandEffectiveKeywords(object,
-          [...changes.get(refKey(object.ref))!.values()])]));
+        const expansions = new Map(prefix.map(object => {
+          const keywordChanges = [...changes.get(refKey(object.ref))!.values()];
+          if (this.options.grantedOnly !== true) return [refKey(object.ref), expandEffectiveKeywords(object, keywordChanges)];
+          try {
+            return [refKey(object.ref), expandEffectiveKeywords(object, keywordChanges)];
+          } catch (error) {
+            // Printed keyword expansion remains the ordinary CardProgram
+            // lifecycle's responsibility in granted-only mode. An unsupported
+            // printed keyword on one object must not prevent dynamic grants on
+            // unrelated objects from reaching their production consumers.
+            if (error instanceof ProgramBindingError && error.code === 'judge-required') {
+              return [refKey(object.ref), { keywords: object.keywords, abilities: [], entries: [] }];
+            }
+            throw error;
+          }
+        }));
+        granted = new Map(prefix.map(object => [refKey(object.ref), this.options.grantedOnly === true
+          ? this.grantedExpansion(object, [...changes.get(refKey(object.ref))!.values()])
+          : expansions.get(refKey(object.ref))!]));
+        grantedAbilities = new Map([...granted].map(([key, expansion]) => [key, expansion.entries]));
         const signature = JSON.stringify([...expansions].map(([key, value]) => [key, value.keywords, [...changes.get(key)!]]));
         if (signature === previous) {
           this.expansions = expansions;
-          for (const effect of generated) {
+          this.options.onKeywordEffects?.(Object.freeze([...generated]));
+          if (this.options.deferGeneratedEffects !== true) for (const effect of generated) {
             this.registry.register(effect, { type: 'permanent' });
             this.generated.add(effect.id);
           }
+          this.reconcileGrantedAbilities(grantedAbilities);
           return;
         }
         previous = signature;
         applied = changes;
-        generated = this.applyExpansions(prefix, remaining, expansions);
+        generated = this.applyExpansions(prefix, remaining, expansions, granted);
       }
       blocked('Keyword layer dependencies did not converge; an explicit dependency adapter is required');
     } catch (error) {
       this.clearGenerated();
       this.view.clear();
       this.expansions.clear();
+      this.reconcileGrantedAbilities(new Map());
       throw error;
     } finally {
       this.refreshing = false;
@@ -360,5 +601,17 @@ export class KeywordGrantLayerEngine extends LayerEngine {
   keywordAbilities(ref: ObjectRef): readonly Ability[] {
     this.refresh();
     return this.expansions.get(refKey(ref))?.abilities ?? [];
+  }
+  /** Full validated lifecycle entries, retaining each keyword instance id. */
+  keywordEntries(ref: ObjectRef): readonly GrantedKeywordAbilityEntry[] {
+    this.refresh();
+    const entries = this.expansions.get(refKey(ref))?.entries ?? [];
+    return this.lifecycleKeywords.size === 0 ? entries : entries.filter(entry =>
+      this.lifecycleKeywords.has(entry.id.split(':', 1)[0]!));
+  }
+  /** Effective keyword instances visible to the production movement consumer. */
+  keywordInstances(ref: ObjectRef): readonly Keyword[] {
+    this.refresh();
+    return this.expansions.get(refKey(ref))?.keywords ?? [];
   }
 }

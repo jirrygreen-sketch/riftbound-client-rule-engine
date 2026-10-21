@@ -126,7 +126,7 @@ test("EG-RECALL preserves every persistent status and resource through layered r
   assert.equal(after.buffs, 2);
   assert.equal(after.empowered, 2);
   assert.deepEqual([...after.counters], [["mark", 3]]);
-  assert.equal(object(ref).might, 2);
+  assert.equal(object(ref).might, 4, 'the two retained Buff counters add +2 after the location-bound aura is gone (CR 703)');
   assert.equal(object(ref).keywords.some(item => item.id === "Assault"), false);
 });
 
