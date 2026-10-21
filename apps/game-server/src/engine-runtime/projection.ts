@@ -89,7 +89,7 @@ function projectedObject(object: ObjectSnapshot, viewer: string | null, grants: 
   return value as unknown as V2ProjectedObject;
 }
 
-function eventProjection(match: Match, host: EngineRuntimeHost, stateVersion: number): readonly V2Event[] {
+function eventProjection(match: Match, host: EngineRuntimeHost, viewer: string | null, stateVersion: number): readonly V2Event[] {
   return match.events().map((event, index) => ({
     contract: "riftbound.protocol.v2.event",
     seq: event.eventId ?? index + 1,
@@ -103,7 +103,8 @@ function eventProjection(match: Match, host: EngineRuntimeHost, stateVersion: nu
       ...(event.details?.battlefieldId === undefined ? {} : {
         battlefieldId: { visibility: "public", value: String(event.details.battlefieldId) },
       }),
-      ...(event.object === undefined || !isPublic(event.object, null, host.visibility()) ? {} : {
+      ...(event.object === undefined || !isPublic(event.object, viewer, host.visibility()) ||
+        event.object.faceDown || event.object.zone === "hand" || event.object.zone === "deck" || event.object.zone === "rune-deck" ? {} : {
         objectId: { visibility: "public", value: event.object.ref.id },
       }),
     },
@@ -305,7 +306,7 @@ export function projectRuntime(
     actionOptions: actionOptions(match, host, viewer),
     pendingChoice: projectedChoice,
     winnerPlayerId: match.result().winner,
-    events: eventProjection(match, host, stateVersion),
+    events: eventProjection(match, host, viewer, stateVersion),
   } as V2Projection;
 }
 
