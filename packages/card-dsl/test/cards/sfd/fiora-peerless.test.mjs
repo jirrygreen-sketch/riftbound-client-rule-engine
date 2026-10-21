@@ -215,11 +215,15 @@ function productionFixture({
   enemyLocation = combatField(),
   extraFriendly = false,
   extraEnemy = false,
+  fioraBuffs = 0,
   enemyMight = 5
 } = {}) {
   const opponent = fioraController === "A" ? "B" : "A";
   const builder = world().player("A").player("B")
-    .unit("fiora", { cardId, owner: fioraController, controller: fioraController, might: 3, location: fioraLocation })
+    .unit("fiora", {
+      cardId, owner: fioraController, controller: fioraController,
+      might: 3, buffs: fioraBuffs, location: fioraLocation
+    })
     .unit("enemy", { owner: opponent, controller: opponent, might: enemyMight, location: enemyLocation });
   if (extraFriendly) builder.unit("friendly", {
     owner: fioraController,
@@ -233,7 +237,6 @@ function productionFixture({
     builder.rune(Array.from({ length: 8 }, (_, index) => `${player}:rune:${index}`), { owner: player });
   }
   const kernel = builder.build();
-  let fallbackCalls = 0;
   const choose = request => {
     if (request.id === "move-pair/move-pair.objects") {
       return request.options.filter(option => ["fiora", "friendly"].includes(option.id));
@@ -251,11 +254,7 @@ function productionFixture({
     performContract: action => kernel.performContract(action),
     performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
     choose,
-    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
-    testTrigger: registration => {
-      fallbackCalls++;
-      return kernel.test(registration.spec.condition);
-    }
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose })
   });
   const flow = new TurnFlow({
     host,
@@ -266,13 +265,19 @@ function productionFixture({
   const registered = createProgramBinding({ cardPrograms: [program] })
     .registerProgramTriggers(flow.chain, kernel.getObject("fiora"));
   const firedTriggers = [];
+  const firedEvents = [];
   const appendTrigger = flow.chain.pipeline.onTrigger;
   flow.chain.pipeline.onTrigger = snapshot => {
     firedTriggers.push(snapshot.registration.id);
+    firedEvents.push({
+      timingPoint: snapshot.event.timingPoint,
+      objectId: snapshot.event.object?.ref.id,
+      controller: snapshot.controller
+    });
     appendTrigger(snapshot);
   };
   flow.start();
-  return { kernel, flow, registered, firedTriggers, fallbackCalls: () => fallbackCalls };
+  return { kernel, flow, host, registered, firedTriggers, firedEvents };
 }
 
 function moveIntoCombat(f, objectId, controller = f.flow.turnPlayer) {
@@ -346,7 +351,10 @@ test("sfd-110-221 Fiora, Peerless: attacks one-on-one through default CombatFlow
   assert.equal(declarations[0].batchId, declarations[1].batchId);
   assert.deepEqual(f.registered, ["program:fiora:1:0", "program:fiora:1:1"]);
   assert.deepEqual(f.firedTriggers, ["program:fiora:1:0"]);
-  assert.equal(f.fallbackCalls(), 0);
+  assert.deepEqual(f.firedEvents, [
+    { timingPoint: "attack-declared", objectId: "fiora", controller: "A" }
+  ]);
+  assert.equal(f.host.testTrigger, undefined, "default EventPipeline must evaluate the captured event context");
   assert.equal(triggerMightRegistrations(f).length, 1);
   assert.equal(evaluated(f, "fiora").might, 6);
   assert.equal(evaluated(f, "enemy").might, 5);
@@ -370,9 +378,48 @@ test("sfd-110-221 Fiora, Peerless: defends one-on-one through default CombatFlow
     ["defense-declared", "fiora", "A"]
   ]);
   assert.deepEqual(f.firedTriggers, ["program:fiora:1:1"]);
-  assert.equal(f.fallbackCalls(), 0);
+  assert.deepEqual(f.firedEvents, [
+    { timingPoint: "defense-declared", objectId: "fiora", controller: "A" }
+  ]);
+  assert.equal(f.host.testTrigger, undefined, "default EventPipeline must evaluate the captured event context");
   assert.equal(triggerMightRegistrations(f).length, 1);
   assert.equal(evaluated(f, "fiora").might, 6);
+});
+
+test("sfd-110-221 Fiora, Peerless: a friendly Unit at another location preserves production one-on-one", () => {
+  const f = productionFixture({ extraFriendly: true });
+
+  moveIntoCombat(f, "fiora");
+
+  assert.deepEqual(f.firedTriggers, ["program:fiora:1:0"]);
+  assert.equal(triggerMightRegistrations(f).length, 1);
+  assert.equal(evaluated(f, "fiora").might, 6);
+  assert.equal(evaluated(f, "friendly").location.type, "base");
+});
+
+test("sfd-110-221 Fiora, Peerless: doubling uses effective Might including a Buff and expires at combat-end", () => {
+  const f = productionFixture({ fioraBuffs: 1, enemyMight: 1 });
+
+  moveIntoCombat(f, "fiora");
+
+  // CR 433.1: the doubling amount is the current Might (printed 3 + one
+  // ordinary Buff = 4), so the registered arithmetic effect adds another 4.
+  assert.equal(triggerMightRegistrations(f).length, 1);
+  assert.equal(evaluated(f, "fiora").might, 8);
+
+  f.flow.pass("A");
+  f.flow.pass("B");
+  f.flow.combat.prepareDamage();
+  const damage = f.flow.combat.damageView();
+  f.flow.combat.submitAttackerDamage("A", [{ uid: "enemy", amount: damage.attackerMight }]);
+  f.flow.combat.submitDefenderDamage("B", [{ uid: "fiora", amount: damage.defenderMight }]);
+  f.flow.advance();
+  f.flow.advance();
+  f.flow.advance();
+
+  assert.equal(f.flow.combat.active, false);
+  assert.equal(triggerMightRegistrations(f).length, 0);
+  assert.equal(evaluated(f, "fiora").might, 4, "the Buff remains after the combat effect expires");
 });
 
 for (const scenario of [
@@ -388,7 +435,7 @@ for (const scenario of [
     const events = f.flow.chain.pipeline.events;
     assert.equal(events.filter(event => ["attack-declared", "defense-declared"].includes(event.timingPoint)).length, 3);
     assert.deepEqual(f.firedTriggers, []);
-    assert.equal(f.fallbackCalls(), 0);
+    assert.equal(f.host.testTrigger, undefined, "the negative case must also use the default EventPipeline");
     assert.equal(triggerMightRegistrations(f).length, 0);
     assert.equal(evaluated(f, "fiora").might, 3);
   });
