@@ -1,55 +1,173 @@
-// Golden test for Plundering Poro (sfd-069-221).
+// Production-path golden for Plundering Poro (sfd-069-221).
 //
-// The card keeps judge-required: the printed body cannot be executed yet.
-// - The Gold gear token definition is still absent from effect.token's frozen
-//   table (CR 187.5 gives it a printed activated ability), and the primitive
-//   supports no "enters exhausted" entry override (CR 143.4 / 185.2.d).
-// - The conquer timing point carries no Unit/Battlefield identity, so a
-//   unit-relative Conquer Effect (CR 383.4.c.2.a) cannot match its source.
-// The golden pins both facts as current evidence, and exercises the merged
-// halves (token play mode reaching the definition table, the conquer payload
-// shape) instead of pretending the card runs.
+// The public TurnFlow performs a real Move and Showdown close, emits Conquer,
+// the production program binding registers the card's original trigger, and
+// ChainEngine puts that trigger through Pending/Finalize/Resolve. The Gold
+// half stays fail-closed because CR 187.5's canonical token carries a printed
+// Universal Power ability that is not executable under the current contract.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/plundering-poro.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
-import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { getTokenDefinition } from "../../../../engine-core/dist/effects/tokens/definitions.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-569dc9079a6d404c0d850d27b510585b856ab3def5e1e0bbafa30a3bf9d48e82";
+const GOLD_ID = "card.hash-6249df4367d0a2e088c8eb1117ef59430f0d7dad4bf0fcf8a01d7f0415f4d511";
 const SOURCE_TEXT = "When I conquer, play a Gold gear token exhausted.";
-
 const [ability] = program.abilities;
 const [playGold] = ability.body;
 
-test("sfd-069-221 Plundering Poro: program passes validateCardProgram", () => {
+// The card itself is judge-required, so this transparent runtime lift lets the
+// tests exercise its unchanged authored trigger/body in the production binder.
+// The shipped program and registry below remain unmodified and non-executable.
+const admitted = { ...program, status: "executable", judgeReason: undefined };
+
+function productionFixture(scenario) {
+  let builder = world().player("A").player("B");
+  for (const player of ["A", "B"]) {
+    builder = builder
+      .deck(Array.from({ length: 8 }, (_, index) => `${player}:deck:${index}`), { owner: player })
+      .rune(Array.from({ length: 8 }, (_, index) => `${player}:rune:${index}`), { owner: player });
+  }
+  builder = builder.unit("poro", {
+    cardId: CARD_ID,
+    owner: "A",
+    controller: "A",
+    types: ["unit"],
+    might: 2,
+    location: { type: "base", player: "A" }
+  });
+  if (scenario === "opponent") {
+    builder = builder.unit("enemy", {
+      owner: "B",
+      controller: "B",
+      types: ["unit"],
+      might: 5,
+      location: { type: "battlefield", id: "bf1" }
+    });
+  }
+  if (scenario === "other-unit") {
+    builder = builder.unit("other", {
+      owner: "A",
+      controller: "A",
+      types: ["unit"],
+      might: 3,
+      location: { type: "base", player: "A" }
+    });
+  }
+  const kernel = builder.build();
+  const requests = [];
+  const choose = request => {
+    requests.push(request);
+    if (request.type === "select-objects" && request.min === request.max &&
+        request.options.length === request.min) return [...request.options];
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => {
+      kernel.restore(saved.state);
+      kernel.copyLinkedFrom(saved.links);
+    },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose,
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  const flow = new TurnFlow({
+    host,
+    player: id => kernel.player(id),
+    turnOrder: ["A", "B"],
+    battlefields: [{ id: "bf1", controller: null }, { id: "bf2", controller: null }]
+  });
+  const binding = createProgramBinding({ cardPrograms: [admitted] });
+  const errors = [];
+  binding.attachLifecycle(flow.chain, (error, source) =>
+    errors.push({ error, sourceId: source.ref.id }));
+  const registered = binding.registerProgramTriggers(flow.chain, kernel.getObject("poro"));
+  const fired = [];
+  const appendTrigger = flow.chain.pipeline.onTrigger;
+  flow.chain.pipeline.onTrigger = snapshot => {
+    fired.push(snapshot);
+    appendTrigger(snapshot);
+  };
+  const passes = [];
+  const settle = (budget = 80) => {
+    for (let guard = 0; guard < budget; guard++) {
+      if (flow.chain.items.length) {
+        passes.push({ type: "priority", player: flow.chain.priority });
+        flow.pass(flow.chain.priority);
+        continue;
+      }
+      if (flow.chain.focus) {
+        passes.push({ type: "focus", player: flow.chain.focus });
+        flow.pass(flow.chain.focus);
+        continue;
+      }
+      return;
+    }
+    throw new Error("production TurnFlow did not settle");
+  };
+  const move = (id, battlefieldId) => flow.execute({
+    id: `${id}-move`,
+    controller: "A",
+    source: kernel.getObject(id),
+    kind: "activated",
+    speed: "normal",
+    body: [{
+      id: `${id}-move-effect`,
+      op: "effect.move",
+      args: { to: { kind: "constant", value: { type: "battlefield", id: battlefieldId } } }
+    }]
+  });
+  flow.start();
+  return { kernel, flow, registered, errors, fired, passes, requests, settle, move };
+}
+
+function conquers(f) {
+  return f.flow.chain.pipeline.events.filter(event => event.timingPoint === "conquer");
+}
+
+test("sfd-069-221 Plundering Poro: program validates and remains judge-required for the real Gold ability", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.deepEqual(result.issues, []);
-});
-
-test("sfd-069-221 Plundering Poro: identity, ruleset, status, judgeReason and verbatim source text", () => {
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
+  assert.equal(program.status, "judge-required");
   assert.equal(cardRegistryById.get(CARD_ID), program);
-  // The refreshed reason names the two real current gaps: the missing Gold
-  // definition/entry override and the identity-less conquer payload.
-  assert.match(program.judgeReason, /Gold/);
+
   assert.match(program.judgeReason, /187\.5/);
-  assert.match(program.judgeReason, /entry override|entry-state/);
-  assert.match(program.judgeReason, /conquer/);
-  assert.match(program.judgeReason, /battlefieldId/);
-  assert.match(program.judgeReason, /383\.4\.c\.2\.a/);
-  assert.ok(!/RIFT-120/.test(program.judgeReason), "the stale RIFT-120 chain/gating claim must be gone");
+  assert.match(program.judgeReason, /Universal Power/);
+  assert.match(program.judgeReason, /135\.2\.e\.5/);
+  assert.match(program.judgeReason, /163\.2\.b/);
+  assert.match(program.judgeReason, /definitions\.ts:100/);
+  assert.match(program.judgeReason, /effect\.token\.ts:341/);
+  assert.match(program.judgeReason, /programs\/lifecycle\.ts:331/);
+  assert.match(program.judgeReason, /chain\/engine\.ts:1194-1200/);
+  assert.match(program.judgeReason, /exhausted entry/);
+  assert.doesNotMatch(program.judgeReason, /carrier identity|no entry override/);
+
+  const gold = getTokenDefinition("gold");
+  assert.ok(gold);
+  assert.equal(gold.spec.cardId, GOLD_ID);
+  assert.equal(gold.abilityBinding, "blocked");
+  assert.equal(gold.blockedReason, "token-definition-or-abilities-judge-required");
 });
 
-test("sfd-069-221 Plundering Poro structure: conquer trigger filtered to this unit, one Gold token body", () => {
+test("sfd-069-221 Plundering Poro structure: self Conquer and exhausted play entry", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "conquer");
@@ -58,95 +176,98 @@ test("sfd-069-221 Plundering Poro structure: conquer trigger filtered to this un
     filter: { source: "self" }
   });
   assert.equal(ability.optional, false);
+  assert.equal(ability.trigger.condition, undefined);
+  assert.equal(ability.trigger.once, undefined);
   assert.equal(ability.body.length, 1);
   assert.equal(playGold.id, "play-gold");
   assert.equal(playGold.op, "effect.token");
   assert.deepEqual(playGold.args.token, { kind: "constant", value: "gold" });
   assert.deepEqual(playGold.args.amount, { kind: "constant", value: 1 });
-  // 440.2.c / 185.2.a: "play a … token" creates on the Chain, then plays it.
   assert.deepEqual(playGold.args.mode, { kind: "constant", value: "play" });
   assert.deepEqual(playGold.args.location, {
     kind: "constant",
     value: { type: "base", player: "controller" }
   });
-  // 143.4 / 185.2.d: "exhausted" is the entry stipulation, not a later exhaust.
-  // effect.token rejects the unknown entersExhausted argument; the exhausted
-  // entry state stays the judge-required gap and is not faked in the IR.
-  assert.equal(playGold.args.entersExhausted, undefined);
+  assert.deepEqual(playGold.args.entersExhausted, { kind: "constant", value: true });
+  assert.equal(playGold.targets, undefined);
+  assert.equal(playGold.picks, undefined);
 });
 
-test("sfd-069-221 Plundering Poro golden: the merged token play pipeline really creates and plays a supported token", () => {
-  // The merged play mode creates a NEW token on the Chain and then
-  // handed to `play`. The card's own body is blocked on the Gold definition
-  // (which carries a printed ability, CR 187.5), so the golden exercises the
-  // merged half with a definition that is in the frozen table and keeps the
-  // Gold gap in the judgeReason / TODO instead of asserting a refusal.
-  const kernel = world()
-    .player("A", { energy: 0, power: [] })
-    .player("B")
-    .build();
+test("sfd-069-221 Plundering Poro production golden: this Unit Conquers, the exact trigger resolves, Gold fails closed", () => {
+  const f = productionFixture("self");
+  assert.deepEqual(f.registered, ["program:poro:1:0"]);
+  assert.deepEqual(f.errors, []);
 
-  const run = runInstruction(
-    token,
-    {
-      token: { kind: "constant", value: "recruit" },
-      amount: { kind: "constant", value: 1 },
-      mode: { kind: "constant", value: "play" },
-      location: { kind: "constant", value: { type: "base", player: "A" } }
-    },
-    { world: kernel }
-  );
+  f.move("poro", "bf1");
+  f.settle();
 
-  assert.equal(run.result.status, "executed");
-  assert.equal(run.linked.token.amount, 1);
-  // 440.2.c / 185.2.a: the token was created on the Chain and then played to the
-  // controller's Base, so the receipt keeps both the creation and the current ref.
-  assert.equal(run.linked.token.createdAmount, 1);
-  assert.deepEqual(
-    kernel.objects.filter((object) => object.isToken).map((object) => [object.types, object.zone, object.location]),
-    [[["unit"], "board", { type: "base", player: "A" }]]
-  );
-  // The card's body reaches the same instruction definition; the difference is
-  // the definition it names (Gold vs. a frozen-table entry).
-  assert.equal(instructionDefinitionsById.get("effect.token"), token);
+  const conquerEvents = conquers(f);
+  assert.equal(conquerEvents.length, 1);
+  const [conquer] = conquerEvents;
+  assert.equal(conquer.player, "A");
+  assert.equal(conquer.object.ref.id, "poro");
+  assert.equal(conquer.source.ref.id, "poro");
+  assert.equal(conquer.it.ref.id, "poro");
+  assert.deepEqual(conquer.object.location, { type: "battlefield", id: "bf1" });
+  assert.deepEqual(conquer.details, {
+    battlefieldId: "bf1",
+    battlefieldControllerBefore: null,
+    objectId: "poro",
+    playerId: "A"
+  });
+  assert.equal(f.kernel.player("A").score, 1);
+  assert.equal(f.flow.battlefields[0].controller, "A");
+
+  const translated = translateTriggerFilter(ability.trigger.filter, "poro", "conquer");
+  assert.equal(matchesTriggerEvent(translated, conquer, "A"), true);
+  assert.equal(f.fired.length, 1, "Poro's one text creates exactly one trigger snapshot");
+  assert.equal(f.fired[0].registration.id, "program:poro:1:0");
+  assert.equal(f.fired[0].source.ref.id, "poro");
+  assert.equal(f.fired[0].registration.optional, false);
+  assert.equal(f.fired[0].registration.cost, undefined);
+  assert.equal(f.fired[0].registration.mayAtFinalize, undefined);
+
+  // The trigger entered the real Chain and passed through the production
+  // response windows before Resolve; no test callback settles its body.
+  const timeline = f.flow.chain.pipeline.events.map(event => event.timingPoint);
+  const conquerAt = timeline.indexOf("conquer");
+  const pendingAt = timeline.indexOf("chain-item-pending", conquerAt);
+  const finalizeAt = timeline.indexOf("chain-item-finalize", pendingAt);
+  const resolveAt = timeline.indexOf("chain-item-resolve", finalizeAt);
+  assert.ok(conquerAt >= 0 && conquerAt < pendingAt && pendingAt < finalizeAt && finalizeAt < resolveAt);
+  assert.ok(f.passes.some(entry => entry.type === "priority" && entry.player === "A"));
+  assert.ok(f.passes.some(entry => entry.type === "priority" && entry.player === "B"));
+
+  const receipt = f.kernel.linked("play-gold.token");
+  assert.equal(receipt.amount, 0);
+  assert.equal(receipt.createdAmount, 0);
+  assert.deepEqual(receipt.objects, []);
+  assert.deepEqual(receipt.createdObjects, []);
+  assert.equal(receipt.blockedReason, "token-definition-or-abilities-judge-required");
+  assert.equal(f.kernel.linked("play-gold.token.amount"), 0);
+  assert.deepEqual(f.kernel.linked("play-gold.token.objects"), []);
+  assert.deepEqual(f.kernel.objects.filter(object => object.isToken), []);
+  assert.equal(f.requests.length, 0, "this mandatory text asks for no card-specific choice");
 });
 
-test("sfd-069-221 Plundering Poro: the source:self Conquer filter needs a Unit payload the Score wave does not carry", () => {
-  // turn/flow.ts's Score wave emits `conquer` with { player, details:
-  // { battlefieldId } } only, while CR 383.4.c.2.a attaches a unit-relative
-  // Conquer Effect to the Unit that was present. The merged matcher can only
-  // match an object-carrying event, which is what the golden demonstrates.
-  const scoreWavePayload = { kind: "conquer", timingPoint: "conquer", player: "A", details: { battlefieldId: "battlefield-1" } };
-  assert.equal(
-    matchesTriggerEvent({ event: "conquer", object: { objectId: "plundering-poro" } }, scoreWavePayload, "A"),
-    false
-  );
-  const carryingUnit = {
-    ...scoreWavePayload,
-    object: {
-      ref: { id: "plundering-poro", zoneEntryId: 1 },
-      cardId: CARD_ID,
-      types: ["unit"],
-      tags: [],
-      owner: "A",
-      controller: "A",
-      zone: "board",
-      location: { type: "battlefield", id: "battlefield-1" }
-    }
-  };
-  assert.equal(
-    matchesTriggerEvent({ event: "conquer", object: { objectId: "plundering-poro" } }, carryingUnit, "A"),
-    true
-  );
-});
+for (const [name, scenario, battlefieldId] of [
+  ["opponent", "opponent", "bf1"],
+  ["another A Unit", "other-unit", "bf2"]
+]) {
+  test(`sfd-069-221 Plundering Poro production counterexample: ${name} Conquers without triggering Poro`, () => {
+    const f = productionFixture(scenario);
+    assert.deepEqual(f.errors, []);
+    if (scenario === "other-unit") f.move("other", battlefieldId);
+    f.settle();
 
-test.todo(
-  "sfd-069-221 Plundering Poro: a Gold gear token definition with its printed \"[Reaction][>] Kill this, [E]: [Add] [A]\" " +
-    "ability (CR 187.5) plus an exhausted entry override (CR 143.4 / 185.2.d) must land in effect.token / the entry " +
-    "pipeline before the body executes"
-);
-test.todo(
-  "sfd-069-221 Plundering Poro: the conquer producer must carry the conquering Unit and Battlefield so the " +
-    "source:self Conquer Effect filter (CR 383.4.c.2.a) can match"
-);
-
+    const conquerEvents = conquers(f);
+    assert.equal(conquerEvents.length, 1);
+    assert.equal(conquerEvents[0].object.ref.id, scenario === "opponent" ? "enemy" : "other");
+    assert.equal(conquerEvents[0].details.battlefieldId, battlefieldId);
+    assert.equal(f.fired.length, 0);
+    assert.equal(f.flow.chain.trace.filter(entry => entry.step === "pending").length, scenario === "other-unit" ? 1 : 0,
+      "only the explicit Move item may be pending");
+    assert.equal(f.kernel.linked("play-gold.token"), undefined);
+    assert.deepEqual(f.kernel.objects.filter(object => object.isToken), []);
+  });
+}

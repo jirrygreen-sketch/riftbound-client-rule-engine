@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/fiora-worthy.js";
+import pitRookie from "../../../dist/cards/ogn/pit-rookie.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
@@ -84,6 +85,98 @@ function productionFixture() {
 
 const admitted = { ...program, status: "executable", judgeReason: undefined };
 
+function fullLifecycleFixture({
+  power = ["Order"],
+  targetMight = 4,
+  targetBuffs = 0,
+  accept = true
+} = {}) {
+  const kernel = world()
+    .player("A", { energy: 10, power })
+    .player("B")
+    .hand("fiora", {
+      cardId: CANONICAL_ID,
+      types: ["unit"],
+      might: 3,
+      energy: 3,
+      power: null,
+      exhausted: true
+    })
+    .hand("pit", {
+      cardId: pitRookie.canonicalCardId,
+      types: ["unit"],
+      might: 2,
+      energy: 1,
+      power: []
+    })
+    .unit("target", {
+      might: targetMight,
+      buffs: targetBuffs,
+      exhausted: true,
+      location: { type: "battlefield", id: "battlefield-1" }
+    })
+    .build();
+  const requests = [];
+  const errors = [];
+  const choose = request => {
+    requests.push(request);
+    if (request.id.startsWith("target:other-unit")) return [kernel.ref("target")];
+    if (request.type === "optional" && request.id.startsWith("finalize:trigger:")) return accept;
+    if (request.type === "select-objects" && request.min === request.max &&
+        request.options.length === request.min) return request.options;
+    if (request.type === "mode") return request.options[0];
+    throw new Error(`Unexpected production choice ${request.type} ${request.id}`);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => {
+      kernel.restore(saved.state);
+      kernel.copyLinkedFrom(saved.links);
+    },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  const binding = createProgramBinding({ cardPrograms: [admitted, pitRookie] });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host,
+    cleanup: () => false,
+    describePlay: binding.describePlay
+  });
+  binding.attachLifecycle(engine, error => errors.push(error));
+  const settle = () => {
+    engine.advance();
+    for (let guard = 0; engine.items.length; guard++) {
+      assert.ok(guard < 30, "the production Chain must settle");
+      engine.pass(engine.priority);
+    }
+  };
+  const play = (id, location = { type: "battlefield", id: "battlefield-1" }) => {
+    engine.execute(binding.describePlay(
+      { type: "play", player: "A", object: kernel.ref(id), location },
+      kernel.getObject(id)
+    ));
+    settle();
+  };
+  const lay = id => {
+    engine.layers.setObjects(kernel.objects);
+    return engine.layers.evaluate(kernel.ref(id));
+  };
+  const enterAccessories = () => {
+    play("fiora");
+    play("pit");
+  };
+  return { kernel, engine, binding, requests, errors, play, settle, lay, enterAccessories };
+}
+
 function directPipelineFixture({ power = ["Order", "Order"] } = {}) {
   const kernel = world()
     .player("A", { power })
@@ -148,9 +241,11 @@ test("sfd-180-221 Fiora, Worthy: program validates and has expected shape", () =
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /typed Mighty transition/);
   assert.match(program.judgeReason, /event:it/);
-  assert.match(program.judgeReason, /Finalize cost translation/);
-  assert.match(program.judgeReason, /authoritative-host proof/);
+  assert.match(program.judgeReason, /Finalize Order payment/);
+  assert.match(program.judgeReason, /cost\/payment\.ts:120/);
+  assert.match(program.judgeReason, /cost\/payment\.ts:132/);
   assert.match(program.judgeReason, /Universal Power/);
+  assert.doesNotMatch(program.judgeReason, /authoritative-host proof/);
   assert.doesNotMatch(program.judgeReason, /programs\/filters\.ts rejects/);
   assert.doesNotMatch(program.judgeReason, /does not publish/);
   assert.doesNotMatch(program.judgeReason, /does not accept/);
@@ -724,7 +819,81 @@ test("sfd-180-221 Fiora, Worthy: effect.ready consumes exact event:it and fails 
   assert.deepEqual(stale.stateForTest(), staleBefore);
 });
 
-test.todo(
-  "sfd-180-221 Fiora, Worthy: the independent authoritative host must prove exact Order Power debit before the whole card can be accepted; " +
-    "the real layer producer, trigger, Chain Finalize/Resolve and primitive slices above are separate from that host acceptance"
-);
+test("sfd-180-221 Fiora, Worthy: real Hand/Chain/Board lifecycle pays one Order and readies only event:it", () => {
+  const f = fullLifecycleFixture();
+  f.enterAccessories();
+
+  const transition = f.engine.pipeline.events.filter(event => event.timingPoint === "might-changed");
+  assert.deepEqual(transition.map(event => event.object.ref), [f.kernel.ref("target")]);
+  assert.deepEqual(transition.map(event => event.it.ref), [f.kernel.ref("target")]);
+  const prompt = f.requests.find(request => request.type === "optional");
+  assert.ok(prompt);
+  assert.match(prompt.id, /^finalize:trigger:\d+:optional$/);
+  assert.equal(prompt.chooser, "A");
+  assert.equal(f.requests.some(request => request.id.startsWith("target:fiora")), false);
+  assert.deepEqual(f.kernel.player("A").power, []);
+  assert.equal(f.kernel.getObject("target").exhausted, false);
+  assert.equal(f.kernel.getObject("fiora").exhausted, true);
+  assert.deepEqual(f.errors, []);
+  assert.equal(f.engine.items.length, 0);
+  const readyEvents = f.engine.pipeline.events.filter(event => event.timingPoint === "object-readied");
+  assert.deepEqual(readyEvents.map(event => event.object.ref), [f.kernel.ref("target")]);
+});
+
+test("sfd-180-221 Fiora, Worthy: declining Finalize pays no Order and does not ready event:it", () => {
+  const f = fullLifecycleFixture({ accept: false });
+  f.enterAccessories();
+
+  assert.ok(f.requests.some(request => request.type === "optional" && request.chooser === "A"));
+  assert.deepEqual(f.kernel.player("A").power, ["Order"]);
+  assert.equal(f.kernel.getObject("target").exhausted, true);
+  assert.equal(
+    f.engine.pipeline.events.filter(event => event.timingPoint === "object-readied").length,
+    0
+  );
+  assert.ok(f.engine.trace.some(entry => entry.step === "removed" && entry.reason === "declined"));
+  assert.deepEqual(f.errors, []);
+});
+
+test("sfd-180-221 Fiora, Worthy: wrong-domain or absent Power leaves the trigger unperformed", () => {
+  for (const power of [[], ["Calm"]]) {
+    const f = fullLifecycleFixture({ power });
+    f.enterAccessories();
+
+    assert.deepEqual(f.kernel.player("A").power, power);
+    assert.equal(f.kernel.getObject("target").exhausted, true);
+    assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-readied").length, 0);
+    assert.ok(f.engine.trace.some(entry =>
+      entry.step === "removed" && entry.reason === "unperformable-trigger"
+    ));
+    assert.deepEqual(f.errors, []);
+  }
+});
+
+test("sfd-180-221 Fiora, Worthy: Universal Power fails closed at the authoritative payment contract", () => {
+  const f = fullLifecycleFixture({ power: ["any"] });
+  assert.throws(
+    () => f.enterAccessories(),
+    error => error?.reason === "invalid-cost-plan" &&
+      error.message === "Invalid Power domain in player snapshot"
+  );
+  assert.deepEqual(f.kernel.player("A").power, ["any"]);
+  assert.equal(f.kernel.getObject("target").exhausted, true);
+  assert.equal(f.kernel.getObject("pit").zone, "hand");
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "might-changed").length, 0);
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-readied").length, 0);
+});
+
+test("sfd-180-221 Fiora, Worthy: 3-to-4 and 5-to-6 Might changes do not trigger", () => {
+  for (const [targetMight, targetBuffs] of [[3, 0], [5, 0], [4, 1]]) {
+    const f = fullLifecycleFixture({ targetMight, targetBuffs });
+    f.enterAccessories();
+
+    assert.equal(f.requests.some(request => request.type === "optional"), false);
+    assert.deepEqual(f.kernel.player("A").power, ["Order"]);
+    assert.equal(f.kernel.getObject("target").exhausted, true);
+    const transition = f.engine.pipeline.events.filter(event => event.timingPoint === "might-changed");
+    assert.equal(transition.length, targetBuffs === 1 ? 0 : 1);
+    assert.deepEqual(f.errors, []);
+  }
+});

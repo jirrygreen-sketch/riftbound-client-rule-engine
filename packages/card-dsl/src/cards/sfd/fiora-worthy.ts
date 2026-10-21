@@ -29,14 +29,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * Resolve condition, so this program does not invent one. There is no once cap,
  * so a later separate 4 -> 5 transition can trigger again.
  *
- * status = judge-required after the 2026-10-20 production recheck. The typed
- * transition filter, real layer event with event `it`, Finalize event binding,
- * and effect.ready consumer now execute in their scoped production modules.
- * The remaining whole-card gate is that the real authoritative host must prove
- * the exact Order Power debit; the legacy ResolveContext still cannot represent
- * Universal Power. CR 135.2.e.5.a / 163.2.b permit Universal Power, so it must
- * not be approximated as a named Domain or fake resource. These limits must not
- * be hidden by card-specific resolution code or a player-selected target.
+ * status = judge-required after the 2026-10-21 production recheck. A real
+ * Hand -> Chain -> Board lifecycle now proves the exact one-Order debit, the
+ * decline and unpayable branches, and readiness of the frozen triggering unit.
+ * The remaining whole-card gate is Universal Power. CR 135.2.e.5.a / 163.2.b
+ * permit Universal Power to pay this Order requirement, while the authoritative
+ * payment context rejects an `any` Power resource before allocation
+ * (engine-core/src/cost/payment.ts:120) and has no domainless `pay` action
+ * (engine-core/src/cost/payment.ts:132). This must not be approximated as a
+ * named Domain or hidden by card-specific resolution code.
  *
  * Evidence URL: the card text is from the official Spiritforged catalog (the
  * two approved printings above); the CR download and hash are recorded in
@@ -108,10 +109,9 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "Fiora's IR, typed Mighty transition, frozen event:it, Finalize cost translation, and event:it ready consumer are source-backed and scoped-probed. " +
-    "The whole card remains blocked pending independent authoritative-host proof of the exact Order Power debit and universal/unknown cost handling; " +
-    "the legacy ResolveContext cannot represent Universal Power (CR 135.2.e.5.a / 163.2.b). " +
-    "No player target, Fiora source fallback, synthetic payment, or card-specific resolution is permitted.",
+    "The production Hand/Chain/Board path now proves the typed Mighty transition, frozen event:it, Finalize Order payment, decline, unpayable rollback, and event:it ready effect. " +
+    "The remaining whole-card blocker is Universal Power: CR 135.2.e.5.a / 163.2.b permit it to pay this Order requirement, but engine-core/src/cost/payment.ts:120 rejects the domainless `any` resource before allocation and engine-core/src/cost/payment.ts:132 has no domainless Power pay representation. " +
+    "The authoritative path therefore fails closed with `Invalid Power domain in player snapshot`; no named-domain substitution, player target, Fiora source fallback, synthetic payment, or card-specific resolution is used.",
   abilities,
   sourceText:
     "When a unit you control becomes [Mighty], you may pay :rb_rune_order: to ready it. (A unit is Mighty while it has 5+ :rb_might:.)"
