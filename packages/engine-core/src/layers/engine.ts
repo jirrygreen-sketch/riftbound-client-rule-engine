@@ -689,9 +689,39 @@ export class LayerEngine {
     return entries;
   }
 
-  /** Printed Equipment bonuses join the same arithmetic dependency pass. */
+  /**
+   * CR 703: each Buff is an intrinsic +1 Might increase. Create one arithmetic
+   * entry per live Unit so the Buff participates in the existing layer passes
+   * and dependency ordering. The entry comes from the Unit's own counter state,
+   * has no independent timestamp, and disappears with that board incarnation
+   * (CR 705).
+   */
+  private buffMightEffects(): readonly RegisteredContinuousEffect[] {
+    return Object.freeze([...this.objects.values()].flatMap(object => {
+      if (object.zone !== "board" || !object.types.includes("unit") || object.buffs <= 0) return [];
+      const id = `buff-might:${refKey(object.ref)}`;
+      return [Object.freeze({
+        effect: Object.freeze({
+          id,
+          layer: "arithmetic" as const,
+          filter: Object.freeze({ objectId: object.ref.id, zoneEntryId: object.ref.zoneEntryId,
+            type: "unit", zone: "board" }),
+          effect: Object.freeze({ kind: "continuous.might", amount: object.buffs }),
+        }),
+        duration: Object.freeze({ type: "permanent" as const }),
+        timestamp: 0,
+        sequence: 0,
+      })];
+    }));
+  }
+
+  /** Printed Equipment bonuses and intrinsic Buff increases share arithmetic. */
   private arithmeticEffects(): readonly RegisteredContinuousEffect[] {
-    return Object.freeze([...this.attachmentBonuses.values(), ...this.activeEffects()]);
+    return Object.freeze([
+      ...this.attachmentBonuses.values(),
+      ...this.buffMightEffects(),
+      ...this.activeEffects(),
+    ]);
   }
 
   private isAttachmentBonus(entry: RegisteredContinuousEffect): boolean {
@@ -999,7 +1029,7 @@ export class LayerEngine {
   /** Identity, type, and attachment facts that can change bonus eligibility. */
   private attachmentSignature(): string {
     return JSON.stringify([...this.objects.values()].map(object => [refKey(object.ref), object.types,
-      object.tags, object.zone, object.might, object.attachedTo]).sort((left, right) =>
+      object.tags, object.zone, object.might, object.buffs, object.attachedTo]).sort((left, right) =>
       String(left[0]).localeCompare(String(right[0]))));
   }
 
