@@ -112,13 +112,13 @@ describe("real EngineRuntimeHost death boundary", () => {
       battlefieldId: "missing", attackerObjectIds: ["missing"],
     });
     expect(attack.receipt.status).toBe("rejected");
-    expect(attack.receipt.error).toMatch(/combat transaction adapter/);
+    expect(attack.receipt.error).toMatch(/CR 466\.2\.c/);
     const defense = runtime.submit(actor, {
       type: "declare-defense", commandId: "defense", stateVersion: 0,
       battlefieldId: "missing", defenderObjectIds: ["missing"],
     });
     expect(defense.receipt.status).toBe("rejected");
-    expect(defense.receipt.error).toMatch(/combat transaction adapter/);
+    expect(defense.receipt.error).toMatch(/CR 466\.2\.c/);
     const unknown = runtime.submit(actor, { type: "unknown", commandId: "unknown", stateVersion: 0 } as never);
     expect(unknown.receipt.status).toBe("rejected");
     expect(unknown.receipt.error).toMatch(/Invalid protocol v2 command/);
