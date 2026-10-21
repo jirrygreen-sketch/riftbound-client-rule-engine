@@ -51,6 +51,12 @@ import type { CardProgram } from "../../ir/index.js";
  * - apps/game-server/src/room.ts:236-246 also registers only cards from the
  *   main deck, legend and champion list, so Battlefield programs are absent
  *   from even the runtime's trusted registry before setup begins.
+ * - combat/flow.ts:387-394 changes the Battlefield control state, but the host
+ *   Battlefield snapshot is not updated with that controller. The program
+ *   registration at programs/triggers.ts:34-39 therefore keeps the original
+ *   owner/controller. When the opponent conquers, `player: "controller"` sees
+ *   the stale player and suppresses the trigger, contrary to 190.6.a/d and
+ *   383.4.c.2.b.
  * No condition is widened to an arbitrary controller, location or Might.
  */
 export default {
@@ -58,7 +64,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍有三项生产路径缺口（CR v1.5 383.4.c、472、473.2.c、708/710）：" +
+    "仍有四项生产路径缺口（CR v1.5 190.6.a/d、383.4.c.2、472、473.2.c、708/710）：" +
     "(1) turn/flow.ts:153-170 按每个参战 Unit 各发一个 conquer 事件，aggregate participatingUnits 只在该循环之后放入 score 事件；" +
     "本战场能力在多名 Mighty 征服时会被收集多次，" +
     "EventPipeline 因而两次询问 Finalize。CR 472 把 Score 限制为该玩家每个 Battlefield 每回合一次，" +
@@ -71,7 +77,10 @@ export default {
     "但 170.2.a/b 规定 Battlefield 在开局建立、不是常规打出的 Permanent；当前 host 因此只把选中的 Battlefield 创建在 chain 区，" +
     "attachProgramLifecycle 没有 setup-establishment seam，无法注册 190.6/473.2 的印刷触发。真实 Board move-zone + lifecycle 下事件级 here、Mighty 候选筛选、" +
     "Finalize 前置 1 Energy 费用和真实 draw 可由生产 binding 执行，但这不闭合完整对局路径；" +
-    "apps/game-server/src/room.ts:236-246 的 deckPrograms 也只收集 mainDeck/legend/champion，没有 Battlefield program。",
+    "apps/game-server/src/room.ts:236-246 的 deckPrograms 也只收集 mainDeck/legend/champion，没有 Battlefield program。" +
+    "(4) combat/flow.ts:387-394 更新 Battlefield 控制状态，却没有把新控制者同步到 host 的 Battlefield ObjectSnapshot；" +
+    "programs/triggers.ts:34-39 注册时按旧 source.controller 捕获能力控制者，敌方征服时 player: \"controller\" 因而错误拒绝触发，" +
+    "不满足 190.6.a/d 与 383.4.c.2.b。需要让 Battlefield 控制权变化同步 host 快照并重建/更新该能力的控制者绑定。",
   sourceText:
     "When you conquer here with one or more [Mighty] units, you may pay :rb_energy_1: to draw 1. (A unit is Mighty while it has 5+ :rb_might:.)",
   abilities: [

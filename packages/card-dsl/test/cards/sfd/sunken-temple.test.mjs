@@ -102,6 +102,9 @@ test("sunken-temple: validates with current judge-required reasons and exact IR"
   assert.match(program.judgeReason, /game\/lifecycle\.ts:374/);
   assert.match(program.judgeReason, /effects\/contract\.ts:30/);
   assert.match(program.judgeReason, /apps\/game-server\/src\/room\.ts:236-246/);
+  assert.match(program.judgeReason, /combat\/flow\.ts:387-394/);
+  assert.match(program.judgeReason, /programs\/triggers\.ts:34-39/);
+  assert.match(program.judgeReason, /190\.6\.a\/d/);
   assert.doesNotMatch(program.judgeReason, /Unsupported filter field here/);
   assert.doesNotMatch(program.judgeReason, /Might 阈值/);
 
@@ -155,6 +158,16 @@ test("sunken-temple: event here matches only this battlefield and its controller
   assert.equal(matchesTriggerEvent(filter, event("bf1"), "A", source), true);
   assert.equal(matchesTriggerEvent(filter, event("bf2"), "A", source), false);
   assert.equal(matchesTriggerEvent(filter, event("bf1"), "B", source), false);
+});
+
+test("sunken-temple: current battlefield controller sync gap suppresses an opposing conqueror", () => {
+  const f = runtime({ units: { enemyConqueror: { owner: "B", controller: "B", might: 6 } } });
+  const conquer = f.flow.chain.pipeline.events.find(event => event.timingPoint === "conquer");
+  assert.equal(conquer?.player, "B");
+  assert.equal(f.flow.battlefields.find(battlefield => battlefield.id === "bf1").controller, "B");
+  assert.equal(f.kernel.getObject("temple").controller, "A", "the host snapshot is not synchronized with Battlefield control");
+  assert.equal(f.fired.length, 0, "the registration still filters against the stale original controller");
+  assert.deepEqual(f.requests, []);
 });
 
 test("sunken-temple: lifecycle-bound single-Mighty golden pays then draws after the real Score wave", () => {
