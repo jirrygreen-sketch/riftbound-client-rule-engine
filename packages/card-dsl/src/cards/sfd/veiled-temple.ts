@@ -29,10 +29,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "tags" } }` — the same shape the layer-anchored conditions already use. The
  *   golden executes both branches through the real interpreter.
  * - "you may detach it" is a non-target pick (436.3) over that same selected
- *   gear and submits the merged detach action (436.1). A data-only
- *   condition.value captures the locked target's `ref` before readying. This
- *   keeps "it" stable even when the selected gear was already ready and
- *   416.1.c therefore yields an empty `readied` receipt.
+ *   gear and submits the merged detach action (436.1). The merged ready
+ *   primitive yields only objects that actually changed state; when the
+ *   selected gear was already ready, 416.1.c yields an empty receipt. PickSpec
+ *   cannot yet consume the locked TargetSpec directly, so the current IR keeps
+ *   the executable receipt neighborhood without claiming that boundary.
  *
  * Status: judge-required. The `here` trigger and the individual in-body
  * primitives are executable, but production trigger registration still fails
@@ -44,8 +45,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * TargetSpec printed on the outer choice. Even if the control node were merely
  * admitted, chain/finalize/choices.ts:207-217 asks every nested
  * choice.optional during Finalize, so it would wrongly ask "you may detach it"
- * at Finalize instead of Resolve. The card is not approximated by moving the
- * target, dropping either decision, or dropping the conditional detach clause.
+ * at Finalize instead of Resolve. Even after separating the timings, the detach
+ * pick cannot consume the locked TargetSpec: target/picks/plan.ts:220-236
+ * accepts linked receipts, queries, and static options, not a symbolic target
+ * source. The card is not approximated by moving either decision or dropping
+ * the conditional detach clause.
  */
 const abilities: Ability[] = [
   {
@@ -80,21 +84,6 @@ const abilities: Ability[] = [
             kind: "constant",
             value: [
               {
-                id: "veiled-temple.read-selected",
-                op: "condition.value",
-                // Preserve "it" as the gear locked with the may action. The
-                // ready action's receipt contains only objects that actually
-                // changed state and is empty for an already-ready gear.
-                args: {
-                  value: {
-                    kind: "object-attribute",
-                    object: { target: "veiled-temple.gear" },
-                    attribute: "ref"
-                  },
-                  key: { kind: "constant", value: "selected" }
-                }
-              },
-              {
                 id: "veiled-temple.ready-gear",
                 op: "effect.ready",
                 args: {
@@ -105,7 +94,7 @@ const abilities: Ability[] = [
               {
                 id: "veiled-temple.detach-opt",
                 op: "choice.optional",
-                linkedTo: "veiled-temple.read-selected",
+                linkedTo: "veiled-temple.ready-gear",
                 // "If it's an Equipment": a real tag membership test on the gear
                 // selected by the may action (contract 3.6 object anchor).
                 condition: {
@@ -132,7 +121,7 @@ const abilities: Ability[] = [
                           {
                             id: "veiled-temple.detached-gear",
                             options: [
-                              { kind: "linked-value", instructionId: "veiled-temple.read-selected", key: "selected" }
+                              { kind: "linked-value", instructionId: "veiled-temple.ready-gear", key: "readied" }
                             ],
                             min: 1,
                             max: 1,
@@ -160,15 +149,17 @@ const program = {
     "「here」与触发体已接通：turn/flow.ts 的真实 conquer 波携带 details.battlefieldId，" +
     "events/trigger-spec.ts:203-216、programs/filters.ts:256-259 与 events/pipeline-match.ts:89-94 已能绑定并比较战场位置；" +
     "effect.ready（416.1）、Equipment 条件（355.7/355.12）与 effect.detach（436.1/436.3）原语单独执行可用，" +
-    "detach 的 it 由 condition.value 在 Resolve 时从已锁定 TargetSpec 保存 ref，因此即使 gear 本来已 ready、" +
-    "416.1.c 使 readied 回执为空，仍能与 Equipment 判定和 detach pick 指向同一对象。" +
+    "a friendly gear 不必横置；gear 本来已 ready 时，416.1.c 使 ready 的 readied 回执为空，" +
+    "但原文的 it 仍是已锁定的 gear，不能退化成「没有 detach 选项」。" +
+    "target/picks/plan.ts:220-236 只接 linked receipt、query 与 static options，没有 symbolic target source，" +
+    "因此现有 IR 只能在没有发生 ready 状态变化时 fail-closed。" +
     "整卡仍不能注册：程序首段是应当于 Finalize 决定的 may（383.3.a），但其 body 内还有应在 Resolve 决定的第二个 may（383.3.a.3）。" +
     "programs/trigger-adapters/leading-choice.ts:78-81 把嵌套 choice.optional 当作不可提升的控制体，程序绑定实测抛 " +
     "ProgramBindingError(judge-required)「unsupported leading may shape」（programs/triggers.ts:23-31）；" +
     "programs/triggers.ts:38-45 的 target 搬运也只读取被提升 body 内的 TargetSpec，不能保留挂在外层 may 上、须按 355.12 随该动作锁定的 friendly gear。" +
     "此外，chain/finalize/choices.ts:207-217 会把任何嵌套 choice.optional 在 Finalize 询问；若只放行控制体而不区分阶段，" +
     "「If it's an Equipment, you may detach it」会在错误时点被询问。" +
-    "不移动、删除或近似任何一句，待引擎提供外层 Finalize may + 内层 Resolve may 的精确提升与外层 TargetSpec 搬运。",
+    "不移动、删除或近似任何一句，待引擎提供外层 Finalize may + 内层 Resolve may 的精确提升、外层 TargetSpec 搬运与 target-backed pick。",
   abilities,
   sourceText: "When you conquer here, you may ready a friendly gear. If it's an Equipment, you may detach it."
 } satisfies CardProgram;
