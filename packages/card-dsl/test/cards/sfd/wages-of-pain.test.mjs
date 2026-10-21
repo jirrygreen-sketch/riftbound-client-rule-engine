@@ -4,8 +4,9 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/sfd/wages-of-pain.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
@@ -22,6 +23,7 @@ const SOURCE_TEXT =
 const play = program.abilities.find((ability) => ability.kind === "play");
 const dealInstruction = play.body[0];
 const tokenInstruction = play.body[1];
+const targetSpec = dealInstruction.targets[0];
 
 // The ProgramRegistry intentionally rejects judge-required programs. The probe
 // changes only the status gate to exercise the already-authored body through
@@ -163,6 +165,36 @@ test("sfd-070-221 Wages of Pain: GameAction create-token carries the exhausted e
   assert.equal(kernel.getObject("token-1").exhausted, true);
   assert.equal(actions[0].token.energy, null);
   assert.equal(actions[0].token.power, null);
+});
+
+test("sfd-070-221 Wages of Pain golden execution: the damage half deals 3 to the locked battlefield unit", () => {
+  const kernel = world().unit("battlefield-unit").build();
+  const locked = kernel.ref("battlefield-unit");
+  const run = runInstruction(
+    damage,
+    { amount: dealInstruction.args.amount, target: targetSpec.id },
+    { world: kernel, targets: { [targetSpec.id]: [locked] } }
+  );
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.getObject("battlefield-unit").damage, 3);
+  assert.deepEqual(run.events.map((event) => event.action), ["damage"]);
+  assert.equal(run.result.linkedValues.dealt, 3);
+  assert.equal(run.result.linkedValues.dealtCount, 1);
+});
+
+test("sfd-070-221 Wages of Pain golden execution: a stale battlefield target is ignored, not redirected", () => {
+  const kernel = world().unit("battlefield-unit").build();
+  const stale = kernel.ref("battlefield-unit");
+  kernel.perform({ type: "move-zone", object: stale, to: "hand" });
+  const run = runInstruction(
+    damage,
+    { amount: dealInstruction.args.amount, target: targetSpec.id },
+    { world: kernel, targets: { [targetSpec.id]: [stale] } }
+  );
+
+  assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(run.events.length, 0);
 });
 
 test("sfd-070-221 Wages of Pain production golden: pays 3, damages a battlefield Unit, then fails closed on Gold", () => {
@@ -324,4 +356,16 @@ test("sfd-070-221 Wages of Pain: cost.hidden binds, while the live Hide transiti
   // This capability is not itself a Hide action. bridge.ts rejects that action
   // and TurnFlow exposes no transition into its private sidecar.
   assert.equal(engine.layers.registry.list().length, 1);
+
+  const before = source.snapshot();
+  const hide = source.performContract({
+    type: "hide",
+    object: source.getObject("card").ref,
+    player: "A",
+    location: { type: "battlefield", id: "bf1" }
+  });
+  assert.equal(hide.status, "impossible");
+  assert.deepEqual(hide.events, []);
+  assert.equal(hide.receipt.status, "rejected");
+  assert.deepEqual(source.snapshot(), before);
 });
