@@ -6,10 +6,11 @@ import type { CardProgram } from "../../ir/index.js";
  * [Deathknell] — Play two 3 [M] Mech unit tokens to your base.
  * (When I die, get the effect.)
  *
- * CR 808.1.c defines Deathknell as "When I die, [Effect]". The keyword
- * declaration supplies the self-death subscription and trigger.leave boundary;
- * the explicit object-killed ability is the printed [Effect] body, which the
- * production lifecycle binds to that boundary as one Pending Item.
+ * CR 808.1.c defines Deathknell as "When I die, [Effect]". The explicit
+ * object-killed ability below is the [Effect] body. The production lifecycle
+ * installs its self-death registration directly; the optional Deathknell
+ * keyword adapter only adds trigger.leave when it binds a keyword declaration
+ * to a printed body.
  *
  * "to your base" is resolved against the ability controller, not the source's
  * current location; effect.token performs the 3 Might Mech token definition
@@ -20,7 +21,6 @@ export default {
   rulesetVersion: "core-1.5",
   status: "executable",
   abilities: [
-    { kind: "keyword", keyword: "deathknell" },
     {
       kind: "triggered",
       trigger: {

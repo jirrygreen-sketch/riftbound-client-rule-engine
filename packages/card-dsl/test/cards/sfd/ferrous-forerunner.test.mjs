@@ -1,7 +1,7 @@
 // Golden test for Ferrous Forerunner (sfd-021-221).
-// The keyword declaration and explicit printed body bind into one self-death
-// trigger. A real kill passes through ProgramBinding + ChainEngine + lifecycle,
-// and effect.token creates and plays the 3 Might Mechs to the controller's Base.
+// The explicit printed body is one self-death trigger. A real kill passes
+// through ProgramBinding + ChainEngine + lifecycle, and effect.token creates
+// and plays the 3 Might Mechs to the controller's Base.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validateCardProgram } from "../../../../../packages/card-dsl/dist/ir/index.js";
@@ -34,7 +34,7 @@ function killAndSettle(controller) {
   const outcome = f.engine.commit({ type: "kill", object: f.kernel.ref("forerunner") });
   assert.equal(outcome.status, "done");
   assert.equal(f.engine.items.length, 1, "one printed Deathknell text creates one Pending Item");
-  assert.deepEqual(f.engine.items[0].body.map(instruction => instruction.op), ["trigger.leave", "effect.token"]);
+  assert.deepEqual(f.engine.items[0].body.map(instruction => instruction.op), ["effect.token"]);
   assert.equal(f.engine.items[0].trigger.source.ref.id, "forerunner");
   assert.equal(f.engine.items[0].trigger.source.zone, "board");
   assert.deepEqual(f.engine.items[0].trigger.source.location, BATTLEFIELD);
@@ -54,9 +54,8 @@ test("program passes validateCardProgram and is executable", () => {
 });
 
 test("Deathknell is modeled as a mandatory object-killed trigger on self", () => {
-  assert.equal(program.abilities.length, 2);
-  const [keyword, ability] = program.abilities;
-  assert.deepEqual(keyword, { kind: "keyword", keyword: "deathknell" });
+  assert.equal(program.abilities.length, 1);
+  const [ability] = program.abilities;
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.optional, false);
   assert.equal(ability.trigger.at, "object-killed");
@@ -65,7 +64,7 @@ test("Deathknell is modeled as a mandatory object-killed trigger on self", () =>
 });
 
 test("body instruction plays two 3-might Mech tokens to the controller base", () => {
-  const [, ability] = program.abilities;
+  const [ability] = program.abilities;
   const [instruction] = ability.body;
   assert.equal(instruction.id, "ferrous-forerunner.play-tokens");
   assert.equal(instruction.op, "effect.token");
