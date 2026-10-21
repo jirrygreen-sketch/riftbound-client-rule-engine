@@ -41,8 +41,9 @@ export default {
       // source itself is a Mech, so it is inside its own filter (478.1.a).
       effect: {
         kind: "continuous.might",
-        // The default static binder translates tag -> tags and resolves
-        // controller relative to the aura source before layer evaluation.
+        // Use the layer vocabulary directly: a plural tag set plus the
+        // source-relative controller selector. The binder keeps the selector
+        // symbolic and resolves it against the live aura source.
         filter: { tags: ["Mech"], controller: "controller", zone: "board" },
         value: { kind: "constant", value: 1 }
       }
