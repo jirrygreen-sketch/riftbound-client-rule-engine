@@ -124,6 +124,8 @@ function hasRepeatDeclaration(program: CardProgram, source: ObjectSnapshot): boo
   return /\[repeat\]/i.test(program.sourceText) || source.keywords.some(keyword => keyword.id.toLowerCase().replace(/[\s_-]+/g, '') === 'repeat');
 }
 
+const SELF_COST_KINDS = new Set(['continuous.cost-modification', 'cost.modify']);
+
 export function describePlay(registry: ProgramRegistry, action: Extract<GameAction, { type: 'play' }>, source: ObjectSnapshot): ChainDraft {
   const program = registry.get(source.cardId);
   const kind = cardKind(source);
@@ -143,6 +145,12 @@ export function describePlay(registry: ProgramRegistry, action: Extract<GameActi
   // The normalized component carries keyword: 'repeat', so the cost binder
   // takes its optionality from CR 820.1.b rather than from reminder prose.
   const cost = bindProgramCost({ program, source, mode: 'play', id, ability: costAbility, abilities: expanded.abilities });
+  // A card's own "this costs ... less/more" static functions while it is
+  // being played (CR 356); Board-bound statics reach Finalize separately.
+  const costStatics = expanded.abilities.flatMap((candidate, index) =>
+    candidate.kind === 'static' && SELF_COST_KINDS.has(String((candidate.effect as { kind?: unknown }).kind))
+      ? [{ id: `program-self-cost:${source.ref.id}:${source.ref.zoneEntryId}:${index}`, source: source.ref, ability: candidate }]
+      : []);
   return {
     id,
     controller: action.player,
@@ -151,6 +159,7 @@ export function describePlay(registry: ProgramRegistry, action: Extract<GameActi
     speed,
     body,
     ...(cost ? { cost: { id: `cost:${id}`, ...cost.plan } } : {}),
+    ...(costStatics.length ? { costStatics } : {}),
     ...(requirements ? { requirements } : {}),
     ...(restrictions ? { restrictions } : {}),
     ...(action.location ? { location: action.location } : {})

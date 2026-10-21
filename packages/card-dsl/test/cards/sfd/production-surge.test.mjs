@@ -3,10 +3,10 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/sfd/production-surge.js";
-import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { cardProgramsById, cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { productionPlay } from "../../fixtures/production-play.mjs";
 
 const staticAbility = program.abilities[0];
 const play = program.abilities[1];
@@ -55,12 +55,14 @@ test("Production Surge structure: token play then an independent draw", () => {
 
   // "Play a 3 [M] Mech unit token to your base": the merged effect.token op
   // with the Mech definition (CR 187.4) in play mode (440.2.c / 185.2.a).
+  // "your base" is the controller-relative Base selector the token primitive
+  // resolves; a literal "you" is not a player id and played nothing.
   assert.equal(tokenInstruction.op, "effect.token");
   assert.deepEqual(tokenInstruction.args.token, { kind: "constant", value: "mech" });
   assert.deepEqual(tokenInstruction.args.mode, { kind: "constant", value: "play" });
   assert.deepEqual(tokenInstruction.args.location, {
     kind: "constant",
-    value: { type: "base", player: "you" }
+    value: { type: "base", player: "controller" }
   });
 
   // "Draw 1." is a separate instruction with no link to the token half
@@ -69,21 +71,6 @@ test("Production Surge structure: token play then an independent draw", () => {
   assert.deepEqual(drawInstruction.args, { amount: { kind: "constant", value: 1 } });
   assert.equal(drawInstruction.linkedTo, undefined);
   assert.equal(drawInstruction.targets, undefined);
-});
-
-test("Production Surge golden execution: the Mech token play is blocked, not approximated", () => {
-  // The merged kernel create-token action only creates directly on the Board,
-  // so mode "play" is explicitly negated by effect.token (contract changelog
-  // RIFT-62). Asserting the block guards against a silent approximation.
-  const kernel = world().build();
-  const run = runInstruction(token, tokenInstruction.args, { world: kernel });
-
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  assert.equal(run.events.length, 0);
-  assert.equal(run.linked["token.amount"], 0);
-  assert.deepEqual(run.linked["token.objects"], []);
-  assert.equal(kernel.query({}).length, 0);
 });
 
 test("Production Surge golden execution: Draw 1 takes the top card", () => {
@@ -100,14 +87,67 @@ test("Production Surge golden execution: Draw 1 takes the top card", () => {
   assert.equal(run.linked.drawn, 1);
 });
 
-test.todo(
-  "Production Surge: applying the conditional -2 energy reduction at Finalize needs the " +
-    "cost modification consumer in the cost plan (RIFT-89) and the layers condition " +
-    "evaluation of 'you control a Mech' (RIFT-91)."
-);
+// Production path: registry program, ProgramBinding.describePlay, ChainEngine
+// Finalize (cost collection + payment) and Resolve.
+const CANONICAL_ID = program.canonicalCardId;
 
-test.todo(
-  "Production Surge: actually playing the Mech token needs create-token's chain " +
-    "destination plus the effect.play handoff (440.2.c / 185.2.a / 350.2 / 354, contract " +
-    "changelog RIFT-62; effect.token RIFT-63 follow-up)."
-);
+function surge({ energy, friendlyMech = false, enemyMech = false }) {
+  return productionPlay({
+    programs: cardProgramsById,
+    build: (w) => {
+      let built = w.player("A", { energy, power: [] }).player("B", { energy: 2 })
+        .object("surge", { owner: "A", controller: "A", cardId: CANONICAL_ID, types: ["spell"], zone: "hand", energy: 4, power: [] })
+        .object("next-card", { owner: "A", controller: "A", types: ["unit"], zone: "deck", might: 1 });
+      if (friendlyMech) built = built.unit("my-mech", { owner: "A", controller: "A", might: 2, tags: ["Mech"], location: { type: "base", player: "A" } });
+      if (enemyMech) built = built.unit("their-mech", { owner: "B", controller: "B", might: 2, tags: ["Mech"], location: { type: "base", player: "B" } });
+      return built;
+    }
+  });
+}
+
+const playedMechTokens = (kernel) => kernel.objects.filter((object) => object.isToken && object.zone === "board");
+
+function assertResolved(f) {
+  // CR 187.4: the Mech token is a 3 Might Mech unit token, played to the
+  // controller's Base (440.2.c) and entering exhausted (143.4).
+  const tokens = playedMechTokens(f.kernel);
+  assert.equal(tokens.length, 1);
+  assert.equal(tokens[0].name, "Mech");
+  assert.equal(tokens[0].might, 3);
+  assert.deepEqual(tokens[0].tags, ["Mech"]);
+  assert.equal(tokens[0].controller, "A");
+  assert.deepEqual(tokens[0].location, { type: "base", player: "A" });
+  assert.equal(tokens[0].exhausted, true);
+  // Draw 1 (414.3).
+  assert.deepEqual(f.kernel.zone("A", "hand").map((ref) => ref.id), ["next-card"]);
+  assert.equal(f.engine.items.length, 0);
+}
+
+test("Production Surge production golden: without a Mech it costs the printed 4 Energy", () => {
+  const f = surge({ energy: 4 });
+  f.play("surge");
+  assert.equal(f.kernel.player("A").energy, 0);
+  assertResolved(f);
+});
+
+test("Production Surge production golden: controlling a Mech makes it cost 2 less at Finalize", () => {
+  const f = surge({ energy: 4, friendlyMech: true });
+  f.play("surge");
+  assert.equal(f.kernel.player("A").energy, 2);
+  assertResolved(f);
+});
+
+test("Production Surge production golden: with a Mech it is playable from exactly 2 Energy", () => {
+  const f = surge({ energy: 2, friendlyMech: true });
+  f.play("surge");
+  assert.equal(f.kernel.player("A").energy, 0);
+  assertResolved(f);
+});
+
+test("Production Surge production golden: an opponent's Mech does not reduce the cost", () => {
+  const f = surge({ energy: 2, enemyMech: true });
+  assert.throws(() => f.play("surge"), /insufficient Energy/);
+  assert.equal(f.kernel.player("A").energy, 2);
+  assert.deepEqual(f.kernel.zone("A", "hand").map((ref) => ref.id), ["surge"]);
+  assert.equal(playedMechTokens(f.kernel).length, 0);
+});
