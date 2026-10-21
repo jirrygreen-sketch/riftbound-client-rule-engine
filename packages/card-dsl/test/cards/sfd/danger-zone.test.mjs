@@ -257,6 +257,16 @@ test("sfd-182-221 Danger Zone production boundary: declining Repeat pays the Fur
   assert.equal(probe.kernel.player("A").energy, 3);
   assert.deepEqual(probe.kernel.player("A").power, ["Mind"]);
   assert.equal(probe.kernel.getObject("danger-zone").zone, "trash");
+  const registrations = probe.engine.layers.registry.list();
+  assert.deepEqual(registrations.map(entry => entry.effect.filter.objectId).sort(), ["mech-a", "mech-b"]);
+  assert.deepEqual(registrations.map(entry => entry.duration), [
+    { type: "end-of-turn" },
+    { type: "end-of-turn" }
+  ]);
+  probe.engine.layers.setObjects(probe.kernel.objects);
+  assert.equal(probe.engine.layers.evaluate(probe.kernel.ref("mech-a")).might, 3);
+  assert.equal(probe.engine.layers.evaluate(probe.kernel.ref("mech-b")).might, 5);
+  assert.equal(probe.engine.layers.evaluate(probe.kernel.ref("enemy-mech")).might, 2);
 });
 
 test("sfd-182-221 Danger Zone production boundary: selecting Repeat fails closed on printed rainbow Power", () => {
