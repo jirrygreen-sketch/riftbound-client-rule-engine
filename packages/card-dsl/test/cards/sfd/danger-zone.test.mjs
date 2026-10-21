@@ -1,5 +1,7 @@
 // Template evidence: ../templates/keyword-play-continuous-might-653.test.mjs.
-// Whole-card scenarios remain blocked by Repeat; existing body goldens remain valid.
+// The real program, ProgramBinding, ChainEngine and Finalize consume the card.
+// Whole-card payment remains blocked by Universal [A] Power, not by Repeat's
+// paid-instance consumer.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -11,6 +13,7 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { productionPlay } from "../../fixtures/production-play.mjs";
 
 const CARD_ID = "card.hash-3c1c01b405853556e3e1c12bbd758e94d73f5ed474a5643bb068eaa7cb549c6e";
 const SOURCE_TEXT =
@@ -74,16 +77,19 @@ test("sfd-182-221 Danger Zone: program is structurally valid and judge-required"
 });
 
 test("sfd-182-221 Danger Zone: judgeReason names the current Repeat cost gap", () => {
-  assert.match(dangerZone.judgeReason, /Repeat/);
-  assert.match(dangerZone.judgeReason, /translateCost/);
-  assert.match(dangerZone.judgeReason, /optional\/keyword/);
-  assert.match(dangerZone.judgeReason, /repeat\.cost/);
+  assert.match(dangerZone.judgeReason, /820\.1\.c\.1/);
+  assert.match(dangerZone.judgeReason, /plan-values\.ts:62-65/);
+  assert.match(dangerZone.judgeReason, /payment\.ts:118-133/);
+  assert.match(dangerZone.judgeReason, /Universal Power/);
+  assert.match(dangerZone.judgeReason, /invalid-cost-plan/);
   assert.match(dangerZone.judgeReason, /continuous\.might/);
   assert.doesNotMatch(dangerZone.judgeReason, /RIFT-261|RIFT-257|RIFT-258/);
   assert.equal(keywordDefinitionsById.has("Repeat"), true);
-  // The old description claimed the Repeat KeywordDef itself was missing;
-  // it merged long ago, so the reason must not still say so.
+  // Both obsolete claims are excluded: the KeywordDef exists and the current
+  // binder/interpreter already consume ordinary Repeat instances.
   assert.doesNotMatch(dangerZone.judgeReason, /无已合入 KeywordDef/);
+  assert.doesNotMatch(dangerZone.judgeReason, /translateCost 拒绝/);
+  assert.doesNotMatch(dangerZone.judgeReason, /已付费 Repeat 实例数与解释器 repeat 节点也无接线/);
 });
 
 test("sfd-182-221 Danger Zone ability structure: [Reaction] + play with Repeat additional cost", () => {
@@ -93,9 +99,9 @@ test("sfd-182-221 Danger Zone ability structure: [Reaction] + play with Repeat a
   assert.deepEqual(dangerZone.abilities[1], { kind: "keyword", keyword: "repeat" });
   assert.equal(play.kind, "play");
 
-  // [Repeat] 1 energy + 1 rainbow rune: declared as an additional cost on
-  // the play ability (contract 3.1 CostSpec). The Repeat KeywordDef
-  // is merged, but the play flow still has no additional-cost consumer.
+  // [Repeat] 1 energy + 1 rainbow rune: the Play CostSpec is the card's only
+  // parameter-bearing Repeat declaration; the binder normalizes it into a
+  // real Finalize component while the card remains blocked on [A] payment.
   assert.equal(play.cost.kind, "additional-cost");
   assert.equal(play.cost.keyword, "repeat");
   assert.equal(play.cost.optional, true);
@@ -181,8 +187,110 @@ test("sfd-182-221 Danger Zone golden: no friendly Mech produces no registration 
   assert.equal(kernel.continuousEffects.length, 0);
 });
 
-test.todo(
-  "sfd-182-221 Danger Zone: [Repeat] paying 1 energy + 1 rainbow rune repeats the buff (CR 820.1.c; " +
-    "play.ts translateCost currently throws judgeRequired for additional-cost, static repeat.cost " +
-    "has no layer/Finalize consumer, and the paid-repeat count is unwired)"
-);
+// Fury/Mind is a hybrid [C], so either one Fury or one Mind is a legal branch.
+// The runtime snapshot currently represents that branch as one named Power;
+// the separate per-Domain bridge gap for the two-domain production snapshot is
+// recorded in judgeReason instead of being asserted as correct behavior here.
+const dangerHand = {
+  owner: "A",
+  controller: "A",
+  cardId: CARD_ID,
+  types: ["spell"],
+  domain: ["Fury", "Mind"],
+  zone: "hand",
+  energy: 1,
+  power: ["Fury"]
+};
+
+const productionTable = ({ repeat, answers = {} } = {}) => productionPlay({
+  programs: [dangerZone],
+  answers: {
+    ...(repeat === undefined ? {} : { "cost:": () => repeat }),
+    ...answers
+  },
+  build: (w) => w.player("A", { energy: 4, power: ["Fury", "Mind"] }).player("B")
+    .object("danger-zone", dangerHand)
+    .unit("mech-a", { owner: "A", controller: "A", tags: ["Mech"], might: 2 })
+    .unit("mech-b", { owner: "A", controller: "A", tags: ["Mech"], might: 4 })
+    .unit("enemy-mech", { owner: "B", controller: "B", tags: ["Mech"], might: 2 })
+    .unit("ally-grunt", { owner: "A", controller: "A", might: 2 })
+});
+
+test("sfd-182-221 Danger Zone production: the shipped judge-required program is refused before any payment", () => {
+  const f = productionTable();
+  assert.throws(() => f.describe("danger-zone"), (error) => {
+    assert.equal(error.name, "ProgramBindingError");
+    assert.equal(error.code, "judge-required");
+    assert.match(error.message, /Universal Power|rainbow|plan-values/);
+    return true;
+  });
+  assert.deepEqual(f.requests, []);
+  assert.equal(f.kernel.player("A").energy, 4);
+  assert.deepEqual(f.kernel.player("A").power, ["Fury", "Mind"]);
+  assert.equal(f.kernel.getObject("danger-zone").zone, "hand");
+  assert.equal(f.might("mech-a"), 2);
+});
+
+// The registry gate is deliberate. These two probes lift only the local status
+// on a copied program so the real cost/Finalize/Resolve seam can report the
+// distinct printable-card gaps without changing the shipped program.
+const executableProbe = () => ({ ...dangerZone, status: "executable", judgeReason: undefined });
+
+test("sfd-182-221 Danger Zone production boundary: declining Repeat pays the Fury branch and resolves once", () => {
+  // productionPlay refuses the shipped judge-required program. The local copy
+  // lifts that one gate so the real committed plan/body can be observed.
+  const probe = productionPlay({
+    programs: [executableProbe()],
+    answers: { "cost:": () => false },
+    build: (w) => w.player("A", { energy: 4, power: ["Fury", "Mind"] }).player("B")
+      .object("danger-zone", dangerHand)
+      .unit("mech-a", { owner: "A", controller: "A", tags: ["Mech"], might: 2 })
+      .unit("mech-b", { owner: "A", controller: "A", tags: ["Mech"], might: 4 })
+      .unit("enemy-mech", { owner: "B", controller: "B", tags: ["Mech"], might: 2 })
+      .unit("ally-grunt", { owner: "A", controller: "A", might: 2 })
+  });
+  const draft = probe.play("danger-zone");
+
+  assert.equal(draft.speed, "reaction");
+  assert.equal(draft.cost.optionalAdditional[0].kind, "repeat");
+  assert.equal(probe.requests.filter(request => request.type === "optional").length, 1);
+  assert.equal(probe.kernel.player("A").energy, 3);
+  assert.deepEqual(probe.kernel.player("A").power, ["Mind"]);
+  assert.equal(probe.kernel.getObject("danger-zone").zone, "trash");
+  const registrations = probe.engine.layers.registry.list();
+  assert.deepEqual(registrations.map(entry => entry.effect.filter.objectId).sort(), ["mech-a", "mech-b"]);
+  assert.deepEqual(registrations.map(entry => entry.duration), [
+    { type: "end-of-turn" },
+    { type: "end-of-turn" }
+  ]);
+  probe.engine.layers.setObjects(probe.kernel.objects);
+  assert.equal(probe.engine.layers.evaluate(probe.kernel.ref("mech-a")).might, 3);
+  assert.equal(probe.engine.layers.evaluate(probe.kernel.ref("mech-b")).might, 5);
+  assert.equal(probe.engine.layers.evaluate(probe.kernel.ref("enemy-mech")).might, 2);
+});
+
+test("sfd-182-221 Danger Zone production boundary: selecting Repeat fails closed on printed rainbow Power", () => {
+  const f = productionPlay({
+    programs: [executableProbe()],
+    answers: { "cost:": () => true },
+    build: (w) => w.player("A", { energy: 4, power: ["Fury", "Mind"] }).player("B")
+      .object("danger-zone", dangerHand)
+      .unit("mech-a", { owner: "A", controller: "A", tags: ["Mech"], might: 2 })
+  });
+  const draft = f.describe("danger-zone");
+  assert.equal(draft.cost.optionalAdditional[0].cost.payments[0].allowedDomains[0], "rainbow");
+  assert.throws(() => {
+    f.engine.execute(draft);
+    f.settle();
+  }, (error) => {
+    assert.equal(error.name, "CostPlanError");
+    assert.equal(error.reason, "invalid-cost-plan");
+    assert.match(error.message, /Expected unique cost domains/);
+    return true;
+  });
+  assert.equal(f.requests.filter(request => request.type === "optional").length, 1);
+  assert.equal(f.kernel.player("A").energy, 4);
+  assert.deepEqual(f.kernel.player("A").power, ["Fury", "Mind"]);
+  assert.equal(f.kernel.getObject("danger-zone").zone, "hand");
+  assert.equal(f.might("mech-a"), 2);
+});

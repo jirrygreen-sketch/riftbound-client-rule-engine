@@ -4,16 +4,17 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/sfd/laurent-duelist.js";
-import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
-import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
-import { createLayerEngine } from "../../../../engine-core/dist/layers/engine.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { CombatFlow } from "../../../../engine-core/dist/combat/flow.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 
 const CARD_ID = "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6";
 
-const snapshot = () => ({
+const snapshot = (combatRole = null) => ({
   ref: { id: "duelist", zoneEntryId: 1 },
   cardId: CARD_ID,
   name: "Laurent Duelist",
@@ -26,8 +27,9 @@ const snapshot = () => ({
   controller: "A",
   zone: "board",
   location: null,
-  might: 4,
-  energy: null,
+  combatRole,
+  might: 3,
+  energy: 4,
   power: null,
   exhausted: false,
   damage: 0,
@@ -48,8 +50,11 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /[Aa]ssault/);
-  assert.match(program.judgeReason, /designation/);
-  assert.match(program.judgeReason, /combat-start-transaction/);
+  assert.match(program.judgeReason, /combat\/flow\.ts:196-200/);
+  assert.match(program.judgeReason, /chain\/engine\.ts:414-416/);
+  assert.match(program.judgeReason, /static-adapters\/model\.ts:256-288/);
+  assert.match(program.judgeReason, /Might 3/);
+  assert.match(program.judgeReason, /807\.1\.d\.1/);
   assert.equal(program.sourceText, "[Assault 2] (+2 :rb_might: while I'm an attacker.)");
 });
 
@@ -78,46 +83,130 @@ test("the merged Assault expansion resolves the keyword into a +2 Might static a
   });
 });
 
-test("the designation condition still cannot be evaluated by the default expression path", () => {
-  // 807.1.d.1: the expansion gates on the rules characteristic "designation".
-  // The merged default evaluator only reads snapshot-own properties, so the
-  // condition fails closed with a measured MissingInformation instead of
-  // inventing an attacker-only Might bonus. (RIFT-711's extended evaluator is
-  // not wired into the default dispatch yet.)
-  const kernel = world().unit("duelist", { might: 4, combatRole: "attacker" }).build();
-  const source = kernel.getObject("duelist");
-  const [staticAbility] = expandProgram(program, source).expanded;
-  assert.throws(
-    () => evaluateCondition(staticAbility.condition, {
-      context: bindResolveContext(kernel, { source }),
-      host: kernel.ref("duelist"),
-      linked: () => undefined,
-      canLookBack: () => true,
-      isIgnored: () => false
-    }),
-    /Unavailable characteristic: designation/
-  );
-});
+const ADMITTED = { ...program, status: "executable", judgeReason: undefined };
+const BATTLEFIELD = { type: "battlefield", id: "bf1" };
 
-test("even with the Attacker combatRole the production binder leaves Might at its printed 4", () => {
-  // The measured gap from judgeReason: assigning combatRole does not make the
-  // attack bonus effective, because nothing writes the designation producer and
-  // the default condition consumer does not evaluate the compare.
-  const kernel = world().unit("duelist", { cardId: CARD_ID, might: 4, combatRole: "attacker" }).build();
-  const source = kernel.getObject("duelist");
-  const layers = createLayerEngine(kernel.objects);
-  const binder = createEngineStaticBinder({ layers, pipeline: { host: {
+function hostFor(kernel, choose) {
+  return createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => {
+      kernel.restore(saved.state);
+      kernel.copyLinkedFrom(saved.links);
+    },
     objects: () => kernel.objects,
-    context: (snapshot, controller, timingPoint) => kernel.context(snapshot, controller, timingPoint)
-  } } });
-  for (const ability of expandProgram(program, source).expanded) {
-    if (ability.kind === "static") binder.bindStatic(ability, source);
-  }
-  assert.equal(layers.evaluate(kernel.ref("duelist")).might, 4);
-});
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+}
 
-test.todo(
-  "sfd-156-221 Laurent Duelist: +2 Might exactly while the unit holds the Attacker designation (807.1.d.1) — " +
-    "combat/flow.ts still throws combat-start-transaction, so nothing writes the designation the expansion's " +
-    "condition reads and the merged layer conditions do not evaluate that predicate"
-);
+function bindProductionAssault(engine, kernel) {
+  const source = kernel.getObject("duelist");
+  const [staticAbility] = expandProgram(ADMITTED, source).expanded;
+  assert.equal(staticAbility.kind, "static");
+  const binding = createProgramBinding({
+    cardPrograms: [ADMITTED],
+    staticBinder: createEngineStaticBinder(engine)
+  });
+  const handle = binding.bindStatic(staticAbility, source);
+  return { handle, source };
+}
+
+function layerRuntime(combatRole) {
+  const kernel = world().player("A").player("B")
+    .unit("duelist", {
+      cardId: CARD_ID,
+      owner: "A",
+      controller: "A",
+      might: 3,
+      energy: 4,
+      power: null,
+      combatRole,
+      location: BATTLEFIELD
+    })
+    .build();
+  const choose = request => { throw new Error(`Unexpected choice ${request.id}`); };
+  const host = hostFor(kernel, choose);
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  });
+  const { handle } = bindProductionAssault(engine, kernel);
+  engine.layers.setObjects(kernel.objects);
+  return { engine, kernel, handle };
+}
+
+for (const [combatRole, expected] of [["attacker", 5], ["defender", 3], [null, 3]]) {
+  test(`production binder consumes designation for ${combatRole ?? "no combat role"} (807.1.d.1)`, () => {
+    const f = layerRuntime(combatRole);
+    assert.equal(f.engine.layers.evaluate(f.kernel.ref("duelist")).might, expected);
+    f.handle.unbind();
+  });
+}
+
+function combatRuntime() {
+  const builder = world().player("A").player("B")
+    .unit("duelist", {
+      cardId: CARD_ID,
+      owner: "A",
+      controller: "A",
+      might: 3,
+      energy: 4,
+      power: null,
+      location: BATTLEFIELD
+    })
+    .unit("defender", {
+      owner: "B",
+      controller: "B",
+      might: 3,
+      power: null,
+      location: BATTLEFIELD
+    });
+  for (const player of ["A", "B"]) {
+    builder.deck(Array.from({ length: 8 }, (_, index) => `${player}:deck:${index}`), { owner: player });
+    builder.rune(Array.from({ length: 8 }, (_, index) => `${player}:rune:${index}`), { owner: player });
+  }
+  const kernel = builder.build();
+  const choose = request => {
+    if (request.type === "mode" && request.id.startsWith("engagement:")) return request.options[0];
+    if (request.type === "order") return [request.options[0]];
+    if (request.type === "select-objects" && request.min === request.max &&
+        request.options.length === request.min) return [...request.options];
+    throw new Error(`Unexpected Combat choice ${request.id}`);
+  };
+  const host = hostFor(kernel, choose);
+  const chain = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  });
+  const flow = new CombatFlow(chain, host,
+    [{ id: "bf1", controller: "B" }, { id: "bf2", controller: null }],
+    () => {}, { events: true, lifecycle: true });
+  const { handle } = bindProductionAssault(chain, kernel);
+  return { kernel, chain, flow, handle };
+}
+
+test("real CombatFlow designates the attacker; the layer gap remains Might 3", () => {
+  const f = combatRuntime();
+  f.flow.entered(f.kernel.getObject("duelist"));
+  f.flow.cleanup();
+  f.chain.advance();
+  const started = f.flow.startCombat("bf1");
+
+  assert.deepEqual(started, {
+    field: "bf1", combatId: "combat:bf1:1", attacker: "A", defender: "B", focus: "A"
+  });
+  assert.equal(f.flow.snapshot(f.kernel.getObject("duelist")).combatRole, "attacker");
+  assert.equal(f.flow.snapshot(f.kernel.getObject("defender")).combatRole, "defender");
+  assert.deepEqual(
+    f.chain.pipeline.events
+      .filter(event => ["combat-start", "attack-declared", "defense-declared"].includes(event.timingPoint))
+      .map(event => event.timingPoint),
+    ["combat-start", "attack-declared", "defense-declared"]
+  );
+  f.chain.layers.setObjects(f.kernel.objects);
+  assert.equal(f.chain.layers.evaluate(f.kernel.ref("duelist")).might, 3);
+  f.handle.unbind();
+});

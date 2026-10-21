@@ -22,17 +22,39 @@ import type { CardProgram } from "../../ir/index.js";
  *   effect.ready would emit an extra "becomes ready" event and miss the entry
  *   replacement, so the body stays the declared entry action.
  *
- * Status: executable. Production-path goldens prove that the default static
- * binder re-expands the granted Deflect into Chain Finalize's any-domain
- * target tax and the granted Ganking into the Standard Move query. The same
- * lifecycle path evaluates the "another Mech" condition before applying the
- * entry-orientation replacement, producing a ready entry only when the
- * controller has another Mech on the Board.
+ * Status: judge-required. The declared structures are exercised by the golden,
+ * and the merged keyword-grant re-expander now consumes both Deflect and
+ * Ganking in an isolated layer engine. Two production gaps remain, so the
+ * card is not executable:
+ * - the granted Deflect still is not routed from the static/layer binder into
+ *   the target Finalize tax set. `target.tax` is collected only when the
+ *   caller supplies a TargetTaxAdapter/effect list; the production binder and
+ *   ChainEngine do not derive it from a live granted keyword;
+ * - replacement/bind.ts matches the entry action before evaluating the
+ *   replacement condition, so "if you control another Mech" is not enforced
+ *   on the entry path.
+ * The condition itself now uses the canonical spelling (`tags` plus the
+ * `exclude: "self"` anchor) because layers/filter.ts has no `tag`/`other`
+ * keys; the removed spelling always evaluated to zero objects.
  */
 export default {
   canonicalCardId: "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab",
   rulesetVersion: "core-1.5",
-  status: "executable",
+  status: "judge-required",
+  judgeReason:
+    "复核 2026-10-18，两处当前缺口，均不近似实现：(1)「Your Mechs have [Deflect] and [Ganking]」的" +
+    "continuous.grant-keyword 已有 KeywordGrantLayerEngine 的运行时重展开；Ganking 的 permission 也会被归一化为" +
+    "movement().canGank，Deflect 则展开为 target.tax。当前 production static binder/ChainEngine 仍不会把 live granted " +
+    "target.tax 派生为 target-plan.ts 消费的 TargetTaxSpec：税只能由调用方显式提供 TargetTaxAdapter/effect 列表，" +
+    "对手选择本方 Mech 时的自动加费仍未接线。(2)「I enter ready if you control another Mech」的入场改写已在" +
+    " replacement/bind.ts 中绑定并生效，但 matchesEnterAction 在 testCondition 之前直接 return true，能力 condition 不在" +
+    "入场匹配路径求值，\"another Mech\" 门控不会被强制。" +
+    "已修：该 condition 原先用单数 tag / other 键，layers/filter.ts 只认 tags 列表、也没有 other-exclusion 语义，" +
+    "计数恒为 0；现按引擎词汇改写为 tags: [\"Mech\"] 加 exclude: \"self\" 锚点（契约 3.6），\"another Mech\" 的计数在" +
+    "解释器与链的 query 归一化下都正确（golden 用合并的 evaluateCondition 真实求值）。" +
+    "另按 CR 133.3.a/133.8 修正授予范围：Mech 是标签，不额外限制为 unit。" +
+    "执行证据：test/cards/templates/static-replacement-effect-ready-677.test.mjs；仅覆盖已支持部分，整卡与条件边界仍阻塞。" +
+    "依赖：target.tax 的 production binder/ChainEngine 接线、入场替代 condition 求值。",
   abilities: [
     {
       kind: "static",
