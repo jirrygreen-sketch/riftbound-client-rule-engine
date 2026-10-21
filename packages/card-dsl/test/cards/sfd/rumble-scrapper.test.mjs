@@ -10,15 +10,128 @@ import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import {
+  bindResolveContext,
+  createActionPipelineHost
+} from "../../../../engine-core/dist/events/action-adapter.js";
+import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
 
 const cardId = "card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c";
 const program = cardProgramsById.get(cardId);
+const battlefield = { type: "battlefield", id: "bf1" };
+const baseA = { type: "base", player: "A" };
 
-/** The binding layer refuses judge-required programs; the abilities are unchanged. */
-function liftedProgram() {
-  const lifted = { ...program, status: "executable" };
-  delete lifted.judgeReason;
-  return lifted;
+function productionHold({
+  battlefieldController = "A",
+  scrapperLocation = battlefield,
+  buddyLocation = baseA,
+  rowdy = false
+} = {}) {
+  const builder = world()
+    .player("A")
+    .player("B")
+    .unit("scrapper", {
+      cardId,
+      owner: "A",
+      controller: "A",
+      types: ["unit"],
+      might: 4,
+      energy: 5,
+      power: ["Mind"],
+      tags: ["Mech", "Yordle", "Rumble", "Bandle City", "Champion"],
+      location: scrapperLocation
+    })
+    .unit("buddy", {
+      owner: "A",
+      controller: "A",
+      types: ["unit"],
+      might: 2,
+      tags: ["Mech"],
+      location: buddyLocation
+    })
+    .unit("enemy-mech", {
+      owner: "B",
+      controller: "B",
+      types: ["unit"],
+      might: 4,
+      tags: ["Mech"],
+      location: { type: "base", player: "B" }
+    });
+  if (rowdy) {
+    builder.unit("rowdy", {
+      owner: "A",
+      controller: "A",
+      types: ["unit"],
+      might: 2,
+      tags: [],
+      location: battlefield
+    });
+  }
+  for (const player of ["A", "B"]) {
+    builder.deck(Array.from({ length: 8 }, (_, index) => `${player}:deck:${index}`), { owner: player });
+  }
+  const kernel = builder.build();
+  const requests = [];
+  const choose = request => {
+    requests.push(request);
+    if (request.type === "mode") return request.options[0];
+    if (request.type === "select-objects" && request.min === request.max &&
+        request.options.length === request.min) return [...request.options];
+    if (request.type === "select-objects" && request.min === 0) return [];
+    throw new Error(`Unexpected production choice ${request.type} ${request.id}`);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => {
+      kernel.restore(saved.state);
+      kernel.copyLinkedFrom(saved.links);
+    },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  const flow = new TurnFlow({
+    host,
+    player: id => kernel.player(id),
+    turnOrder: ["A", "B"],
+    battlefields: [{ id: "bf1", controller: battlefieldController }, { id: "bf2", controller: null }]
+  });
+  const binding = createProgramBinding({
+    cardPrograms: [program],
+    staticBinder: createEngineStaticBinder(flow.chain)
+  });
+  const lifecycle = binding.attachLifecycle(flow.chain, error => { throw error; });
+
+  // Bind both abilities through the production ProgramBinding surface. The
+  // static binder is the same adapter lifecycle installs in a real match.
+  const source = kernel.getObject("scrapper");
+  const staticHandle = binding.bindStatic(program.abilities[0], source);
+  const triggerIds = binding.registerProgramTriggers(flow.chain, source);
+  assert.equal(triggerIds.length, 1);
+  assert.equal(
+    flow.chain.pipeline.checkpoint().triggers.has(`program:scrapper:${kernel.ref("scrapper").zoneEntryId}:1`),
+    true
+  );
+  assert.equal(flow.chain.layers.registry.list().length, 1);
+
+  const settle = () => {
+    let guard = 0;
+    while (flow.chain.items.length || flow.chain.focus !== null) {
+      assert.ok(++guard < 60, "the production Chain must settle");
+      if (flow.chain.items.length) flow.pass(flow.chain.priority);
+      else flow.pass(flow.chain.focus);
+    }
+  };
+  const may = id => {
+    flow.chain.layers.setObjects(kernel.objects);
+    return flow.chain.layers.evaluate(kernel.ref(id)).might;
+  };
+  return { kernel, flow, binding, lifecycle, staticHandle, triggerIds, requests, settle, may };
 }
 
 test("rumble-scrapper program is registered and validates", () => {
@@ -27,10 +140,11 @@ test("rumble-scrapper program is registered and validates", () => {
   assert.equal(result.ok, true, JSON.stringify(result.issues));
 });
 
-test("rumble-scrapper identity, ruleset, status and verbatim text", () => {
+test("rumble-scrapper identity, ruleset, executable status and verbatim text", () => {
   assert.equal(program.canonicalCardId, cardId);
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
+  assert.equal(program.status, "executable");
+  assert.equal(Object.hasOwn(program, "judgeReason"), false);
   assert.equal(
     program.sourceText,
     "Your Mechs have +1 :rb_might: (including me).\n" +
@@ -38,31 +152,17 @@ test("rumble-scrapper identity, ruleset, status and verbatim text", () => {
   );
 });
 
-test("rumble-scrapper: judgeReason states the live Hold-payload gap and the merged parts", () => {
-  // The reason must stay a live re-verification: the merged aura/token paths are
-  // recorded as executable, and the remaining gap is the Hold payload identity.
-  assert.match(program.judgeReason, /scheduleScore/);
-  assert.match(program.judgeReason, /battlefieldId/);
-  assert.match(program.judgeReason, /383\.4\.d\.2\.a/);
-  assert.match(program.judgeReason, /473\.2\.b/);
-  assert.match(program.judgeReason, /matchesTriggerObject/);
-  assert.match(program.judgeReason, /RIFT-120/);
-  assert.ok(!/RIFT-95|RIFT-257|RIFT-258/.test(program.judgeReason), "merged task ids must not remain as gaps");
-});
-
 test("rumble-scrapper structure: static might aura + hold trigger token body", () => {
-  assert.equal(program.status, "judge-required");
-  assert.ok(program.judgeReason.includes("continuous.might"), "judgeReason must cite the Might layer path");
-  assert.ok(program.judgeReason.includes("默认 static 注册"), "judgeReason must record the available default static registration");
-  assert.ok(program.judgeReason.includes("来源控制者"), "judgeReason must record the available source-relative controller binding");
-  assert.ok(program.judgeReason.includes("pipeline-match"), "judgeReason must cite the hold-event identity gap");
+  assert.equal(program.status, "executable");
   assert.equal(program.abilities.length, 2);
 
   const [aura, hold] = program.abilities;
   assert.equal(aura.kind, "static");
   assert.equal(aura.effect.kind, "continuous.might");
-  // The production static binder normalizes the authored filter below.
-  assert.equal(aura.effect.filter.tag, "Mech");
+  // "Your Mechs" is a tag reference. The static layer consumes the canonical
+  // plural tag spelling; the singular spelling would survive registration but
+  // never match at layer evaluation.
+  assert.deepEqual(aura.effect.filter, { tags: ["Mech"], controller: "controller", zone: "board" });
   assert.equal(aura.effect.filter.controller, "controller");
   assert.equal(aura.effect.value.value, 1);
 
@@ -88,12 +188,8 @@ test("rumble-scrapper structure: static might aura + hold trigger token body", (
   assert.deepEqual(instruction.args.location, { kind: "linked-value", instructionId: "rumble-scrapper.base", key: "value" });
 });
 
-test("rumble-scrapper: the authored Hold filter registers but can never match a real hold emission (383.4.d.2.a)", () => {
-  // Live evidence for judgeReason: the production registration accepts the
-  // closed "held" spelling, but the real emission from turn/flow.ts carries only
-  // player + details.battlefieldId, so the translated object anchor (this card)
-  // is undefined on the event and the matcher returns false.
-  const binding = createProgramBinding({ cardPrograms: [liftedProgram()] });
+test("rumble-scrapper: the original Hold filter binds this exact Unit incarnation", () => {
+  const binding = createProgramBinding({ cardPrograms: [program] });
   const f = fixture({
     cards: [{ id: "scrapper", cardId, types: ["unit"], energy: 4, power: [], might: 4, tags: ["Mech"] }]
   });
@@ -104,11 +200,23 @@ test("rumble-scrapper: the authored Hold filter registers but can never match a 
   assert.equal(registration.spec.at, "hold");
   assert.deepEqual(registration.spec.filter, { event: "held", object: { objectId: "scrapper" } });
 
-  const emitted = { timingPoint: "hold", kind: "hold", player: "A", details: { battlefieldId: "bf1" } };
-  assert.equal(matchesTriggerEvent(registration.spec.filter, emitted, "A"), false);
-  // A Hold by the opposing player cannot match either: the filter's only
-  // identity anchor is this card, which the emission never carries.
-  assert.equal(matchesTriggerEvent(registration.spec.filter, { ...emitted, player: "B" }, "A"), false);
+  const emitted = {
+    timingPoint: "hold", kind: "hold", player: "A",
+    object: source, source, it: source,
+    details: { battlefieldId: "bf1", objectId: "scrapper", playerId: "A" }
+  };
+  assert.equal(matchesTriggerEvent(registration.spec.filter, emitted, "A", source), true);
+  assert.equal(matchesTriggerEvent(registration.spec.filter, {
+    ...emitted, object: f.kernel.getObject("source")
+  }, "A", source), false);
+  assert.equal(matchesTriggerEvent(registration.spec.filter, {
+    ...emitted, object: { ...source, ref: { ...source.ref, zoneEntryId: source.ref.zoneEntryId + 1 } }
+  }, "A", source), false);
+  // The details payload is evidence for 473.2.b, while the trigger's own
+  // identity requirement is the exact event object/source/it incarnation.
+  assert.equal(matchesTriggerEvent(registration.spec.filter, {
+    ...emitted, details: { battlefieldId: "bf1" }
+  }, "A", source), true);
 });
 
 test("rumble-scrapper golden: the merged continuous.might primitive registers the +1 aura layer entry", () => {
@@ -158,7 +266,9 @@ test("rumble-scrapper golden: production static binding applies the original aur
   const handle = createEngineStaticBinder(engine).bindStatic(program.abilities[0], kernel.getObject("scrapper"));
   const [entry] = engine.layers.registry.list();
   assert.equal(engine.layers.registry.list().length, 1);
-  assert.deepEqual(entry.effect.filter, { tags: ["Mech"], controller: "A", zone: "board" });
+  // The bound layer filter keeps the source-relative selector symbolic and
+  // resolves "controller" against the live source on every evaluation.
+  assert.deepEqual(entry.effect.filter, { tags: ["Mech"], controller: "controller", zone: "board" });
   engine.layers.setObjects(kernel.objects);
   assert.equal(engine.layers.evaluate(kernel.ref("scrapper")).might, 5);
   assert.equal(engine.layers.evaluate(kernel.ref("ally-mech")).might, 3);
@@ -197,11 +307,87 @@ test("rumble-scrapper golden: the original Hold body creates and plays the print
   assert.deepEqual(outcome.results[1].result.linkedValues["token.objects"], [token.ref]);
 });
 
-test.todo(
-  "rumble-scrapper: the hold emission must carry the held Battlefield/Unit identity so 383.4.d.2.a " +
-    "(this Unit's own presence at the battlefield it Held) can be decided; until then other-field and " +
-    "enemy Hold waves cannot be excluded even though the anchor spelling now registers"
-);
+test("rumble-scrapper production golden: this Unit's begun Hold plays one Mech token to its controller's Base", () => {
+  const f = productionHold();
+  f.flow.start();
+
+  const hold = f.flow.chain.pipeline.events.filter(event => event.timingPoint === "hold");
+  assert.equal(hold.length, 1);
+  assert.equal(hold[0].object.ref.id, "scrapper");
+  assert.deepEqual(hold[0].details, {
+    battlefieldId: "bf1",
+    objectId: "scrapper",
+    playerId: "A"
+  });
+  // The final score payload preserves the exact participating incarnation.
+  const score = f.flow.chain.pipeline.events.find(event => event.timingPoint === "score");
+  assert.deepEqual(score.details.participatingUnits, [f.kernel.ref("scrapper")]);
+  // The trigger is Pending until Priority/Focus are passed through the real
+  // Chain; no token has been fabricated alongside the Hold event.
+  assert.deepEqual(f.flow.chain.items.map(item => item.trigger?.registration.id),
+    [`program:scrapper:${f.kernel.ref("scrapper").zoneEntryId}:1`]);
+  assert.equal(f.kernel.objects.filter(object => object.isToken).length, 0);
+
+  f.settle();
+  assert.deepEqual(f.requests, [], "the mandatory Hold body needs no invented choice");
+  const tokens = f.kernel.objects.filter(object => object.isToken);
+  assert.equal(tokens.length, 1, "the original body creates and plays exactly one token");
+  const [token] = tokens;
+  // CR 187.4: the printed Mech is domainless, 3 Might, tagged Mech. A Unit
+  // enters the Board exhausted unless an entry replacement changes it
+  // (359.2.c / 805.6); its cost remains absent, not zero.
+  assert.equal(token.name, "Mech");
+  assert.deepEqual(token.types, ["unit"]);
+  assert.deepEqual(token.tags, ["Mech"]);
+  assert.equal(token.might, 3);
+  assert.equal(token.energy, null);
+  assert.equal(token.power, null);
+  assert.equal(token.controller, "A");
+  assert.deepEqual(token.location, baseA);
+  assert.equal(token.exhausted, true);
+  assert.equal(
+    f.flow.chain.pipeline.events.some(event => event.timingPoint === "object-readied"),
+    false,
+    "entry exhausted is not a separate Ready action"
+  );
+
+  // "Your Mechs have +1 (including me)" is live for Rumble, the existing
+  // friendly Mech, and the newly played friendly Mech token; the enemy Mech is
+  // excluded.
+  assert.equal(f.may("scrapper"), 5);
+  assert.equal(f.may("buddy"), 3);
+  assert.equal(f.may(token.ref.id), 4);
+  assert.equal(f.may("enemy-mech"), 4);
+  assert.deepEqual(f.flow.chain.items, []);
+});
+
+test("rumble-scrapper production boundary: another friendly Unit holding without Rumble does not trigger it", () => {
+  const f = productionHold({
+    scrapperLocation: baseA,
+    buddyLocation: battlefield
+  });
+  f.flow.start();
+
+  const hold = f.flow.chain.pipeline.events.filter(event => event.timingPoint === "hold");
+  assert.equal(hold.length, 1);
+  assert.equal(hold[0].object.ref.id, "buddy");
+  assert.equal(f.kernel.player("A").score, 1, "the Battlefield was held by the other Unit");
+  assert.deepEqual(f.flow.chain.items, []);
+  assert.equal(f.kernel.objects.filter(object => object.isToken).length, 0);
+});
+
+test("rumble-scrapper production boundary: a Hold containing Rumble and another Unit triggers only Rumble", () => {
+  const f = productionHold({ buddyLocation: battlefield, rowdy: true });
+  f.flow.start();
+
+  const hold = f.flow.chain.pipeline.events.filter(event => event.timingPoint === "hold");
+  assert.deepEqual(hold.map(event => event.object.ref.id).sort(), ["buddy", "rowdy", "scrapper"]);
+  assert.deepEqual(f.flow.chain.items.map(item => item.trigger?.registration.id),
+    [`program:scrapper:${f.kernel.ref("scrapper").zoneEntryId}:1`]);
+  f.settle();
+  assert.equal(f.kernel.objects.filter(object => object.isToken).length, 1,
+    "the other friendly Units and the non-Mech Unit do not duplicate Rumble's trigger");
+});
 
 
 test("rumble-scrapper golden: the same original body plays a token to player B's base", () => {
