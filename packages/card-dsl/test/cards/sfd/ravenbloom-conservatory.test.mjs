@@ -24,7 +24,7 @@ const SOURCE_TEXT =
 //   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
 // Source catalog: sfd-215-221.
 //
-// Timeline: a real Standard Move opens Combat -> CombatFlow establishes roles
+// Timeline: a real effect Move opens Combat -> CombatFlow establishes roles
 // and emits one defense-declared batch -> ProgramBinding lifecycle registers
 // the original here/self trigger -> EventPipeline compares the event
 // battlefield with this card's live location -> ChainEngine Finalize locks the
@@ -106,7 +106,7 @@ function productionFixture({ topTypes = ["spell"], targetField = "bf1" } = {}) {
       cardId: CANONICAL,
       types: ["battlefield"],
       controller: "B",
-      location: field("bf1"),
+      location: { type: "base", player: "B" },
       energy: null,
       power: null
     })
@@ -156,14 +156,14 @@ function productionFixture({ topTypes = ["spell"], targetField = "bf1" } = {}) {
   const binding = createProgramBinding({ cardPrograms: [program] });
   const errors = [];
   binding.attachLifecycle(flow.chain, error => errors.push(error));
-  // Registration setup for a pre-existing board object. This is not the card's
-  // trigger: the real trigger below is the CombatFlow defense-declared event.
-  flow.chain.pipeline.emit({
-    timingPoint: "object-enters-board",
-    object: kernel.getObject("conservatory"),
-    player: "B"
-  });
-  assert.equal(flow.chain.pipeline.checkpoint().triggers.has("program:conservatory:1:0"), true);
+  // The real Board-to-Battlefield entry installs the trigger through lifecycle.
+  assert.equal(flow.chain.commit({
+    type: "move-zone",
+    object: kernel.ref("conservatory"),
+    to: "battlefield",
+    location: field("bf1")
+  }).status, "done");
+  assert.equal(flow.chain.pipeline.checkpoint().triggers.has("program:conservatory:2:0"), true);
   flow.start();
   for (let guard = 0; flow.phase !== "main" && guard < 100; guard++) flow.advance();
   assert.equal(flow.phase, "main");
