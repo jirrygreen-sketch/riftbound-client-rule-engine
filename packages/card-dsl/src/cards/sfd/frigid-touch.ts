@@ -69,8 +69,8 @@ const frigidTouch = {
           args: {
             amount: { kind: "constant", value: -2 },
             duration: { kind: "constant", value: "this-turn" },
-            // 契约 3.6：作用对象经 objects 描述符指向 Finalize 锁定的 TargetSpec；
-            // 生产链适配器按该描述符读取 ctx.targets，重选目标（820.2.a）由 repeat 承担。
+            // 契约 3.6：作用对象经 objects 描述符指向 Finalize 锁定的 TargetSpec。
+            // CR 820.2.a 的重选仍由引擎的额外执行生命周期承担。
             objects: {
               kind: "constant",
               value: { kind: "target", id: "affected-unit" }
@@ -79,7 +79,8 @@ const frigidTouch = {
           targets: [
             {
               id: "affected-unit",
-              filter: { types: "unit" },
+              // CR 355.9.a.1: an unqualified "unit" is an object on the Board.
+              filter: { type: "unit", zone: "board" },
               selection: "one"
             }
           ]

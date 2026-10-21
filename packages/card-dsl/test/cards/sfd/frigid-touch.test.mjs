@@ -55,6 +55,14 @@ function scene({ paid, answer = () => ["first-unit"] } = {}) {
         might: 6,
         location: { type: "base", player: "B" }
       })
+      .hand("hand-unit", {
+        owner: "B",
+        controller: "B",
+        types: ["unit"],
+        might: 6,
+        energy: null,
+        power: null
+      })
   });
 }
 
@@ -108,7 +116,7 @@ test("sfd-066-221 Frigid Touch: the body is only the faithful Might modification
   });
   assert.deepEqual(targetSpec, {
     id: "affected-unit",
-    filter: { types: "unit" },
+    filter: { type: "unit", zone: "board" },
     selection: "one"
   });
 
@@ -129,11 +137,80 @@ test("sfd-066-221 Frigid Touch production: declining Repeat pays the base 2 and 
   assert.equal(effectiveMight(f, "first-unit"), 4);
   assert.equal(effectiveMight(f, "second-unit"), 6);
   assert.equal(f.kernel.getObject("first-unit").buffs, 0);
+  const targetRequest = f.requests.find((request) => request.id.startsWith(`target:${targetSpec.id}`));
+  assert.deepEqual(targetRequest.options.map((ref) => ref.id), ["first-unit", "second-unit"]);
   assert.equal(
     f.engine.pipeline.events.filter((event) => event.timingPoint === "card-played").length,
     1,
     "CR 820.3.a: Repeat is not another play"
   );
+});
+
+test("sfd-066-221 Frigid Touch production: Reaction can be played before a pending spell resolves", () => {
+  const candidate = executableProgram();
+  const opener = {
+    canonicalCardId: "synthetic:rift-917-reaction-opener",
+    rulesetVersion: EFFECT_IR_V2_RULESET,
+    status: "executable",
+    sourceText: "[Reaction]\nDo nothing.",
+    abilities: [
+      { kind: "keyword", keyword: "reaction" },
+      {
+        kind: "play",
+        cost: { kind: "cost.printed", energy: { kind: "constant", value: 1 } },
+        body: []
+      }
+    ]
+  };
+  const f = productionPlay({
+    programs: [candidate, opener],
+    turnPlayer: "A",
+    answers: {
+      [`target:${targetSpec.id}`]: (kernel) => [kernel.ref("first-unit")],
+      "cost:": () => false
+    },
+    build: (w) => w
+      .player("A", { energy: 4, power: [] })
+      .player("B", { energy: 4, power: [] })
+      .hand("spell", {
+        owner: "A",
+        controller: "A",
+        cardId: candidate.canonicalCardId,
+        types: ["spell"],
+        energy: 2,
+        power: null
+      })
+      .hand("opener", {
+        owner: "A",
+        controller: "A",
+        cardId: opener.canonicalCardId,
+        types: ["spell"],
+        energy: 1,
+        power: null
+      })
+      .unit("first-unit", {
+        owner: "B",
+        controller: "B",
+        might: 6,
+        location: { type: "base", player: "B" }
+      })
+  });
+
+  const opening = f.describe("opener", "A");
+  assert.equal(opening.speed, "reaction");
+  f.engine.execute(opening);
+  assert.equal(f.engine.turnState, "neutral-closed");
+  assert.equal(f.engine.items.length, 1);
+
+  const response = f.describe("spell", "A");
+  assert.equal(response.speed, "reaction");
+  f.engine.execute(response);
+  assert.equal(f.engine.items.length, 2);
+  f.settle();
+
+  assert.equal(f.kernel.player("A").energy, 1);
+  assert.equal(effectiveMight(f, "first-unit"), 4);
+  assert.equal(f.engine.trace.filter((entry) => entry.step === "resolved").length, 2);
 });
 
 test("sfd-066-221 Frigid Touch production: paying Repeat pays 4 total and repeats the Might effect", () => {
