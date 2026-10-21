@@ -110,3 +110,70 @@ test('RIFT-898: the reduced cost is what decides affordability', () => {
   const { kernel } = playSpell({ energy: 2, mech: true });
   assert.equal(kernel.player('A').energy, 0);
 });
+
+// RIFT-898 review: an activated Add is re-tagged kind 'add' for immediate
+// resolution but remains an activated ability for cost modification, so a
+// Board "activated abilities cost 1 less" static must apply to it.
+const addGear = {
+  canonicalCardId: 'synthetic:rift-898:add-gear',
+  rulesetVersion: 'core-1.5',
+  status: 'executable',
+  sourceText: 'synthetic: exhaust, pay 1 Energy: Add 2 Energy',
+  abilities: [{
+    kind: 'activated',
+    timing: 'action',
+    cost: { kind: 'activated', energy: c(1), payments: [{ kind: 'exhaust' }] },
+    body: [{ id: 'add-gear.add', op: 'effect.resources', args: { energy: c(2) } }],
+  }],
+};
+
+const activationDiscounter = {
+  canonicalCardId: 'synthetic:rift-898:activation-discounter',
+  rulesetVersion: 'core-1.5',
+  status: 'executable',
+  sourceText: 'synthetic: activated abilities cost 1 less',
+  abilities: [{
+    kind: 'static',
+    effect: { kind: 'continuous.cost-modification', amount: -1, resource: 'energy', minimum: c(0), appliesTo: 'activated-ability-cost' },
+  }],
+};
+
+function activateAddGear({ discounter }) {
+  let builder = world()
+    .player('A', { energy: 1, power: [] })
+    .player('B', { energy: 0 })
+    .unit('gear', { owner: 'A', controller: 'A', cardId: addGear.canonicalCardId, types: ['gear'], might: null, energy: null, power: null, location: { type: 'base', player: 'A' } });
+  if (discounter) builder = builder.unit('discounter', { owner: 'A', controller: 'A', cardId: activationDiscounter.canonicalCardId, might: 1, location: { type: 'base', player: 'A' } });
+  const kernel = builder.build();
+  const choose = request => { throw new Error(`Unexpected choice ${request.type} ${request.id}`); };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+  });
+  const binding = createProgramBinding({ cardPrograms: [addGear, activationDiscounter] });
+  const engine = new ChainEngine({ turnOrder: ['A', 'B'], turnPlayer: 'A', phase: 'main', host, cleanup: () => false });
+  binding.attachLifecycle(engine, error => { throw error; });
+  if (discounter) engine.pipeline.emit({ timingPoint: 'object-enters-board', object: kernel.getObject('discounter'), player: 'A' });
+  const draft = binding.describeActivate(kernel.getObject('gear'), 'A');
+  engine.execute(draft);
+  return { kernel, engine, draft };
+}
+
+test('RIFT-898: an activated Add pays its printed activation cost without a modifier', () => {
+  const { kernel, draft } = activateAddGear({ discounter: false });
+  assert.equal(draft.kind, 'add');
+  assert.equal(draft.trigger, undefined);
+  assert.equal(kernel.player('A').energy, 2, '1 - 1 + 2');
+  assert.equal(kernel.getObject('gear').exhausted, true);
+});
+
+test('RIFT-898: an activated-ability-cost static reduces an activated Add at Finalize', () => {
+  const { kernel } = activateAddGear({ discounter: true });
+  assert.equal(kernel.player('A').energy, 3, '1 - 0 + 2');
+  assert.equal(kernel.getObject('gear').exhausted, true);
+});

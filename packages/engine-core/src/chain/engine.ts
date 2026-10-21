@@ -911,7 +911,10 @@ export class ChainEngine {
       statics: [...staticCostSources(this), ...(item.costStatics ?? [])],
       continuous: this.layers.registry.list().filter(entry =>
         (entry.effect.effect as { costModification?: unknown }).costModification !== true),
-      purpose: item.kind === 'activated' ? 'activate' : 'play',
+      // An activated Add is re-tagged kind add for its immediate resolution
+      // (CR 430.2) but is still an activated ability for cost purposes
+      // (CR 399-401); only a triggered Add carries a trigger snapshot.
+      purpose: item.kind === 'activated' || (item.kind === 'add' && item.trigger === undefined) ? 'activate' : 'play',
       targets: (item.targetPlans ?? []).flatMap(plan => plan.selected),
       originZone: item.source.zone,
     };
