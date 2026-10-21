@@ -266,6 +266,17 @@ describe("RIFT-924 protocol v2 playable turn runtime", () => {
     expect(advanced.status, advanced.error).toBe("accepted");
     expect(runtime.projectFor("A").scoring.players.find(player => player.playerId === "A")?.points)
       .toBeGreaterThanOrEqual(1);
+    let winner = runtime.projectFor(null).winnerPlayerId;
+    for (let turn = 0; turn < 40 && winner === null; turn += 1) {
+      const current = runtime.projectFor(null);
+      const ended = submit(runtime, current.activePlayerId, {
+        type: "end-turn", commandId: `natural-turn-${turn}`, stateVersion: current.stateVersion,
+      });
+      expect(ended.status, ended.error).toBe("accepted");
+      winner = runtime.projectFor(null).winnerPlayerId;
+    }
+    expect(winner).toBe("A");
+    expect(runtime.projectFor(null).phase).toBe("ended");
   }, 120_000);
 
   it("does not silently drop illegal destinations or stale versions", () => {

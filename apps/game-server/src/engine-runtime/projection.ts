@@ -25,6 +25,7 @@ function v2Zone(zone: ObjectSnapshot["zone"]): V2Zone {
 }
 
 function phase(match: Match): V2Phase {
+  if (match.result().winner !== null) return "ended";
   switch (match.flow.phase) {
     case "awaken": return "awaken";
     case "beginning": return "beginning";
