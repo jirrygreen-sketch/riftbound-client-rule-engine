@@ -17,6 +17,8 @@ import recycleDef from "../../../../engine-core/dist/effects/instructions/effect
 import playDef from "../../../../engine-core/dist/effects/instructions/effect.play.js";
 import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+import keywordDef from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { assessCostPayment } from "../../../../engine-core/dist/cost/payment.js";
 
@@ -112,6 +114,26 @@ test("Rumble, Hotheaded: the permanent ability is a friendly-Mech Assault 1 gran
       value: constant(1),
       filter: { zone: "board", controller: "controller", tag: "Mech", type: "unit" }
     }
+  });
+});
+
+test("Rumble, Hotheaded: the grant primitive snapshots Assault 1 in the ability layer", () => {
+  const kernel = world().unit("mech", { owner: "A", controller: "A", tags: ["Mech"] }).build();
+  const run = runInstruction(keywordDef, {
+    keyword: grant.effect.keyword,
+    value: grant.effect.value.value,
+    filter: { tags: ["Mech"], zone: "board" }
+  }, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  const [registered] = kernel.continuousEffects;
+  assert.equal(registered.effect.layer, "ability");
+  assert.equal(registered.effect.effect.kind, "continuous.grant-keyword");
+  assert.equal(registered.effect.effect.keyword, "Assault");
+  assert.equal(registered.effect.effect.keywordValue, 1);
+  assert.deepEqual(registered.effect.filter.objectId, "mech");
+  assert.deepEqual(translateObjectFilter(grant.effect.filter), {
+    zone: "board", controller: "self", tags: ["Mech"], type: "unit"
   });
 });
 
@@ -290,6 +312,10 @@ test("Rumble, Hotheaded golden: lifecycle grants Assault and attacker Might only
   assert.deepEqual(engine.layers.evaluate(kernel.ref("enemy-mech")).keywords, []);
   assert.equal(engine.layers.evaluate(kernel.ref("enemy-mech")).might, 3);
   lifecycle.detach();
+  assert.equal(engine.layers.registry.list().length, 0);
+  assert.deepEqual(engine.layers.evaluate(kernel.ref("friendly-mech")).keywords, []);
+  assert.deepEqual(engine.layers.evaluate(kernel.ref("friendly-other")).keywords, []);
+  assert.deepEqual(engine.layers.evaluate(kernel.ref("enemy-mech")).keywords, []);
 });
 
 test("Rumble, Hotheaded: recycle, Might-valued reduction, payment and trash play primitives execute", () => {
@@ -312,6 +338,7 @@ test("Rumble, Hotheaded: recycle, Might-valued reduction, payment and trash play
   assert.deepEqual(recycled.linked.recycled, [fodderRef]);
   assert.equal(recycled.linked.recycledCount, 1);
   assert.equal(kernel.getObject("fodder").zone, "deck");
+  assert.deepEqual(recycled.events.map(event => event.action), ["recycle"]);
 
   // Direct cost.modify execution is a primitive check. Use its supported
   // TargetSpec spelling so this assertion does not duplicate the separate
@@ -337,6 +364,7 @@ test("Rumble, Hotheaded: recycle, Might-valued reduction, payment and trash play
   assert.equal(paid.result.status, "executed");
   assert.equal(paid.linked.payment.total.energy, 2);
   assert.equal(planKernel.player("A").energy, 3);
+  assert.deepEqual(paid.events.map(event => event.action), ["pay"]);
 
   // The card's declared target filter admits the trash Mech unit and rejects
   // a spell carrying the same tag. This checks the actual authored candidates
@@ -357,6 +385,7 @@ test("Rumble, Hotheaded: recycle, Might-valued reduction, payment and trash play
   assert.equal(played.result.status, "executed");
   assert.equal(played.linked.played, 1);
   assert.equal(kernel.getObject("trash-mech").zone, "board");
+  assert.deepEqual(played.events.map(event => event.action), ["pay", "play"]);
   // effect.play receives an already-finalized paid cost here; the isolated
   // reference kernel does not debit the player a second time.
   assert.equal(kernel.player("A").energy, 3);
