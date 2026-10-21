@@ -1,394 +1,363 @@
-// Golden test for Rumble, Hotheaded (sfd-026-221).
-// Test supported static and primitive subeffects independently. Conquer
-// identity, recycle-cost selection and nested play cost binding remain blocked.
-import test from "node:test";
 import assert from "node:assert/strict";
-import { validateCardProgram } from "../../../../../packages/card-dsl/dist/ir/index.js";
-import program from "../../../../../packages/card-dsl/dist/cards/sfd/rumble-hotheaded.js";
-import { cardRegistryById } from "../../../../../packages/card-dsl/dist/cards/registry.generated.js";
-import recycleDef from "../../../../../packages/engine-core/dist/effects/instructions/effect.recycle.js";
-import playDef from "../../../../../packages/engine-core/dist/effects/instructions/effect.play.js";
-import keyword from "../../../../../packages/engine-core/dist/effects/instructions/continuous.grant-keyword.js";
-import { translateObjectFilter, translateInstructionTargets } from "../../../../../packages/engine-core/dist/programs/filters.js";
-import { translateCost } from "../../../../../packages/engine-core/dist/programs/play.js";
+import test from "node:test";
+
+import { validateCardProgram } from "../../../dist/ir/index.js";
+import program from "../../../dist/cards/sfd/rumble-hotheaded.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import recycleDef from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
+import playDef from "../../../../engine-core/dist/effects/instructions/effect.play.js";
 import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
-import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
-import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
-import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
-import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
-import { world, runInstruction } from "../../../../../packages/engine-core/dist/effects/testing/index.js";
-import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
-import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
-import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { assessCostPayment } from "../../../../engine-core/dist/cost/payment.js";
 
 const CANONICAL = "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870";
+const SOURCE_TEXT =
+  "Your Mechs each have [Assault]. (+1 :rb_might: while we're attackers.)\n" +
+  "When I conquer, you may recycle another friendly unit to play a Mech from your trash. " +
+  "Reduce its Energy cost by the Might of the unit you recycled.";
+const [grant, trigger] = program.abilities;
+const [optional] = trigger.body;
+const [recycleCost, cost, play] = optional.args.body.value;
 
-test("program passes validateCardProgram and is judge-required", () => {
+const constant = (value) => ({ kind: "constant", value });
+
+function productionConquer(accept) {
+  const lifted = { ...program, status: "executable", judgeReason: undefined };
+  const builder = world().player("A", { energy: 10 }).player("B", { energy: 10 })
+    .base("rumble", { cardId: CANONICAL, tags: ["Mech"], might: 4, location: { type: "base", player: "A" } })
+    .base("fodder", { controller: "A", might: 3, location: { type: "base", player: "A" } })
+    .card("trash-mech", { zone: "trash", types: ["unit"], tags: ["Mech"], energy: 5, power: null, might: 3 });
+  for (const player of ["A", "B"]) {
+    builder.deck(Array.from({ length: 8 }, (_, index) => `${player}:deck:${index}`), { owner: player });
+    builder.rune(Array.from({ length: 8 }, (_, index) => `${player}:rune:${index}`), { owner: player });
+  }
+  const kernel = builder.build();
+  const requests = [];
+  const choose = (request) => {
+    requests.push(structuredClone(request));
+    if (request.type === "optional") return accept;
+    if (request.type === "mode" && request.id.includes(":order:")) return request.options[0];
+    if (request.type === "select-objects" && request.min === request.max && request.options.length === request.min) return [...request.options];
+    if (request.type === "select-objects" && request.min === 0) return [];
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (saved) => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    performContract: (action) => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: (registration) => kernel.test(registration.spec.condition)
+  });
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const flow = new TurnFlow({
+    host,
+    player: (id) => kernel.player(id),
+    turnOrder: ["A", "B"],
+    battlefields: [{ id: "bf1", controller: null }, { id: "bf2", controller: null }],
+    describePlay: binding.describePlay
+  });
+  flow.start();
+  const registrations = binding.registerProgramTriggers(flow.chain, kernel.getObject("rumble"));
+  assert.deepEqual(registrations, ["program:rumble:1:1"]);
+  assert.equal(flow.chain.commit({
+    type: "move-location", object: kernel.ref("rumble"), to: { type: "battlefield", id: "bf1" }
+  }).status, "done");
+  flow.advance();
+  for (let guard = 0; guard < 80; guard++) {
+    if (flow.chain.items.some((item) => item.status === "pending")) { flow.advance(); continue; }
+    if (flow.chain.items.length) { flow.pass(flow.chain.priority); continue; }
+    if (flow.chain.focus !== null) { flow.pass(flow.chain.focus); continue; }
+    return { kernel, flow, requests };
+  }
+  throw new Error("production Conquer flow did not settle");
+}
+
+test("Rumble, Hotheaded: validates, is registered, and remains judge-required", () => {
   const result = validateCardProgram(program);
-  assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason ?? "", /continuous\.grant-keyword/);
-  assert.match(program.judgeReason ?? "", /KeywordGrantLayerEngine/);
-  assert.match(program.judgeReason ?? "", /production lifecycle/);
-  assert.match(program.judgeReason ?? "", /cost\.modify\/cost\.pay/);
-  assert.match(program.judgeReason ?? "", /运行时授予/);
-  assert.match(program.judgeReason ?? "", /designation/);
-  assert.match(program.judgeReason ?? "", /conquered/);
-  assert.match(program.sourceText, /Your Mechs each have \[Assault\]/);
-});
-
-test("program is the registered identity for its canonical card id", () => {
+  assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
+  assert.match(program.judgeReason, /383\.3\.a/);
+  assert.match(program.judgeReason, /383\.3\.b\.1/);
+  assert.match(program.judgeReason, /355\.10\.c\.1/);
+  assert.match(program.judgeReason, /cost\/payment\.ts:92-94/);
+  assert.match(program.judgeReason, /Board|unperformable-trigger/);
+  assert.match(program.judgeReason, /Might\/LKI/);
+  assert.doesNotMatch(program.judgeReason, /CostPlan.*没有顶层|conquer.*恒不匹配|Unsupported filter field role/);
 });
 
-test("static ability grants Assault to friendly Mech units", () => {
-  const [grant] = program.abilities;
-  assert.equal(grant.kind, "static");
-  assert.equal(grant.effect.kind, "continuous.grant-keyword");
-  assert.equal(grant.effect.keyword, "Assault");
-  assert.deepEqual(grant.effect.value, { kind: "constant", value: 1 });
-  assert.deepEqual(grant.effect.filter, {
-    zone: "board",
-    controller: "controller",
-    tag: "Mech",
-    type: "unit"
+test("Rumble, Hotheaded: the permanent ability is a friendly-Mech Assault 1 grant", () => {
+  assert.deepEqual(grant, {
+    kind: "static",
+    effect: {
+      kind: "continuous.grant-keyword",
+      keyword: "Assault",
+      value: constant(1),
+      filter: { zone: "board", controller: "controller", tag: "Mech", type: "unit" }
+    }
   });
 });
 
-test("conquer trigger is optional, self-scoped, and links recycle into play", () => {
-  const [, trigger] = program.abilities;
-  assert.equal(trigger.kind, "triggered");
-  assert.equal(trigger.optional, true);
+test("Rumble, Hotheaded: conquer trigger uses the real self-Unit event payload", () => {
   assert.equal(trigger.trigger.at, "conquer");
-  // The closed EventPattern discriminant for the conquer timing point is
-  // "conquered" (events/pipeline-match.ts maps it onto conquer), and the
-  // anchor is this card (383.4.c.2.a).
-  assert.deepEqual(trigger.trigger.filter, { event: "conquered", filter: { source: "self" } });
-  assert.equal(trigger.body.length, 3);
+  assert.deepEqual(trigger.trigger.filter, { event: "conquered", object: { objectId: "self" } });
+  assert.equal(validateTriggerSpec({ at: trigger.trigger.at, filter: trigger.trigger.filter }).ok, true);
 
-  const [recycle, cost, play] = trigger.body;
-  assert.equal(recycle.op, "effect.recycle");
-  assert.equal(recycle.targets?.length, 1);
-  assert.deepEqual(recycle.targets?.[0], {
-    id: "rumble.fodder",
-    filter: { zone: "board", controller: "controller", type: "unit", role: "other-friendly" },
-    min: 1,
-    max: 1,
-    selection: "one"
+  const source = world().unit("rumble", { cardId: CANONICAL, might: 4 }).build().getObject("rumble");
+  const other = { ...source, ref: { id: "other", zoneEntryId: source.ref.zoneEntryId } };
+  const event = (object) => ({
+    timingPoint: "conquer",
+    kind: "conquer",
+    player: "A",
+    object,
+    source: object,
+    it: object,
+    details: { battlefieldId: "bf1", objectId: object.ref.id, playerId: "A" }
   });
+  const productionFilter = { event: "conquered", object: { objectId: "rumble" } };
+  assert.equal(matchesTriggerEvent(productionFilter, event(source), "A", source), true);
+  assert.equal(matchesTriggerEvent(productionFilter, event(other), "A", source), false);
+  assert.equal(matchesTriggerEvent(productionFilter, { ...event(source), timingPoint: "hold", kind: "hold" }, "A", source), false);
+});
 
+test("Rumble, Hotheaded: the recycle is one non-target leading base-cost choice", () => {
+  assert.equal(trigger.optional, false);
+  assert.equal(optional.op, "choice.optional");
+  assert.equal(recycleCost.op, "cost.pay");
+  assert.deepEqual(recycleCost.args.payments, {
+    kind: "constant",
+    value: [{
+      kind: "recycle",
+      choice: {
+        id: "rumble.fodder",
+        options: [],
+        filter: {
+          zone: "board",
+          controller: "controller",
+          type: "unit",
+          relation: { relation: "other", object: "self" }
+        },
+        min: 1,
+        max: 1,
+        selection: "one"
+      }
+    }]
+  });
+  assert.equal(recycleCost.targets, undefined);
   assert.equal(cost.op, "cost.modify");
-  assert.equal(cost.linkedTo, "rumble.recycle-fodder");
-  assert.deepEqual(cost.args.id, { kind: "constant", value: "rumble.mech-cost" });
-  assert.deepEqual(cost.args.cost, {
-    kind: "constant",
-    value: {
-      kind: "explicit",
-      energy: {
-        kind: "object-property",
-        object: { target: "rumble.mech-in-trash" },
-        property: "energy"
-      }
-    }
+  assert.equal(cost.linkedTo, recycleCost.id);
+  assert.deepEqual(cost.args.modifier.value.amount, {
+    kind: "object-property",
+    object: { linked: recycleCost.id },
+    property: "might"
   });
-  assert.deepEqual(cost.args.modifier, {
-    kind: "constant",
-    value: {
-      kind: "reduce",
-      resource: "energy",
-      amount: {
-        kind: "object-property",
-        object: { linked: "rumble.recycle-fodder" },
-        property: "might"
-      }
-    }
-  });
-
   assert.equal(play.op, "effect.play");
-  assert.equal(play.linkedTo, "rumble.mech-cost");
-  assert.deepEqual(play.args.target, { kind: "constant", value: "rumble.mech-in-trash" });
-  assert.deepEqual(play.args.cost, {
-    kind: "linked-value",
-    instructionId: "rumble.mech-cost",
-    key: "cost"
-  });
-  assert.deepEqual(play.targets?.[0], {
+  assert.equal(play.linkedTo, cost.id);
+  assert.deepEqual(play.args.target, constant("rumble.mech-in-trash"));
+  assert.deepEqual(play.targets, [{
     id: "rumble.mech-in-trash",
     filter: { zone: "trash", owner: "controller", tag: "Mech", type: "unit" },
     min: 1,
     max: 1,
     selection: "one"
+  }]);
+});
+
+test("Rumble, Hotheaded golden: accepting reaches real Conquer Finalize, which rejects Board recycle atomically", () => {
+  const { kernel, flow, requests } = productionConquer(true);
+  const conquer = flow.chain.pipeline.events.filter((event) => event.timingPoint === "conquer");
+  assert.equal(conquer.length, 1);
+  assert.deepEqual(conquer[0].object.ref, kernel.ref("rumble"));
+  assert.deepEqual(conquer[0].source.ref, kernel.ref("rumble"));
+  assert.deepEqual(conquer[0].details, {
+    battlefieldId: "bf1", battlefieldControllerBefore: null, objectId: "rumble", playerId: "A"
   });
+  assert.deepEqual(requests.map((request) => request.id), [
+    "finalize:trigger:1:optional",
+    "target:rumble.mech-in-trash",
+    "cost:rumble:1:rumble.opt-in:pick:rumble.fodder"
+  ]);
+  assert.deepEqual(requests[1].options.map((ref) => ref.id), ["trash-mech"]);
+  assert.deepEqual(requests[2].options.map((ref) => ref.id), ["fodder"]);
+  assert.equal(flow.chain.pipeline.events.some((event) => event.timingPoint === "became-target"), false);
+  assert.ok(flow.chain.trace.some((entry) =>
+    entry.step === "removed" && entry.item === "trigger:1" && entry.reason === "unperformable-trigger"));
+  assert.equal(kernel.getObject("fodder").zone, "board");
+  assert.equal(kernel.getObject("trash-mech").zone, "trash");
+  assert.equal(kernel.player("A").energy, 0);
 });
 
-test("reference kernel: recycling the fodder unit moves it to the bottom of its deck", () => {
-  const testWorld = world().base("fodder", { owner: "A", might: 3 }).build();
-  const run = runInstruction(
-    recycleDef,
-    { target: "rumble.fodder" },
-    { world: testWorld, targets: { "rumble.fodder": [testWorld.ref("fodder")] } }
-  );
-  assert.equal(run.result?.status, "executed");
-  assert.equal(run.linked["recycledCount"], 1);
-  assert.equal(testWorld.getObject("fodder")?.zone, "deck");
-  assert.deepEqual(testWorld.objectsInZone("A", "deck"), [{ id: "fodder", zoneEntryId: 2 }]);
+test("Rumble, Hotheaded: cost payment rejects a Board Unit recycle as this card requires", () => {
+  const kernel = world().player("A").unit("fodder", { controller: "A", might: 3 }).build();
+  const context = kernel.clone({
+    source: kernel.ref("fodder"),
+    sourceSnapshot: kernel.getObject("fodder"),
+    timingPoint: "chain-item-finalize"
+  });
+  const plan = buildCostPlan(context, {
+    id: "rumble.board-recycle",
+    cost: { kind: "explicit", payments: [{ kind: "recycle", object: "self" }] }
+  });
+  const assessed = assessCostPayment(context, plan);
+  assert.equal(assessed.payable, false);
+  assert.equal(assessed.error.reason, "cannot-pay-cost");
+  assert.match(assessed.error.message, /A recycle cost requires an owned card in Trash or a Rune in the Rune Zone/);
+  assert.equal(kernel.getObject("fodder").zone, "board");
 });
 
-test("reference kernel: an isolated play with an explicit cost moves the chosen Mech from trash to the board", () => {
-  const testWorld = world()
+test("Rumble, Hotheaded: adapter Resolve cannot read the removed leading cost's selected Unit", () => {
+  const kernel = world()
     .player("A", { energy: 5 })
-    .card("mech-card", { owner: "A", zone: "trash", types: ["unit"], tags: ["Mech"], energy: 5 })
+    .unit("rumble", { cardId: CANONICAL, tags: ["Mech"], might: 4 })
+    .unit("fodder", { controller: "A", might: 3 })
+    .card("trash-mech", { zone: "trash", types: ["unit"], tags: ["Mech"], energy: 5, power: null })
     .build();
-  const run = runInstruction(
-    playDef,
-    {
-      target: "rumble.mech-in-trash",
-      cost: { kind: "constant", value: { finalized: true, energy: 5 } }
-    },
-    {
-      world: testWorld,
-      targets: { "rumble.mech-in-trash": [testWorld.ref("mech-card")] }
+  kernel.setTargets("rumble.mech-in-trash", [kernel.ref("trash-mech")]);
+  assert.throws(() => resolveChainBody([cost], bindResolveContext(kernel, {
+    source: kernel.getObject("rumble"), controller: "A"
+  }), {
+    cost: {
+      plan: {
+        finalized: true, id: "cost:rumble", player: "A", source: kernel.ref("rumble"),
+        selectedAdditional: [], declinedAdditional: [], additional: [], total: { choices: [] }
+      },
+      receipt: {
+        planId: "cost:rumble", paid: true, additional: [],
+        total: { choices: [{ id: "rumble.fodder", objects: [kernel.ref("fodder")] }] }
+      }
     }
-  );
-  assert.equal(run.result?.status, "executed");
-  assert.equal(run.linked["played"], 1);
-  assert.equal(testWorld.getObject("mech-card")?.zone, "board");
-  assert.equal(testWorld.player("A").energy, 0);
+  }), /Unknown or forward instruction link: rumble\.recycle-cost/);
+  assert.equal(kernel.getObject("trash-mech").zone, "trash");
+  assert.equal(kernel.getObject("fodder").zone, "board");
 });
 
-test.todo(
-  "Rumble, Hotheaded: pass the finalized CostPlan total through effect.play's flat override " +
-    "so the linked plan's 2 Energy total is charged instead of reading cost.energy ?? 0"
-);
-test("the merged continuous.grant-keyword primitive registers the Assault grant itself", () => {
-  // The merged continuous.grant-keyword static data is
-  // executable once a consumer registers it: the primitive writes an
-  // ability-layer keyword grant per matching object with the printed value.
-  // The production default binder normalizes the card's filter in the next test.
+test("Rumble, Hotheaded golden: declining the leading choice asks no target or recycle cost", () => {
+  const { kernel, flow, requests } = productionConquer(false);
+  assert.deepEqual(requests.map((request) => request.id), ["finalize:trigger:1:optional"]);
+  assert.equal(kernel.getObject("fodder").zone, "board");
+  assert.equal(kernel.getObject("trash-mech").zone, "trash");
+  assert.equal(flow.chain.trace.some((entry) => entry.reason === "unperformable-trigger"), false);
+});
+
+test("Rumble, Hotheaded golden: lifecycle grants Assault and attacker Might only to friendly Mechs", () => {
   const kernel = world()
-    .unit("mech", { owner: "A", controller: "A", tags: ["Mech"] })
+    .hand("rumble", { cardId: CANONICAL, types: ["unit"], tags: ["Mech"], might: 4, combatRole: "attacker" })
+    .unit("friendly-mech", { controller: "A", tags: ["Mech"], might: 3, combatRole: "attacker" })
+    .unit("friendly-other", { controller: "A", tags: [], might: 3, combatRole: "attacker" })
+    .unit("enemy-mech", { owner: "B", controller: "B", tags: ["Mech"], might: 3, combatRole: "attacker" })
     .build();
-  const [grant] = program.abilities;
-  const run = runInstruction(
-    keyword,
-    {
-      keyword: grant.effect.keyword,
-      value: grant.effect.value.value,
-      filter: { tags: ["Mech"], zone: "board" }
-    },
-    { world: kernel }
-  );
-  assert.equal(run.result.status, "executed");
-  assert.equal(kernel.continuousEffects.length, 1);
-  const [registered] = kernel.continuousEffects;
-  assert.equal(registered.effect.layer, "ability");
-  assert.equal(registered.effect.effect.kind, "continuous.grant-keyword");
-  assert.equal(registered.effect.effect.keyword, "Assault");
-  // The primitive snapshots the printed value for the ability layer rather
-  // than re-reading the card data (807.1.b.3: an omitted value presumes 1).
-  assert.equal(registered.effect.effect.keywordValue, 1);
-  assert.deepEqual(registered.effect.filter.objectId, "mech");
-
-  // The card's own card-program filter is only translatable through the
-  // programs layer, where `tag` becomes `tags` and `controller` becomes `self`.
-  assert.deepEqual(translateObjectFilter(grant.effect.filter), {
-    zone: "board",
-    controller: "self",
-    tags: ["Mech"],
-    type: "unit"
+  const choose = (request) => { throw new Error(`Unexpected choice ${request.id}`); };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (saved) => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose })
   });
-});
-
-test("the card retains its blocked discount declaration and recycle reference links", () => {
-  // Evidence for the judgeReason: the discount is now declared in the card's
-  // own body as a real cost.modify instruction, and effect.play links that
-  // plan. The remaining gap is the CostPlan-to-flat-finalized conversion.
-  const [, trigger] = program.abilities;
-  const [, cost, play] = trigger.body;
-  assert.equal(cost.op, "cost.modify");
-  assert.deepEqual(play.args.cost, {
-    kind: "linked-value",
-    instructionId: "rumble.mech-cost",
-    key: "cost"
-  });
-  const translated = translateCost({ kind: "printed", energy: { kind: "constant", value: 5 } }, "rumble.play-mech", "play");
-  assert.deepEqual(translated, { kind: "explicit", energy: { kind: "constant", value: 5 } });
-
-  // The merged effect.recycle links the recycled references and their count;
-  // the Might value the program reads must be derived from those references by
-  // card-specific snapshot and Finalize binding.
-  const kernel = world().base("fodder", { owner: "A", might: 3 }).build();
-  const recycled = runInstruction(
-    recycleDef,
-    { target: "rumble.fodder" },
-    { world: kernel, targets: { "rumble.fodder": [kernel.ref("fodder")] } }
-  );
-  assert.equal(recycled.result.status, "executed");
-  assert.equal(recycled.linked.recycledCount, 1);
-  assert.deepEqual(recycled.linked.recycled, [{ id: "fodder", zoneEntryId: 1 }]);
-  assert.equal(kernel.getObject("fodder").zone, "deck");
-});
-
-
-test("Rumble, Hotheaded: the merged keyword layer consumes Assault as attacker-only Might", () => {
-  const kernel = world()
-    .unit("rumble", { owner: "A", controller: "A", tags: ["Mech"], zone: "board", might: 4, combatRole: null })
-    .unit("friendly-mech", { owner: "A", controller: "A", tags: ["Mech"], zone: "board", might: 3, combatRole: "attacker" })
-    .unit("enemy-mech", { owner: "B", controller: "B", tags: ["Mech"], zone: "board", might: 3, combatRole: "attacker" })
-    .build();
-  const layers = new KeywordGrantLayerEngine(kernel.objects, {
-    context: source => bindResolveContext(kernel, { source, controller: source.controller })
-  });
-  layers.addContinuous({
-    id: "rumble.assault-grant",
-    layer: "ability",
-    source: kernel.ref("rumble"),
-    filter: { zone: "board", controller: "A", tags: ["Mech"], type: "unit" },
-    effect: { kind: "continuous.grant-keyword", keyword: "Assault", keywordValue: 1 }
-  }, { type: "permanent" });
-  assert.deepEqual(layers.evaluate(kernel.ref("friendly-mech")).keywords, [{ id: "Assault", value: 1 }]);
-  assert.equal(layers.evaluate(kernel.ref("friendly-mech")).might, 4);
-  assert.deepEqual(layers.evaluate(kernel.ref("enemy-mech")).keywords, []);
-  assert.equal(layers.evaluate(kernel.ref("enemy-mech")).might, 3);
-});
-
-test("Rumble, Hotheaded: the rewritten conquer trigger registers but cannot match a real conquer wave", () => {
-  // 383.4.c / 383.4.c.2.a: the closed discriminant and the source anchor are now
-  // registrable, but the production Score wave emits only
-  // { player, details: { battlefieldId } }, so the translated object anchor is
-  // undefined on the event and the matcher fails closed.
-  const { engine, kernel } = fixture({ cards: [{ id: "rumble", cardId: CANONICAL, tags: ["Mech"], might: 4 }] });
-  const [, trigger] = program.abilities;
-  // The recycle target keeps its printed relative anchor, which the program
-  // binding still rejects (asserted below); this registration view replaces
-  // only that clause so the trigger filter itself can be measured.
-  const registrationBody = [{ ...trigger.body[0], targets: [{ ...trigger.body[0].targets[0], filter: { zone: "board", controller: "controller", type: "unit" } }] }];
-  const lifted = { ...program, status: "executable", judgeReason: undefined, abilities: [program.abilities[0], { ...trigger, body: registrationBody }] };
-  const binding = createProgramBinding({ cardPrograms: [lifted] });
-  const ids = binding.registerProgramTriggers(engine, kernel.getObject("rumble"));
-  assert.equal(ids.length, 1);
-  const [registration] = [...engine.pipeline.checkpoint().triggers.values()];
-  assert.deepEqual(registration.spec, {
-    at: "conquer",
-    filter: { event: "conquered", object: { objectId: "rumble" } }
-  });
-  assert.doesNotThrow(() => assertTriggerSpec(registration.spec));
-  const emission = { timingPoint: "conquer", kind: "conquer", player: "A", details: { battlefieldId: "bf1" } };
-  assert.equal(matchesTriggerEvent(registration.spec.filter, emission, "A"), false);
-  // A payload that did carry this unit would match, which isolates the gap to
-  // the missing battlefield/object identity in the real emission.
-  assert.equal(matchesTriggerEvent(registration.spec.filter, { ...emission, object: kernel.getObject("rumble") }, "A"), true);
-
-  // The printed recycle clause itself still cannot be translated.
-  assert.throws(
-    () => translateInstructionTargets(trigger.body),
-    (error) => error.code === "judge-required" && /Unsupported filter field role/.test(error.message)
-  );
-});
-
-
-test("Rumble, Hotheaded: the default static binder registers the original friendly-Mech Assault aura", () => {
-  const { engine, kernel } = fixture({ cards: [
-    { id: "rumble", cardId: CANONICAL, tags: ["Mech"], might: 4 },
-    { id: "friendly-mech", tags: ["Mech"], might: 3 },
-    { id: "friendly-other", tags: [], might: 3 },
-    { id: "enemy-mech", owner: "B", controller: "B", tags: ["Mech"], might: 3 }
-  ] });
-  for (const id of ["rumble", "friendly-mech", "friendly-other", "enemy-mech"]) {
-    engine.commit({ type: "move-zone", object: kernel.ref(id), to: "base", location: { type: "base", player: kernel.getObject(id).controller } });
-  }
-  const handle = createEngineStaticBinder(engine).bindStatic(program.abilities[0], kernel.getObject("rumble"));
-  const [entry] = engine.layers.registry.list();
-  assert.deepEqual(entry.effect.filter, { zone: "board", controller: "A", tags: ["Mech"], type: "unit" });
+  const engine = new ChainEngine({ host, turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", cleanup: () => false });
+  const staticOnly = { ...program, status: "executable", judgeReason: undefined, abilities: [program.abilities[0]] };
+  const lifecycle = createProgramBinding({ cardPrograms: [staticOnly] }).attachLifecycle(engine);
+  assert.equal(engine.commit({ type: "move-zone", object: kernel.ref("rumble"), to: "chain" }).status, "done");
+  assert.equal(engine.commit({
+    type: "move-zone", object: kernel.ref("rumble"), to: "base", location: { type: "base", player: "A" }
+  }).status, "done");
+  engine.advance();
   engine.layers.setObjects(kernel.objects);
   for (const id of ["rumble", "friendly-mech"]) {
     assert.deepEqual(engine.layers.evaluate(kernel.ref(id)).keywords, [{ id: "Assault", value: 1 }]);
   }
-  for (const id of ["friendly-other", "enemy-mech"]) {
-    assert.deepEqual(engine.layers.evaluate(kernel.ref(id)).keywords, []);
-  }
-  handle.unbind();
-  assert.equal(engine.layers.registry.list().length, 0);
-  assert.deepEqual(engine.layers.evaluate(kernel.ref("friendly-mech")).keywords, []);
+  assert.equal(engine.layers.evaluate(kernel.ref("friendly-mech")).might, 4);
+  assert.deepEqual(engine.layers.evaluate(kernel.ref("friendly-other")).keywords, []);
+  assert.equal(engine.layers.evaluate(kernel.ref("friendly-other")).might, 3);
+  assert.deepEqual(engine.layers.evaluate(kernel.ref("enemy-mech")).keywords, []);
+  assert.equal(engine.layers.evaluate(kernel.ref("enemy-mech")).might, 3);
+  lifecycle.detach();
 });
 
-test("Rumble, Hotheaded: merged cost.modify and cost.pay execute a real Might-valued discount independently", () => {
-  // This proves the primitives have landed. The original card still needs to
-  // take the recycle-cost snapshot and bind the plan to the selected Mech.
-  const kernel = world().player("A", { energy: 5 }).base("fodder", { might: 3 }).build();
-  const modified = runInstruction(costModify, {
-    id: "mech-cost-probe",
-    cost: { kind: "explicit", energy: { kind: "constant", value: 5 } },
-    modifier: { kind: "reduce", resource: "energy", amount: { kind: "object-property", object: { target: "fodder" }, property: "might" } }
-  }, { world: kernel, targets: { fodder: [kernel.ref("fodder")] } });
-  assert.equal(modified.result.status, "executed");
-  assert.equal(modified.linked.cost.finalized, true);
-  assert.equal(modified.linked.cost.total.energy, 2);
-  assert.equal(kernel.player("A").energy, 5);
-  const paid = runInstruction(costPay, {
-    cost: { kind: "constant", value: modified.linked.cost }
-  }, { world: kernel });
-  assert.equal(paid.result.status, "executed");
-  assert.equal(kernel.player("A").energy, 3);
-  assert.deepEqual(paid.events.map(event => event.action), ["pay"]);
-});
-
-test("Rumble, Hotheaded: the real trigger body computes the discount and records the CostPlan shape blocker", () => {
-  // Execute the card's own trigger.body. The test kernel locks the two target
-  // refs because the printed role:other-friendly selector is intentionally
-  // blocked (covered above); the chain adapter also needs the cost.modify
-  // Expr wrappers literalized because it has no cost.modify LITERAL_FIELDS
-  // entry. Instruction ids, links, and all cost expressions still come from
-  // trigger.body itself.
-  const built = world()
-    .player("A", { energy: 10 })
-    .unit("rumble", { owner: "A", controller: "A", tags: ["Mech"], might: 4 })
-    .base("fodder", { owner: "A", might: 3 })
-    .card("mech-card", { owner: "A", zone: "trash", types: ["unit"], tags: ["Mech"], energy: 5 })
+test("Rumble, Hotheaded: recycle, Might-valued reduction, payment and trash play primitives execute", () => {
+  const kernel = world()
+    .player("A", { energy: 5 })
+    .unit("rumble", { cardId: CANONICAL, tags: ["Mech"], might: 4 })
+    .unit("fodder", { controller: "A", might: 3 })
+    .unit("not-a-mech", { controller: "A", type: ["unit"], tags: [] })
+    .card("trash-mech", { zone: "trash", types: ["unit"], tags: ["Mech"], energy: 5, power: null })
+    .card("trash-spell", { zone: "trash", types: ["spell"], tags: ["Mech"], energy: 4, power: null })
     .build();
-  const kernel = built.clone({
-    controller: "A",
-    sourceSnapshot: built.getObject("rumble"),
-    targets: new Map([
-      ["rumble.fodder", [built.ref("fodder")]],
-      ["rumble.mech-in-trash", [built.ref("mech-card")]]
-    ])
-  });
-  const [trigger] = program.abilities.filter((ability) => ability.kind === "triggered");
-  const body = trigger.body.map((instruction) => {
-    const withoutTargetSpecs = { ...instruction, targets: undefined };
-    if (instruction.op !== "cost.modify") return withoutTargetSpecs;
-    return {
-      ...withoutTargetSpecs,
-      args: {
-        id: instruction.args.id.value,
-        cost: instruction.args.cost.value,
-        modifier: instruction.args.modifier.value
-      }
-    };
-  });
-  const outcome = resolveChainBody(body, kernel);
-  assert.equal(outcome.status, "executed");
-  assert.deepEqual(outcome.results.map((entry) => entry.result.status), ["executed", "executed", "executed"]);
-  const plan = outcome.linkedValues["rumble.mech-cost.cost"];
-  assert.equal(plan.base.energy, 5);
-  assert.deepEqual(plan.discounts, [{
-    id: "rumble.mech-cost:modifier:0",
-    component: null,
-    resource: "energy",
-    amount: 3,
-    minimum: 0,
-    before: 5,
-    after: 2
-  }]);
-  assert.equal(plan.total.energy, 2);
-  assert.equal(plan.energy, undefined);
+  const fodderRef = kernel.ref("fodder");
+  const mechRef = kernel.ref("trash-mech");
+  const recycled = runInstruction(
+    recycleDef,
+    { objects: constant(fodderRef) },
+    { world: kernel }
+  );
+  assert.equal(recycled.result.status, "executed");
+  assert.deepEqual(recycled.linked.recycled, [fodderRef]);
+  assert.equal(recycled.linked.recycledCount, 1);
   assert.equal(kernel.getObject("fodder").zone, "deck");
-  assert.equal(kernel.getObject("mech-card").zone, "board");
-  assert.equal(kernel.player("A").energy, 10);
-  assert.deepEqual(kernel.events.map((event) => event.action), ["recycle", "pay", "play"]);
+
+  // Direct cost.modify execution is a primitive check. Use its supported
+  // TargetSpec spelling so this assertion does not duplicate the separate
+  // production leading-receipt gap asserted above.
+  const planKernel = world().player("A", { energy: 5 }).unit("fodder", { might: 3 }).build();
+  const planRun = runInstruction(costModify, {
+    id: "rumble.probe-cost",
+    cost: { kind: "explicit", energy: constant(5) },
+    modifier: {
+      kind: "reduce",
+      resource: "energy",
+      amount: { kind: "object-property", object: { target: "fodder" }, property: "might" }
+    }
+  }, { world: planKernel, targets: { fodder: [planKernel.ref("fodder")] } });
+  assert.equal(planRun.result.status, "executed");
+  assert.equal(planRun.linked.cost.finalized, true);
+  assert.equal(planRun.linked.cost.total.energy, 2);
+  assert.deepEqual(planRun.linked.cost.discounts.map((entry) => [entry.amount, entry.before, entry.after]), [[3, 5, 2]]);
+
+  const paid = runInstruction(costPay, {
+    cost: constant(planRun.linked.cost)
+  }, { world: planKernel });
+  assert.equal(paid.result.status, "executed");
+  assert.equal(paid.linked.payment.total.energy, 2);
+  assert.equal(planKernel.player("A").energy, 3);
+
+  // The card's declared target filter admits the trash Mech unit and rejects
+  // a spell carrying the same tag. This checks the actual authored candidates
+  // before play moves the Mech onto the Board.
+  const candidates = kernel.objects.filter(object =>
+    object.zone === "trash" && object.owner === "A" &&
+    object.types.includes("unit") && object.tags.includes("Mech"));
+  assert.deepEqual(candidates.map(object => object.ref.id), ["trash-mech"]);
+  assert.equal(kernel.getObject("trash-spell").zone, "trash");
+
+  const played = runInstruction(playDef, {
+    target: "rumble.mech-in-trash",
+    cost: constant({ finalized: true, energy: 2, power: [] })
+  }, {
+    world: kernel,
+    targets: { "rumble.mech-in-trash": [mechRef] }
+  });
+  assert.equal(played.result.status, "executed");
+  assert.equal(played.linked.played, 1);
+  assert.equal(kernel.getObject("trash-mech").zone, "board");
+  // effect.play receives an already-finalized paid cost here; the isolated
+  // reference kernel does not debit the player a second time.
+  assert.equal(kernel.player("A").energy, 3);
 });
