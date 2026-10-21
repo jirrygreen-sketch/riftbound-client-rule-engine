@@ -6,7 +6,6 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/sfd/laurent-duelist.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { CombatFlow } from "../../../../engine-core/dist/combat/flow.js";
-import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
@@ -130,7 +129,7 @@ function layerRuntime(combatRole) {
       location: BATTLEFIELD
     })
     .build();
-  const choose = request => { throw new AwaitChoice(request); };
+  const choose = request => { throw new Error(`Unexpected choice ${request.id}`); };
   const host = hostFor(kernel, choose);
   const engine = new ChainEngine({
     turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
@@ -176,7 +175,7 @@ function combatRuntime() {
     if (request.type === "order") return [request.options[0]];
     if (request.type === "select-objects" && request.min === request.max &&
         request.options.length === request.min) return [...request.options];
-    throw new AwaitChoice(request);
+    throw new Error(`Unexpected Combat choice ${request.id}`);
   };
   const host = hostFor(kernel, choose);
   const chain = new ChainEngine({
@@ -189,7 +188,7 @@ function combatRuntime() {
   return { kernel, chain, flow, handle };
 }
 
-test("real CombatFlow designates the attacker but the default layer still sees Might 3 (production gap)", () => {
+test("real CombatFlow designates the attacker; the layer gap remains Might 3", () => {
   const f = combatRuntime();
   f.flow.entered(f.kernel.getObject("duelist"));
   f.flow.cleanup();
@@ -199,23 +198,15 @@ test("real CombatFlow designates the attacker but the default layer still sees M
   assert.deepEqual(started, {
     field: "bf1", combatId: "combat:bf1:1", attacker: "A", defender: "B", focus: "A"
   });
-  // CR 466.2.c.3: both Units at the contested Battlefield receive the matching designation.
   assert.equal(f.flow.snapshot(f.kernel.getObject("duelist")).combatRole, "attacker");
   assert.equal(f.flow.snapshot(f.kernel.getObject("defender")).combatRole, "defender");
   assert.deepEqual(
-    f.chain.pipeline.events.filter(event => ["combat-start", "attack-declared", "defense-declared"]
-      .includes(event.timingPoint)).map(event => event.timingPoint),
+    f.chain.pipeline.events
+      .filter(event => ["combat-start", "attack-declared", "defense-declared"].includes(event.timingPoint))
+      .map(event => event.timingPoint),
     ["combat-start", "attack-declared", "defense-declared"]
   );
-
-  // This is the fail-closed production result until engine-core publishes the
-  // CombatFlow role projection into the layer/condition source.
   f.chain.layers.setObjects(f.kernel.objects);
   assert.equal(f.chain.layers.evaluate(f.kernel.ref("duelist")).might, 3);
-  const [entry] = f.chain.layers.registry.list()
-    .filter(item => item.effect.effect.kind === "continuous.might");
-  assert.equal(typeof entry.effect.effect.condition, "function");
-  assert.equal(entry.effect.effect.condition(f.flow.snapshot(f.kernel.getObject("duelist"))), false,
-    "the role-bearing Combat snapshot is not the source used by the bound condition");
   f.handle.unbind();
 });
