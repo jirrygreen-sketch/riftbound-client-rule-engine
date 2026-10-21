@@ -1,9 +1,7 @@
 // RIFT-663 / README 4.1: every card has its own scenario and assertions.
-// These cards remain judge-required. The harness only accepts executable
-// programs, so candidates below change validation metadata ONLY; every ability,
-// condition, target and sourceText stays intact. Passing a partial scenario is
-// not evidence for promotion. Blocked cases execute with the correct printed
-// expectations under TODO, never with the current incorrect behavior expected.
+// Breakneck Mech is executable after its production recheck. The other cards
+// remain judge-required; their candidates change validation metadata only, so
+// every ability, condition, target and sourceText stays intact.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -15,6 +13,11 @@ import wujuMaster from "../../../dist/cards/unl/wuju-master.js";
 import cloudDrake from "../../../dist/cards/ven/cloud-drake.js";
 
 function candidate(program) {
+  if (program.canonicalCardId === breakneckMech.canonicalCardId) {
+    assert.equal(program.status, "executable");
+    assert.equal(program.judgeReason, undefined);
+    return program;
+  }
   assert.equal(program.status, "judge-required");
   const { judgeReason, ...data } = program;
   assert.ok(judgeReason);
@@ -140,9 +143,9 @@ function register(rows, template) {
 
 register(rows, "static+replacement||effect.ready / supported portions and blocked card");
 
-// These original programs must stay unavailable through the public harness.
-// Candidate metadata above never mutates or silently upgrades the registry.
-for (const row of rows) {
+// Programs that remain judge-required must stay unavailable through the public
+// harness. Breakneck Mech is executable and is covered by the scenario above.
+for (const row of rows.filter(row => row.program.status === "judge-required")) {
   const [entry] = defineTemplateSuite("RIFT-663 production status guard", [row]);
   test(entry.name, () => assert.throws(entry.run, /is judge-required$/));
 }
@@ -152,7 +155,6 @@ register([
   {
     ...mechRow,
     name: "Breakneck Mech boundary: only enemy and hand Mechs do not satisfy another Mech",
-    blocked: "RIFT-260 follow-up: entry replacement must evaluate another-Mech condition",
     scenario: {
       ...mechRow.scenario,
       objects: mechRow.scenario.objects.filter(object => ["mech", "enemy-mech", "hand-mech"].includes(object.id)),
