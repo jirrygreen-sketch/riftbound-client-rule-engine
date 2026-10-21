@@ -29,8 +29,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   publishes the aggregate participatingUnits only on the later score event.
  *   The battlefield's conquer registration therefore yields one instance per
  *   Mighty Unit; with two Mighty Units it permits paying and drawing twice,
- *   although 473.2.c allows this Score trigger at most once for that player
- *   this turn.
+ *   although 473.2.c restricts the score and this ability to one trigger per
+ *   player per Battlefield per turn.
  * - Pipeline events carry raw Unit snapshots. The trigger count is evaluated
  *   by events/pipeline.ts:61-74 through the host ResolveContext, whose query
  *   reads the host snapshots rather than the layered effective Might. A 4-Might
@@ -61,8 +61,9 @@ export default {
     "仍有三项生产路径缺口（CR v1.5 383.4.c、472、473.2.c、708/710）：" +
     "(1) turn/flow.ts:153-170 按每个参战 Unit 各发一个 conquer 事件，aggregate participatingUnits 只在该循环之后放入 score 事件；" +
     "本战场能力在多名 Mighty 征服时会被收集多次，" +
-    "EventPipeline 因而两次询问 Finalize。CR 472/473.2.c 把 Score 限制为该玩家每个 Battlefield 每回合一次；" +
-    "当前没有把该 Score/Battlefield 的身份接到触发频度，需要由 Score 波提供稳定的“同一 Score 事件”标识。" +
+    "EventPipeline 因而两次询问 Finalize。CR 472 把 Score 限制为该玩家每个 Battlefield 每回合一次，" +
+    "473.2.c 又规定这些能力每玩家每回合只在该 Battlefield 被 Score 时触发一次；当前没有把该 Score/Battlefield 的身份接到触发频度，" +
+    "需要由 Score 波提供稳定的“同一 Score 事件”标识。" +
     "(2) events/pipeline.ts:61-74 的触发条件通过 ResolveContext.query 读取 host 原样快照；4 Might 加 1 Buff 的有效 Might 为 5，" +
     "但时点条件实测不触发，未满足 708/710 的当前 Might；条件查询虽支持 sameLocationAs，却没有从事件 details.participatingUnits " +
     "绑定 383.4.c.2 冻结的本次参战单位集合。需要由触发求值使用图层后的不可变 event/LKI 单位快照与事件中的参战集合。" +
