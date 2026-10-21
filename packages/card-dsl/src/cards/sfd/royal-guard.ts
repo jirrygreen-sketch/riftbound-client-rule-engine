@@ -7,25 +7,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * 规则依据（CR v1.5）：
  * - "When you play me"：打出触发（时点 card-played；420.4.a 在打出完成后触发）。
- * - "play a … token"：v1.5 440.2.c / 185.2.a 规定被"打出"的 token 先在链上生成
- *   （create-token 的 to: "chain"），随后由 play 动作接手完成打出流程；
- *   effect.token 的 mode: "play"（链上生成路径）当前被显式 blocked
- *   （"token-play-requires-chain-creation"），链上创建由内核负责。
+ * - "play a … token"：440.2.c / 185.2.a 规定被"打出"的 token 先在链上生成再走
+ *   打出流程（350.2 / 354）；effect.token 的 mode: "play" 自己完成"链上生成 +
+ *   交给 Play"，不需要也不能再跟一条 effect.play（那会把同一 token 打出两次）。
  * - Sand Soldier = CR 187.3 定义的 2 Might 单位 token（Shurima），effect.token
  *   的定义表 id 为 "sand-soldier"。
- * - "here" = 打出本单位的那个位置（战场或基地），即来源对象的当前位置，
- *   用 object-property 表达式在结算时取（420.3.b.2 的"结算时检查"）；
- *   object 用契约 3.6 的符号选择器 "source"，由解释器绑定运行时引用。
+ * - "here" = 执行指令时来源对象的位置（359.3.f.1/f.2 referent）。
  *
- * 结构说明：
- * - body[0]（effect.token, mode: "play"）把 token 创建在链上；
- * - body[1]（effect.play）通过 linkedTo 引用前一条指令的 token 对象，完成打出
- *   流程（契约 3.6 GameAction "play"；费用按 185.3 为 null/无印刷费）。
- * - 两条指令的链接关系：token 创建失败（negated）时 play 仍按契约 3.4 尽可能
- *   执行——play 的目标是 linked 引用，引用不存在则 play 自身被 ignored。
- * - effect.play 的 cost 省略：token 无印刷费用（185.3），费用计划由 Finalize
- *   管线按通常打出流程处理（effect.play 文档：cost 必须是已 Finalize 的计划，
- *   本原语不推导印刷费用）。
+ * 结构（与已 executable 的 Faithful Manufactor ogn-211-298 同形）：
+ * - body[0] 用 condition.value 读取来源当前位置写链接值 here——effect.token 的
+ *   argsSchema 里 object-property 只接受运行时 ObjectRef，不接受符号选择器
+ *   "source"（直接写会抛 "Invalid effect.token argument: location"，RIFT-896
+ *   headless 实测）；
+ * - body[1] 用 effect.token 在链接值 here 处打出 Sand Soldier，并 linkedTo
+ *   前一条指令，使 here 不可用时整条指令被忽略（契约 3.4）。
  */
 const abilities: Ability[] = [
     {
@@ -37,34 +32,29 @@ const abilities: Ability[] = [
       optional: false,
       body: [
         {
-          id: "royal-guard.create-sand-soldier",
+          id: "royal-guard.read-here",
+          op: "condition.value",
+          args: {
+            value: {
+              kind: "object-property",
+              object: "source",
+              property: "location"
+            },
+            key: { kind: "constant", value: "here" }
+          }
+        },
+        {
+          id: "royal-guard.play-sand-soldier",
           op: "effect.token",
+          linkedTo: "royal-guard.read-here",
           args: {
             token: { kind: "constant", value: "sand-soldier" },
             amount: { kind: "constant", value: 1 },
             mode: { kind: "constant", value: "play" },
             location: {
-              kind: "object-property",
-              object: "source",
-              property: "location"
-            },
-            linkKey: { kind: "constant", value: "sandSoldier" }
-          }
-        },
-        {
-          id: "royal-guard.play-sand-soldier",
-          op: "effect.play",
-          linkedTo: "royal-guard.create-sand-soldier",
-          args: {
-            object: {
               kind: "linked-value",
-              instructionId: "royal-guard.create-sand-soldier",
-              key: "sandSoldier.objects"
-            },
-            location: {
-              kind: "object-property",
-              object: "source",
-              property: "location"
+              instructionId: "royal-guard.read-here",
+              key: "here"
             }
           }
         }

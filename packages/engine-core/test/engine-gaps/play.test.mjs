@@ -358,10 +358,13 @@ test("a replaced nested Play is negated and the enclosing transaction rolls back
 });
 
 test("the shipped Royal Guard token handoff creates a zero-cost Play chain item without recursing its trigger", () => {
-  const tokenInstruction = royalGuard.abilities[0].body[0];
-  const playInstruction = royalGuard.abilities[0].body[1];
+  // RIFT-897: body = condition.value (read "here") + one effect.token in mode
+  // "play"; the token primitive itself hands the token to Play, so the shipped
+  // body must not follow it with a second effect.play of the same token.
+  const body = royalGuard.abilities[0].body;
+  const tokenInstruction = body.find(instruction => instruction.op === "effect.token");
   assert.equal(tokenInstruction.args.mode.value, "play");
-  assert.equal(playInstruction.args.cost, undefined);
+  assert.equal(body.filter(instruction => instruction.op === "effect.play").length, 0);
   const f = runtime([royalGuard], builder => {
     builder.unit("guard", { cardId: ROYAL_GUARD_ID, types: ["unit"], energy: 4, power: null, location: field("one") });
   });
