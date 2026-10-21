@@ -14,25 +14,26 @@ import type { CardProgram } from "../../ir/index.js";
  *   merged continuous.grant-keyword 指令注册 ability 层效果，duration
  *   "this-turn"/"end-of-turn" 映射到 turn-end 到期。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。合入的
- * KeywordGrantLayerEngine 已能把运行时 Ganking 重新展开为 movement permission，
- * movement()/canGank 也能读取该路由；但 production lifecycle 仍创建普通 LayerEngine，
- * 不会在 card-played 结算后重建关键词展开，因此标准移动路径尚不能消费这张卡授予的许可。
- * 已合入并真实执行：continuous.grant-keyword、Ganking KeywordDef 与触发注册；golden
- * 经真实 ChainEngine 管线解析本卡的 card-played 触发，
- * 断言授予只落在被选单位、duration 到期后消失（不构成整卡证据）。
+ * status 判定（cards/README.md 第 2 节）：judge-required（2026-10-21 integration 复核）。
+ * card-played 触发、场上单位目标、continuous.grant-keyword、end-of-turn 到期和
+ * KeywordGrantLayerEngine 的动态重展开均可执行；真实 Standard Move 也能消费结算后
+ * 的 battlefield-to-battlefield permission。剩余缺口是到期后的派生效果失效：
+ * programs/statics.ts:184/194 把重展开 movement permission 注册为 permanent，且仅在
+ * generated 内容变化时同步；turn-end 后 ability 层 Ganking 已过期，但 query 仍读到
+ * 该 permanent permission，因此 movement() 仍返回 canGank。
  */
 export default {
   canonicalCardId: "card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口是 production lifecycle 的动态重展开接线：运行时获得的 Ganking 已可由合入的 KeywordGrantLayerEngine" +
-    "消费成 810.1.b/810.1.c 的 movement permission，layers/rules/query 的 movement()/canGank 也能读取" +
-    "battlefield-to-battlefield route；但 production lifecycle 仍使用普通 LayerEngine，card-played 结算后的授予" +
-    "不会进入该 re-expander，标准移动合法性检查因此还不能消费这张卡的许可。" +
-    "continuous.grant-keyword、Ganking KeywordDef 与 card-played 触发注册本身已可执行；" +
-    "golden 经真实 ChainEngine 管线执行本卡 card-played 触发并断言授予范围与 end-of-turn 到期，不近似实现。",
+    "2026-10-21 integration 复核：本卡触发、敌方/己方单位目标、授予范围及真实战场间 Standard Move 已通过生产路径；" +
+    "剩余阻塞在 programs/statics.ts:184/194：KeywordGrantLayerEngine 把 Ganking 重展开成 continuous.movement，" +
+    "production setEffects 将该派生效果登记为 permanent；turn-end 后 ability 层 grant 与 raw keyword 都已过期，" +
+    "但 lifecycleRuleEffects 仍保留 program-keyword:…ganking:effective… permission，production movement() 的 canGank " +
+    "仍为 true（CR v1.5 810.1.b/810.1.c、144.4.c.1；到期/重查见 317.1.a、468.7.c、478.3/478.4）。" +
+    "最小修法：派生 movement 的有效期必须与当前 granted keyword 绑定；到期或深过滤时删除/过滤该 generated effect，" +
+    "并由真实 Standard Move 正反例断言该许可在 turn-end 后消失。",
   abilities: [
     {
       kind: "triggered",
