@@ -134,6 +134,14 @@ function powerDomains(effect: Record<string, unknown>): readonly Domain[] | unde
 }
 
 /** Convert active declarations to existing CostPlanInput; never pays or consumes a use. */
+/**
+ * The card being played may still be in Hand when Finalize reads it, where
+ * ctx.object does not resolve it; its own cost statics use ctx.source.
+ */
+function staticSource(ctx: ResolveContext, binding: StaticCostAbility): ObjectSnapshot | null {
+  return ctx.object(binding.source) ?? (sameRef(binding.source, ctx.source.ref) ? ctx.source : null);
+}
+
 export function collectCostModifications(ctx: ResolveContext, input: CostPlanInput, sources: CostDiscountSources = {}): CostPlanInput {
   const discounts: CostDiscount[] = [...(input.discounts ?? [])];
   const increases = [...(input.increases ?? [])];
@@ -221,7 +229,7 @@ export function collectCostModifications(ctx: ResolveContext, input: CostPlanInp
   // Static cost.additional declarations are collected before modifiers so a
   // grantedBy discount can read the player's actual optional decision.
   for (const binding of sources.statics ?? []) {
-    const source = ctx.object(binding.source);
+    const source = staticSource(ctx, binding);
     if (source === null) continue;
     if (source.zone !== 'board' && !sameRef(source.ref, ctx.source.ref)) continue;
     const effect = record(binding.ability.effect);
@@ -323,7 +331,7 @@ export function collectCostModifications(ctx: ResolveContext, input: CostPlanInp
   }
 
   for (const binding of sources.statics ?? []) {
-    const source = ctx.object(binding.source);
+    const source = staticSource(ctx, binding);
     if (source === null) continue;
     if (source.zone !== 'board' && !sameRef(source.ref, ctx.source.ref)) continue;
     collect(binding.id, binding.ability.effect, source, binding.ability.condition);
