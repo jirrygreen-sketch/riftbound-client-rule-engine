@@ -1,14 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { V2ClientStateStore, type V2ClientState } from "../state/v2";
+import { useEffect, useRef, useState } from "react";
+import type {
+  ClientSession,
+  RoomDeckSubmission,
+  RoomView
+} from "@riftbound/protocol";
+import type { V2CommandReceipt } from "../../../../packages/protocol/src/v2/index.js";
+import type { V2CommandRequest, V2SocketFactory } from "../transport/v2";
 import {
-  V2Transport,
-  type V2CommandRequest,
-  type V2TransportEvent
-} from "../transport/v2";
-import {
-  PROTOCOL_V2_VERSION,
-  type V2CommandReceipt
-} from "../../../../packages/protocol/src/v2/index.js";
+  createV2MatchSessionController,
+  normalizeV2ServerUrl,
+  type V2MatchSessionController,
+  type V2MatchSessionSnapshot
+} from "../full-product/v2/V2MatchSession";
 
 export interface V2MatchSession {
   readonly playerId: string;
@@ -20,105 +23,125 @@ export interface UseV2MatchOptions {
   readonly serverUrl: string | null;
   readonly roomId: string | null;
   readonly session: V2MatchSession | null;
-  readonly socketFactory?: ConstructorParameters<typeof V2Transport>[0]["socketFactory"];
+  readonly playerName?: string;
+  readonly socketFactory?: V2SocketFactory;
   readonly choiceTimeoutMs?: number;
+  readonly requestTimeoutMs?: number;
 }
 
-export interface V2MatchClient {
-  readonly state: V2ClientState;
-  readonly pendingCommandIds: readonly string[];
-  readonly error: string | null;
+export interface V2MatchClient extends V2MatchSessionSnapshot {
+  readonly connectionStatus: V2MatchSessionSnapshot["state"]["connectionStatus"];
+  readonly connect: () => void;
+  readonly createRoom: (playerName: string) => Promise<RoomView>;
+  readonly joinRoom: (roomId: string, playerName: string) => Promise<RoomView>;
+  readonly submitDeck: (deck: RoomDeckSubmission) => Promise<RoomView>;
+  readonly setReady: (ready: boolean) => Promise<RoomView>;
   readonly sendCommand: (request: V2CommandRequest) => Promise<V2CommandReceipt>;
-  readonly reconnectUrl: string | null;
 }
 
-/** Build the authenticated room URL consumed by the v2 transport. */
-export function buildV2RoomUrl(
+const emptySnapshot: V2MatchSessionSnapshot = {
+  state: {
+    viewerPlayerId: null,
+    projection: null,
+    stateVersion: 0,
+    eventSeq: 0,
+    events: [],
+    bufferedEvents: [],
+    choice: { status: "none", choice: { status: "none" }, startedAt: null, expiresAt: null, answerable: false },
+    connectionStatus: "disconnected",
+    lastError: null,
+    rejectedMessages: 0
+  },
+  room: null,
+  session: null,
+  pendingCommandIds: [],
+  error: null,
+  reconnectUrl: ""
+};
+
+/**
+ * Legacy helper retained for callers/tests. Authority-bearing route values
+ * are not read by the V2 controller; the V2 hello carries resume identity.
+ */
+export function buildV2RoomUrlWithIdentity(
   serverUrl: string,
   roomId: string,
   session: V2MatchSession | null
 ): string {
-  const base = new URL(serverUrl, "http://localhost");
-  base.searchParams.set("roomId", roomId);
-  if (session?.playerId) base.searchParams.set("playerId", session.playerId);
-  if (session?.resumeToken) base.searchParams.set("resumeToken", session.resumeToken);
-  return base.toString();
+  const url = new URL(normalizeV2ServerUrl(serverUrl));
+  url.searchParams.set("roomId", roomId);
+  if (session?.playerId) url.searchParams.set("playerId", session.playerId);
+  if (session?.resumeToken) url.searchParams.set("resumeToken", session.resumeToken);
+  return url.toString();
 }
 
-/**
- * Owns the v2 transport lifecycle for one mounted match route. The store is
- * updated only from transport notifications; command requests never mutate a
- * projection locally.
- */
+/** Legacy URL composer including identity query parameters. */
+export function buildV2RoomUrlWithSession(
+  serverUrl: string,
+  roomId: string,
+  session: V2MatchSession | null
+): string {
+  return buildV2RoomUrlWithIdentity(serverUrl, roomId, session);
+}
+
+/** Compatibility export for the earlier hook test. */
+export { buildV2RoomUrlWithSession as buildV2RoomUrl };
+
 export function useV2Match(options: UseV2MatchOptions): V2MatchClient {
-  const transportRef = useRef<V2Transport | null>(null);
-  const storeRef = useRef<V2ClientStateStore | null>(null);
-  const [state, setState] = useState<V2ClientState>(() =>
-    new V2ClientStateStore({ viewerPlayerId: options.session?.playerId ?? null, choiceTimeoutMs: options.choiceTimeoutMs }).state
-  );
-  const [pendingCommandIds, setPendingCommandIds] = useState<readonly string[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [reconnectUrl, setReconnectUrl] = useState<string | null>(null);
+  const controllerRef = useRef<V2MatchSessionController | null>(null);
+  const [snapshot, setSnapshot] = useState<V2MatchSessionSnapshot>(emptySnapshot);
+  const callbacksRef = useRef<{
+    createRoom: (playerName: string) => Promise<RoomView>;
+    joinRoom: (roomId: string, playerName: string) => Promise<RoomView>;
+    submitDeck: (deck: RoomDeckSubmission) => Promise<RoomView>;
+    setReady: (ready: boolean) => Promise<RoomView>;
+    sendCommand: (request: V2CommandRequest) => Promise<V2CommandReceipt>;
+    connect: () => void;
+  }>({
+    createRoom: () => Promise.reject(new Error("Protocol v2 is not connected")),
+    joinRoom: () => Promise.reject(new Error("Protocol v2 is not connected")),
+    submitDeck: () => Promise.reject(new Error("Protocol v2 is not connected")),
+    setReady: () => Promise.reject(new Error("Protocol v2 is not connected")),
+    sendCommand: () => Promise.reject(new Error("Protocol v2 is not connected")),
+    connect: () => undefined
+  });
 
   useEffect(() => {
-    if (!options.enabled || !options.serverUrl || !options.roomId || !options.session?.playerId) {
-      transportRef.current?.disconnect("v2 route disabled");
-      transportRef.current = null;
-      storeRef.current = null;
-      setPendingCommandIds([]);
-      setReconnectUrl(null);
-      setState(new V2ClientStateStore({
-        viewerPlayerId: options.session?.playerId ?? null,
-        choiceTimeoutMs: options.choiceTimeoutMs
-      }).state);
+    if (!options.enabled || !options.serverUrl) {
+      controllerRef.current?.stop("v2 route disabled");
+      controllerRef.current = null;
+      setSnapshot(emptySnapshot);
       return;
     }
-
-    const url = buildV2RoomUrl(options.serverUrl, options.roomId, options.session);
-    const store = new V2ClientStateStore({
-      viewerPlayerId: options.session.playerId,
-      choiceTimeoutMs: options.choiceTimeoutMs
-    });
-    const transport = new V2Transport({ url, socketFactory: options.socketFactory });
-    const onEvent = (event: V2TransportEvent): void => {
-      switch (event.type) {
-        case "status":
-          store.setConnectionStatus(event.status);
-          break;
-        case "projection":
-          store.apply({ type: "projection", protocolVersion: PROTOCOL_V2_VERSION, projection: event.projection });
-          break;
-        case "event":
-          store.apply({ type: "event", protocolVersion: PROTOCOL_V2_VERSION, event: event.event });
-          break;
-        case "receipt":
-          store.apply({ ...event.receipt });
-          break;
-        case "error":
-          setError(event.error.message);
-          break;
-      }
-      setState(store.state);
-      setPendingCommandIds(transport.pendingCommandIds);
+    const initialSession: ClientSession | null = options.roomId && options.session?.playerId && options.session.resumeToken
+      ? { roomId: options.roomId, playerId: options.session.playerId, resumeToken: options.session.resumeToken }
+      : null;
+    const controller = createV2MatchSessionController({
+      serverUrl: options.serverUrl,
+      socketFactory: options.socketFactory,
+      choiceTimeoutMs: options.choiceTimeoutMs,
+      requestTimeoutMs: options.requestTimeoutMs
+    }, initialSession);
+    controllerRef.current = controller;
+    callbacksRef.current = {
+      createRoom: playerName => controller.createRoom(playerName),
+      joinRoom: (roomId, playerName) => controller.joinRoom(roomId, playerName),
+      submitDeck: deck => controller.submitDeck(deck),
+      setReady: ready => controller.setReady(ready),
+      sendCommand: request => controller.sendCommand(request),
+      connect: () => controller.connect()
     };
-    const unsubscribeTransport = transport.subscribe(onEvent);
-    const unsubscribeStore = store.subscribe(next => setState(next));
-    transportRef.current = transport;
-    storeRef.current = store;
-    setError(null);
-    setReconnectUrl(transport.resumeUrl());
-    transport.connect();
-
+    const unsubscribe = controller.subscribe(setSnapshot);
+    controller.start();
     return () => {
-      unsubscribeTransport();
-      unsubscribeStore();
-      transport.disconnect("v2 route teardown");
-      if (transportRef.current === transport) transportRef.current = null;
-      if (storeRef.current === store) storeRef.current = null;
+      unsubscribe();
+      controller.stop("v2 route teardown");
+      if (controllerRef.current === controller) controllerRef.current = null;
     };
   }, [
     options.choiceTimeoutMs,
     options.enabled,
+    options.requestTimeoutMs,
     options.roomId,
     options.serverUrl,
     options.session?.playerId,
@@ -126,23 +149,14 @@ export function useV2Match(options: UseV2MatchOptions): V2MatchClient {
     options.socketFactory
   ]);
 
-  useEffect(() => {
-    const timer = setInterval(() => storeRef.current?.refreshChoice(), 500);
-    return () => clearInterval(timer);
-  }, []);
-
-  const sendCommand = useCallback(async (request: V2CommandRequest): Promise<V2CommandReceipt> => {
-    const transport = transportRef.current;
-    if (!transport) throw new Error("Protocol v2 is not connected");
-    const receipt = transport.sendCommand(request);
-    setPendingCommandIds(transport.pendingCommandIds);
-    try {
-      return await receipt;
-    } finally {
-      setPendingCommandIds(transport.pendingCommandIds);
-      setState(storeRef.current?.state ?? state);
-    }
-  }, [state]);
-
-  return { state, pendingCommandIds, error, sendCommand, reconnectUrl };
+  return {
+    ...snapshot,
+    connectionStatus: snapshot.state.connectionStatus,
+    connect: () => callbacksRef.current.connect(),
+    createRoom: playerName => callbacksRef.current.createRoom(playerName),
+    joinRoom: (roomId, playerName) => callbacksRef.current.joinRoom(roomId, playerName),
+    submitDeck: deck => callbacksRef.current.submitDeck(deck),
+    setReady: ready => callbacksRef.current.setReady(ready),
+    sendCommand: request => callbacksRef.current.sendCommand(request)
+  };
 }

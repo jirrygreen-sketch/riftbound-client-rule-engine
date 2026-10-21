@@ -92,6 +92,8 @@ export function AppView({
   setActiveTab,
   catalogServerUrl,
   setCatalogServerUrl,
+  v2ServerUrl,
+  setV2ServerUrl,
   activeDeckZone,
   setActiveDeckZone,
   setRetryToken,
@@ -148,7 +150,8 @@ export function AppView({
   toggleReady,
   submitPlayableSelection
 }: AppState & AppActions) {
-  const inMatch = duelProjection !== null || roomView?.status === "playing";
+  const v2Connected = v2Match.connectionStatus === "connected";
+  const inMatch = duelProjection !== null || roomView?.status === "playing" || v2Match.room?.status === "playing";
   const chat = <RoomChatPanel key={roomId ?? "no-room"} messages={chatMessages ?? []}
     viewerPlayerId={session?.playerId ?? null} connected={status === "connected" && handshakeReady && roomId !== null}
     pending={chatPending ?? false} onSend={sendChat} error={chatError ?? null} />;
@@ -172,14 +175,16 @@ export function AppView({
 
   return (
     <AppShell page={activeTab} onNavigate={setActiveTab} onExit={exit}
-      playerName={profile.name} connected={status === "connected" && handshakeReady} inMatch={inMatch}>
+      playerName={profile.name}
+      connected={v2UiEnabled ? v2Connected : status === "connected" && handshakeReady}
+      inMatch={inMatch}>
     <div className="app-content" data-card-scale={displaySettings.cardScale}
       data-reduced-motion={displaySettings.reducedMotion} data-show-card-names={displaySettings.showCardNames}>
       {exitError ? <p role="alert">{exitError}</p> : null}
       {activeTab === "home" ? (
         <HomePage onNavigate={setActiveTab} onExit={exit} playerName={profile.name}
-          connected={status === "connected" && handshakeReady} inMatch={inMatch}
-          roomId={roomId} deckCount={library.decks.length} />
+          connected={v2UiEnabled ? v2Connected : status === "connected" && handshakeReady} inMatch={inMatch}
+          roomId={roomId ?? v2Match.room?.roomId ?? null} deckCount={library.decks.length} />
       ) : activeTab === "profile" ? (
         <ProfilePage profile={profile} onSave={saveProfile} inRoom={roomId !== null} />
       ) : activeTab === "settings" ? (
@@ -383,7 +388,30 @@ export function AppView({
         </main>
       ) : activeTab === "room" ? (
         <main className="room-shell room-page" aria-label="房间连接">
-          {roomView ? (
+          <div className="match-local-controls" aria-label="房间协议选择">
+            <button className="button" type="button" onClick={() => setV2UiEnabled(!v2UiEnabled)}>
+              {v2UiEnabled ? "切换回旧房间界面" : "使用协议 v2 独立房间"}
+            </button>
+          </div>
+          {v2UiEnabled ? (
+            <V2MatchBoard
+              state={v2Match.state}
+              room={v2Match.room}
+              session={v2Match.session}
+              playerName={profile.name}
+              pendingCommandIds={v2Match.pendingCommandIds}
+              transportError={v2Match.error}
+              catalogServerUrl={v2ServerUrl ?? catalogServerUrl}
+              serverUrl={v2Match.reconnectUrl || v2ServerUrl || catalogServerUrl}
+              onServerUrlChange={setV2ServerUrl}
+              onConnect={v2Match.connect}
+              onCreateRoom={() => v2Match.createRoom(profile.name)}
+              onJoinRoom={roomIdValue => v2Match.joinRoom(roomIdValue, profile.name)}
+              onSubmitDeck={v2Match.submitDeck}
+              onSetReady={v2Match.setReady}
+              onCommand={v2Match.sendCommand}
+            />
+          ) : roomView ? (
             <RoomLobby room={roomView} viewerPlayerId={viewerPlayerId} deckPicker={
 <RoomDeckPicker
             namedDecks={library.decks}
@@ -428,8 +456,19 @@ export function AppView({
           {controls}
           <V2MatchBoard
             state={v2Match.state}
+            room={v2Match.room}
+            session={v2Match.session}
+            playerName={profile.name}
             pendingCommandIds={v2Match.pendingCommandIds}
             transportError={v2Match.error}
+            catalogServerUrl={v2ServerUrl ?? catalogServerUrl}
+            serverUrl={v2Match.reconnectUrl || v2ServerUrl || catalogServerUrl}
+            onServerUrlChange={setV2ServerUrl}
+            onConnect={v2Match.connect}
+            onCreateRoom={() => v2Match.createRoom(profile.name)}
+            onJoinRoom={roomIdValue => v2Match.joinRoom(roomIdValue, profile.name)}
+            onSubmitDeck={v2Match.submitDeck}
+            onSetReady={v2Match.setReady}
             onCommand={v2Match.sendCommand}
           />
           {roomId ? chat : null}
