@@ -136,6 +136,8 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   const secretZone = (source: ObjectSnapshot) => source.zone === 'deck' || source.zone === 'rune-deck';
   const isLegend = (source: ObjectSnapshot) => source.types.some(type => type.toLowerCase() === 'legend');
   const isActiveLegend = (source: ObjectSnapshot) => isLegend(source) && source.zone === 'legend';
+  const isSetupBattlefield = (source: ObjectSnapshot) => source.isToken && source.zone === 'board' &&
+    source.types.some(type => type.toLowerCase() === 'battlefield');
   const active = (source: ObjectSnapshot) => isActiveLegend(source) ||
     !isLegend(source) && (source.zone === 'board' || source.zone === 'chain' || secretZone(source));
   const secretZoneReplacement = (ability: CardProgram['abilities'][number], source: ObjectSnapshot): boolean => {
@@ -507,11 +509,12 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   }) as typeof pipeline.deferTriggerScan;
 
   // Main Deck and Rune Deck replacement effects are active only for an event
-  // that involves that same card while it is there (CR 370.1.c.1). Legends
-  // established by setup predate lifecycle attachment, so install their live
-  // Legend-zone surface during the initial scan too.
+  // that involves that same card while it is there (CR 370.1.c.1). Match setup
+  // establishes Battlefield carriers through create-token (CR 170.2.b,
+  // 170.8-170.10). Setup Battlefields and Champion Legends predate lifecycle
+  // attachment, so install their live surfaces during the initial scan.
   for (const source of pipeline.host.objects()) {
-    if (secretZone(source) || isActiveLegend(source)) ensure(source);
+    if (secretZone(source) || isActiveLegend(source) || isSetupBattlefield(source)) ensure(source);
   }
 
   return {
