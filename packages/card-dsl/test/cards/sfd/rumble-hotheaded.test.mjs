@@ -93,14 +93,15 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = {
         "Rumble's Triggered Ability becomes Pending; its leading may and recycle cost are decided during Finalize.",
         "Finalize selects the Trash Mech target and another friendly Board unit as a non-target cost choice, then atomically pays the recycle to its owner's Main Deck bottom.",
         "The payment receipt preserves the recycled unit's pre-move Might. The Play descriptor declares base: printed so Finalize can use the target's complete trusted printed Energy and Power; after A then B pass the Closed-State Priority window, Resolve reduces only the Energy component and Power remains payable. A production golden with Breakneck's complete printed metadata pays 5 Energy and 2 Mind Power.",
-        "Current production gap: the default Unit programs, including Breakneck Mech, have no play CostSpec. Given only a partial Energy projection, effects/play/cost-plan.ts:336-347 and :634 fail closed instead of inventing Power from ObjectSnapshot.power's Domain set. The full card remains judge-required.",
+        "Current production gap: the default Rumble IR has no target-relative catalog projection, and RIFT-983 reads catalog values only from an explicit printed descriptor. A fixed Breakneck projection would misprice every other legal Mech; without it the plan still fails closed. The full card remains judge-required.",
       ],
       priorityFocus: "Focus belongs to the preceding Showdown. Finalize does not pass Priority; A then B receive Closed-State Priority in turn order, and both passes precede Resolve.",
       responseWindow: "After Finalize, the Closed-State window permits legally timed Reactions before Resolve. The production golden verifies the A-to-B Priority order and subsequent Resolve without inventing a Reaction card.",
       productionAssertions: [
         "Rumble, Hotheaded production component: Finalize recycles, preserves pre-move Might, and reaches the nested Play",
-        "Rumble, Hotheaded production golden: Breakneck Mech pays 5 Energy plus 2 Mind Power from trusted metadata",
+        "Rumble, Hotheaded production golden: Breakneck catalog projection pays 5 Energy plus 2 Mind Power",
         "Rumble, Hotheaded cost-plan boundary: missing numeric Power provenance fails closed",
+        "Rumble, Hotheaded production boundary: default IR cannot invent a selected Mech's catalog cost",
       ],
     },
   ],
@@ -123,21 +124,17 @@ const TRASH_MECH_PROGRAM = {
   }],
 };
 const admitted = { ...program, status: "executable", judgeReason: undefined };
-const BREAKNECK_PRINTED_PLAY_PROGRAM = {
-  ...breakneckMech,
-  abilities: [
-    ...breakneckMech.abilities,
-    {
-      kind: "play",
-      cost: {
-        kind: "cost.printed",
-        energy: constant(8),
-        power: constant(2),
-      },
-      body: [],
-    },
-  ],
+const BREAKNECK_CATALOG_PRINTED = {
+  id: "sfd-071-221",
+  cardType: "Unit",
+  domains: ["Mind"],
+  energy: 8,
+  power: 2,
 };
+const rumbleWithBreakneckCatalog = structuredClone(admitted);
+const nestedPlay = rumbleWithBreakneckCatalog.abilities[1].body[0].args.body.value
+  .find((instruction) => instruction.id === "rumble.play-mech");
+nestedPlay.args.cost.value.printed = BREAKNECK_CATALOG_PRINTED;
 
 function productionConquer({
   accept = true,
@@ -147,6 +144,7 @@ function productionConquer({
   fodderOwner = "A",
   mechEnergy = 5,
   trashProgram = TRASH_MECH_PROGRAM,
+  rumbleProgram = { ...program, status: "executable", judgeReason: undefined },
   fodder = true,
   onFinalize = () => {},
 } = {}) {
@@ -221,7 +219,7 @@ function productionConquer({
     context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
     testTrigger: (registration) => kernel.test(registration.spec.condition),
   });
-  const binding = createProgramBinding({ cardPrograms: [admitted, trashProgram] });
+  const binding = createProgramBinding({ cardPrograms: [rumbleProgram, trashProgram] });
   flow = new TurnFlow({
     host,
     player: (id) => kernel.player(id),
@@ -282,9 +280,9 @@ test("Rumble, Hotheaded: validates and remains registered as judge-required", ()
   assert.match(program.judgeReason, /131\.3/u);
   assert.match(program.judgeReason, /356\.4\.c/u);
   assert.match(program.judgeReason, /357\.1/u);
-  assert.match(program.judgeReason, /effects\/play\/catalog\.ts:13-14/u);
-  assert.match(program.judgeReason, /effects\/play\/cost-plan\.ts:336-347/u);
-  assert.match(program.judgeReason, /effects\/play\/cost-plan\.ts:631-634/u);
+  assert.match(program.judgeReason, /effects\/play\/catalog\.ts:22/u);
+  assert.match(program.judgeReason, /effects\/play\/cost-plan\.ts:462-464/u);
+  assert.match(program.judgeReason, /:\u003678/u);
   assert.match(program.judgeReason, /ObjectSnapshot\.power/u);
   assert.match(program.judgeReason, /bindDuelPrintedCost/u);
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -316,7 +314,7 @@ test("Rumble, Hotheaded: official effect-order evidence names the exact source, 
   assert.ok(conquer.timeline.some((line) => /Energy component/u.test(line)));
   assert.ok(conquer.timeline.some((line) => /Power remains payable/u.test(line)));
   assert.ok(conquer.timeline.some((line) => /Current production gap/u.test(line)));
-  assert.ok(conquer.timeline.some((line) => /fail closed/u.test(line)));
+  assert.ok(conquer.timeline.some((line) => /fail(?:s)? closed|fail-closed/u.test(line)));
   assert.match(conquer.priorityFocus, /A then B/u);
   assert.match(conquer.responseWindow, /Reaction/u);
   assert.ok(conquer.productionAssertions.some((line) => /pre-move Might/u.test(line)));
@@ -514,15 +512,9 @@ test("Rumble, Hotheaded production component: the discount uses the recycled Uni
   }
 });
 
-test("Rumble, Hotheaded production golden: Breakneck Mech pays 5 Energy plus 2 Mind Power from trusted metadata", () => {
-  const catalog = {
-    id: "sfd-071-221",
-    cardType: "Unit",
-    domains: ["Mind"],
-    energy: 8,
-    power: 2,
-  };
-  const trusted = bindDuelPrintedCost(catalog);
+test("Rumble, Hotheaded production golden: Breakneck catalog projection pays 5 Energy plus 2 Mind Power", () => {
+  assert.equal(breakneckMech.abilities.some((ability) => ability.kind === "play"), false);
+  const trusted = bindDuelPrintedCost(BREAKNECK_CATALOG_PRINTED);
   assert.equal(trusted.kind, "numeric");
   assert.equal(trusted.cost.energy, 8);
   assert.deepEqual(trusted.cost.power, [{ amount: 2, allowedDomains: ["Mind"] }]);
@@ -531,9 +523,9 @@ test("Rumble, Hotheaded production golden: Breakneck Mech pays 5 Energy plus 2 M
     energy: 10,
     power: ["Mind", "Mind"],
     mechEnergy: 8,
-    trashProgram: BREAKNECK_PRINTED_PLAY_PROGRAM,
+    trashProgram: breakneckMech,
+    rumbleProgram: rumbleWithBreakneckCatalog,
   });
-  cardProgramsById.set(BREAKNECK_PRINTED_PLAY_PROGRAM.canonicalCardId, BREAKNECK_PRINTED_PLAY_PROGRAM);
   try {
     fixture.settle();
     const plans = playedPlans(fixture);
@@ -583,6 +575,28 @@ test("Rumble, Hotheaded cost-plan boundary: missing numeric Power provenance fai
     assert.equal(kernel.getObject("trash-mech").zone, "trash");
     assert.deepEqual(kernel.player("A").power, ["Mind", "Mind"], "the failed nested Play consumes no Power");
   });
+});
+
+test("Rumble, Hotheaded production boundary: default IR cannot invent a selected Mech's catalog cost", () => {
+  const fixture = productionConquer({
+    energy: 10,
+    power: ["Mind", "Mind"],
+    mechEnergy: 8,
+    trashProgram: breakneckMech,
+  });
+  try {
+    assert.equal(playCost.printed, undefined,
+      "the default card cannot carry one fixed Mech projection for every legal Trash target");
+    assert.throws(
+      () => fixture.settle(),
+      (error) => /judge-required|complete numeric Energy and Power programme/u.test(error.message),
+    );
+    assert.equal(fixture.kernel.getObject("trash-mech").zone, "trash");
+    assert.deepEqual(fixture.kernel.player("A").power, ["Mind", "Mind"]);
+    assert.equal(playedPlans(fixture).length, 0);
+  } finally {
+    fixture.restoreCatalogProgram();
+  }
 });
 
 test("Rumble, Hotheaded production golden: recycle uses control, then places the Unit in its owner's Main Deck", () => {

@@ -68,14 +68,15 @@ export const RUMBLE_OFFICIAL_EFFECT_ORDER_EVIDENCE = {
         "Rumble's Triggered Ability becomes Pending; its leading may and recycle cost are decided during Finalize.",
         "Finalize selects the Trash Mech target and another friendly Board unit as a non-target cost choice, then atomically pays the recycle to its owner's Main Deck bottom.",
         "The payment receipt preserves the recycled unit's pre-move Might. The Play descriptor declares base: printed so Finalize can use the target's complete trusted printed Energy and Power; after A then B pass the Closed-State Priority window, Resolve reduces only the Energy component and Power remains payable. A production golden with Breakneck's complete printed metadata pays 5 Energy and 2 Mind Power.",
-        "Current production gap: the default Unit programs, including Breakneck Mech, have no play CostSpec. Given only a partial Energy projection, effects/play/cost-plan.ts:336-347 and :634 fail closed instead of inventing Power from ObjectSnapshot.power's Domain set. The full card remains judge-required."
+        "Current production gap: the default Rumble IR has no target-relative catalog projection, and RIFT-983 reads catalog values only from an explicit printed descriptor. A fixed Breakneck projection would misprice every other legal Mech; without it the plan still fails closed. The full card remains judge-required."
       ],
       priorityFocus: "Focus belongs to the preceding Showdown. Finalize does not pass Priority; A then B receive Closed-State Priority in turn order, and both passes precede Resolve.",
       responseWindow: "After Finalize, the Closed-State window permits legally timed Reactions before Resolve. The production golden verifies the A-to-B Priority order and subsequent Resolve without inventing a Reaction card.",
       productionAssertions: [
         "Rumble, Hotheaded production component: Finalize recycles, preserves pre-move Might, and reaches the nested Play",
-        "Rumble, Hotheaded production golden: Breakneck Mech pays 5 Energy plus 2 Mind Power from trusted metadata",
-        "Rumble, Hotheaded cost-plan boundary: missing numeric Power provenance fails closed"
+        "Rumble, Hotheaded production golden: Breakneck catalog projection pays 5 Energy plus 2 Mind Power",
+        "Rumble, Hotheaded cost-plan boundary: missing numeric Power provenance fails closed",
+        "Rumble, Hotheaded production boundary: default IR cannot invent a selected Mech's catalog cost"
       ]
     }
   ]
@@ -102,12 +103,13 @@ export const RUMBLE_OFFICIAL_EFFECT_ORDER_EVIDENCE = {
  * payment receipt to the same Resolve body, preserves the recycled Unit's
  * pre-move Might for the discount (RIFT-953), and RIFT-972 can start from a
  * target CardProgram's complete trusted printed cost while changing only its
- * Energy component. The remaining production gap is trusted provenance:
- * the default Unit CardPrograms (including Breakneck Mech) carry no play CostSpec,
- * while ObjectSnapshot.power is a Domain set rather than a numeric Power
- * count. A complete program makes the real TurnFlow Play succeed and pay;
- * absent provenance must fail closed under CR 131.2, 131.3, 356.1.c,
- * 356.4.c, and 357.1.
+ * Energy component. RIFT-983 can consume a trusted printed projection even
+ * when the target has no play CostSpec. The remaining production gap is that
+ * this descriptor has no target-relative catalog projection: Rumble may play
+ * any Mech, so hard-coding one Mech's printed cost would mischarge every other
+ * legal target. RIFT-983 reads an explicit descriptor.printed; the default IR
+ * still has none and fails closed under CR 131.2, 131.3, 356.1.c, 356.4.c,
+ * and 357.1.
  */
 export default {
   canonicalCardId: "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
@@ -116,14 +118,15 @@ export default {
   judgeReason:
     "整卡保持 judge-required（2026-10-22 生产复核）。Assault、Conquer Pending/Finalize、Board recycle、支付前 Might 的 LKI，" +
     "以及 RIFT-972 的 printed-base Energy 组件折扣和 Power 保留均已通过真实 TurnFlow；剩余缺口是默认生产路径的目标印刷费用来源。" +
-    "当前默认 Breakneck Mech CardProgram 只有静态/替代能力，没有 play CostSpec；effects/play/catalog.ts:13-14 的 playCostFor " +
-    "因此返回 undefined。effects/play/cost-plan.ts:336-347 在只有 partial Energy 投影时无法取得完整数值 Power，" +
-    "effects/play/cost-plan.ts:631-634 对 base: \"printed\" 但无目标程序的嵌套 Play 直接 fail-closed，" +
-    "而没有 play descriptor 的默认卡也不会自动获得数值 Power。" +
+    "RIFT-983 已允许 effects/play/catalog.ts:22 读取显式 printed descriptor，即使目标程序没有 play CostSpec；" +
+    "但当前默认 Rumble IR 没有目标相对的 catalog 投影，不能把任意选中 Mech 的数值 Energy/Power 写入固定常量。" +
+    "effects/play/cost-plan.ts:462-464 只从 descriptor 读取该投影；缺失时 :678 和 :407 fail-closed。" +
+    "把 Breakneck 的 8 Energy + 2 Mind Power 固定进本卡会错误收费其他合法 Mech；因此默认 IR 仍必须拒绝。" +
     "ObjectSnapshot.power（effects/contract.ts:44-60）是 Domain 集合而非数量：Breakneck 的 8 Energy + 2 Mind Power 不能由一个 Mind " +
     "推成 2，更不能当零（CR 131.2 / 131.3 / 356.1.c / 356.4.c / 357.1）。" +
-    "建议最小改法：production leading-cost Finalize 在 recycle 移动 target 前，用 bindDuelPrintedCost（cost/printed-costs.ts:119）" +
-    "冻结服务器目录中的完整 printed Energy/Power，将冻结值作为 Play 的 printed 输入；Resolve 只对 Energy 应用 Might 折扣。" +
+    "建议最小改法：production leading-cost Finalize 在 recycle 移动 target 前，按所选目标 canonicalCardId 从服务器目录读取并用 " +
+    "bindDuelPrintedCost（cost/printed-costs.ts:119）冻结完整 printed Energy/Power，将冻结值作为 Play 的 printed 输入；" +
+    "Resolve 只对 Energy 应用 Might 折扣。" +
     "在此之前不标 executable。",
   abilities: [
     {
