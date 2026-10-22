@@ -605,7 +605,9 @@ export class KeywordGrantLayerEngine extends LayerEngine {
   /** Full validated lifecycle entries, retaining each keyword instance id. */
   keywordEntries(ref: ObjectRef): readonly GrantedKeywordAbilityEntry[] {
     this.refresh();
-    const entries = this.expansions.get(refKey(ref))?.entries ?? [];
+    const entries = this.options.grantedOnly === true
+      ? this.grantedAbilities.get(refKey(ref)) ?? []
+      : this.expansions.get(refKey(ref))?.entries ?? [];
     return this.lifecycleKeywords.size === 0 ? entries : entries.filter(entry =>
       this.lifecycleKeywords.has(entry.id.split(':', 1)[0]!));
   }
