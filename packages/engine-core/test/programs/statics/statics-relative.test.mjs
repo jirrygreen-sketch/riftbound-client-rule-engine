@@ -564,7 +564,11 @@ test('Captain Farron: other friendly units here gain Assault (other drops the ho
 });
 
 test('Breakneck Mech: your Mechs gain Deflect and Ganking board-wide', () => {
-  const binding = createProgramBinding({ cardPrograms: [executableView('card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab')] });
+  // RIFT-911 promoted Breakneck Mech to executable after its production
+  // recheck, so bind the shipped program itself instead of an admitted view.
+  const breakneckMech = cardProgramsById.get('card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab');
+  assert.equal(breakneckMech.status, 'executable');
+  const binding = createProgramBinding({ cardPrograms: [breakneckMech] });
   const f = fixture({
     cards: [
       { id: 'mech', cardId: 'card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab', types: ['unit'], might: 2, },
