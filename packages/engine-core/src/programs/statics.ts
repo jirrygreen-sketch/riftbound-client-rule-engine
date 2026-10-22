@@ -241,12 +241,13 @@ function installKeywordReexpansion(engine: ChainEngine): void {
     }
     lifecycleRegistry.set(key, { ids: registrations.map(registration => registration.id) });
   };
+  const lifecycleKeywords = ['Vision', 'Ganking', 'Deflect', 'Assault', 'Shield'] as const;
   const exp: KeywordGrantLayerEngine = new KeywordGrantLayerEngine(engine.pipeline.host.objects(), {
     context: source => engine.pipeline.host.context(source, source.controller, engine.layers.currentTimingPoint ?? 'cleanup-start'),
     registry: engine.layers.registry,
     grantedOnly: true,
     includeAllKeywordAbilities: true,
-    lifecycleKeywords: ['Vision', 'Ganking', 'Deflect', 'Assault'],
+    lifecycleKeywords,
     deferGeneratedEffects: true,
     onKeywordEffects: setEffects,
     onKeywordAbilities: () => {},
@@ -256,7 +257,7 @@ function installKeywordReexpansion(engine: ChainEngine): void {
     registry: engine.layers.registry,
     grantedOnly: true,
     includeAllKeywordAbilities: true,
-    lifecycleKeywords: ['Vision', 'Ganking', 'Deflect', 'Assault'],
+    lifecycleKeywords,
     deferGeneratedEffects: true,
     onKeywordEffects: setEffects,
     onKeywordAbilities: () => {},
