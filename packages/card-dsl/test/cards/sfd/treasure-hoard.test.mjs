@@ -190,7 +190,7 @@ function deck({ treasure = false } = {}) {
   };
 }
 
-test("sfd-220-221 Treasure Hoard: validates, is registered and keeps the current judge-required blockers", () => {
+test("sfd-220-221 Treasure Hoard: validates, is registered and names the current judge-required blockers", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.issues));
   assert.deepEqual(result.issues, []);
@@ -201,13 +201,20 @@ test("sfd-220-221 Treasure Hoard: validates, is registered and keeps the current
   assert.equal(cardRegistryById.get(CANONICAL), program);
 
   assert.match(program.judgeReason, /187\.5/);
-  assert.match(program.judgeReason, /definitions\.ts:83-101/);
-  assert.match(program.judgeReason, /effect\.token\.ts:341-342/);
-  assert.match(program.judgeReason, /Universal Power/);
+  assert.match(program.judgeReason, /definitions\.ts:83-102/);
+  assert.match(program.judgeReason, /effect\.token\.ts:340-342/);
+  assert.match(program.judgeReason, /\[A\]/);
+  assert.match(program.judgeReason, /支付来源/);
+  assert.match(program.judgeReason, /RIFT-929/);
+  assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
+  assert.match(program.judgeReason, /135\.2\.e\.5\.b/);
+  assert.match(program.judgeReason, /没有生产 Add 路径/);
+  assert.match(program.judgeReason, /133\.6\.a\.1/);
   assert.match(program.judgeReason, /game\/lifecycle\.ts:250-252,373-377/);
   assert.match(program.judgeReason, /Chain-zone/);
   assert.match(program.judgeReason, /events\/pipeline-match\.ts:17-23,89-94/);
-  assert.match(program.judgeReason, /location/);
+  assert.match(program.judgeReason, /199\.1/);
+  assert.match(program.judgeReason, /自锚点/);
   assert.match(program.judgeReason, /entersExhausted/);
   assert.match(program.judgeReason, /Finalize/);
   // These diagnoses were disproved by the current sources and must not return.
@@ -240,7 +247,7 @@ test("sfd-220-221 Treasure Hoard: optional Conquer, one Energy, Gold play and ex
   assert.equal(playGold.args.locations, undefined);
 });
 
-test("sfd-220-221 Treasure Hoard: here now translates and matches only its own conquer battlefield", () => {
+test("sfd-220-221 Treasure Hoard: here matches an explicit field location but not a Battlefield's self anchor", () => {
   const source = world().player("A").unit("hoard-card", {
     types: ["battlefield"],
     location: { type: "battlefield", id: "bf1" }
@@ -265,6 +272,18 @@ test("sfd-220-221 Treasure Hoard: here now translates and matches only its own c
   assert.equal(matchesTriggerEvent(translated, conquer("bf1"), "A", source), true);
   assert.equal(matchesTriggerEvent(translated, conquer("bf2"), "A", source), false);
   assert.equal(matchesTriggerEvent(translated, { ...conquer("bf1"), details: {} }, "A", source), false);
+
+  // CR v1.5 199.1: a Battlefield is also the Game Object at its own Location.
+  // A normal match object has a null location and anchors `here` by its own
+  // ObjectRef id; this missing production behavior must fail closed.
+  const selfLocated = world().player("A").object("hoard-card", {
+    cardId: CANONICAL,
+    types: ["battlefield"],
+    zone: "board",
+    location: null
+  }).build().getObject("hoard-card");
+  const selfConquer = { ...conquer(selfLocated.ref.id), object: selfLocated };
+  assert.equal(matchesTriggerEvent(translated, selfConquer, "A", selfLocated), false);
 });
 
 test("sfd-220-221 Treasure Hoard production golden: Finalize pays one Energy, then Gold fails closed before creation", () => {
@@ -400,6 +419,14 @@ test("sfd-220-221 Treasure Hoard default match setup leaves the selected Battlef
   assert.equal(source.cardId, CANONICAL);
   assert.equal(source.zone, "chain");
   assert.equal(source.location, null);
+  assert.equal(source.isToken, true);
+  assert.deepEqual(source.types, ["battlefield"]);
+  // Match setup creates the Battlefield in Chain through the host directly; no
+  // lifecycle entry edge later attaches its Conquer trigger to a Board source.
+  assert.deepEqual(
+    match.flow.chain.pipeline.events.filter((event) => event.object?.cardId === CANONICAL),
+    []
+  );
 
   const registrations = [...match.flow.chain.pipeline.checkpoint().triggers.values()]
     .filter((registration) => registration.source.cardId === CANONICAL);
