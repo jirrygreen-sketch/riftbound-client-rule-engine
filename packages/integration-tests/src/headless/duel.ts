@@ -57,6 +57,9 @@ export interface HeadlessGameOptions {
   readonly onJournal?: (journal: HeadlessJournal) => void;
   readonly decks?: readonly [M1PreconId, M1PreconId];
   readonly deckPair?: HeadlessDeckPair;
+  /** Internal test controls; defaults preserve full replay and per-command privacy audits. */
+  readonly verifyReplay?: boolean;
+  readonly privacyAuditEveryAction?: boolean;
 }
 
 interface HeadlessNoProgressCache {
@@ -1220,6 +1223,8 @@ export function rankHeadlessBotCommands(
     command.type === "play");
   const unitPlays = candidatePlays.filter(command =>
     tracedByID.get(command.id)?.types.includes("unit") === true);
+  const affordableUnitPlays = affordablePlays.filter(command =>
+    tracedByID.get(command.id)?.types.includes("unit") === true);
   const affordableOtherPlays = affordablePlays.filter(command =>
     tracedByID.get(command.id)?.types.includes("unit") !== true);
 
@@ -1267,7 +1272,7 @@ export function rankHeadlessBotCommands(
     !runeCommands.has(command as never) && !moveCommands.has(command as never));
   const tiers: readonly HeadlessBotCommandTier[] = [
     { priority: "rune-energy", commands: runeAdds },
-    { priority: "affordable-unit-play", commands: unitPlays },
+    { priority: "affordable-unit-play", commands: affordableUnitPlays },
     { priority: "winning-enemy-move", commands: byMovePriority("winning-enemy-move") },
     { priority: "enemy-move", commands: byMovePriority("enemy-move") },
     { priority: "open-field-move", commands: byMovePriority("open-field-move") },
@@ -1355,7 +1360,7 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
     }
     recordCommand(state.counters, command.type);
     commands.push({ command, failure, trace });
-    checkPrivacy();
+    if (options.privacyAuditEveryAction !== false) checkPrivacy();
     if (fatal) break;
     if (!failure) {
       rejected.clear();
@@ -1383,7 +1388,7 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
     observedActions,
     eventCount: events.length, journalDigest: digest(journal),
     projectionDigests: { A: digest(projections.A), B: digest(projections.B) },
-    replayMatches: replayHeadlessGame(journal), privacySafe,
+    replayMatches: options.verifyReplay === false || replayHeadlessGame(journal), privacySafe,
   };
 }
 
@@ -1543,19 +1548,33 @@ export function runHeadlessRegression(options: HeadlessRegressionOptions = {}): 
 
 /** Lazy, once-only access to the fixed regression cases for focused tests. */
 export function createHeadlessRegressionHarness(options: HeadlessRegressionOptions = {}): HeadlessRegressionHarness {
-  let shared: HeadlessRegressionRun | undefined;
+  const shared = {
+    maxTurns: options.maxTurns ?? DEFAULT_TURN_LIMIT,
+    maxActions: options.maxActions ?? DEFAULT_ACTION_LIMIT,
+  };
+  let matrix: HeadlessMatrixSummary | undefined;
   let determinism: readonly [HeadlessStats, HeadlessStats] | undefined;
-  const once = (): HeadlessRegressionRun => shared ??= runHeadlessRegression(options);
+  let blocked: HeadlessStats | undefined;
+  let targets: HeadlessStats | undefined;
+  let sourceTrigger: HeadlessStats | undefined;
+  let tamper: HeadlessRegressionRun["tamper"] | undefined;
+  let aggregate: HeadlessRunSummary | undefined;
   return {
-    matrix: () => once().matrix,
+    matrix: () => matrix ??= runHeadlessMatrix({ games: 5, decks: M1_DECK_IDS, seeds: HEADLESS_MATRIX_SEEDS, ...shared }),
     determinism: () => determinism ??= (() => {
-      const run = once();
-      return run.determinism;
+      const first = runHeadlessGame(HEADLESS_SEEDS[0]!, { decks: ["vex-unl", "vi-unl"], ...shared });
+      const second = runHeadlessGame(HEADLESS_SEEDS[0]!, { decks: ["vex-unl", "vi-unl"], ...shared });
+      return [first, second] as const;
     })(),
-    blocked: () => once().blocked,
-    targets: () => once().targets,
-    sourceTrigger: () => once().sourceTrigger,
-    tamper: () => once().tamper,
-    aggregate: () => once().aggregate,
+    blocked: () => blocked ??= runHeadlessGame(HEADLESS_SEEDS[0]!, shared),
+    targets: () => targets ??= runHeadlessGame("RIFT-739-natural-1", shared),
+    sourceTrigger: () => sourceTrigger ??= runHeadlessGame(HEADLESS_SEEDS[2]!, { decks: ["fiora-sfd", "vex-unl"], ...shared }),
+    tamper: () => tamper ??= (() => {
+      let journal: HeadlessJournal | undefined;
+      const result = runHeadlessGame(HEADLESS_SEEDS[0]!, { ...shared, onJournal: value => { journal = value; } });
+      if (!journal) throw new Error("Headless journal callback was not invoked");
+      return { journal, result };
+    })(),
+    aggregate: () => aggregate ??= runHeadlessGames(2, HEADLESS_SEEDS.slice(0, 2), shared),
   };
 }

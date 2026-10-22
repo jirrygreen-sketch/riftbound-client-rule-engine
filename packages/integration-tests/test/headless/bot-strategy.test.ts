@@ -82,6 +82,22 @@ describe("headless bot command strategy", () => {
       .toEqual({ priority: "rune-energy", commands: [rune] });
   });
 
+  it("does not promote an unaffordable Unit into the affordable-play tier", () => {
+    const unit: HeadlessCommand = { type: "play", player: "A", object: ref("unit-play"),
+      id: "play:unit", location: { type: "base", player: "A" } };
+    const move: HeadlessCommand = { type: "move", player: "A", object: ref("a-base"),
+      to: { type: "battlefield", id: "empty" } };
+    const sample = trace([
+      boardUnit("a-base", "A", { type: "base", player: "A" }, 3),
+    ], [unit, move], [{ id: "empty", controller: null }], {
+      A: { energy: 1, power: [] }, B: { energy: 3, power: [] },
+    }, 2);
+    const tiers = rankHeadlessBotCommands([unit, move], sample);
+    expect(tiers.some(tier => tier.priority === "affordable-unit-play")).toBe(false);
+    expect(tiers.flatMap(tier => tier.commands)).not.toContainEqual(unit);
+    expect(tiers[0]).toEqual({ priority: "open-field-move", commands: [move] });
+  });
+
   it("orders battlefield moves by enemy combat value and defers Base retreats", () => {
     const winning: HeadlessCommand = { type: "move", player: "A", object: ref("a-two"),
       to: { type: "battlefield", id: "enemy" } };

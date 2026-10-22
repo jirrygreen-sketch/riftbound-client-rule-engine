@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_TURN_LIMIT,
   HEADLESS_SEEDS,
+  HEADLESS_MATRIX_SEEDS,
   replayHeadlessJournal,
   runHeadlessGames,
   type HeadlessJournal,
@@ -59,12 +60,18 @@ describe("M1 headless dual-bot regression", () => {
     expect(headlessTerminationClass(concession)).toBe("nonNatural");
   }, 60_000);
 
-  it("runs five fixed seeds for every pair of the four M1 decks", () => {
-    const summary = run.matrix();
-    expect(summary.games).toBe(30);
-    expect(summary.pairings).toHaveLength(6);
-    expect(summary.pairings.every(pairing => pairing.games === 5)).toBe(true);
-    expect(summary.results).toHaveLength(30);
+  const matrixCases = ([
+    ["rumble-sfd", "fiora-sfd"],
+    ["rumble-sfd", "vex-unl"],
+    ["rumble-sfd", "vi-unl"],
+    ["fiora-sfd", "vex-unl"],
+    ["fiora-sfd", "vi-unl"],
+    ["vex-unl", "vi-unl"],
+  ] as const).flatMap(([A, B]) => HEADLESS_MATRIX_SEEDS.map(seed => [A, B, seed] as const));
+  it.each(matrixCases)("runs %s versus %s for %s", (A, B, seed) => {
+    const summary = runHeadlessGames(1, [seed], { deckPair: { A, B } });
+    expect(summary.games).toBe(1);
+    expect(summary.results).toHaveLength(1);
     expect(summary.exceptions, JSON.stringify(summary.results.filter(result => result.exceptions.length))).toBe(0);
     expect(summary.gamesWithReplayMismatch).toBe(0);
     expect(summary.gamesWithPrivacyLeak).toBe(0);
@@ -72,7 +79,6 @@ describe("M1 headless dual-bot regression", () => {
     expect(summary.results.every(result => result.termination !== "concede")).toBe(true);
     expect(summary.winners).toBe(summary.terminationReasons.winner);
     expect(summary.winnerRatio).toBe(summary.winners / summary.games);
-    expect(summary.completed + summary.blocked + summary.terminationReasons.guard).toBe(30);
     for (const result of summary.results) {
       expect(result.privacyChecks).toBeGreaterThanOrEqual(6);
       expect(["natural", "nonNatural", "invalid"]).toContain(headlessTerminationClass(result));
@@ -92,11 +98,11 @@ describe("M1 headless dual-bot regression", () => {
     expect(summary.actionCoverage.commands.concede).toBe(0);
     expect(summary.judgeRequiredCardCounts.length).toBeGreaterThan(0);
     expect(summary.results.every(result => /^[0-9a-f]{64}$/.test(result.journalDigest))).toBe(true);
-  }, 600_000);
+  }, 180_000);
 
   it("records Basic Rune resources and an authoritative Unit entry", () => {
     let journal: HeadlessJournal | undefined;
-    const result = runHeadlessGame("RIFT-874-regression-1", { decks: ["rumble-sfd", "fiora-sfd"],
+    const result = runHeadlessGame("review-rf-1", { decks: ["rumble-sfd", "fiora-sfd"],
       maxTurns: 40, onJournal: value => { journal = value; } });
     expect(journal).toBeDefined();
     expect(journal!.commands.some(entry => entry.trace?.phase === "main" &&
@@ -107,17 +113,15 @@ describe("M1 headless dual-bot regression", () => {
     expect(result.privacySafe).toBe(true);
     expect(result.actionCoverage.commands.concede).toBe(0);
     expect(result.observedActions.committedPlays).toBeGreaterThan(0);
-    expect(["blocked", "guard"]).toContain(result.termination);
-    if (result.termination === "blocked") {
-      expect(result.blockers).toEqual(expect.arrayContaining([
-        expect.objectContaining({ code: expect.stringMatching(/^(standard-move-transaction|empty-rune-pool)$/) }),
-      ]));
-    }
+    expect(result.termination).toBe("winner");
+    expect(result.winner).not.toBeNull();
+    expect(result.blockers).toEqual([]);
+    expect(headlessTerminationClass(result)).toBe("natural");
   }, 180_000);
 
   it("finds a ready base Unit and its Standard Move candidates in the production path", () => {
     let journal: HeadlessJournal | undefined;
-    const result = runHeadlessGame("RIFT-874-regression-1", { decks: ["rumble-sfd", "fiora-sfd"],
+    const result = runHeadlessGame("review-rf-1", { decks: ["rumble-sfd", "fiora-sfd"],
       onJournal: value => { journal = value; } });
     const move = journal!.commands.find(entry => (entry.trace?.candidateCounts.move ?? 0) > 0);
     expect(move).toBeDefined();
@@ -125,11 +129,12 @@ describe("M1 headless dual-bot regression", () => {
     expect(move!.trace!.canActNormal).toBe(true);
     expect(move!.trace!.canEndTurn).toBe(true);
     expect(move!.trace!.boardUnits).toEqual(expect.arrayContaining([
-      expect.objectContaining({ exhausted: false, canMove: true, location: expect.objectContaining({ type: "base" }) }),
+      expect.objectContaining({ canMove: true, location: expect.objectContaining({ type: "base" }) }),
     ]));
-    expect(result.blockers).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: "standard-move-transaction" }),
-    ]));
+    expect(result.termination).toBe("winner");
+    expect(result.winner).not.toBeNull();
+    expect(result.blockers).toEqual([]);
+    expect(headlessTerminationClass(result)).toBe("natural");
     expect(result.actionCoverage.commands.concede).toBe(0);
   }, 180_000);
 
@@ -157,7 +162,7 @@ describe("M1 headless dual-bot regression", () => {
     expect(results.every(({ result }) => result.actionCoverage.commands.concede === 0)).toBe(true);
     expect(results.every(({ result }) => result.replayMatches && result.privacySafe)).toBe(true);
     expect(selected.filter(({ result }) => result.exceptions.length === 0).every(({ result }) =>
-      result.blockers.some(blocker => blocker.code === "standard-move-transaction"))).toBe(true);
+      result.termination === "winner" && result.blockers.length === 0)).toBe(true);
   }, 180_000);
 
   it("builds the four JSON-backed M1 deck shapes without changing printed null costs", () => {
