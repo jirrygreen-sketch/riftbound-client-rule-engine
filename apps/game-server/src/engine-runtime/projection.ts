@@ -1,6 +1,7 @@
 import type {
   V2ActionOptions,
   V2BattlefieldSnapshot,
+  V2ChoiceOption,
   V2ChainSnapshot,
   V2Command,
   V2CombatSnapshot,
@@ -12,7 +13,7 @@ import type {
 } from "../../../../packages/protocol/dist/v2/index.js";
 import { playLocations } from "../../../../packages/engine-core/dist/layers/rules/query.js";
 import type { Match } from "../../../../packages/engine-core/dist/game/lifecycle.js";
-import type { ObjectSnapshot, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
+import type { ObjectRef, ObjectSnapshot, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
 import { playPermissionAllows, playPermissions } from "../../../../packages/engine-core/dist/programs/play-permissions.js";
 import { readEmpowered } from "../../../../packages/engine-core/dist/zones/empower-state.js";
 import type { EngineRuntimeHost } from "./host.js";
@@ -39,6 +40,15 @@ function phase(match: Match): V2Phase {
 
 function hiddenId(viewer: string | null, object: ObjectSnapshot): string {
   return `hidden:${digest([viewer ?? "spectator", object.ref.id, object.ref.zoneEntryId ?? 0]).slice(0, 32)}`;
+}
+
+/** Projection expects a live object; private grants improve metadata, never invent an incarnation. */
+export function projectObjectForChoice(
+  object: ObjectSnapshot,
+  viewer: string | null,
+  grants: ReturnType<EngineRuntimeHost["visibility"]>,
+): V2ProjectedObject {
+  return projectedObject(object, viewer, grants);
 }
 
 function isPublic(object: ObjectSnapshot, viewer: string | null, grants: ReturnType<EngineRuntimeHost["visibility"]>): boolean {
@@ -245,7 +255,7 @@ export function projectRuntime(
   matchId: string,
   viewer: string | null,
   stateVersion: number,
-  pendingChoice: { readonly choiceId: string; readonly ownerPlayerId: string; readonly stateVersion: number; readonly kind: "optional" | "mode" | "select-objects" | "order" | "number"; readonly options?: readonly { readonly id: string; readonly label: string; readonly value?: string | number | boolean }[]; readonly min?: number; readonly max?: number } | null,
+  pendingChoice: { readonly choiceId: string; readonly ownerPlayerId: string; readonly stateVersion: number; readonly kind: "optional" | "mode" | "select-objects" | "order" | "number"; readonly options?: readonly V2ChoiceOption[]; readonly min?: number; readonly max?: number } | null,
 ): V2Projection {
   if (viewer !== null && !Object.hasOwn(host.playerNames(), viewer)) throw new Error(`Unknown projection viewer: ${viewer}`);
   const players = Object.keys(host.playerNames()).map(playerId => {

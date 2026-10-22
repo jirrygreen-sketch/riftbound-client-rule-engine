@@ -9,7 +9,7 @@ import {
   type V2Zone
 } from "./constants.js";
 import type { V2Event } from "./events.js";
-import type { V2Location } from "./commands.js";
+import type { V2Location, V2ObjectRef } from "./commands.js";
 
 export type V2ProjectionVisibility =
   | { readonly visibility: "public" }
@@ -136,7 +136,12 @@ export interface V2ChoiceOption {
   readonly id: string;
   readonly label: string;
   readonly value?: string | number | boolean;
+  /** Stable engine identity; required for object and order choices. */
+  readonly objectRef?: V2ChoiceObjectRef;
 }
+
+/** Object choice candidates always carry both halves of the zone incarnation. */
+export type V2ChoiceObjectRef = V2ObjectRef & { readonly zoneEntryId: number };
 
 export type V2PendingChoice =
   | {
@@ -328,12 +333,30 @@ function pendingChoice(value: unknown, viewer: string | null): boolean {
       !["optional", "mode", "select-objects", "order", "number"].includes(value.kind as string)) return false;
   if (value.options !== undefined) {
     if (value.ownerPlayerId !== viewer || !Array.isArray(value.options) || value.options.length === 0) return false;
-    if (!value.options.every(option => data(option) && exact(option, ["id", "label"], ["value"]) && text(option.id) && text(option.label) &&
-      (option.value === undefined || typeof option.value === "string" || typeof option.value === "number" || typeof option.value === "boolean"))) return false;
+    if (!value.options.every(option => choiceOption(option, value.kind as string))) return false;
+    const identities = value.options.map(option => {
+      if (!data(option)) return "";
+      const ref = option.objectRef;
+      return data(ref) && text(ref.objectId) && count(ref.zoneEntryId)
+        ? `${ref.objectId}:${String(ref.zoneEntryId)}`
+        : `id:${String(option.id)}`;
+    });
+    if (new Set(identities).size !== identities.length) return false;
   }
   if (value.min !== undefined && !count(value.min)) return false;
   if (value.max !== undefined && !count(value.max)) return false;
   return value.min === undefined || value.max === undefined || value.min <= value.max;
+}
+
+function choiceOption(value: unknown, kind: string): value is V2ChoiceOption {
+  if (!data(value) || !exact(value, ["id", "label"], ["value", "objectRef"]) ||
+      !text(value.id) || !text(value.label)) return false;
+  if (value.value !== undefined && !["string", "number", "boolean"].includes(typeof value.value)) return false;
+  if (value.objectRef === undefined) return true;
+  if (kind !== "select-objects" && kind !== "order") return false;
+  const ref = value.objectRef;
+  return data(ref) && exact(ref, ["objectId", "zoneEntryId"]) &&
+    text(ref.objectId) && count(ref.zoneEntryId) && value.id === ref.objectId;
 }
 
 export function isV2Projection(value: unknown): value is V2Projection {
