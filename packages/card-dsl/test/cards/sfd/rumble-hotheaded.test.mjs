@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/index.js";
 import program, { RUMBLE_OFFICIAL_EFFECT_ORDER_EVIDENCE } from "../../../dist/cards/sfd/rumble-hotheaded.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import breakneckMech from "../../../dist/cards/sfd/breakneck-mech.js";
 import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
@@ -18,6 +19,7 @@ import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { assessCostPayment } from "../../../../engine-core/dist/cost/payment.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { bindDuelPrintedCost } from "../../../../engine-core/dist/cost/printed-costs.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
 import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
@@ -82,20 +84,21 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = {
         "Reduce its Energy cost by the Might of the unit you recycled.",
       ],
       ruleRefs: [
-        "204.1.c", "204.3.a", "303.2.a", "312.1", "313.2", "329", "334", "337.1.a", "338",
-        "355.10.c.1", "356.4.g", "359.3.e.13", "383.3.a", "383.3.b.1", "404.1.b.1", "417.1.c",
+        "131.2", "131.3", "204.1.c", "204.3.a", "303.2.a", "312.1", "313.2", "329", "334", "337.1.a", "338",
+        "355.10.c.1", "356.1.c", "356.4.c", "356.4.g", "357.1", "359.3.e.13", "383.3.a", "383.3.b.1", "404.1.b.1", "417.1.c",
       ],
       timeline: [
         "Conquer establishes control and emits the real ownership/source payload for Rumble.",
         "Rumble's Triggered Ability becomes Pending; its leading may and recycle cost are decided during Finalize.",
         "Finalize selects the Trash Mech target and another friendly Board unit as a non-target cost choice, then atomically pays the recycle to its owner's Main Deck bottom.",
-        "The payment receipt preserves the recycled unit's pre-move Might. After A then B pass the Closed-State Priority window, Resolve computes 5 minus 3 Energy and plays the Mech from Trash.",
+        "The payment receipt preserves the recycled unit's pre-move Might. After A then B pass the Closed-State Priority window, Resolve can reduce only the target's Energy component; its printed Power must remain payable.",
+        "Current production gap: an explicit Energy-only descriptor discards the Trash Mech's printed Power, and the trusted play planner cannot acquire the complete displaced target's printing cost through this card body. The full card therefore remains judge-required.",
       ],
       priorityFocus: "Focus belongs to the preceding Showdown. Finalize does not pass Priority; A then B receive Closed-State Priority in turn order, and both passes precede Resolve.",
       responseWindow: "After Finalize, the Closed-State window permits legally timed Reactions before Resolve. The production golden verifies the A-to-B Priority order and subsequent Resolve without inventing a Reaction card.",
       productionAssertions: [
-        "Rumble, Hotheaded production golden: Finalize recycles, the receipt preserves pre-move Might, and Resolve plays the Mech",
-        "Rumble, Hotheaded production boundaries: decline, no legal fodder, and an unpayable reduced Play remain atomic",
+        "Rumble, Hotheaded production component: Finalize recycles, the receipt preserves pre-move Might, and Resolve plays an Energy-only Mech",
+        "Rumble, Hotheaded Power boundary: a real Breakneck Mech loses its 2 Mind Power requirement and the whole card remains judge-required",
       ],
     },
   ],
@@ -112,6 +115,7 @@ const TRASH_MECH_PROGRAM = {
   sourceText: "Synthetic RIFT-957 Trash Mech used to traverse the production Play path.",
   abilities: [],
 };
+const admitted = { ...program, status: "executable", judgeReason: undefined };
 
 function productionConquer({
   accept = true,
@@ -119,6 +123,7 @@ function productionConquer({
   fodderMight = 3,
   fodderOwner = "A",
   mechEnergy = 5,
+  trashProgram = TRASH_MECH_PROGRAM,
   fodder = true,
   onFinalize = () => {},
 } = {}) {
@@ -128,7 +133,7 @@ function productionConquer({
       location: { type: "base", player: "A" },
     })
     .card("trash-mech", {
-      cardId: TRASH_MECH_PROGRAM.canonicalCardId, owner: "A", zone: "trash", types: ["unit"], tags: ["Mech"],
+      cardId: trashProgram.canonicalCardId, owner: "A", zone: "trash", types: ["unit"], tags: ["Mech"],
       energy: mechEnergy, power: null, might: 3,
     })
     .card("trash-spell", {
@@ -184,7 +189,7 @@ function productionConquer({
     context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
     testTrigger: (registration) => kernel.test(registration.spec.condition),
   });
-  const binding = createProgramBinding({ cardPrograms: [program, TRASH_MECH_PROGRAM] });
+  const binding = createProgramBinding({ cardPrograms: [admitted, trashProgram] });
   flow = new TurnFlow({
     host,
     player: (id) => kernel.player(id),
@@ -220,13 +225,21 @@ function playedPlans(fixture) {
     .flatMap(([, value]) => Array.isArray(value) ? value : []);
 }
 
-test("Rumble, Hotheaded: validates and is registered as executable", () => {
+test("Rumble, Hotheaded: validates and remains registered as judge-required", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.issues));
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "executable");
-  assert.equal(program.judgeReason, undefined);
+  assert.equal(program.status, "judge-required");
+  assert.match(program.judgeReason, /Power/u);
+  assert.match(program.judgeReason, /131\.2/u);
+  assert.match(program.judgeReason, /131\.3/u);
+  assert.match(program.judgeReason, /356\.4\.c/u);
+  assert.match(program.judgeReason, /357\.1/u);
+  assert.match(program.judgeReason, /effects\/instructions\/cost\.modify\.ts:220-272/u);
+  assert.match(program.judgeReason, /effects\/play\/cost-plan\.ts:271-277,483-510/u);
+  assert.match(program.judgeReason, /ObjectSnapshot\.power/u);
+  assert.match(program.judgeReason, /bindDuelPrintedCost/u);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -246,10 +259,16 @@ test("Rumble, Hotheaded: official effect-order evidence names the exact source, 
   assert.equal(evidence.sources.spiritforgedErrata.involvesThisCard, false);
   assert.deepEqual(evidence.interactions.map((entry) => entry.id), ["assault-grant", "conquer-leading-recycle-play"]);
   const conquer = evidence.interactions[1];
-  for (const rule of ["204.1.c", "204.3.a", "355.10.c.1", "356.4.g", "383.3.a", "383.3.b.1", "404.1.b.1", "417.1.c"]) {
+  for (const rule of [
+    "131.2", "131.3", "204.1.c", "204.3.a", "355.10.c.1", "356.1.c", "356.4.c", "356.4.g",
+    "357.1", "383.3.a", "383.3.b.1", "404.1.b.1", "417.1.c",
+  ]) {
     assert.ok(conquer.ruleRefs.includes(rule), `cites CR ${rule}`);
   }
   assert.ok(conquer.timeline.some((line) => /pre-move Might/u.test(line)));
+  assert.ok(conquer.timeline.some((line) => /Energy component/u.test(line)));
+  assert.ok(conquer.timeline.some((line) => /printed Power must remain payable/u.test(line)));
+  assert.ok(conquer.timeline.some((line) => /Current production gap/u.test(line)));
   assert.match(conquer.priorityFocus, /A then B/u);
   assert.match(conquer.responseWindow, /Reaction/u);
   assert.ok(conquer.productionAssertions.some((line) => /pre-move Might/u.test(line)));
@@ -362,7 +381,7 @@ test("Rumble, Hotheaded: leading may wraps one non-target recycle cost and the l
   }]);
 });
 
-test("Rumble, Hotheaded production golden: Finalize recycles, receipt preserves pre-move Might, and Resolve plays the Mech", () => {
+test("Rumble, Hotheaded production component: Finalize recycles, receipt preserves pre-move Might, and Resolve plays an Energy-only Mech", () => {
   const fixture = productionConquer({ energy: 10 });
   fixture.settle();
   const { kernel, flow, requests } = fixture;
@@ -426,13 +445,44 @@ test("Rumble, Hotheaded production golden: Finalize recycles, receipt preserves 
   assert.equal(kernel.player("A").energy, 0, "TurnFlow empties the Rune Pool after the resolved Play");
 });
 
-test("Rumble, Hotheaded production golden: the discount uses the recycled Unit's current Might", () => {
+test("Rumble, Hotheaded production component: the discount uses the recycled Unit's current Might", () => {
   const fixture = productionConquer({ energy: 10, fodderMight: 2, mechEnergy: 6 });
   fixture.settle();
   const plans = playedPlans(fixture);
   assert.equal(plans.length, 1);
   assert.equal(plans[0].energy, 4, "6 printed Energy minus the recycled Unit's Might 2");
   assert.equal(plans[0].parameters.costPlan.discounts[0].amount, 2);
+  assert.equal(fixture.kernel.getObject("trash-mech").zone, "board");
+});
+
+test("Rumble, Hotheaded Power boundary: Breakneck Mech's complete printed base cost is not preserved", () => {
+  const catalog = {
+    id: "sfd-071-221",
+    cardType: "Unit",
+    domains: ["Mind"],
+    energy: 8,
+    power: 2,
+  };
+  const trusted = bindDuelPrintedCost(catalog);
+  assert.equal(trusted.kind, "numeric");
+  assert.equal(trusted.cost.energy, 8);
+  assert.deepEqual(trusted.cost.power, [{ amount: 2, allowedDomains: ["Mind"] }]);
+
+  const fixture = productionConquer({
+    energy: 10,
+    mechEnergy: 8,
+    trashProgram: breakneckMech,
+  });
+  const snapshot = fixture.kernel.getObject("trash-mech");
+  assert.equal(snapshot.cardId, breakneckMech.canonicalCardId);
+  assert.equal(snapshot.power, null, "the snapshot carries no numeric printed Power count");
+  assert.equal(fixture.binding.describePlay({ type: "play", object: snapshot.ref, player: "A" }, snapshot).speed, "normal");
+
+  fixture.settle();
+  const plans = playedPlans(fixture);
+  assert.equal(plans.length, 1);
+  assert.equal(plans[0].energy, 5, "8 printed Energy minus the recycled Might 3");
+  assert.deepEqual(plans[0].power, [], "BUG: Breakneck Mech's 2 Mind Power was discarded");
   assert.equal(fixture.kernel.getObject("trash-mech").zone, "board");
 });
 
@@ -570,7 +620,7 @@ test("Rumble, Hotheaded production golden: Assault adds Might only to friendly M
     choose,
     context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
   });
-  const binding = createProgramBinding({ cardPrograms: [program] });
+  const binding = createProgramBinding({ cardPrograms: [admitted] });
   const flow = new TurnFlow({
     host, player: (id) => kernel.player(id), turnOrder: ["A", "B"],
     battlefields: [{ id: "bf1", controller: null }, { id: "bf2", controller: null }],
@@ -630,7 +680,7 @@ test("Rumble, Hotheaded static lifecycle: isolated Assault grant survives in lay
   const engine = new ChainEngine({
     host, turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", cleanup: () => false,
   });
-  const staticOnly = { ...program, abilities: [program.abilities[0]] };
+  const staticOnly = { ...admitted, abilities: [program.abilities[0]] };
   const lifecycle = createProgramBinding({ cardPrograms: [staticOnly] }).attachLifecycle(engine);
   assert.equal(engine.commit({ type: "move-zone", object: kernel.ref("rumble"), to: "chain" }).status, "done");
   assert.equal(engine.commit({
