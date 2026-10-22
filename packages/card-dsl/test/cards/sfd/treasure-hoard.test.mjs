@@ -8,6 +8,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { getTokenDefinition } from "../../../../engine-core/dist/effects/tokens/definitions.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createMatchCommandAdapter } from "../../../../engine-core/dist/game/command-adapter.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { createMatch } from "../../../../engine-core/dist/game/lifecycle.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
@@ -68,7 +69,7 @@ const OFFICIAL_EVIDENCE = Object.freeze({
         "LKI is not needed for the trigger condition; the emitted conquer payload identifies the exact battlefield."
       ]),
       productionAssertions: Object.freeze([
-        "production boundary: default createMatch leaves Treasure Hoard on Chain and registers no trigger",
+        "production boundary: default createMatch and MatchCommandAdapter leave Treasure Hoard on Chain and register no trigger",
         "production boundary: explicit Board establishment registers one exact trigger, and repeated attachment is idempotent",
         "here matcher: a concrete battlefield location fires only for the same field; a null-location self anchor currently fails closed"
       ]),
@@ -521,7 +522,7 @@ test("sfd-220-221 Treasure Hoard production counterexample: conquering another b
   assert.deepEqual(f.kernel.objects.filter((object) => object.isToken), []);
 });
 
-test("sfd-220-221 Treasure Hoard production boundary: default setup remains on Chain; explicit Board establishment binds exactly once", () => {
+test("sfd-220-221 Treasure Hoard production boundary: default setup and MatchCommandAdapter remain blocked until the Battlefield is established on Board", () => {
   const kernel = world().player("A").player("B").build();
   const choose = (request) => {
     throw new Error(`Match setup made an unexpected choice ${request.type} ${request.id}`);
@@ -573,11 +574,21 @@ test("sfd-220-221 Treasure Hoard production boundary: default setup remains on C
     .filter((registration) => registration.source.cardId === CANONICAL);
   assert.deepEqual(registrations(), []);
   assert.deepEqual(lifecycleErrors, []);
+  lifecycle.detach();
+
+  // The public MatchCommandAdapter is the default player-command lifecycle
+  // owner. It must not turn the Chain-zone setup carrier into a trigger source.
+  const adapter = createMatchCommandAdapter({ match, stateVersion: 0 });
+  try {
+    assert.deepEqual(registrations(), []);
+    assert.deepEqual(lifecycleErrors, []);
+  } finally {
+    adapter.detach();
+  }
 
   // This is the production migration required at setup. The lifecycle attaches
   // to the exact new Board incarnation and binds the original Treasure Hoard
   // trigger; repeated attachment stays idempotent.
-  lifecycle.detach();
   const established = match.flow.chain.commit({
     type: "move-zone",
     object: source.ref,
