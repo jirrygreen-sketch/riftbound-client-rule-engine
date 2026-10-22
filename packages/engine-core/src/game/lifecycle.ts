@@ -603,6 +603,17 @@ export function createMatch(options: MatchOptions): Match {
   const choices = options.battlefieldChoice;
   pickBattlefields(deckA!, 'A', host, report, choices?.[0], random);
   pickBattlefields(deckB!, 'B', host, report, choices?.[1], random);
+  if (options.battlefieldControllers !== undefined) {
+    if (options.battlefieldControllers.length !== report.battlefields.length) {
+      throw new TypeError('battlefieldControllers must match the selected Battlefields');
+    }
+    for (const [index, controller] of options.battlefieldControllers.entries()) {
+      if (controller !== null && !turnOrder.includes(controller)) {
+        throw new TypeError('battlefieldControllers requires known players');
+      }
+      Object.assign(report.battlefields[index]!, { controller });
+    }
+  }
   // CR 114: create into zones, then shuffle each deck separately from the match seed.
   for (const seat of [{ id: 'A', deck: deckA! }, { id: 'B', deck: deckB! }] as const) {
     for (const zone of DECK_ZONES) {
@@ -648,6 +659,7 @@ export function createMatch(options: MatchOptions): Match {
     ...(programBinding === undefined ? {} : { describePlay: programBinding.describePlay }),
   });
   flow.start();
+  flow.chain.initializeBattlefieldControl(report.battlefields);
   for (const field of flow.battlefields) {
     const reported = report.battlefields.find(value => value.id === field.id);
     if (reported) {
@@ -663,12 +675,6 @@ export function createMatch(options: MatchOptions): Match {
       const object = host.objects().find(candidate => candidate.ref.id === id);
       return object?.cardId ?? id;
     });
-  }
-  if (options.battlefieldControllers) {
-    // Control projection stays host-level; the combat flow derives it from
-    // battlefield occupancy each cleanup (CR 190.4), so any pre-flow write is
-    // stripped before the first cleanup can observe it.
-    throw new TypeError('battlefieldControllers is not supported by this rules layer');
   }
   const match: Match = {
     rulesetVersion: RULESET_VERSION,
