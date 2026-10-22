@@ -273,8 +273,8 @@ test("sunken-temple: validates with current judge-required reasons and exact IR"
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.issues));
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /game\/lifecycle\.ts:381-386/);
-  assert.match(program.judgeReason, /apps\/game-server\/src\/room\.ts:236-246/);
+  assert.match(program.judgeReason, /game\/lifecycle\.ts:368-385/);
+  assert.match(program.judgeReason, /apps\/game-server\/src\/room\.ts:236-238/);
   assert.match(program.judgeReason, /190\.6\.a\/d/);
   assert.doesNotMatch(program.judgeReason, /turn\/flow\.ts:153-170/);
   assert.doesNotMatch(program.judgeReason, /events\/pipeline\.ts:61-74/);

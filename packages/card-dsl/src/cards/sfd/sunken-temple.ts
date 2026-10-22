@@ -36,10 +36,10 @@ export default {
   status: "judge-required",
   judgeReason:
     "整卡仍有生产入口缺口（CR v1.5 170.2.a/b、190.6.a/d、473.2）：" +
-    "(1) packages/engine-core/src/game/lifecycle.ts:381-386 只把选中的 Battlefield 创建在 chain，" +
+    "(1) packages/engine-core/src/game/lifecycle.ts:368-385 的 pickBattlefields 只把选中的 Battlefield 创建在 chain，" +
     "没有在开局将它建立到 Battlefield Zone（宿主以 board 表示）；RIFT-959 已让预先位于 Board 的战场绑定生命周期，" +
     "但默认 createMatch 仍必须由测试夹具手工执行 move-zone 才能得到该状态。" +
-    "(2) apps/game-server/src/room.ts:236-246 的 deckPrograms 只收集 mainDeck、championLegend、chosenChampion，" +
+    "(2) apps/game-server/src/room.ts:236-238 的 deckPrograms 只收集 mainDeck、championLegend、chosenChampion，" +
     "没有收集 battlefields，因此真实房间的 trusted ProgramRegistry 缺少本卡。" +
     "已闭合并另有生产路径 golden：RIFT-954 的 Score batchId/participatingUnits/图层后 Might/控制者同步、" +
     "RIFT-959 的既有 Board 战场生命周期绑定，以及本卡的 Finalize 前置 1 Energy 费用与真实 draw。" +
