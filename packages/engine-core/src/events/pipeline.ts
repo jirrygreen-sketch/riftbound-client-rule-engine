@@ -2,12 +2,13 @@ import type { ActionOutcome, ContractGameAction, GameAction, ObjectFilter, Objec
 import { getTimingPoint } from './timing-points.js';
 import { matchesTriggerEvent } from './pipeline-match.js';
 import { assertTriggerSpec } from './trigger-spec.js';
-import type { ActionExecution, NamedTriggerActivation, PipelineClock, PipelineEvent, PipelineHost, RegisteredTrigger, ReplacementRegistration, TimingEmission, TriggerRegistration, TriggerRule, TriggerRuleContext, TriggerSnapshot } from './pipeline-types.js';
+import type { ActionExecution, NamedTriggerActivation, PipelineClock, PipelineEvent, PipelineHost, RegisteredTrigger, ReplacementCostEvidence, ReplacementMatchContext, ReplacementRegistration, TimingEmission, TriggerRegistration, TriggerRule, TriggerRuleContext, TriggerSnapshot } from './pipeline-types.js';
 import { evaluateCondition } from '../effects/interpreter/condition.js';
 import { MissingInformation } from '../effects/interpreter/values.js';
 import { bindEventHistory } from '../effects/interpreter/expr-ext/event-history.js';
 import { matchesObjectPredicates } from '../effects/filters/predicates.js';
 import { resolveRuleAmount } from './trigger-rules/index.js';
+import { evaluateAcceleratePayment } from '../effects/keywords/Accelerate.js';
 
 function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
   if (value === null || typeof value !== 'object' || seen.has(value as object)) return value;
@@ -116,6 +117,8 @@ export class EventPipeline {
   private log: PipelineEvent[] = [];
   private triggers = new Map<string, TriggerRegistration>();
   private replacements = new Map<string, ReplacementRegistration>();
+  /** Exact entry evidence for one play action; never retained in checkpoints. */
+  private playCostEvidence: ReplacementCostEvidence | undefined;
   private consumed = new Map<string, number>();
   private replacementUses = new Set<string>();
   private rules = new Map<string, TriggerRule>();
@@ -248,6 +251,37 @@ export class EventPipeline {
   unregisterReplacement(id: string): void { this.replacements.delete(id); }
   /** O(1) lifecycle probe; never snapshots or exposes the mutable registry. */
   hasReplacementRegistration(id: string): boolean { return this.replacements.has(id); }
+  /**
+   * Run one state action with the frozen Finalize plan/receipt visible to this
+   * exact play. The caller's atomic boundary owns rollback, so evidence never
+   * outlives the action even when it throws.
+   */
+  withPlayCostEvidence<T>(evidence: ReplacementCostEvidence, run: () => T): T {
+    if (this.playCostEvidence !== undefined) throw new Error('Nested play cost evidence is not supported');
+    const frozen = deepFreeze(structuredClone(evidence));
+    const paid = evaluateAcceleratePayment(frozen);
+    this.playCostEvidence = frozen;
+    const originalContext = this.host.context;
+    const baseContext = originalContext.bind(this.host);
+    this.host.context = (source, controller, at) => {
+      const context = baseContext(source, controller, at);
+      return new Proxy(context, { get(target, key) {
+        if (key === 'linked') return (linked: string) =>
+          linked === 'accelerate.accelerate-cost-paid' ? paid : target.linked(linked);
+        const value = Reflect.get(target, key);
+        return typeof value === 'function' ? value.bind(target) : value;
+      } });
+    };
+    try { return run(); }
+    finally {
+      this.host.context = originalContext;
+      this.playCostEvidence = undefined;
+    }
+  }
+  private replacementMatchContext(): ReplacementMatchContext {
+    const evidence = this.playCostEvidence;
+    return evidence === undefined ? {} : { cost: evidence, source: evidence.source };
+  }
   private frequencyKey(registration: TriggerRegistration, source: ObjectSnapshot, event: PipelineEvent): string | null {
     const scope = registration.spec.once;
     if (!scope) return null;
@@ -506,7 +540,9 @@ export class EventPipeline {
           const source = this.host.objects().find(object => object.ref.id === effect.source!.ref.id);
           if (!source || !(effect.activeZones ?? ['board']).includes(source.zone)) return false;
         }
-        return !applied.has(effect.id) && !(effect.oncePerTurn && this.replacementUses.has(this.replacementKey(effect))) && effect.matches(current, original);
+        const context = this.replacementMatchContext();
+        return !applied.has(effect.id) && !(effect.oncePerTurn && this.replacementUses.has(this.replacementKey(effect))) &&
+          effect.matches(current, original, context);
       });
       if (!candidates.length) break;
       const chooser = this.affectedPlayer(current);
