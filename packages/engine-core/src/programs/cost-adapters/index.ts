@@ -357,7 +357,12 @@ export function bindProgramCost(input: ProgramCostBindingInput): ProgramCostBind
       appendComponents(rawCost, program, `${program.canonicalCardId}:${mode}:additional`, add, true);
     }
   } else if (rawCost) {
-    base = normalizeBaseCost(rawCost, id, mode);
+    const normalized = normalizeBaseCost(rawCost, id, mode);
+    const rawPower = record(rawCost.power);
+    const power = rawPower?.value ?? rawCost.power;
+    base = normalized.kind === 'activated' && Array.isArray(power)
+      ? { kind: 'explicit', payments: powerPayments(power) } as unknown as CostSpec
+      : normalized;
   } else if (mode === 'play') {
     base = { kind: 'printed' };
   }

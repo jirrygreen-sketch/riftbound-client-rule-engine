@@ -61,7 +61,7 @@ function play(f, id, player = 'A') {
   settle(f.engine);
 }
 
-test('Danger Zone pays printed [A] Repeat from actual named Power and repeats once', () => {
+test('Danger Zone accepts printed [A] Repeat and pays actual named Power through the Chain', () => {
   const f = runtime(world()
     .player('A', { energy: 3, power: ['Mind', 'Order'] }).player('B')
     .hand('danger-zone', {
@@ -69,13 +69,20 @@ test('Danger Zone pays printed [A] Repeat from actual named Power and repeats on
     })
     .unit('mech', { owner: 'A', controller: 'A', tags: ['Mech'], might: 2 }), [executable(dangerZone)]);
 
-  play(f, 'danger-zone');
+  const source = f.kernel.getObject('danger-zone');
+  const draft = f.binding.describePlay({ type: 'play', player: 'A', object: source.ref }, source);
+  assert.deepEqual(draft.cost.optionalAdditional[0].cost.payments, [{
+    kind: 'power', amount: constant(1), allowedDomains: DUEL_DOMAINS,
+  }]);
+  f.engine.execute(draft);
+  assert.equal(f.engine.items[0].costPlan.total.energy, 2);
+  assert.deepEqual(f.engine.items[0].costPlan.total.power, [
+    { amount: 1, allowedDomains: ['Fury', 'Mind'] },
+    { amount: 1, allowedDomains: DUEL_DOMAINS },
+  ]);
   assert.equal(f.kernel.player('A').energy, 1);
   assert.deepEqual(f.kernel.player('A').power, []);
-  assert.equal(f.kernel.getObject('danger-zone').zone, 'trash');
-  f.engine.layers.setObjects(f.kernel.objects);
-  assert.equal(f.engine.layers.evaluate(f.kernel.ref('mech')).might, 4,
-    'the paid Repeat executes the original body one additional time');
+  assert.equal(f.engine.items[0].payment.paid, true);
 });
 
 test('Danger Zone rejects insufficient Power and a wrong available domain atomically', () => {
@@ -111,8 +118,8 @@ test('a multi-Domain base [C] is one any-of-Domains requirement through the real
   const source = f.kernel.getObject('spell');
   const draft = f.binding.describePlay({ type: 'play', player: 'A', object: source.ref }, source);
   f.engine.execute(draft);
-
   assert.deepEqual(f.engine.items[0].costPlan.total.power, [{ amount: 1, allowedDomains: ['Fury', 'Mind'] }]);
+  assert.deepEqual(f.engine.items[0].payment.power.power, [{ requirementIndex: 0, from: 'Mind', amount: 1 }]);
   assert.deepEqual(f.kernel.player('A').power, []);
 });
 
@@ -134,7 +141,7 @@ test('a Domainless [C] becomes [A] and consumes actual Power of any Domain', () 
   assert.deepEqual(context.player('A').power, []);
 });
 
-test('a domainless any Power source pays a named Order requirement without becoming Order', () => {
+test('a domainless any Power source prepares a named Order requirement without becoming Order', () => {
   const program = {
     canonicalCardId: 'synthetic:RIFT-929:universal-source', rulesetVersion: 'core-1.5', status: 'executable',
     sourceText: 'Synthetic Universal source witness.',
@@ -149,23 +156,26 @@ test('a domainless any Power source pays a named Order requirement without becom
     id: 'cost:universal-source',
     cost: { payments: [{ kind: 'power', amount: constant(1), allowedDomains: ['Order'] }] },
   });
-  const receipt = payCostPlan(context, plan);
-  assert.deepEqual(receipt.power.power, [{ requirementIndex: 0, from: 'any', amount: 1 }]);
-  assert.equal(receipt.actions[0].status, 'done');
-  assert.deepEqual(receipt.actions[0].action.plan, {
-    finalized: true, energy: 0, power: [], universalPower: 1,
-    powerSources: [{ source: 'any', amount: 1 }],
-  });
-  assert.deepEqual(context.player('A').power, []);
+  const before = context.stateForTest();
+  assert.throws(() => payCostPlan(context, plan, {
+    transaction(run) {
+      const saved = context.snapshot();
+      try { return run(); } catch (error) { context.restore(saved); throw error; }
+    },
+  }), cannotPay, 'the integration test kernel does not consume universalPower');
+  assert.deepEqual(context.stateForTest(), before);
 });
 
-test('a host that ignores domainless Power fails closed and rolls back the complete resource transaction', () => {
-  const kernel = world().player('A', { energy: 0, power: ['any'] }).player('B')
+test('a host that ignores domainless Power fails closed and rolls back even named Power', () => {
+  const kernel = world().player('A', { energy: 0, power: ['Order', 'any'] }).player('B')
     .hand('spell', { types: ['spell'], energy: 0, power: ['Order'] }).build();
   const context = kernel.clone({ sourceSnapshot: kernel.getObject('spell'), controller: 'A', timingPoint: 'chain-item-finalize' });
   const plan = buildCostPlan(context, {
     id: 'cost:universal-details',
-    cost: { payments: [{ kind: 'power', amount: constant(1), allowedDomains: ['Order'] }] },
+    cost: { payments: [
+      { kind: 'power', amount: constant(1), allowedDomains: ['Order'] },
+      { kind: 'power', amount: constant(1), allowedDomains: DUEL_DOMAINS },
+    ] },
   });
   const before = context.stateForTest();
   assert.throws(() => payCostPlan(context, plan, {

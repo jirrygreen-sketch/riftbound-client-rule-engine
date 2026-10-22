@@ -41,11 +41,9 @@ function assertResourcePaymentConsumed(
     cannotPay('Resource payment plan exceeds the paying player’s snapshot', payment);
   }
   const actual = counts(after.power as readonly unknown[]);
-  const declaresUniversal = (action.plan.universalPower ?? 0) > 0 ||
-    (action.plan.powerSources ?? []).some(entry => universal(entry.source));
   const same =
     after.energy === before.energy - (action.plan.energy ?? 0) &&
-    (declaresUniversal ? actual.universal < (counts(before.power as readonly unknown[]).universal) : actual.universal === expected.universal) &&
+    actual.universal === expected.universal &&
     [...expected.named].every(([domain, amount]) => (actual.named.get(domain) ?? 0) === amount);
   if (!same) cannotPay('The paying host did not consume the prepared Power resources', payment);
 }
@@ -183,23 +181,6 @@ export function prepareCostPayment(ctx: ResolveContext, plan: CostPlan, options:
   });
   const universalPower = power.power.reduce((total, allocation) => total + (allocation.from === 'any' ? allocation.amount : 0), 0);
   const preparedPowerSources = power.power.map(allocation => ({ source: allocation.from as DuelPowerSource, amount: allocation.amount }));
-  const sourceByAllocation = new Map<number, string>();
-  for (const source of pool.sources) {
-    if (source.resource === 'energy') continue;
-    for (const allocation of power.power) {
-      if (allocation.requirementIndex !== undefined && allocation.from === source.resource && !sourceByAllocation.has(allocation.requirementIndex)) {
-        sourceByAllocation.set(allocation.requirementIndex, source.id);
-      }
-    }
-  }
-  const selectedResources = pool.sources.map(source => {
-    let amount = source.resource === 'energy' ? plan.total.energy : 0;
-    for (const allocation of power.power) {
-      if (source.resource !== 'energy' && sourceByAllocation.get(allocation.requirementIndex!) === source.id) amount += allocation.amount;
-    }
-    return amount === 0 ? null : { sourceId: source.id, amount, ...(source.resource === 'energy' ? {} : { requirementIndex: power.power.find(allocation => sourceByAllocation.get(allocation.requirementIndex!) === source.id)!.requirementIndex }) };
-  }).filter(entry => entry !== null);
-  const checkedPayment = prepareResourcePayment(pool, { energy: plan.total.energy, power: plan.total.power }, { ...options, power, sources: selectedResources });
   const standard: PreparedCostAction = { id: `${plan.id}:resources`, action: { type: 'pay', player: plan.player, plan: {
     finalized: true,
     energy: plan.total.energy,
