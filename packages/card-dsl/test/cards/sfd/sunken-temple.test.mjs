@@ -3,19 +3,15 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/sunken-temple.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
-import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createMatch } from "../../../../engine-core/dist/game/lifecycle.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
-import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
-import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
-import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
-import { world } from "../../fixtures/production-play.mjs";
 
-const field = (id = "bf1") => ({ type: "battlefield", id });
-const constant = value => ({ kind: "constant", value });
-const admitted = () => ({ ...program, status: "executable", judgeReason: undefined });
-
+const CARD_ID = "card.hash-c225141f743b61c67ddf269932c6bbdef739f37888f62163906faa7fa1e6dc2b";
+const SOURCE_TEXT =
+  "When you conquer here with one or more [Mighty] units, you may pay :rb_energy_1: to draw 1. (A unit is Mighty while it has 5+ :rb_might:.)";
 const CORE_RULES_URL =
   "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf";
 const RADIANCE_URL =
@@ -23,79 +19,159 @@ const RADIANCE_URL =
 const SFD_ERRATA_URL =
   "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/";
 
-const OFFICIAL_EVIDENCE = Object.freeze({
-  coreRules: Object.freeze({ version: "1.5", lastUpdated: "2026-10-09", effective: "2026-10-16", url: CORE_RULES_URL }),
-  radiance: Object.freeze({ effective: "2026-10-16", involvesThisCard: false, url: RADIANCE_URL }),
-  spiritforgedErrata: Object.freeze({ involvesThisCard: false, url: SFD_ERRATA_URL }),
-  canonicalCardId: program.canonicalCardId,
-  sourceText: program.sourceText,
-  rules: Object.freeze({
-    setup: Object.freeze(["170.2.a", "170.2.b"]),
-    battlefieldControl: Object.freeze(["190.6.a", "190.6.d"]),
-    optionalCostFinalize: Object.freeze(["383.3.a", "383.3.a.1", "383.3.a.2", "383.3.b", "383.3.b.1"]),
-    simultaneousTriggerOrder: Object.freeze(["383.3.d", "383.3.d.1"]),
-    conquer: Object.freeze(["383.4.c", "383.4.c.2", "383.4.c.2.b", "383.4.c.2.c", "473.2.a"]),
-    scoreOnce: Object.freeze(["472", "473.2.c"]),
-    mighty: Object.freeze(["706", "708", "710"]),
-    layerDependency: Object.freeze(["478.1", "479.4.e.1.a"]),
-  }),
+const PRODUCTION_TEST_NAMES = Object.freeze({
+  golden: "sfd-218-221 Sunken Temple production golden: default setup conquers, pays at Finalize, and draws at Resolve",
+  onePerScore: "sfd-218-221 Sunken Temple production boundary: one Score wave creates one trigger opportunity",
+  mightyBoundary: "sfd-218-221 Sunken Temple production counterexample: a frozen non-Mighty participant does not trigger",
+  layeredMight: "sfd-218-221 Sunken Temple production boundary: current layered Might 5 satisfies Mighty",
+  decline: "sfd-218-221 Sunken Temple production boundary: declining Finalize pays and draws nothing",
+  unpayable: "sfd-218-221 Sunken Temple production counterexample: unavailable 1 Energy removes the trigger",
+  opponent: "sfd-218-221 Sunken Temple production boundary: the new battlefield controller controls and pays for the ability",
+  elsewhere: "sfd-218-221 Sunken Temple production counterexample: a conquer at another Battlefield never matches here",
+  noSecondScore: "sfd-218-221 Sunken Temple production boundary: moving another Mighty Unit after the Score creates no second trigger",
+  replacedPoint: "sfd-218-221 Sunken Temple production boundary: replacing point gain preserves the Conquer trigger"
 });
 
-const EVIDENCE_TIMELINES = Object.freeze({
-  printedResolution: Object.freeze({
-    productionTest: "sunken-temple: lifecycle-bound single-Mighty golden pays then draws after the real Score wave",
-    timeline: Object.freeze([
-      "setup / establish Battlefield",
-      "conquer Score wave",
-      "Pending Conquer trigger",
-      "Finalize optional decision and 1 Energy cost",
-      "Resolve draw",
-    ]),
+// Official-source evidence is pinned to the repository's reviewed snapshots.
+// Neither official Radiance rules page nor effective Spiritforged errata names
+// this card; CR v1.5 supplies the procedure and the catalog supplies its text.
+const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
+  contract: "riftbound.official-effect-order-evidence.v1",
+  canonicalCardId: CARD_ID,
+  sources: Object.freeze({
+    coreRules: Object.freeze({
+      version: "1.5",
+      published: "2026-10-09",
+      effective: "2026-10-16",
+      url: CORE_RULES_URL,
+      sha256: "94d41fee86f88b61c4157c0389c0595d990b98e5b42555c99d9f649ee64d1fec"
+    }),
+    radianceRulings: Object.freeze({
+      published: "2026-10-09",
+      effective: "2026-10-16",
+      url: RADIANCE_URL,
+      appliesToThisCard: false,
+      result: "reviewed: no Sunken Temple-specific ruling"
+    }),
+    spiritforgedErrata: Object.freeze({
+      published: "2026-01-14",
+      effective: null,
+      url: SFD_ERRATA_URL,
+      appliesToThisCard: false,
+      result: "reviewed: no Sunken Temple replacement text"
+    })
   }),
-  effectiveMight: Object.freeze({
-    productionTest: "sunken-temple: current layered Might of 5 satisfies Mighty and executes once",
-    timeline: Object.freeze([
-      "frozen participating Units",
-      "current layered Might",
-      "condition true at 5+",
-      "Pending Conquer trigger",
-      "Finalize",
-      "Resolve",
-    ]),
-  }),
-  opponentConquer: Object.freeze({
-    productionTest: "sunken-temple: current controller conquers and receives the Finalize/Resolve path",
-    timeline: Object.freeze([
-      "A initially controls Battlefield",
-      "B conquers and control changes",
-      "B becomes Battlefield ability controller",
-      "Pending",
-      "Finalize",
-      "Resolve for B",
-    ]),
-  }),
-  simultaneousTriggers: Object.freeze({
-    applicable: false,
-    productionTest: "sunken-temple: one Score wave collects exactly one trigger for multiple Mighty Units",
-    observedTriggerCount: 1,
-    reason: "Sunken Temple contributes one trigger to this Score; CR 383.3.d ordering is not needed to resolve the card",
-  }),
-  priorityResponse: Object.freeze({
-    productionTest: "sunken-temple: lifecycle-bound single-Mighty golden pays then draws after the real Score wave",
-    timeline: Object.freeze(["Pending", "Finalize", "A pass", "B pass", "Resolve"]),
-  }),
-  replacedPoint: Object.freeze({
-    productionTest: "sunken-temple: a replaced point gain preserves the Conquer trigger and its real draw",
-    timeline: Object.freeze([
-      "Conquer",
-      "Score point gain replaced by Draw",
-      "Conquer Effect still Pending",
-      "Finalize and pay",
-      "resolve the paid Draw",
-    ]),
-  }),
+  interactions: Object.freeze([
+    Object.freeze({
+      id: "battlefield-setup-and-here-conquer",
+      canonicalCardId: CARD_ID,
+      sourceIds: Object.freeze(["coreRules", "radianceRulings", "spiritforgedErrata"]),
+      clauses: Object.freeze(["When you conquer here"]),
+      ruleRefs: Object.freeze([
+        "053.3", "170.2.a", "170.2.b", "190.5", "190.6.a", "190.6.d",
+        "383.4.c", "383.4.c.2", "383.4.c.2.b", "468.5", "468.5.d",
+        "471.1", "473.2.a", "473.2.c"
+      ]),
+      timeline: Object.freeze([
+        "Setup establishes each selected Battlefield on the Board at its own Location.",
+        "The real control-establishment Score wave freezes the participating Unit refs and emits Conquer at this Battlefield.",
+        "The current Battlefield controller is the ability controller; a conquer at another Location creates no Pending item."
+      ]),
+      priorityFocus: "The trigger becomes Pending after the Score action; Finalize does not itself pass Priority.",
+      responseWindow: "After Finalize, the Closed State permits legally timed Reactions before Resolve.",
+      lki: "The Battlefield remains on the Board; here is matched to the actual Conquer payload.",
+      productionTestNames: Object.freeze([
+        PRODUCTION_TEST_NAMES.golden,
+        PRODUCTION_TEST_NAMES.replacedPoint,
+        PRODUCTION_TEST_NAMES.opponent,
+        PRODUCTION_TEST_NAMES.elsewhere
+      ])
+    }),
+    Object.freeze({
+      id: "one-or-more-frozen-mighty-participants",
+      canonicalCardId: CARD_ID,
+      sourceIds: Object.freeze(["coreRules", "radianceRulings", "spiritforgedErrata"]),
+      clauses: Object.freeze(["with one or more [Mighty] units", "A unit is Mighty while it has 5+ might."]),
+      ruleRefs: Object.freeze([
+        "383.2.a.1", "383.4.c.2", "472", "473.2.c", "478.1",
+        "479.4.e.1.a", "706", "708", "710"
+      ]),
+      timeline: Object.freeze([
+        "The Score action freezes its participating Unit identities.",
+        "The condition filters exactly those refs, using current layered Might at trigger evaluation.",
+        "Any count from one upward satisfies the trigger; several events in the same Score batch still make one trigger opportunity."
+      ]),
+      priorityFocus: "Priority follows the ordinary Pending/Finalize path; each controller orders simultaneous trigger instances and this card contributes one instance per Score wave.",
+      responseWindow: "The condition is evaluated while collecting Pending items, before any later Reaction window.",
+      lki: "A Unit that leaves after the Score does not retroactively change the frozen participant identity.",
+      productionTestNames: Object.freeze([
+        PRODUCTION_TEST_NAMES.onePerScore,
+        PRODUCTION_TEST_NAMES.mightyBoundary,
+        PRODUCTION_TEST_NAMES.layeredMight
+      ])
+    }),
+    Object.freeze({
+      id: "leading-finalize-may-and-energy-cost",
+      canonicalCardId: CARD_ID,
+      sourceIds: Object.freeze(["coreRules", "radianceRulings", "spiritforgedErrata"]),
+      clauses: Object.freeze(["you may pay 1 energy"]),
+      ruleRefs: Object.freeze([
+        "337.1", "337.1.a", "337.1.b", "338.1.b", "339.1", "403.1",
+        "403.1.a", "404.1.b.1", "405.1", "405.2", "407.1", "407.4", "383.3.a", "383.3.b.1"
+      ]),
+      timeline: Object.freeze([
+        "The leading may is chosen at Finalize by the trigger controller.",
+        "Acceptance selects the one-Energy base cost; the same Finalize pays it before the item is Finalized.",
+        "Decline or unavailable payment removes the Pending item and never reaches Resolve."
+      ]),
+      priorityFocus: "Finalize grants no new Priority; the controller makes the decision and pays the base cost there.",
+      responseWindow: "After successful Finalize both seats pass in Turn Order before the real Resolve.",
+      lki: "No look-back is required for the Energy payment or the still-active Battlefield source.",
+      productionTestNames: Object.freeze([
+        PRODUCTION_TEST_NAMES.golden,
+        PRODUCTION_TEST_NAMES.decline,
+        PRODUCTION_TEST_NAMES.unpayable,
+        PRODUCTION_TEST_NAMES.opponent
+      ])
+    }),
+    Object.freeze({
+      id: "draw-on-resolve",
+      canonicalCardId: CARD_ID,
+      sourceIds: Object.freeze(["coreRules", "radianceRulings", "spiritforgedErrata"]),
+      clauses: Object.freeze(["to draw 1"]),
+      ruleRefs: Object.freeze(["407.5", "411.2.a", "411.2.b", "414.1", "414.2"]),
+      timeline: Object.freeze([
+        "After the Reaction window closes, Resolve executes the instructed Draw.",
+        "The real top Main Deck card enters that controller's Hand; the former controller is unaffected.",
+        "A replaced point gain does not remove this separate Conquer effect."
+      ]),
+      priorityFocus: "Draw is a Limited Action performed during Resolve and creates no discretionary Priority.",
+      responseWindow: "No new response window occurs inside Resolve after the pre-Resolve window closed.",
+      lki: "The drawn card is read from its current zone after the real move; no departed object is needed.",
+      productionTestNames: Object.freeze([
+        PRODUCTION_TEST_NAMES.golden,
+        PRODUCTION_TEST_NAMES.opponent,
+        PRODUCTION_TEST_NAMES.replacedPoint
+      ])
+    })
+  ]),
+  boundaries: Object.freeze({
+    canonicalCardId: CARD_ID,
+    simultaneousTriggerOrder: Object.freeze({
+      applicable: false,
+      ruleRefs: Object.freeze(["303.2.a", "383.3.d", "383.3.d.1"]),
+      reason: "One Score wave collects this card as one trigger. Any ordering among other simultaneous abilities is engine-owned and no fixed numeric priority is assigned to this card."
+    }),
+    replacementOrPrevention: Object.freeze({
+      applicable: false,
+      ruleRefs: Object.freeze(["383.4.c.2.c"]),
+      reason: "This card prints neither replacement nor prevention text. The external replaced-point test confirms that replacing the Score point does not remove its Conquer effect."
+    })
+  })
 });
 
+const field = id => ({ type: "battlefield", id });
+const constant = value => ({ kind: "constant", value });
 const deckCard = (id, type) => ({
   id,
   cardId: id,
@@ -103,11 +179,11 @@ const deckCard = (id, type) => ({
   types: [type],
   cardType: type,
   energy: type === "unit" ? 1 : null,
-  power: [],
-  might: type === "unit" ? 2 : null,
+  power: type === "unit" ? [] : null,
+  might: type === "unit" ? 2 : null
 });
 
-function matchDeck(prefix, { sunkenTemple = false } = {}) {
+function matchDeck(prefix, sunkenTemple = false) {
   return {
     mainDeck: Array.from({ length: 16 }, (_, index) => deckCard(`${prefix}:main:${index}`, "unit")),
     runeDeck: Array.from({ length: 8 }, (_, index) => deckCard(`${prefix}:rune:${index}`, "rune")),
@@ -115,49 +191,57 @@ function matchDeck(prefix, { sunkenTemple = false } = {}) {
     chosenChampion: deckCard(`${prefix}:champion`, "champion"),
     battlefields: Array.from({ length: 3 }, (_, index) => {
       const card = deckCard(`${prefix}:battlefield:${index}`, "battlefield");
-      return sunkenTemple && index === 0 ? { ...card, cardId: program.canonicalCardId } : card;
-    }),
+      return sunkenTemple && index === 0 ? { ...card, cardId: CARD_ID, canonicalCardId: CARD_ID } : card;
+    })
   };
 }
 
-function runtime({
-  units = {}, give = true, enterThroughLifecycle = true, fields, energy = 2, energyB = 0,
-  replaceScore = false, orderFirst = true,
-} = {}) {
-  const builder = world().player("A", { energy }).player("B", { energy: energyB })
-    .deck(Array.from({ length: 8 }, (_, index) => `A:deck:${index}`), { owner: "A" })
-    .deck(Array.from({ length: 8 }, (_, index) => `B:deck:${index}`), { owner: "B" })
-    .rune(Array.from({ length: 8 }, (_, index) => `A:rune:${index}`), { owner: "A" })
-    .rune(Array.from({ length: 8 }, (_, index) => `B:rune:${index}`), { owner: "B" })
-    .object("temple", {
-      cardId: program.canonicalCardId,
-      types: ["battlefield"],
-      zone: enterThroughLifecycle ? "hand" : "board",
-      location: enterThroughLifecycle ? null : field(),
-      owner: "A",
-      controller: "A",
-      energy: null,
-      power: null,
-      might: null
-    });
-  for (const [id, values] of Object.entries(units)) {
-    builder.unit(id, {
-      owner: "A",
-      controller: "A",
-      power: [],
-      location: field(),
-      ...values
-    });
+function addUnit(kernel, id, values = {}, zoneEntryId = 20) {
+  const owner = values.owner ?? "A";
+  return kernel.addObject({
+    ref: { id, zoneEntryId },
+    cardId: `synthetic:${id}`,
+    canonicalCardId: `synthetic:${id}`,
+    name: id,
+    types: ["unit"],
+    tags: values.tags ?? [],
+    keywords: [],
+    owner,
+    controller: values.controller ?? owner,
+    zone: "board",
+    location: values.location ?? { type: "base", player: owner },
+    combatRole: null,
+    might: values.might ?? 2,
+    energy: 1,
+    power: [],
+    exhausted: values.exhausted ?? false,
+    damage: values.damage ?? 0,
+    stunned: false,
+    buffs: values.buffs ?? 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  }, "board");
+}
+
+function settle(flow, budget = 120) {
+  for (let guard = 0; guard < budget; guard++) {
+    if (flow.chain.items.length) { flow.pass(flow.chain.priority); continue; }
+    if (flow.chain.focus) { flow.pass(flow.chain.focus); continue; }
+    return;
   }
-  const kernel = builder.build();
+  throw new Error("production chain did not settle");
+}
+
+function productionMatch({ firstPlayer = 0, prepare, accept = true, replaceScore = false, energy = 2 } = {}) {
+  const kernel = world().player("A").player("B").build();
   const requests = [];
   const choose = request => {
-    requests.push(request);
-    if (request.type === "optional") return give;
-    if (request.type === "mode") return orderFirst ? request.options[0] : request.options.at(-1);
-    if (request.type === "select-objects" && request.min === request.max && request.options.length === request.min) {
-      return [...request.options];
-    }
+    requests.push(structuredClone(request));
+    if (request.type === "optional") return accept;
+    if (request.type === "mode") return request.options[0];
+    if (request.type === "order") return [...request.options];
+    if (request.type === "select-objects" && request.options.length === request.min) return [...request.options];
     throw new Error(`Unexpected production choice ${request.type} ${request.id}`);
   };
   const host = createActionPipelineHost({
@@ -168,121 +252,92 @@ function runtime({
     performContract: action => kernel.performContract(action),
     performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
     choose,
-    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose })
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
   });
-  const binding = createProgramBinding({ cardPrograms: [admitted()] });
-  const flow = new TurnFlow({
+  host.player = id => kernel.player(id);
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const match = createMatch({
     host,
-    player: id => kernel.player(id),
-    turnOrder: ["A", "B"],
-    battlefields: fields ?? [{ id: "bf1", controller: null }, { id: "bf2", controller: null }],
+    decks: [matchDeck("A", true), matchDeck("B")],
+    programs: binding,
+    seed: "sunken-temple-production",
+    battlefieldChoice: [0, 0],
+    mulligans: [[], []],
+    firstPlayer,
     victoryScore: 20
   });
-  const errors = [];
+  const temple = kernel.objects.find(object => object.cardId === CARD_ID);
+  assert.ok(temple, "selected Sunken Temple must be a real setup token");
+  binding.attachLifecycle(match.flow.chain, error => { throw error; });
+  settle(match.flow);
+  const player = firstPlayer === 0 ? "A" : "B";
+  prepare?.({ kernel, match, binding, temple, player });
+  if (energy > 0) match.flow.chain.commit({ type: "gain-energy", player, amount: energy });
+  settle(match.flow);
   if (replaceScore) {
-    flow.chain.pipeline.registerReplacement({
+    match.flow.chain.pipeline.registerReplacement({
       id: "sunken-temple:replace-point",
       matches: action => action.type === "score",
-      apply: action => ({ status: "replace", actions: [{ type: "draw", player: action.player, amount: 1 }] }),
+      apply: action => ({ status: "replace", actions: [{ type: "draw", player: action.player, amount: 1 }] })
     });
   }
-  // The runtime's turn-start built-in draw happens before the Conquer. Capture
-  // its trace boundary so this card's modified-draw assertion remains exact.
-  binding.attachLifecycle(flow.chain, error => { errors.push(error); throw error; });
-  if (enterThroughLifecycle) {
-    const entered = flow.chain.commit({ type: "move-zone", object: kernel.ref("temple"), to: "battlefield", location: field() });
-    assert.equal(entered.status, "done");
-  }
-  const registrations = [...flow.chain.pipeline.checkpoint().triggers.keys()];
-  const fired = [];
-  const append = flow.chain.pipeline.onTrigger;
-  flow.chain.pipeline.onTrigger = snapshot => { fired.push(snapshot); append(snapshot); };
-  flow.start();
-  const initialDrawEvents = flow.chain.pipeline.events.filter(event => event.timingPoint === "card-drawn").length;
-  for (let guard = 0; guard < 100; guard++) {
-    if (flow.chain.items.length) { flow.chain.pass(flow.chain.priority); continue; }
-    if (flow.chain.focus) { flow.pass(flow.chain.focus); continue; }
-    break;
-  }
-  return { kernel, flow, binding, registrations, fired, requests, errors, initialDrawEvents };
+  return { kernel, match, binding, requests, temple, player };
 }
 
-test("sunken-temple: official CR/SFD/Radiance evidence is pinned to the complete printed timeline", () => {
-  assert.equal(OFFICIAL_EVIDENCE.coreRules.version, "1.5");
-  assert.equal(OFFICIAL_EVIDENCE.coreRules.lastUpdated, "2026-10-09");
-  assert.equal(OFFICIAL_EVIDENCE.coreRules.effective, "2026-10-16");
-  assert.equal(OFFICIAL_EVIDENCE.radiance.effective, "2026-10-16");
-  assert.equal(OFFICIAL_EVIDENCE.radiance.involvesThisCard, false);
-  assert.equal(OFFICIAL_EVIDENCE.spiritforgedErrata.involvesThisCard, false);
-  assert.equal(OFFICIAL_EVIDENCE.canonicalCardId, program.canonicalCardId);
-  assert.equal(OFFICIAL_EVIDENCE.sourceText, program.sourceText);
-  assert.deepEqual(OFFICIAL_EVIDENCE.rules.setup, ["170.2.a", "170.2.b"]);
-  assert.deepEqual(OFFICIAL_EVIDENCE.rules.battlefieldControl, ["190.6.a", "190.6.d"]);
-  assert.deepEqual(OFFICIAL_EVIDENCE.rules.optionalCostFinalize, ["383.3.a", "383.3.a.1", "383.3.a.2", "383.3.b", "383.3.b.1"]);
-  assert.deepEqual(OFFICIAL_EVIDENCE.rules.simultaneousTriggerOrder, ["383.3.d", "383.3.d.1"]);
-  assert.deepEqual(OFFICIAL_EVIDENCE.rules.conquer, ["383.4.c", "383.4.c.2", "383.4.c.2.b", "383.4.c.2.c", "473.2.a"]);
-  assert.deepEqual(OFFICIAL_EVIDENCE.rules.scoreOnce, ["472", "473.2.c"]);
-  assert.deepEqual(OFFICIAL_EVIDENCE.rules.mighty, ["706", "708", "710"]);
-  assert.deepEqual(OFFICIAL_EVIDENCE.rules.layerDependency, ["478.1", "479.4.e.1.a"]);
-  assert.deepEqual(EVIDENCE_TIMELINES.printedResolution.timeline, [
-    "setup / establish Battlefield",
-    "conquer Score wave",
-    "Pending Conquer trigger",
-    "Finalize optional decision and 1 Energy cost",
-    "Resolve draw",
-  ]);
-  assert.deepEqual(EVIDENCE_TIMELINES.effectiveMight.timeline, [
-    "frozen participating Units",
-    "current layered Might",
-    "condition true at 5+",
-    "Pending Conquer trigger",
-    "Finalize",
-    "Resolve",
-  ]);
-  assert.deepEqual(EVIDENCE_TIMELINES.opponentConquer.timeline, [
-    "A initially controls Battlefield",
-    "B conquers and control changes",
-    "B becomes Battlefield ability controller",
-    "Pending",
-    "Finalize",
-    "Resolve for B",
-  ]);
-  assert.deepEqual(EVIDENCE_TIMELINES.simultaneousTriggers, {
-    applicable: false,
-    productionTest: "sunken-temple: one Score wave collects exactly one trigger for multiple Mighty Units",
-    observedTriggerCount: 1,
-    reason: "Sunken Temple contributes one trigger to this Score; CR 383.3.d ordering is not needed to resolve the card",
-  });
-  assert.deepEqual(EVIDENCE_TIMELINES.priorityResponse.timeline, [
-    "Pending",
-    "Finalize",
-    "A pass",
-    "B pass",
-    "Resolve",
-  ]);
-  assert.deepEqual(EVIDENCE_TIMELINES.replacedPoint.timeline, [
-    "Conquer",
-    "Score point gain replaced by Draw",
-    "Conquer Effect still Pending",
-    "Finalize and pay",
-    "resolve the paid Draw",
-  ]);
+test("sfd-218-221 Sunken Temple: executable program validates and is registered", () => {
+  const result = validateCardProgram(program);
+  assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  assert.deepEqual(result.issues, []);
+  assert.equal(cardRegistryById.get(CARD_ID), program);
+  assert.equal(program.canonicalCardId, CARD_ID);
+  assert.equal(program.rulesetVersion, "core-1.5");
+  assert.equal(program.status, "executable");
+  assert.equal(Object.hasOwn(program, "judgeReason"), false);
+  assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("sunken-temple: validates with current judge-required reasons and exact IR", () => {
-  const result = validateCardProgram(program);
-  assert.equal(result.ok, true, JSON.stringify(result.issues));
-  assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /game\/lifecycle\.ts:368-385/);
-  assert.match(program.judgeReason, /apps\/game-server\/src\/room\.ts:236-238/);
-  assert.match(program.judgeReason, /190\.6\.a\/d/);
-  assert.doesNotMatch(program.judgeReason, /turn\/flow\.ts:153-170/);
-  assert.doesNotMatch(program.judgeReason, /events\/pipeline\.ts:61-74/);
-  assert.doesNotMatch(program.judgeReason, /combat\/flow\.ts:387-394/);
-  assert.doesNotMatch(program.judgeReason, /Unsupported filter field here/);
-  assert.doesNotMatch(program.judgeReason, /Might 阈值/);
+test("sfd-218-221 Sunken Temple: official evidence records source dates, interactions and production assertions", () => {
+  assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.canonicalCardId, CARD_ID);
+  assert.deepEqual(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.coreRules, {
+    version: "1.5",
+    published: "2026-10-09",
+    effective: "2026-10-16",
+    url: CORE_RULES_URL,
+    sha256: "94d41fee86f88b61c4157c0389c0595d990b98e5b42555c99d9f649ee64d1fec"
+  });
+  assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.radianceRulings.effective, "2026-10-16");
+  assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.radianceRulings.published, "2026-10-09");
+  assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.radianceRulings.appliesToThisCard, false);
+  assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.spiritforgedErrata.published, "2026-01-14");
+  assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.spiritforgedErrata.effective, null);
+  assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.spiritforgedErrata.appliesToThisCard, false);
+  assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.boundaries.canonicalCardId, CARD_ID);
+  assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.boundaries.simultaneousTriggerOrder.applicable, false);
+  assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.boundaries.replacementOrPrevention.applicable, false);
+  assert.deepEqual(OFFICIAL_EFFECT_ORDER_EVIDENCE.interactions.map(interaction => interaction.id), [
+    "battlefield-setup-and-here-conquer",
+    "one-or-more-frozen-mighty-participants",
+    "leading-finalize-may-and-energy-cost",
+    "draw-on-resolve"
+  ]);
+  for (const interaction of OFFICIAL_EFFECT_ORDER_EVIDENCE.interactions) {
+    assert.equal(interaction.canonicalCardId, CARD_ID);
+    assert.deepEqual(interaction.sourceIds, ["coreRules", "radianceRulings", "spiritforgedErrata"]);
+    assert.ok(interaction.clauses.length > 0);
+    assert.ok(interaction.ruleRefs.length > 0);
+    assert.ok(interaction.timeline.length >= 3);
+    assert.match(interaction.priorityFocus, /Priority/);
+    assert.match(interaction.responseWindow, /Reaction|Resolve|response/i);
+    assert.ok(interaction.productionTestNames.length > 0);
+  }
+});
 
+test("sfd-218-221 Sunken Temple: IR keeps the printed trigger, leading Finalize cost and draw", () => {
+  assert.equal(program.abilities.length, 1);
   const [ability] = program.abilities;
+  assert.equal(ability.kind, "triggered");
+  assert.equal(ability.trigger.at, "conquer");
   assert.deepEqual(ability.trigger.filter, { event: "conquered", here: true, player: "self" });
   assert.deepEqual(ability.trigger.condition, {
     kind: "compare",
@@ -299,201 +354,11 @@ test("sunken-temple: validates with current judge-required reasons and exact IR"
   assert.deepEqual(ability.body.map(instruction => instruction.id), ["sunken-temple.opt-in"]);
 });
 
-test("sunken-temple: production binding preserves here, Mighty and leading Finalize cost", () => {
-  const source = world()
-    .object("temple", { cardId: program.canonicalCardId, types: ["battlefield"], zone: "board",
-      location: field(), owner: "A", controller: "A", energy: null, power: null, might: null })
-    .build()
-    .getObject("temple");
-  const binding = createProgramBinding({ cardPrograms: [admitted()] });
-  const [registration] = triggerRegistrations(binding.registry, source);
-  assert.deepEqual(registration.spec.filter, { event: "conquered", here: true, player: "self" });
-  assert.deepEqual(registration.cost, {
-    id: "cost:temple:1:sunken-temple.opt-in",
-    cost: { energy: constant(1) }
-  });
-  assert.equal(registration.mayAtFinalize, true);
-  assert.deepEqual(registration.body.map(instruction => instruction.op), ["effect.draw"]);
-});
-
-test("sunken-temple: event here matches only this battlefield and its controller", () => {
-  const sourceWorld = world()
-    .object("temple", { types: ["battlefield"], zone: "board", location: field(), owner: "A", controller: "A" })
-    .unit("conqueror", { owner: "A", controller: "A", might: 6, location: field() })
-    .build();
-  const source = sourceWorld.getObject("temple");
-  const unit = sourceWorld.getObject("conqueror");
-  const filter = translateTriggerFilter(program.abilities[0].trigger.filter, "temple", "conquer");
-  const event = battlefield => ({
-    type: "task-resolved", seq: 1, eventId: 1, turnNumber: 1, activePlayerId: "A",
-    taskId: "conquer", sourceCardId: "", reason: "conquer", autoResolved: true,
-    timingPoint: "conquer", kind: "conquer", player: "A", object: unit, source: unit, it: unit,
-    details: { battlefieldId: battlefield, objectId: "conqueror", playerId: "A" }
-  });
-  assert.equal(matchesTriggerEvent(filter, event("bf1"), "A", source), true);
-  assert.equal(matchesTriggerEvent(filter, event("bf2"), "A", source), false);
-  assert.equal(matchesTriggerEvent(filter, event("bf1"), "B", source), false);
-});
-
-test("sunken-temple: current controller conquers and receives the Finalize/Resolve path", () => {
-  const f = runtime({ units: { enemyConqueror: { owner: "B", controller: "B", might: 6 } }, energyB: 2 });
-  assert.equal(f.kernel.getObject("temple").controller, "B");
-  assert.equal(f.fired.length, 1);
-  assert.equal(f.fired[0].controller, "B");
-  assert.deepEqual(f.requests.map(request => request.id), ["finalize:trigger:1:optional"]);
-  assert.equal(f.kernel.player("B").energy, 1);
-  assert.deepEqual(f.kernel.zone("B", "hand").map(ref => ref.id), ["B:deck:0"]);
-  assert.equal(f.kernel.player("A").energy, 2, "the former controller pays nothing");
-  assert.equal(f.kernel.zone("A", "hand").length, 0, "the former controller draws nothing");
-});
-
-test("sunken-temple: optional 1 Energy is chosen at Finalize and unavailable cost cannot pay", () => {
-  const f = runtime({ units: { mighty: { might: 6 } }, energy: 0 });
-  assert.equal(f.fired.length, 1);
-  assert.deepEqual(f.requests.map(request => request.id), ["finalize:trigger:1:optional"]);
-  const pending = f.flow.chain.trace.find(event => event.step === "pending" && String(event.item).startsWith("trigger:"));
-  assert.ok(pending, "the trigger reaches Pending before the Finalize decision");
-  assert.equal(f.kernel.player("A").energy, 0);
-  assert.deepEqual(f.kernel.zone("A", "hand").map(ref => ref.id), ["A:deck:0"]);
-  assert.ok(f.flow.chain.trace.some(event => event.step === "removed" && event.reason === "unperformable-trigger"));
-  assert.equal(f.flow.chain.trace.some(event => event.step === "resolved" && String(event.item).startsWith("trigger:")), false);
-});
-
-test("sunken-temple: lifecycle-bound single-Mighty golden pays then draws after the real Score wave", () => {
-  const f = runtime({ units: { mighty: { might: 6 } } });
-  assert.deepEqual(f.registrations, ["program:temple:2:0"]);
-  assert.deepEqual(f.errors, []);
-  assert.equal(f.fired.length, 1);
-  assert.deepEqual(f.requests.map(request => request.id), ["finalize:trigger:1:optional"]);
-  assert.equal(f.kernel.player("A").energy, 1);
-  assert.deepEqual(f.kernel.zone("A", "hand").map(ref => ref.id), ["A:deck:0"]);
-  assert.equal(f.kernel.player("A").score, 1);
-  assert.equal(f.flow.battlefields.find(battlefield => battlefield.id === "bf1").controller, "A");
-  assert.deepEqual(f.flow.chain.items, []);
-
-  const events = f.flow.chain.pipeline.events;
-  const conquer = events.findIndex(event => event.timingPoint === "conquer");
-  const score = events.findIndex(event => event.timingPoint === "score");
-  const finalized = events.findIndex(event => event.timingPoint === "chain-item-finalize" && event.details?.item === "trigger:1");
-  const drawn = events.findIndex(event => event.timingPoint === "card-drawn");
-  assert.ok(conquer < score && score < finalized && finalized < drawn);
-  const trace = f.flow.chain.trace.filter(event => event.item === "trigger:1" || event.step === "pass");
-  assert.deepEqual(trace.map(event => [event.step, event.player ?? event.item]), [
-    ["pending", "trigger:1"],
-    ["finalize-start", "trigger:1"],
-    ["finalized", "trigger:1"],
-    ["pass", "A"],
-    ["pass", "B"],
-    ["resolve-start", "trigger:1"],
-    ["resolved", "trigger:1"],
-    ["removed", "trigger:1"],
-  ]);
-});
-
-test("sunken-temple: condition boundary and optional decline pay and draw nothing", () => {
-  const weak = runtime({ units: { weak: { might: 4 } } });
-  assert.deepEqual(weak.registrations, ["program:temple:2:0"]);
-  assert.equal(weak.fired.length, 0);
-  assert.equal(weak.kernel.player("A").energy, 0);
-  assert.equal(weak.kernel.zone("A", "hand").length, 1, "the turn draw is present, but no temple draw");
-
-  const declined = runtime({ units: { mighty: { might: 6 } }, give: false });
-  assert.deepEqual(declined.requests.map(request => request.id), ["finalize:trigger:1:optional"]);
-  assert.equal(declined.kernel.player("A").energy, 0);
-  assert.equal(declined.kernel.zone("A", "hand").length, 1, "declining adds no temple draw");
-});
-
-test("sunken-temple: one Score wave collects exactly one trigger for multiple Mighty Units", () => {
-  const f = runtime({ units: { first: { might: 6 }, second: { might: 5 } } });
-  const conquer = f.flow.chain.pipeline.events.filter(event => event.timingPoint === "conquer");
-  const score = f.flow.chain.pipeline.events.filter(event => event.timingPoint === "score");
-  assert.equal(conquer.length, 2);
-  assert.equal(score.length, 1);
-  assert.equal(new Set(conquer.map(event => event.batchId)).size, 1);
-  assert.equal(conquer[0].batchId, score[0].batchId);
-  assert.deepEqual(score[0].details.participatingUnits, [f.kernel.ref("first"), f.kernel.ref("second")]);
-  assert.equal(f.fired.length, 1);
-  assert.equal(f.requests.filter(request => request.type === "optional").length, 1);
-  assert.equal(f.flow.chain.trace.filter(event => event.step === "pending" && String(event.item).startsWith("trigger:")).length, 1);
-  assert.equal(f.kernel.player("A").energy, 1);
-  assert.deepEqual(f.kernel.zone("A", "hand").map(ref => ref.id), ["A:deck:0"]);
-});
-
-test("sunken-temple: a replaced point gain preserves the Conquer trigger and its real draw", () => {
-  const f = runtime({ units: { mighty: { might: 6 } }, replaceScore: true });
-  assert.equal(f.kernel.player("A").score, 0);
-  assert.equal(f.flow.chain.pipeline.events.filter(event => event.timingPoint === "conquer").length, 1);
-  assert.equal(f.flow.chain.pipeline.events.filter(event => event.timingPoint === "score").length, 1);
-  assert.equal(f.fired.length, 1, "383.4.c.2.c keeps the Conquer Effect independent of the point replacement");
-  assert.equal(f.kernel.player("A").energy, 1);
-  assert.deepEqual(f.kernel.zone("A", "hand").map(ref => ref.id), ["A:deck:0", "A:deck:1"],
-    "one Draw replaces the point; Sunken Temple's paid Draw adds the other");
-  assert.equal(f.flow.chain.pipeline.events.filter(event => event.timingPoint === "card-drawn").length, f.initialDrawEvents + 2);
-  assert.equal(f.flow.scored("A").includes("bf1"), true, "472 records the Score even when its point is replaced");
-});
-
-
-test("sunken-temple: one Mighty Unit satisfies the condition even when weaker Units also conquer", () => {
-  const f = runtime({ units: { mighty: { might: 6 }, weakOne: { might: 4 }, weakTwo: { might: 1 } } });
-  assert.deepEqual(new Set(f.fired.map(snapshot => snapshot.event.object.ref.id)), new Set(["mighty"]));
-  assert.equal(f.requests.filter(request => request.type === "optional").length, 1);
-  assert.equal(f.kernel.player("A").energy, 1);
-  assert.deepEqual(f.kernel.zone("A", "hand").map(ref => ref.id), ["A:deck:0"]);
-});
-
-test("sunken-temple: current layered Might of 5 satisfies Mighty and executes once", () => {
-  const f = runtime({ units: { buffed: { might: 4, buffs: 1 } } });
-  assert.equal(f.kernel.getObject("buffed").might, 4);
-  f.flow.chain.layers.setObjects(f.kernel.objects);
-  assert.equal(f.flow.chain.layers.snapshot(f.kernel.ref("buffed")).might, 5);
-  assert.equal(f.fired.length, 1);
-  assert.deepEqual(f.requests.map(request => request.id), ["finalize:trigger:1:optional"]);
-  assert.equal(f.kernel.player("A").energy, 1);
-  assert.deepEqual(f.kernel.zone("A", "hand").map(ref => ref.id), ["A:deck:0"]);
-});
-
-test("sunken-temple: event here rejects a Mighty conqueror at the other battlefield", () => {
-  const f = runtime({
-    units: { weak: { might: 4 }, mightyElsewhere: { might: 6, location: field("bf2") } },
-    fields: [{ id: "bf1", controller: null }, { id: "bf2", controller: "A" }]
-  });
-  assert.equal(f.fired.length, 0, "both event here and the query's sameLocationAs exclude the other battlefield");
-  assert.deepEqual(f.requests, []);
-});
-
-test("sunken-temple: unlayered raw Might is not silently rewritten by condition evaluation", () => {
-  const kernel = world().unit("mighty", { might: 6 }).unit("weak", { might: 1 }).build();
-  assert.equal(kernel.evaluate({ kind: "count", subject: "conquering-units", filter: { type: "unit" } }), 2);
-  const context = kernel.clone({ sourceSnapshot: kernel.getObject("mighty") });
-  assert.equal(context.test({
-    kind: "compare",
-    left: { kind: "count", subject: "units", filter: { type: "unit", mightGte: 5 } },
-    operator: "gte",
-    right: constant(1)
-  }), true);
-});
-
-test("sunken-temple: a conqueror other than the captured ability controller does not match", () => {
-  const sourceWorld = world()
-    .object("temple", { types: ["battlefield"], zone: "board", location: field(), owner: "A", controller: "A" })
-    .build();
-  const filter = translateTriggerFilter(program.abilities[0].trigger.filter, "temple", "conquer");
-  const event = {
-    type: "task-resolved", seq: 1, eventId: 1, turnNumber: 1, activePlayerId: "B",
-    taskId: "conquer", sourceCardId: "", reason: "conquer", autoResolved: true,
-    timingPoint: "conquer", kind: "conquer", player: "B",
-    details: { battlefieldId: "bf1", objectId: "conqueror", playerId: "B" },
-  };
-  assert.equal(matchesTriggerEvent(filter, event, "A", sourceWorld.getObject("temple")), false);
-  assert.equal(matchesTriggerEvent(filter, event, "B", sourceWorld.getObject("temple")), true);
-});
-
-test("sunken-temple: Battlefield setup is not complete before the host enters the rules zone", () => {
+test("sfd-218-221 Sunken Temple production setup: the selected Battlefield is a Board object at its own Location", () => {
   const kernel = world().player("A").player("B").build();
   const choose = request => {
-    if (request.type === "select-objects" && request.min === request.max && request.options.length === request.min) {
-      return [...request.options];
-    }
+    if (request.type === "select-objects" && request.min === request.max && request.options.length === request.min) return [...request.options];
+    if (request.type === "mode") return request.options[0];
     throw new Error(`Unexpected setup choice ${request.type} ${request.id}`);
   };
   const host = createActionPipelineHost({
@@ -504,36 +369,220 @@ test("sunken-temple: Battlefield setup is not complete before the host enters th
     performContract: action => kernel.performContract(action),
     performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
     choose,
-    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose })
   });
   host.player = id => kernel.player(id);
-  const binding = createProgramBinding({ cardPrograms: [admitted()] });
+  const binding = createProgramBinding({ cardPrograms: [program] });
   const match = createMatch({
     host,
-    decks: [matchDeck("A", { sunkenTemple: true }), matchDeck("B")],
+    decks: [matchDeck("A", true), matchDeck("B")],
     programs: binding,
-    seed: "sunken-temple-setup-gap",
+    seed: "sunken-temple-setup",
     battlefieldChoice: [0, 0],
     mulligans: [[], []],
     firstPlayer: 0,
-    victoryScore: 20,
+    victoryScore: 20
   });
-  const selected = match.setup.battlefields.find(field => field.cardId === program.canonicalCardId);
-  assert.ok(selected, "the selected Sunken Temple must be represented in setup");
-  assert.equal(kernel.getObject(selected.id).zone, "chain", "selected setup Battlefields are still pending on the Chain");
-  assert.equal(selected.staged, "none");
-  assert.equal(match.setup.battlefields.some(field => field.controller !== null), false);
+  const selected = match.setup.battlefields.find(entry => entry.cardId === CARD_ID);
+  assert.ok(selected);
+  const object = kernel.getObject(selected.id);
+  assert.equal(object.zone, "board");
+  assert.deepEqual(object.location, field(selected.id));
+  assert.equal(selected.cardId, CARD_ID);
+  assert.equal(object.energy, null);
+  assert.equal(object.power, null);
+  const registrations = match.flow.chain.pipeline.registeredTriggers().filter(registration => registration.source.ref.id === selected.id);
+  assert.deepEqual(registrations.map(registration => registration.id), []);
+  binding.attachLifecycle(match.flow.chain, error => { throw error; });
+  const attached = match.flow.chain.pipeline.registeredTriggers().filter(registration => registration.source.ref.id === selected.id);
+  assert.deepEqual(attached.map(registration => registration.id), [`program:${selected.id}:${object.ref.zoneEntryId}:0`]);
 });
 
-test("sunken-temple: official evidence timelines name the executable production assertions", () => {
-  assert.equal(EVIDENCE_TIMELINES.printedResolution.timeline.length, 5);
-  assert.equal(EVIDENCE_TIMELINES.effectiveMight.timeline.length, 6);
-  assert.equal(EVIDENCE_TIMELINES.opponentConquer.timeline.length, 6);
-  assert.equal(EVIDENCE_TIMELINES.simultaneousTriggers.applicable, false);
-  assert.equal(EVIDENCE_TIMELINES.simultaneousTriggers.observedTriggerCount, 1);
-  assert.equal(EVIDENCE_TIMELINES.priorityResponse.timeline.length, 5);
-  assert.equal(EVIDENCE_TIMELINES.replacedPoint.timeline.length, 5);
-  assert.match(CORE_RULES_URL, /5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94\.pdf$/);
-  assert.match(RADIANCE_URL, /effective-october-16-2026/);
-  assert.match(SFD_ERRATA_URL, /spiritforged-errata/);
+test(PRODUCTION_TEST_NAMES.golden, () => {
+  const f = productionMatch({
+    prepare: ({ kernel }) => addUnit(kernel, "mighty", { might: 6 }, 30)
+  });
+  const handBefore = f.kernel.player("A").handCount;
+  f.match.flow.move("A", f.kernel.ref("mighty"), f.temple.ref.id);
+  settle(f.match.flow);
+  assert.equal(f.kernel.getObject(f.temple.ref.id).controller, "A");
+  assert.deepEqual(f.requests.map(request => request.id), ["finalize:trigger:1:optional"]);
+  assert.equal(f.kernel.player("A").energy, 1);
+  assert.equal(f.kernel.player("A").handCount, handBefore + 1);
+  const events = f.match.events();
+  const conquer = events.findIndex(event => event.timingPoint === "conquer");
+  const score = events.findIndex(event => event.timingPoint === "score");
+  const finalized = events.findIndex(event => event.timingPoint === "chain-item-finalize" && event.details?.item === "trigger:1");
+  const postMoveDraw = events.findIndex((event, index) => index > score && event.timingPoint === "card-drawn");
+  assert.ok(conquer >= 0 && score > conquer && finalized > score && postMoveDraw > finalized);
+  assert.equal(events.filter(event => event.timingPoint === "score").length, 1);
+});
+
+test(PRODUCTION_TEST_NAMES.onePerScore, () => {
+  const f = productionMatch({ prepare: ({ kernel }) => {
+    addUnit(kernel, "mighty-a", { might: 6, tags: ["sunken-temple-participant"] }, 31);
+    addUnit(kernel, "mighty-b", { might: 5, tags: ["sunken-temple-participant"] }, 32);
+  } });
+  const handBefore = f.kernel.player("A").handCount;
+  f.match.flow.execute({
+    id: "sunken-temple:two-participant-score",
+    controller: "A",
+    source: f.kernel.getObject("mighty-a"),
+    kind: "activated",
+    speed: "normal",
+    body: [{
+      id: "sunken-temple:move-participants",
+      op: "effect.move",
+      args: {
+        objects: constant({
+          kind: "choose",
+          id: "sunken-temple.participants",
+          filter: { type: "unit", zone: "board", controller: "A", tags: ["sunken-temple-participant"] }
+        }),
+        amount: constant(2),
+        to: constant(field(f.temple.ref.id))
+      }
+    }]
+  });
+  settle(f.match.flow);
+  const conquer = f.match.events().filter(event => event.timingPoint === "conquer");
+  const score = f.match.events().filter(event => event.timingPoint === "score");
+  assert.equal(conquer.length, 2);
+  assert.equal(score.length, 1);
+  assert.equal(new Set(conquer.map(event => event.batchId)).size, 1);
+  assert.deepEqual(score[0].details.participatingUnits, [f.kernel.ref("mighty-a"), f.kernel.ref("mighty-b")]);
+  assert.equal(f.requests.filter(request => request.type === "optional").length, 1);
+  assert.equal(f.kernel.player("A").handCount, handBefore + 1);
+});
+
+test(PRODUCTION_TEST_NAMES.mightyBoundary, () => {
+  const f = productionMatch({
+    prepare: ({ kernel }) => addUnit(kernel, "weak", { might: 4 }, 40)
+  });
+  const handBefore = f.kernel.player("A").handCount;
+  addUnit(f.kernel, "mighty-outsider", { might: 6 }, 41);
+  f.match.flow.chain.pipeline.registerReplacement({
+    id: "sunken-temple:frozen-boundary",
+    matches: action => action.type === "score",
+    apply: () => ({
+      status: "replace",
+      actions: [{
+        type: "move-location",
+        object: f.kernel.ref("mighty-outsider"),
+        to: field(f.temple.ref.id)
+      }]
+    })
+  });
+  f.match.flow.move("A", f.kernel.ref("weak"), f.temple.ref.id);
+  settle(f.match.flow);
+  assert.equal(f.match.events().filter(event => event.timingPoint === "conquer").length, 1);
+  assert.deepEqual(f.match.events().find(event => event.timingPoint === "score").details.participatingUnits,
+    [f.kernel.ref("weak")]);
+  assert.deepEqual(f.kernel.getObject("mighty-outsider").location, field(f.temple.ref.id));
+  assert.deepEqual(f.requests, []);
+  assert.equal(f.kernel.player("A").energy, 2);
+  assert.equal(f.kernel.player("A").handCount, handBefore);
+});
+
+test(PRODUCTION_TEST_NAMES.layeredMight, () => {
+  const f = productionMatch({
+    prepare: ({ kernel }) => addUnit(kernel, "layered", { might: 4, buffs: 1 }, 41)
+  });
+  const handBefore = f.kernel.player("A").handCount;
+  f.match.flow.move("A", f.kernel.ref("layered"), f.temple.ref.id);
+  settle(f.match.flow);
+  f.match.flow.layers.setObjects(f.kernel.objects);
+  assert.equal(f.kernel.getObject("layered").might, 4);
+  assert.equal(f.match.flow.layers.snapshot(f.kernel.ref("layered")).might, 5);
+  assert.deepEqual(f.requests.map(request => request.id), ["finalize:trigger:1:optional"]);
+  assert.equal(f.kernel.player("A").energy, 1);
+  assert.equal(f.kernel.player("A").handCount, handBefore + 1);
+});
+
+test(PRODUCTION_TEST_NAMES.decline, () => {
+  const f = productionMatch({
+    accept: false,
+    prepare: ({ kernel }) => addUnit(kernel, "mighty-decline", { might: 6 }, 42)
+  });
+  const handBefore = f.kernel.player("A").handCount;
+  f.match.flow.move("A", f.kernel.ref("mighty-decline"), f.temple.ref.id);
+  settle(f.match.flow);
+  assert.deepEqual(f.requests.map(request => request.id), ["finalize:trigger:1:optional"]);
+  assert.equal(f.kernel.player("A").energy, 2);
+  assert.equal(f.kernel.player("A").handCount, handBefore);
+  assert.ok(f.match.flow.chain.trace.some(entry => entry.step === "removed" && entry.item === "trigger:1"));
+  assert.equal(f.match.flow.chain.trace.some(entry => entry.step === "resolved" && entry.item === "trigger:1"), false);
+});
+
+test(PRODUCTION_TEST_NAMES.unpayable, () => {
+  const f = productionMatch({
+    energy: 0,
+    prepare: ({ kernel }) => addUnit(kernel, "mighty-unpayable", { might: 6 }, 43)
+  });
+  const handBefore = f.kernel.player("A").handCount;
+  f.match.flow.move("A", f.kernel.ref("mighty-unpayable"), f.temple.ref.id);
+  settle(f.match.flow);
+  assert.equal(f.kernel.player("A").energy, 0);
+  assert.equal(f.kernel.player("A").handCount, handBefore);
+  assert.ok(f.match.flow.chain.trace.some(entry => entry.step === "removed" && entry.reason === "unperformable-trigger"));
+  assert.equal(f.match.flow.chain.trace.some(entry => entry.step === "resolved" && entry.item === "trigger:1"), false);
+});
+
+test(PRODUCTION_TEST_NAMES.opponent, () => {
+  const f = productionMatch({
+    firstPlayer: 1,
+    prepare: ({ kernel }) => addUnit(kernel, "enemy", { owner: "B", might: 6 }, 44)
+  });
+  const handBeforeA = f.kernel.player("A").handCount;
+  const handBeforeB = f.kernel.player("B").handCount;
+  f.match.flow.move("B", f.kernel.ref("enemy"), f.temple.ref.id);
+  settle(f.match.flow);
+  assert.equal(f.kernel.getObject(f.temple.ref.id).controller, "B");
+  assert.deepEqual(f.requests.map(request => request.id), ["finalize:trigger:1:optional"]);
+  assert.equal(f.kernel.player("A").energy, 0);
+  assert.equal(f.kernel.player("B").energy, 1);
+  assert.equal(f.kernel.player("A").handCount, handBeforeA);
+  assert.equal(f.kernel.player("B").handCount, handBeforeB + 1);
+});
+
+test(PRODUCTION_TEST_NAMES.elsewhere, () => {
+  const f = productionMatch({ prepare: ({ kernel }) => addUnit(kernel, "mighty-elsewhere", { might: 6 }, 45) });
+  const other = f.match.setup.battlefields.find(entry => entry.id !== f.temple.ref.id);
+  assert.ok(other);
+  const handBefore = f.kernel.player("A").handCount;
+  f.match.flow.move("A", f.kernel.ref("mighty-elsewhere"), other.id);
+  settle(f.match.flow);
+  assert.deepEqual(f.requests, []);
+  assert.equal(f.kernel.player("A").energy, 2);
+  assert.equal(f.kernel.player("A").handCount, handBefore);
+  assert.ok(f.match.events().some(event => event.timingPoint === "conquer" && event.details?.battlefieldId === other.id));
+});
+
+test(PRODUCTION_TEST_NAMES.noSecondScore, () => {
+  const f = productionMatch({ prepare: ({ kernel }) => {
+    addUnit(kernel, "mighty-once", { might: 6 }, 46);
+    addUnit(kernel, "late-mighty", { might: 6 }, 47);
+  } });
+  f.match.flow.move("A", f.kernel.ref("mighty-once"), f.temple.ref.id);
+  settle(f.match.flow);
+  f.match.flow.move("A", f.kernel.ref("late-mighty"), f.temple.ref.id);
+  settle(f.match.flow);
+  assert.deepEqual(f.match.flow.scored("A"), [f.temple.ref.id]);
+  assert.equal(f.requests.filter(request => request.type === "optional").length, 1);
+});
+
+test(PRODUCTION_TEST_NAMES.replacedPoint, () => {
+  const f = productionMatch({
+    replaceScore: true,
+    prepare: ({ kernel }) => addUnit(kernel, "mighty-replaced", { might: 6 }, 48)
+  });
+  const handBefore = f.kernel.player("A").handCount;
+  f.match.flow.move("A", f.kernel.ref("mighty-replaced"), f.temple.ref.id);
+  settle(f.match.flow);
+  assert.equal(f.kernel.player("A").score, 0);
+  assert.equal(f.match.events().filter(event => event.timingPoint === "conquer").length, 1);
+  assert.equal(f.match.events().filter(event => event.timingPoint === "score").length, 1);
+  assert.equal(f.requests.filter(request => request.type === "optional").length, 1);
+  assert.equal(f.kernel.player("A").handCount, handBefore + 2);
+  assert.ok(f.match.flow.scored("A").includes(f.temple.ref.id));
 });
