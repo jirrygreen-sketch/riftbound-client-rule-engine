@@ -219,7 +219,7 @@ const rows = [
       players: { A: { energy: 3 }, B: { energy: 3 } },
       objects: [
         // A Legend prints no energy/power; those stay null, never 0.
-        { id: "fox", cardId: foxId, program: foxView, types: ["legend"], zone: "board", location: BF1, might: 3, energy: null, power: null },
+        { id: "fox", cardId: foxId, program: foxView, types: ["legend"], zone: "legend", location: null, might: 3, energy: null, power: null },
         { id: "raider", owner: "B", types: ["unit"], zone: "board", location: BF1, might: 4 },
         { id: "bystander", owner: "B", types: ["unit"], zone: "board", location: BF2, might: 4 },
       ],
@@ -231,7 +231,7 @@ const rows = [
       ],
       expect: {
         objects: {
-          fox: { zone: "board", might: 3, buffs: 0, energy: null, power: null },
+          fox: { zone: "legend", might: 3, buffs: 0, energy: null, power: null },
           // 478.1.c: -1 with the printed floor of 1; 4 -> 3.
           raider: { zone: "board", might: 3, buffs: 0, damage: 0 },
           bystander: { zone: "board", might: 4 },
@@ -348,7 +348,7 @@ const boundaries = [
     scenario: {
       players: { A: { energy: 3 }, B: { energy: 3 } },
       objects: [
-        { id: "fox", cardId: foxId, program: foxView, types: ["legend"], zone: "board", location: BF1, might: 3, energy: null, power: null },
+        { id: "fox", cardId: foxId, program: foxView, types: ["legend"], zone: "legend", location: null, might: 3, energy: null, power: null },
         // 355.9.a.1: "unit" means a Board object. A unit card in hand is not a
         // legal attacker and not a legal recipient of "it".
         { id: "hand-raider", owner: "B", types: ["unit"], zone: "hand", might: 4 },
@@ -359,7 +359,7 @@ const boundaries = [
       ],
       expect: {
         objects: {
-          fox: { zone: "board", might: 3 },
+          fox: { zone: "legend", might: 3 },
           "hand-raider": { zone: "hand", might: 4 },
         },
         events: { includes: [{ timingPoint: "attack-declared", object: { ref: "hand-raider" } }] },
@@ -385,7 +385,7 @@ const boundaries = [
     scenario: {
       players: { A: { energy: 3 }, B: { energy: 3 } },
       objects: [
-        { id: "fox", cardId: foxId, program: foxView, types: ["legend"], zone: "board", location: BF1, might: 3, energy: null, power: null },
+        { id: "fox", cardId: foxId, program: foxView, types: ["legend"], zone: "legend", location: null, might: 3, energy: null, power: null },
         { id: "mine", owner: "A", types: ["unit"], zone: "board", location: BF1, might: 4 },
       ],
       operations: [
@@ -394,7 +394,7 @@ const boundaries = [
       ],
       expect: {
         objects: {
-          fox: { zone: "board", might: 3 },
+          fox: { zone: "legend", might: 3 },
           mine: { zone: "board", might: 4, buffs: 0 },
         },
         events: { includes: [{ timingPoint: "attack-declared", object: { ref: "mine" } }] },
@@ -416,7 +416,7 @@ const boundaries = [
     scenario: {
       players: { A: { energy: 3 }, B: { energy: 3 } },
       objects: [
-        { id: "fox", cardId: foxId, program: foxView, types: ["legend"], zone: "board", location: BF1, might: 3, energy: null, power: null },
+        { id: "fox", cardId: foxId, program: foxView, types: ["legend"], zone: "legend", location: null, might: 3, energy: null, power: null },
         { id: "weakest", owner: "B", types: ["unit"], zone: "board", location: BF1, might: 1 },
       ],
       answers: { "target:attacking-unit": ["weakest"] },
@@ -427,7 +427,7 @@ const boundaries = [
       ],
       expect: {
         objects: {
-          fox: { zone: "board", might: 3 },
+          fox: { zone: "legend", might: 3 },
           weakest: { zone: "board", might: 1, buffs: 0, damage: 0 },
         },
         links: {
@@ -707,7 +707,7 @@ test("RIFT-705 Nine-Tailed Fox [" + foxId + "]: a non-attacking opponent unit ca
   const result = runCardScenario(foxView, {
     players: { A: { energy: 3 }, B: { energy: 3 } },
     objects: [
-      { id: "fox", cardId: foxId, program: foxView, types: ["legend"], zone: "board", location: BF1, might: 3, energy: null, power: null },
+      { id: "fox", cardId: foxId, program: foxView, types: ["legend"], zone: "legend", location: null, might: 3, energy: null, power: null },
       { id: "raider", owner: "B", types: ["unit"], zone: "board", location: BF1, might: 4 },
       { id: "bystander", owner: "B", types: ["unit"], zone: "board", location: BF1, might: 4 },
     ],
