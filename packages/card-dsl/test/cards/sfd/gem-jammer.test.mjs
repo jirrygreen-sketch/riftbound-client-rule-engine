@@ -1,22 +1,24 @@
 // Golden tests for Gem Jammer (sfd-007-221).
 //
-// Production cases use a test view that changes only the admission metadata on
-// the published CardProgram. Its identity, source text, trigger and body stay
-// unchanged. The published card remains judge-required because the lifecycle
-// keeps the derived movement permission after the end-of-turn grant expires.
+// The published CardProgram runs through ProgramBinding, ChainEngine and the
+// production lifecycle. TurnPhaseLayers distinguishes the turn-end Ending
+// Step from the later Expiration Step so the test can verify both CR 317.1.a
+// and the removal of the derived Ganking movement permission.
 import test from "node:test";
 import assert from "node:assert/strict";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/gem-jammer.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
-import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 import { TargetSelectionError } from "../../../../engine-core/dist/target/target-plan.js";
+import { TurnPhaseLayers } from "../../../../engine-core/dist/turn/phase-layers.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture, resolveAll, stages } from "../../../../engine-core/test/chain/helpers.mjs";
 import { duelWorld, mainTiming, readinessFor, moveDuelUnitsStandard } from "../../../../engine-core/test/rules/movement/support.mjs";
@@ -54,36 +56,63 @@ const gemInHand = {
   might: 2
 };
 
-// Admission-only view for the supported production fragment. Its identity,
-// source text, trigger and body are the published program unchanged; the card
-// itself remains judge-required because the derived permission survives
-// turn-end, so this is not whole-card execution evidence.
-const executableView = {
-  ...program,
-  status: "executable",
-  judgeReason: undefined
-};
+function productionTurnPlay({ build, answers = {} }) {
+  const kernel = build(world()).build();
+  const requests = [];
+  const choose = request => {
+    requests.push(request);
+    const answer = answers[request.id];
+    if (typeof answer === "function") return answer(kernel, request);
+    if (Array.isArray(answer)) return answer.map(id => kernel.ref(id));
+    throw new Error(`Unexpected production choice ${request.type} ${request.id}`);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, {
+      source, controller, timingPoint, choose
+    })
+  });
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host,
+    layers: new TurnPhaseLayers(kernel.objects),
+    cleanup: () => false,
+    describePlay: binding.describePlay
+  });
+  binding.attachLifecycle(engine, error => { throw error; });
+  const settle = () => {
+    engine.advance();
+    for (let guard = 0; engine.items.length; guard++) {
+      assert.ok(guard < 20, "Chain did not settle");
+      if (engine.priority === null) break;
+      engine.pass(engine.priority);
+    }
+  };
+  return { kernel, engine, binding, requests, settle };
+}
 
-test("sfd-007-221 Gem Jammer: program validates and is judge-required for stale keyword permission cleanup", () => {
+test("sfd-007-221 Gem Jammer: program validates and is executable", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.deepEqual(result.issues, []);
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /programs\/statics\.ts:184/);
-  assert.match(program.judgeReason, /turn-end/);
-  assert.match(program.judgeReason, /permission/);
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("sfd-007-221 Gem Jammer: judgeReason names the current gap and Ganking remains a single-stack keyword", () => {
-  assert.match(program.judgeReason, /programs\/statics\.ts:184/);
-  assert.match(program.judgeReason, /continuous\.movement/);
-  assert.match(program.judgeReason, /turn-end/);
-  assert.match(program.judgeReason, /canGank/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-83|RIFT-91|RIFT-257|RIFT-258/);
+test("sfd-007-221 Gem Jammer: Ganking remains a single-stack keyword", () => {
   assert.equal(keywordDefinitionsById.has("Ganking"), true);
   assert.equal(keywordDefinitionsById.get("Ganking").stacking, "single");
 });
@@ -120,7 +149,7 @@ test("sfd-007-221 Gem Jammer: body grants Ganking to exactly one unit until end 
   });
 });
 
-test("sfd-007-221 Gem Jammer golden: the grant registers once on the locked unit and expires at turn end", () => {
+test("sfd-007-221 Gem Jammer golden: the grant registers once on the locked unit and expires for the end-of-turn duration", () => {
   const kernel = world()
     .unit("unit-1")
     .unit("unit-2", { owner: "B", controller: "B" })
@@ -228,27 +257,23 @@ test("sfd-007-221 Gem Jammer golden: a stale locked target makes the grant ignor
   assert.equal(kernel.continuousEffects.length, 0);
 });
 
-test("sfd-007-221 Gem Jammer production blockers: the published program is admitted only through an executable test view", () => {
-  const publishedBinding = createProgramBinding({ cardPrograms: [program] });
+test("sfd-007-221 Gem Jammer: the published program is admitted by the production registry", () => {
+  const binding = createProgramBinding({ cardPrograms: [program] });
   const kernel = world()
     .player("A", { energy: 2 })
     .player("B")
     .object("gem", gemInHand)
     .build();
-  assert.throws(
-    () => publishedBinding.describePlay({
-      type: "play",
-      object: kernel.ref("gem"),
-      player: "A"
-    }, kernel.getObject("gem")),
-    error => error?.code === "judge-required" && /programs\/statics\.ts:184/.test(error.message)
-  );
+  const source = kernel.getObject("gem");
+  const draft = binding.describePlay({ type: "play", object: source.ref, player: "A" }, source);
+  assert.equal(draft.source.cardId, CANONICAL);
+  assert.equal(draft.kind, "unit");
 });
 
 test("sfd-007-221 Gem Jammer production: a target that leaves after Finalize causes no grant", () => {
   let locked;
   const f = productionPlay({
-    programs: [executableView],
+    programs: [program],
     answers: {
       "target:gem-jammer.unit": (kernel, request) => {
         locked = request.options.find(option => option.id === "target");
@@ -306,12 +331,14 @@ test("sfd-007-221 Gem Jammer production: a target that leaves after Finalize cau
 test("sfd-007-221 Gem Jammer production: an enemy Unit gains actionable Ganking and moves between battlefields", () => {
   const scene = duelWorld();
   const board = scene.place(scene.board, "target", "B", scene.bf1);
-  const f = productionPlay({
-    programs: [executableView],
+  const f = productionTurnPlay({
     answers: { "target:gem-jammer.unit": ["target"] },
     build: w => w.player("A", { energy: 2, power: [] }).player("B", { energy: 0, power: [] })
+      .deck(["a-top", "a-second"], { owner: "A" })
+      .deck(["b-top", "b-second"], { owner: "B" })
       .object("gem", gemInHand)
       .unit("target", {
+        cardId: "card:target",
         owner: "B",
         controller: "B",
         types: ["unit"],
@@ -322,11 +349,21 @@ test("sfd-007-221 Gem Jammer production: an enemy Unit gains actionable Ganking 
       })
   });
 
-  const draft = f.play("gem");
+  const source = f.kernel.getObject("gem");
+  const draft = f.binding.describePlay({ type: "play", object: source.ref, player: "A" }, source);
+  f.kernel.setTargets("gem-jammer.unit", [f.kernel.ref("target")]);
+  const play = f.engine.commit({
+    type: "play",
+    object: source.ref,
+    player: "A",
+    location: { type: "battlefield", id: scene.bf1 }
+  });
+  assert.equal(play.status, "done");
+  f.settle();
   assert.equal(draft.kind, "unit");
   assert.equal(f.kernel.player("A").energy, 0);
   assert.equal(f.kernel.getObject("gem").zone, "board");
-  assert.deepEqual(f.targetRequests().map(request => [
+  assert.deepEqual(f.requests.filter(request => request.type === "select-objects").map(request => [
     request.id,
     request.options.map(option => option.id)
   ]), [["target:gem-jammer.unit", ["gem", "target"]]]);
@@ -360,8 +397,21 @@ test("sfd-007-221 Gem Jammer production: an enemy Unit gains actionable Ganking 
   });
   assert.equal(moved.board.units.find(unit => unit.objectId === "target").locationId, scene.bf2);
   assert.equal(moved.group.exhaustedCount, 1);
+  assert.equal(f.engine.commit({
+    type: "move-location",
+    object: f.kernel.ref("target"),
+    to: { type: "battlefield", id: scene.bf2 }
+  }).status, "done");
+  assert.equal(f.engine.commit({ type: "exhaust", object: f.kernel.ref("target") }).status, "done");
 
-  f.engine.emit({ timingPoint: "turn-end", player: "A" });
+  f.engine.pipeline.emit({ timingPoint: "turn-end", player: "A" });
+  const endingTarget = f.engine.layers.evaluate(target);
+  assert.deepEqual(endingTarget.keywords.map(keyword => keyword.id), ["Ganking"],
+    "CR 317.1.a keeps the this-turn grant through the Ending Step");
+  assert.equal(movement(f.engine.layers.registry, target, endingTarget, "B").canGank, true);
+
+  assert.ok(f.engine.layers.expireTurn("A").length > 0,
+    "CR 317.2.c expires this-turn effects in the Expiration Step");
   const expiredTarget = f.engine.layers.evaluate(target);
   assert.deepEqual(expiredTarget.keywords, []);
   assert.deepEqual(
@@ -369,16 +419,35 @@ test("sfd-007-221 Gem Jammer production: an enemy Unit gains actionable Ganking 
       entry.effect.effect.kind === "continuous.grant-keyword" && entry.effect.filter.objectId === "target"),
     []
   );
-});
+  assert.equal(movement(f.engine.layers.registry, target, expiredTarget, "B").canGank, false);
+  assert.equal(f.engine.layers.registry.lifecycleRuleEffects().filter(entry =>
+    entry.effect.effect.kind === "continuous.movement" && entry.effect.filter.objectId === "target").length, 0);
 
-test.todo(
-  "sfd-007-221 Gem Jammer production: turn-end must revoke the derived battlefield-to-battlefield permission " +
-  "(programs/statics.ts:184/194 currently leaves the generated permanent movement effect queryable)"
-);
+  const beforeBoard = structuredClone(moved.board);
+  const beforeReadiness = readinessFor(moved.board);
+  const beforeKernelLocation = structuredClone(f.kernel.getObject("target").location);
+  const beforeKernelExhausted = f.kernel.getObject("target").exhausted;
+  assert.equal(beforeKernelLocation.id, scene.bf2);
+  assert.equal(beforeKernelExhausted, true, "the successful Standard Move paid Exhaust");
+  assert.throws(() => moveDuelUnitsStandard(moved.board, beforeReadiness, {
+    actor: "B",
+    unitUIDs: ["target"],
+    destinationLocationId: scene.bf1,
+    timing: mainTiming("B")
+  }, {
+    registry: f.engine.layers.registry,
+    refForUnit: unit => f.kernel.ref(unit.objectId),
+    objectForUnit: unit => f.engine.layers.evaluate(f.kernel.ref(unit.objectId))
+  }), /needs Ganking/);
+  assert.deepEqual(moved.board, beforeBoard, "the rejected Standard Move changes no location");
+  assert.deepEqual(readinessFor(moved.board), beforeReadiness, "the rejected Move pays no Exhaust cost");
+  assert.deepEqual(f.kernel.getObject("target").location, beforeKernelLocation);
+  assert.equal(f.kernel.getObject("target").exhausted, beforeKernelExhausted);
+});
 
 test("sfd-007-221 Gem Jammer production: with no other Board Unit, the played Unit may choose itself", () => {
   const f = productionPlay({
-    programs: [executableView],
+    programs: [program],
     build: w => w.player("A", { energy: 2, power: [] }).player("B", { energy: 0, power: [] })
       .object("gem", gemInHand)
   });
@@ -391,7 +460,7 @@ test("sfd-007-221 Gem Jammer production: with no other Board Unit, the played Un
 
 test("sfd-007-221 Gem Jammer production: a non-Unit answer is rejected atomically at Finalize", () => {
   const f = productionPlay({
-    programs: [executableView],
+    programs: [program],
     answers: { "target:gem-jammer.unit": ["gear"] },
     build: w => w.player("A", { energy: 2, power: [] }).player("B", { energy: 0, power: [] })
       .object("gem", gemInHand)
