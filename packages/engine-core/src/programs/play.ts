@@ -1,6 +1,8 @@
 import type { Ability, CardProgram, Condition, CostSpec, Instruction, PlayAbility, Requirement, Restriction } from '@riftbound/card-dsl';
 import type { ChainDraft } from '../chain/engine.js';
 import type { GameAction, ObjectSnapshot } from '../effects/contract.js';
+import { findHiddenCard, playedFromHidden } from '../zones/hidden/index.js';
+import { getTokenDefinition } from '../effects/tokens/definitions.js';
 import { ProgramBindingError, judgeRequired } from './errors.js';
 import { bindProgramCost } from './cost-adapters/index.js';
 import { translateInstructionTargets } from './filters.js';
@@ -94,6 +96,110 @@ function validateSurface(body: readonly Instruction[]): void {
   visit(body);
 }
 
+/**
+ * CR 811.1.d restricts target-bearing choices to the Hidden Battlefield. Apply
+ * the scope to each instruction and to Play-created tokens (811.1.d.5).
+ */
+function scopeHiddenBody(instructions: readonly Instruction[], battlefieldId: string,
+  nested = false): readonly Instruction[] {
+  const location = { type: 'battlefield' as const, id: battlefieldId };
+  return instructions.map(instruction => {
+    if (nested && instruction.targets?.length) {
+      judgeRequired('Nested instruction targets require a target lifecycle adapter');
+    }
+    const args = Object.fromEntries(Object.entries(instruction.args ?? {}).map(([key, expression]) => {
+      if (expression.kind !== 'constant' && expression.kind !== 'literal') return [key, expression];
+      if (key === 'modes' && Array.isArray(expression.value) && expression.value.every(mode =>
+        isRecord(mode) && Array.isArray(mode.body))) {
+        return [key, { ...expression, value: expression.value.map(mode => ({ ...mode,
+          body: scopeHiddenBody((mode as { readonly body: Instruction[] }).body, battlefieldId, true) })) }];
+      }
+      if (Array.isArray(expression.value) && isInstructionArray(expression.value)) {
+        return [key, { ...expression, value: scopeHiddenBody(expression.value, battlefieldId, true) }];
+      }
+      if (isRecord(expression.value) && Array.isArray(expression.value.body)) {
+        return [key, { ...expression, value: { ...expression.value,
+          body: scopeHiddenBody(expression.value.body as Instruction[], battlefieldId, true) } }];
+      }
+      return [key, expression];
+    }));
+    if (instruction.op === 'effect.token') {
+      const mode = args.mode;
+      if (mode !== undefined && (mode.kind === 'constant' || mode.kind === 'literal') && mode.value === 'play') {
+        const token = args.token;
+        const tokenId = token !== undefined && (token.kind === 'constant' || token.kind === 'literal') ? token.value : undefined;
+        const definition = typeof tokenId === 'string' ? getTokenDefinition(tokenId) : undefined;
+        if (definition?.abilityBinding === 'blocked') {
+          judgeRequired(`Hidden token ${tokenId} has no executable program adapter`);
+        }
+        if (definition?.spec.types.some(type => type.toLowerCase() === 'gear') &&
+            !definition.spec.keywords?.some(keyword => keyword.id.toLowerCase() === 'deploy')) {
+          judgeRequired(`Hidden Gear token ${tokenId} cannot be played directly to a Battlefield`);
+        }
+        delete args.location;
+        delete args.locations;
+        delete args.target;
+        delete args.pick;
+        delete args.choiceId;
+        args.location = { kind: 'constant', value: location };
+      } else if (mode !== undefined && !(mode.kind === 'constant' || mode.kind === 'literal')) {
+        judgeRequired('A dynamic effect.token mode requires Hidden battlefield adjudication');
+      }
+      if (mode === undefined) {
+        const token = args.token;
+        const tokenId = token !== undefined && (token.kind === 'constant' || token.kind === 'literal') ? token.value : undefined;
+        const definition = typeof tokenId === 'string' ? getTokenDefinition(tokenId) : undefined;
+        if (definition?.abilityBinding === 'blocked') {
+          judgeRequired(`Hidden token ${tokenId} has no executable program adapter`);
+        }
+        if (definition?.spec.types.some(type => type.toLowerCase() === 'gear') &&
+            !definition.spec.keywords?.some(keyword => keyword.id.toLowerCase() === 'deploy')) {
+          judgeRequired(`Hidden Gear token ${tokenId} cannot be created at a Battlefield`);
+        }
+        delete args.location;
+        delete args.locations;
+        delete args.target;
+        delete args.pick;
+        delete args.choiceId;
+        args.location = { kind: 'constant', value: location };
+      }
+    }
+    if (instruction.op === 'effect.play') {
+      args.location = { kind: 'constant', value: location };
+    }
+    return {
+      ...instruction,
+      args,
+      ...(instruction.targets === undefined ? {} : {
+        targets: instruction.targets.map(requirement => canScopeHiddenTarget(requirement) &&
+          !explicitTargetLocationRestriction(requirement.filter) ?
+          { ...requirement, location } : requirement),
+      }),
+    };
+  });
+}
+
+function isInstructionArray(value: readonly unknown[]): value is readonly Instruction[] {
+  return value.every(item => isRecord(item) && typeof item.id === 'string' && typeof item.op === 'string' &&
+    isRecord(item.args));
+}
+
+function explicitTargetLocationRestriction(filter: object): boolean {
+  const value = filter as Readonly<Record<string, unknown>>;
+  const location = value.location;
+  const genericLocation = location === 'battlefield' ||
+    isRecord(location) && location.type === 'battlefield' && location.id === undefined;
+  return location !== undefined && !genericLocation || value.locationRelation !== undefined ||
+    value.differentLocationFrom !== undefined ||
+    isRecord(value.relation) && value.relation.relation === 'different-location';
+}
+
+function canScopeHiddenTarget(requirement: { readonly location?: unknown }): boolean {
+  const location = requirement.location;
+  return location === undefined || location === 'battlefield' ||
+    isRecord(location) && location.type === 'battlefield' && location.id === undefined;
+}
+
 function repeatAdditionalCost(cost: CostSpec | undefined): CostSpec | undefined {
   if (cost === undefined) return undefined;
   const raw = cost as CostSpec & { readonly costs?: readonly Readonly<Record<string, unknown>>[] };
@@ -125,18 +231,87 @@ function hasRepeatDeclaration(program: CardProgram, source: ObjectSnapshot): boo
 }
 
 const SELF_COST_KINDS = new Set(['continuous.cost-modification', 'cost.modify']);
+const hiddenPlayDrafts = new WeakMap<object, readonly Extract<Ability, { kind: 'static' }>[]>();
+let activeHiddenSource: { hidden(): import('../zones/hidden/index.js').HiddenState } | undefined;
 
-export function describePlay(registry: ProgramRegistry, action: Extract<GameAction, { type: 'play' }>, source: ObjectSnapshot): ChainDraft {
+/** Scope Hidden context across the two-argument ProgramBinding adapter. */
+export function withHiddenSource<T>(source: { hidden(): import('../zones/hidden/index.js').HiddenState } | undefined,
+  run: () => T): T {
+  const previous = activeHiddenSource;
+  activeHiddenSource = source;
+  try { return run(); } finally { activeHiddenSource = previous; }
+}
+
+/** Trusted metadata produced from the same expansion that authors Hide. */
+export function describeDraftHasHiddenPermission(draft: ChainDraft): boolean {
+  return hiddenPlayDrafts.has(draft);
+}
+
+/** The exact unconditional Hidden capabilities already expanded for this draft. */
+export function describeDraftHiddenAbilities(draft: ChainDraft): readonly Extract<Ability, { kind: 'static' }>[] {
+  return hiddenPlayDrafts.get(draft) ?? [];
+}
+
+export function describePlay(
+  registry: ProgramRegistry,
+  action: Extract<GameAction, { type: 'play' }>,
+  source: ObjectSnapshot,
+  hiddenSource?: { hidden(): import('../zones/hidden/index.js').HiddenState },
+): ChainDraft {
   const program = registry.get(source.cardId);
   const kind = cardKind(source);
   const expanded = expandProgram(program, source);
+  const hiddenAbilities = expanded.abilities.filter((ability): ability is Extract<Ability, { kind: 'static' }> =>
+    ability.kind === 'static' && ability.effect.kind === 'cost.hidden' && ability.condition === undefined);
+  if (expanded.abilities.some(ability => ability.kind === 'static' && ability.effect.kind === 'cost.hidden' &&
+      ability.condition !== undefined)) {
+    judgeRequired('Conditional Hidden permission requires authoritative condition evaluation');
+  }
   const ability = expanded.abilities.find((candidate): candidate is PlayAbility => candidate.kind === 'play');
   const intrinsicSpeed = abilitySpeed(expanded.abilities, source);
   const grantedSpeed = grantedPlaySpeed(expanded.abilities, program.canonicalCardId);
-  const speed = grantedSpeed !== undefined && PLAY_SPEED_RANK[grantedSpeed] > PLAY_SPEED_RANK[intrinsicSpeed]
+  let speed = grantedSpeed !== undefined && PLAY_SPEED_RANK[grantedSpeed] > PLAY_SPEED_RANK[intrinsicSpeed]
     ? grantedSpeed : intrinsicSpeed;
-  const body = translateInstructionTargets(ability?.body ?? []) as readonly Instruction[];
-  validateSurface(body);
+  const translatedBody = translateInstructionTargets(ability?.body ?? []) as readonly Instruction[];
+  validateSurface(translatedBody);
+  const hiddenState = (hiddenSource ?? activeHiddenSource)?.hidden();
+  const retained = hiddenState === undefined ? null : playedFromHidden(hiddenState, source.ref);
+  const concealed = hiddenState === undefined ? null : findHiddenCard(hiddenState, source.ref);
+  const hidden = retained ?? (concealed === null ? null : {
+    battlefieldId: concealed.battlefieldId,
+    playedToBattlefieldId: kind === 'spell' ? null : concealed.battlefieldId,
+    targetScope: { battlefieldId: concealed.battlefieldId },
+  });
+  if (retained === null && concealed !== null) {
+    return {
+      id: `hidden-play:${source.ref.id}:${source.ref.zoneEntryId}:${action.player}:${++playSequence}`,
+      controller: action.player,
+      source,
+      kind,
+      speed: 'reaction',
+      body: scopeHiddenBody(translatedBody, concealed.battlefieldId),
+      ...(action.location === undefined ? {} : { location: action.location }),
+      cost: (() => {
+        const hiddenCost = bindProgramCost({ program, source, mode: 'play', id: `hidden-cost:${source.ref.id}:${source.ref.zoneEntryId}:${action.player}`, ability, abilities: expanded.abilities });
+        return { id: `cost:hidden-play:${source.ref.id}:${source.ref.zoneEntryId}`, cost: hiddenCost?.plan.cost ?? { kind: 'printed' as const },
+          ...(hiddenCost?.plan ?? {}),
+          baseModifications: [{ kind: 'ignore-base' as const, ignore: 'resources' as const },
+            ...(hiddenCost?.plan.baseModifications ?? [])] };
+      })(),
+      targets: scopeHiddenBody(translatedBody, concealed.battlefieldId)
+        .flatMap(instruction => (instruction.targets ?? []).map(requirement => ({ requirement }))),
+    };
+  }
+  if (hidden !== null && (hidden.battlefieldId === '' ||
+      (kind !== 'spell' && hidden.playedToBattlefieldId === null))) {
+    throw new ProgramBindingError('invalid-program', `Hidden play for ${source.ref.id} has invalid battlefield provenance`);
+  }
+  if (hidden !== null && (kind === 'unit' || kind === 'gear') &&
+      (action.location?.type !== 'battlefield' || action.location.id !== hidden.playedToBattlefieldId)) {
+    throw new ProgramBindingError('judge-required', `A Hidden permanent must be played to its source Battlefield`);
+  }
+  const scopeBattlefield = hidden === null ? undefined : hidden.targetScope.battlefieldId;
+  if (hidden !== null) speed = 'reaction';
   const id = `play:${source.ref.id}:${source.ref.zoneEntryId}:${action.player}:${++playSequence}`;
   const requirements = translateRequirements(ability?.requirements, program.canonicalCardId);
   const restrictions = translateRestriction(ability?.restriction, program.canonicalCardId);
@@ -145,24 +320,29 @@ export function describePlay(registry: ProgramRegistry, action: Extract<GameActi
   // The normalized component carries keyword: 'repeat', so the cost binder
   // takes its optionality from CR 820.1.b rather than from reminder prose.
   const cost = bindProgramCost({ program, source, mode: 'play', id, ability: costAbility, abilities: expanded.abilities });
+  const body = scopeBattlefield === undefined ? translatedBody : scopeHiddenBody(translatedBody, scopeBattlefield);
   // A card's own "this costs ... less/more" static functions while it is
   // being played (CR 356); Board-bound statics reach Finalize separately.
   const costStatics = expanded.abilities.flatMap((candidate, index) =>
     candidate.kind === 'static' && SELF_COST_KINDS.has(String((candidate.effect as { kind?: unknown }).kind))
       ? [{ id: `program-self-cost:${source.ref.id}:${source.ref.zoneEntryId}:${index}`, source: source.ref, ability: candidate }]
       : []);
-  return {
+  const draft: ChainDraft = {
     id,
     controller: action.player,
     source,
     kind,
     speed,
     body,
-    ...(cost ? { cost: { id: `cost:${id}`, ...cost.plan } } : {}),
+    ...(cost ? { cost: { id: `cost:${id}`, ...cost.plan, ...(hidden === null ? {} : {
+      baseModifications: [{ kind: 'ignore-base' as const, ignore: 'resources' as const }, ...(cost.plan.baseModifications ?? [])],
+    }) } } : {}),
     ...(costStatics.length ? { costStatics } : {}),
     ...(requirements ? { requirements } : {}),
     ...(restrictions ? { restrictions } : {}),
     ...(action.location ? { location: action.location } : {})
   };
+  if (hiddenAbilities.length > 0) hiddenPlayDrafts.set(draft, Object.freeze(hiddenAbilities));
+  return draft;
 }
 let playSequence = 0;
