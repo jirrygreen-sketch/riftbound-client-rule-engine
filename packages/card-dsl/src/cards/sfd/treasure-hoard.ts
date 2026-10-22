@@ -7,56 +7,36 @@ import type { CardProgram } from "../../ir/index.js";
  *  exhausted."
  *
  * Status: judge-required after re-checking the merged production path on
- * 2026-10-22. The leading may, its one-Energy payment, the Gold play-mode
- * handoff, and exhausted entry are authored in the normal production shape:
- * programs/trigger-adapters/leading-choice.ts lifts the leading optional
- * payment into the Finalize cost plan, effect.token implements the chain-to-
- * board Play handoff, and it carries `entersExhausted` (CR v1.5 184.1 /
- * 185.2.a / 185.2.d / 350.2 / 354 / 440.2.c).
+ * 2026-10-22. The authored trigger, leading may, its one-Energy Finalize cost,
+ * and the primitive's Gold play-mode/exhausted-entry shape are executable.
+ * Default Match setup now creates the selected Battlefield on the Board at its
+ * own Location (CR v1.5 133.6.a.1 / 199.1), and the lifecycle and
+ * MatchCommandAdapter bind that exact Board incarnation once.
  *
- * The remaining blockers are concrete:
- * 1. Gold remains blocked at its token definition: definitions.ts:83-102
- *    sets abilityBinding "blocked", and effect.token.ts:340-342 returns
- *    "token-definition-or-abilities-judge-required" before creating it. Its
- *    canonical program is also judge-required because [A] cannot be Added:
- *    effect.resources.ts:35-37,54,126-128 accepts only the six named Domains,
- *    effects/contract.ts:260-261 keeps gain-power as Domain[], and
- *    programs/index.ts:40-58 rejects `["rainbow"]` as an unverified Add
- *    shape. CR v1.5 135.2.e.5.b / 187.5 therefore has no production Add path;
- *    materializing Gold now would silently lose its intrinsic ability.
- * 2. Normal Match setup still creates every selected Battlefield in the Chain
- *    zone (game/lifecycle.ts:250-258,382-385), while CR 133.6.a.1 says
- *    Battlefields start on the Board. RIFT-959 now makes the lifecycle attach a
- *    selected setup battlefield when a production action explicitly moves it
- *    to Board, but the default MatchCommandAdapter path reaches the same setup
- *    without establishing it there.
- * 3. The matcher accepts `here`, but CR 199.1 describes a Battlefield as the
- *    Game Object at its own Location. events/pipeline-match.ts:17-23,34-37,
- *    89-94 only derives the anchor from source.location and does not fall back
- *    to source.ref.id. The default setup carrier's otherwise self-located
- *    battlefield (location null) therefore cannot satisfy this anchor.
- *
- * The authored optional Choice, its Finalize-linked one-Energy cost, `mode:
- * "play"`, controller Base destination and exhausted entry retain production
- * goldens. The whole card stays judge-required until Gold's Add, the default
- * setup Board transition, and the `here` self anchor are sound.
+ * One production blocker remains: creating Gold would silently lose the Gold's
+ * mandatory intrinsic ability. definitions.ts:83-102 marks Gold
+ * abilityBinding "blocked", so effect.token.ts:340-342 returns
+ * "token-definition-or-abilities-judge-required" before creation. The reason
+ * is the Add side of CR v1.5 135.2.e.5.b / 187.5: RIFT-929 made [A] payable as
+ * a cost (135.2.e.5.a), but effect.resources.ts:35-37,54,126-128 accepts only
+ * the six named Domains; effects/contract.ts:260-261 keeps gain-power as
+ * Domain[]; and programs/index.ts:40-58 rejects ["rainbow"] as an unverified Add
+ * shape. The whole card therefore remains judge-required until Gold can Add
+ * Universal Power and execute its intrinsic ability.
  */
 export default {
   canonicalCardId: "card.hash-77763eae5320de558954776a37677e8638b6d4af73399e5a7c4f5d5321a2b564",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口（2026-10-22 生产路径复核）：(1) Gold 在 effects/tokens/definitions.ts:83-102 仍为 abilityBinding=\"blocked\"；" +
+    "当前唯一缺口（2026-10-22 生产路径复核）：本卡的 Conquer 触发、前导可选、在 Finalize 支付 1 能量，以及 play Gold 的 mode/entersExhausted 形状均可执行；" +
+    "默认 Match 已把所选 Battlefield 放到 Board 并以自身为位置，RIFT-973 的 MatchCommandAdapter 生命周期会绑定该 Board 对象，here 也以其自身 ObjectRef 自锚。" +
+    "但金句的宾语 Gold 无法完整生产创建：effects/tokens/definitions.ts:83-102 仍为 abilityBinding=\"blocked\"；" +
     "effect.token.ts:340-342 在创建前返回 token-definition-or-abilities-judge-required。CR 187.5 的 Gold 自带 [Reaction][>] Kill this, [E]: [Add] [A]；" +
     "RIFT-929 已支持 [A] 支付（135.2.e.5.a），但 effect.resources.ts:35-37,54,126-128 仍只接受六域 Power，effects/contract.ts:260-261 的 gain-power 仍为 Domain[]，" +
-    "programs/index.ts:40-58 也把 [\"rainbow\"] 视为 unverified Add shape，故 [A] 仍无生产 Add 路径（135.2.e.5.b），不能创建后遗失内建能力。" +
-    "(2) 默认 Match 初始化仍在 game/lifecycle.ts:250-258,382-385 把选中 Battlefield 以 Chain 区 token 创建并留在该区，" +
-    "违反 CR 133.6.a.1 的开局 Board 表示；RIFT-959 已让显式生产 move-zone 到 Board 后的 attachLifecycle 绑定 setup Battlefield，" +
-    "但默认 MatchCommandAdapter 路径仍到达同一未迁移的 createMatch setup，所以 Treasure Hoard 在生产默认对局中不会注册。" +
-    "(3) here 词表与翻译已合入，但 events/pipeline-match.ts:17-23,34-37,89-94 只由 source.location 推导战场锚点；" +
-    "CR 199.1 的 Battlefield 自身即为战场对象，其 location 为 null 时应由 ObjectRef id 自锚，而 matcher 尚未采用该身份。" +
-    "已解除：choice.optional + cost.pay 经 leading-choice 在 Finalize 支付；mode \"play\" 与 entersExhausted 的生产链路已可验证；" +
-    "生产 golden 在可注册夹具上验证 1 能量于 Finalize 扣除，随后 Gold 在 Resolve 前 fail-closed。",
+    "programs/index.ts:40-58 也把 [\"rainbow\"] 视为 unverified Add shape，故 [A] 仍无生产 Add 路径（135.2.e.5.b）。" +
+    "在 TokenSpec 创建后补写能力会伪造新客体语义，而当前 fail-closed 生产 golden 会先在 Finalize 扣除已选择的 1 能量，再在 Gold 创建前 fail-closed。" +
+    "整卡保持 judge-required，待 Universal Power Add 与 Gold 内建能力由引擎契约/生产路径闭合。",
   sourceText: "When you conquer here, you may pay :rb_energy_1: to play a Gold gear token exhausted.",
   abilities: [
     {
