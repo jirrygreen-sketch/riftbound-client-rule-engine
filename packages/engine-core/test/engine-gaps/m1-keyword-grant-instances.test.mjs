@@ -1,13 +1,19 @@
-// RIFT-931 official evidence (CR v1.5 published 2026-10-09, effective
-// 2026-10-16): /root/swarm-rift/shared/rules/CR-v1.5.txt
+// RIFT-931 official evidence (CR v1.5 published 2026-10-09, Radiance target
+// effective 2026-10-16): /root/swarm-rift/shared/rules/CR-v1.5.txt
+// https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
 // - 810.1.c adds Battlefield-to-Battlefield to a Unit's Standard Move; 810.2
 //   makes duplicate Ganking instances redundant.
 // - 817.2/817.2.a require each Vision instance to trigger separately.
 // - 317.1.a invokes end-of-turn effects and 317.2.c expires all "this turn"
 //   effects simultaneously in the Expiration Step.
-// Production timelines below are Play -> Pending -> Finalize -> Resolve ->
-// Board entry/layer query, and granted Ganking -> Standard Move -> turn-end ->
-// Standard Move rejection.
+// Forecaster (card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40)
+// timeline: Play -> Pending -> Finalize -> Resolve -> Board entry -> effective
+// keyword expansion -> one actual trigger per Vision instance.
+// Gem Jammer (card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9)
+// timeline: Play -> Pending -> Finalize lock target -> Resolve grant -> layer
+// re-expansion -> Standard Move -> turn-end Expiration -> rejected Standard Move.
+// The SFD source snapshot has no applicable errata for either interaction.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -58,8 +64,10 @@ function runtime(builder, programs = [], answers = {}) {
   });
   binding.attachLifecycle(engine, error => { throw error; });
   const settle = () => {
+    engine.advance();
     for (let guard = 0; engine.items.length; guard++) {
       assert.ok(guard < 40, 'the production chain settles');
+      if (engine.priority === null) break;
       engine.pass(engine.priority);
     }
   };
@@ -102,7 +110,7 @@ test('Forecaster counts a printed Vision plus the single grant as two triggering
         might: 3, energy: null, power: null,
       })
       .hand('enemy-mech', {
-        cardId: 'card:enemy', types: ['unit'], tags: ['Mech'], controller: 'B', owner: 'B',
+        cardId: 'card:enemy', types: ['unit'], tags: ['Mech'], controller: 'A', owner: 'A',
         might: 3, energy: null, power: null,
       }),
     [forecaster, {
@@ -114,21 +122,23 @@ test('Forecaster counts a printed Vision plus the single grant as two triggering
   assert.equal(f.engine.commit({
     type: 'play', object: f.kernel.ref('forecaster'), player: 'A', location: { type: 'base', player: 'A' },
   }).status, 'done');
-  f.engine.advance();
   f.settle();
   assert.equal(visionPrompts(f.asked), 1, 'Forecaster grants itself one Vision instance');
 
   f.enter('printed-vision-mech');
   assert.deepEqual(f.snapshot('printed-vision-mech').keywords.map(keyword => keyword.id), ['Vision']);
-  assert.equal(visionPrompts(f.asked), 3,
+  assert.equal(visionPrompts(f.asked), 2,
     'the printed Vision and one Forecaster grant each trigger separately exactly once');
 
   f.enter('granted-vision-mech');
-  assert.equal(visionPrompts(f.asked), 4, 'one granted Vision triggers once, not twice');
+  assert.equal(visionPrompts(f.asked), 3, 'one granted Vision triggers once, not twice');
 
+  const beforeNonMech = visionPrompts(f.asked);
   f.enter('plain-ally');
+  assert.equal(visionPrompts(f.asked), beforeNonMech, 'a non-Mech receives no Vision');
+  const beforeOpposingMech = visionPrompts(f.asked);
   f.enter('enemy-mech');
-  assert.equal(visionPrompts(f.asked), 4, 'non-Mech and opposing Mechs receive no Vision');
+  assert.equal(visionPrompts(f.asked), beforeOpposingMech + 1, 'an opposing Mech receives exactly one grant');
 });
 
 test('Gem Jammer Ganking expires with its derived Standard Move permission and pays no expired cost', () => {
@@ -149,7 +159,6 @@ test('Gem Jammer Ganking expires with its derived Standard Move permission and p
   assert.equal(f.engine.commit({
     type: 'play', object: f.kernel.ref('gem'), player: 'A', location: { type: 'base', player: 'A' },
   }).status, 'done');
-  f.engine.advance();
   f.settle();
 
   const active = f.snapshot('target');

@@ -181,17 +181,19 @@ function installKeywordReexpansion(engine: ChainEngine): void {
             ...(effectBody.staticCondition === undefined ? {} : { staticCondition: effectBody.staticCondition }) } as never }
         : effect;
     });
-    const unchanged = generated.length === normalized.length && generated.every((effect, index) =>
-      JSON.stringify(effect) === JSON.stringify(normalized[index]));
-    for (const effect of generated) if (engine.layers.registry.get(effect.id) !== undefined) {
+    const nextIds = new Set(normalized.map(effect => effect.id));
+    const previousById = new Map(generated.map(effect => [effect.id, effect]));
+    for (const effect of generated) if (!nextIds.has(effect.id) && engine.layers.registry.get(effect.id) !== undefined) {
       engine.layers.removeContinuous(effect.id);
     }
-    if (unchanged) return;
     for (const effect of normalized) {
+      const previous = previousById.get(effect.id);
+      if (previous !== undefined && JSON.stringify(previous) === JSON.stringify(effect) &&
+          engine.layers.registry.get(effect.id) !== undefined) continue;
       const existing = engine.layers.registry.get(effect.id);
       if (existing !== undefined) {
         if (JSON.stringify(existing.effect) === JSON.stringify(effect)) continue;
-        throw new ProgramBindingError('invalid-program', `Duplicate keyword lifecycle effect ${effect.id}`);
+        engine.layers.removeContinuous(effect.id);
       }
       engine.layers.addContinuous(effect, { type: 'permanent' });
     }
@@ -297,6 +299,12 @@ function installKeywordReexpansion(engine: ChainEngine): void {
     if (!id.startsWith('program-keyword:') && !id.startsWith('program-keyword-capability:')) syncView();
     return removed;
   }) as typeof engine.layers.removeContinuous;
+  const advance = engine.layers.advance.bind(engine.layers);
+  engine.layers.advance = ((event: import('../layers/types.js').TimingEvent) => {
+    const expired = advance(event);
+    if (event.id === 'turn-end' || event.id === 'combat-end') syncView();
+    return expired;
+  }) as typeof engine.layers.advance;
   const detach = () => {
     for (const binding of lifecycleRegistry.values()) unregister(binding.ids);
     for (const id of installedIds) if (pipeline.hasTriggerRegistration(id)) pipeline.unregisterTrigger(id);

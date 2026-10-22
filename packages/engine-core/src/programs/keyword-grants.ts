@@ -600,9 +600,6 @@ export class KeywordGrantLayerEngine extends LayerEngine {
   }
   keywordAbilities(ref: ObjectRef): readonly Ability[] {
     this.refresh();
-    if (this.options.grantedOnly === true) {
-      return (this.grantedAbilities.get(refKey(ref)) ?? []).map(entry => entry.ability);
-    }
     return this.expansions.get(refKey(ref))?.abilities ?? [];
   }
   /** Full validated lifecycle entries, retaining each keyword instance id. */
