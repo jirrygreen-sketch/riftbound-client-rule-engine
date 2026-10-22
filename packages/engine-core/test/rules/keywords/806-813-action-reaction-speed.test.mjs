@@ -86,4 +86,80 @@ test('keywords-action-not-playable-in-closed-state: an Action spell is legal onc
   assert.ok(timingsOnly(f.engine).includes('damage-dealt'));
 });
 
-test.todo('keywords-action-unit-still-restricted-to-base-or-own-battlefield (CR 806.3): the YAML expects the Play to be rejected with `unit-play-location-restricted` when an Action unit is sent to an enemy-controlled Battlefield — blocked: the merged host validates the default Base destination for units, but no merged layer enforces the 355.2 “own Base or controlled Battlefield” rule for a non-default destination (src/chain/engine.ts `playDestinationIsLegal` only consumes explicit continuous.location permissions/restrictions, and src/zones/movement.ts has no unit-play destination check)');
+test('keywords-action-unit-still-restricted-to-base-or-own-battlefield (CR 806.3): Action grants an opponent-turn Showdown timing without expanding a Unit’s play destinations', () => {
+  // CR v1.5 (target): https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+  // Synthetic production program: card.hash-8a2cf1027c6f770452bef4d4eacd322301ebafc77620d3a76b855446639089e8
+  // is Ekko, Revolutionary's official full-name identity. The catalog records
+  // its only [Action] on an activated ability; no source supports a universal
+  // Action Unit Play body, so [] is the exact synthetic body under test.
+  const ACTION_UNIT = 'test:action-unit';
+  const OWN_FIELD = { type: 'battlefield', id: 'own-field' };
+  const ENEMY_FIELD = { type: 'battlefield', id: 'enemy-field' };
+  const OPEN_FIELD = { type: 'battlefield', id: 'open-field' };
+  const program = {
+    canonicalCardId: ACTION_UNIT,
+    rulesetVersion: 'core-1.5',
+    status: 'executable',
+    sourceText: '[Action]',
+    abilities: [{ kind: 'play', cost: { kind: 'printed' }, body: [] }]
+  };
+  const opponentShowdown = () => {
+    const f = fixture({
+      programs: [program],
+      energy: { A: 1 },
+      turnPlayer: 'B',
+      setup: w => w
+        .hand('unit', { cardId: ACTION_UNIT, types: ['unit'], energy: 1, power: null, might: 2, keywords: [{ id: 'Action' }] })
+        .battlefield('own-field-card', { controller: 'A', types: ['battlefield'], location: OWN_FIELD })
+        .battlefield('enemy-field-card', { controller: 'B', types: ['battlefield'], location: ENEMY_FIELD })
+        .battlefield('open-field-card', { controller: null, types: ['battlefield'], location: OPEN_FIELD })
+    });
+    f.engine.initializeBattlefieldControl([
+      { id: OWN_FIELD.id, controller: 'A' },
+      { id: ENEMY_FIELD.id, controller: 'B' },
+      { id: OPEN_FIELD.id, controller: null }
+    ]);
+    f.engine.openShowdown('A');
+    assert.equal(f.engine.turnState, 'showdown-open');
+    assert.equal(f.engine.focus, 'A');
+    assert.equal(f.engine.priority, 'A');
+    assert.equal(f.engine.canAct('A', 'action', f.ref('unit'), f.get('unit')), true);
+    assert.deepEqual(f.errors, []);
+    return f;
+  };
+
+  // CR 806.3: the timing permission leaves 355.2.a’s destinations intact.
+  for (const location of [{ type: 'base', player: 'A' }, OWN_FIELD]) {
+    const f = opponentShowdown();
+    const source = f.get('unit');
+    assert.equal(f.binding.describePlay({ type: 'play', player: 'A', object: source.ref, location }, source).speed, 'action');
+    const eventsBefore = f.engine.pipeline.events.length;
+    const traceBefore = f.engine.trace.length;
+    f.play('unit', { draft: { location } });
+    assert.match(f.engine.trace.find(entry => entry.step === 'resolved')?.item, /^play:unit:/,
+      'the production path finalized and resolved the Unit Play');
+    settle(f.engine);
+    assert.deepEqual(f.get('unit').location, location);
+    assert.equal(f.engine.items.length, 0);
+    assert.equal(f.engine.pipeline.events.slice(eventsBefore).filter(event => event.timingPoint === 'card-played').length, 1);
+    assert.equal(f.engine.trace.slice(traceBefore).filter(entry => entry.step === 'finalized').length, 1);
+    assert.equal(f.engine.trace.slice(traceBefore).filter(entry => entry.step === 'resolved').length, 1);
+    f.lifecycle.detach();
+  }
+
+  // An enemy-controlled or uncontrolled Battlefield is not a valid default
+  // destination. The rejected Play must roll back before paying or entering Chain.
+  for (const location of [ENEMY_FIELD, OPEN_FIELD]) {
+    const f = opponentShowdown();
+    const before = f.kernel.snapshot();
+    const events = f.engine.pipeline.events;
+    const trace = f.engine.trace;
+    assert.throws(() => f.play('unit', { draft: { location } }), /Play destination is not legally allowed/);
+    assert.deepEqual(f.kernel.snapshot(), before);
+    assert.deepEqual(f.engine.pipeline.events, events);
+    assert.deepEqual(f.engine.trace, trace);
+    assert.equal(f.engine.items.length, 0);
+    assert.equal(f.kernel.player('A').energy, 1, 'the rejected Play paid nothing');
+    f.lifecycle.detach();
+  }
+});
