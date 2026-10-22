@@ -42,9 +42,9 @@ function scene({ energy = 9, power = ['Body', 'Body', 'Body'] } = {}) {
       might: 6,
       keywords: [{ id: 'Accelerate' }],
     })
-    .unit('other-entry', {
+    .hand('other-entry', {
       cardId: vanguardAttendant.canonicalCardId, types: ['unit'], energy: 2, power: ['Body'],
-      might: 2, keywords: [], exhausted: true,
+      might: 2, keywords: [],
     })
     .build();
   const choose = request => {
@@ -191,12 +191,18 @@ test('RIFT-950 a non-Accelerate optional cost cannot turn Board entry ready', ()
 test('RIFT-950 another unit\'s unconditional entry-ready replacement is unchanged', () => {
   const f = scene();
   const result = f.engine.commit({
-    type: 'move-zone', object: f.kernel.ref('other-entry'), to: 'base',
+    type: 'play', object: f.kernel.ref('other-entry'), player: 'A',
     location: { type: 'base', player: 'A' },
   });
   assert.equal(result.status, 'done');
+  f.engine.advance();
+  for (let count = 0; f.engine.items.length; count++) {
+    assert.ok(count < 20, 'the production Chain must settle');
+    assert.ok(f.engine.priority !== null, 'the production Chain must grant Priority');
+    f.engine.pass(f.engine.priority);
+  }
   assert.equal(f.kernel.getObject('other-entry').zone, 'board');
-  assert.equal(f.kernel.getObject('other-entry').exhausted, true);
+  assert.equal(f.kernel.getObject('other-entry').exhausted, false);
   assert.deepEqual(f.lifecycleErrors, []);
 });
 
