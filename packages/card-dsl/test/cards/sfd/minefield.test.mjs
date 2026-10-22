@@ -8,6 +8,7 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { createMatchCommandAdapter } from "../../../../engine-core/dist/game/command-adapter.js";
+import { moveUnits } from "../../../../engine-core/dist/game/commands/index.js";
 import { createMatch } from "../../../../engine-core/dist/game/lifecycle.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
@@ -268,6 +269,21 @@ function moveUnit(adapter, objectId, destination, label) {
   settleChain(adapter, label);
 }
 
+function moveFormation(adapter, objectIds, destination, label) {
+  const flow = adapter.match.flow;
+  moveUnits({ match: adapter.match, stateVersion: adapter.stateVersion }, flow.turnPlayer, [...objectIds], {
+    zone: "battlefield",
+    locationId: destination
+  });
+  passUnitIfNeeded(adapter, label);
+  finishShowdown(adapter, label);
+  if (flow.combat.active) {
+    flow.advance();
+    passUnitIfNeeded(adapter, label);
+  }
+  settleChain(adapter, label);
+}
+
 function endCurrentTurn(adapter, label) {
   settleChain(adapter, label);
   if (adapter.match.flow.chain.focus !== null) {
@@ -349,24 +365,26 @@ test("minefield: trigger contract accepts self conquer at here with per-batch fr
   );
 });
 
-test("minefield: default setup and a Unit produce one mill through Priority, Finalize and Resolve", () => {
+test("minefield: default setup and two Units produce one mill through Priority, Finalize and Resolve", () => {
   const f = fixture();
   try {
-    addUnit(f.kernel, "unit-a", "A");
+    addUnit(f.kernel, "unit-a1", "A");
+    addUnit(f.kernel, "unit-a2", "A");
     const deckBefore = idsIn(f.kernel, "A", "deck");
     const trashBefore = idsIn(f.kernel, "A", "trash");
-    moveUnit(f.adapter, "unit-a", f.mineId, "normal");
+    moveFormation(f.adapter, ["unit-a1", "unit-a2"], f.mineId, "normal");
 
     const events = f.match.events();
     const control = events.filter(event => event.timingPoint === "control-established");
     const conquer = events.filter(event => event.timingPoint === "conquer");
     const score = events.filter(event => event.timingPoint === "score");
     assert.equal(control.length, 1);
-    assert.equal(conquer.length, 1);
+    assert.equal(conquer.length, 2, "the real Score wave emits one Conquer event per participant");
     assert.equal(score.length, 1);
+    assert.equal(new Set(conquer.map(event => event.batchId)).size, 1);
     assert.equal(conquer[0].batchId, score[0].batchId);
-    assert.deepEqual(score[0].details.participatingUnits.map(unit => unit.id), ["unit-a"]);
-    assert.equal(triggerEvents(f.match).length, 1);
+    assert.deepEqual(score[0].details.participatingUnits.map(unit => unit.id), ["unit-a1", "unit-a2"]);
+    assert.equal(triggerEvents(f.match).length, 1, "per-batch collection creates one Pending trigger");
     assert.equal(f.match.flow.battlefields.find(battlefield => battlefield.id === f.mineId).controller, "A");
     assert.equal(f.kernel.getObject(f.mineId).controller, "A");
     assert.equal(f.kernel.player("A").score, 1);
