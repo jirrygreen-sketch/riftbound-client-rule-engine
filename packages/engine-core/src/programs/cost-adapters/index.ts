@@ -80,6 +80,26 @@ function stripPaymentMetadata(payment: unknown, keyword: string | undefined): An
   return output;
 }
 
+function powerPayments(domains: readonly unknown[]): AnyRecord[] {
+  const universal = domains.some(domain =>
+    domain === 'any' || domain === 'universal' || domain === 'universal-power' || domain === 'rainbow');
+  if (universal) {
+    if (domains.some(domain => domain !== 'any' && domain !== 'universal' && domain !== 'universal-power' && domain !== 'rainbow')) {
+      judgeRequired('Universal Power cannot be combined with named Domains');
+    }
+    return domains.map(() => ({
+      kind: 'power',
+      amount: { kind: 'constant', value: 1 },
+      allowedDomains: ['Fury', 'Calm', 'Mind', 'Body', 'Chaos', 'Order'],
+    }));
+  }
+  // [C] on a multi-Domain card is one any-of-Domains requirement, not one
+  // requirement per listed Domain (CR 135.2.e.6.c).
+  const unique = [...new Set(domains)];
+  if (unique.length !== domains.length) judgeRequired('Additional Power domains must be unique');
+  return [{ kind: 'power', amount: { kind: 'constant', value: 1 }, allowedDomains: unique }];
+}
+
 function componentCost(raw: AnyRecord, keyword: string | undefined, direct = false): CostSpec {
   const output: AnyRecord = {};
   const hasPayments = Array.isArray(raw.payments) && raw.payments.length > 0;
@@ -94,12 +114,12 @@ function componentCost(raw: AnyRecord, keyword: string | undefined, direct = fal
     if (direct && Array.isArray(raw.payments) && ['energy', 'power', 'rune', 'discard'].includes(key)) continue;
     if (!direct && !hasPayments && key === 'power') {
       if (!Array.isArray(domains)) judgeRequired('Additional Power costs require a domain list');
-      output.payments = domains.map(domain => ({ kind: 'power', amount: { kind: 'constant', value: 1 }, allowedDomains: [domain] }));
+      output.payments = powerPayments(domains);
       continue;
     }
     if (direct && key === 'power' && !hasPayments) {
       if (!Array.isArray(domains)) judgeRequired('Additional Power costs require a domain list');
-      output.payments = domains.map(domain => ({ kind: 'power', amount: { kind: 'constant', value: 1 }, allowedDomains: [domain] }));
+      output.payments = powerPayments(domains);
       continue;
     }
     if (key === 'payments' && Array.isArray(value)) {

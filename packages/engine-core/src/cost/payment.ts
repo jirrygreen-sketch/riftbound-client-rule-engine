@@ -1,7 +1,7 @@
-import type { ResolveContext } from '../effects/contract.js';
-import { DUEL_DOMAINS } from './resources.js';
+import type { GameAction, ResolveContext } from '../effects/contract.js';
+import { DUEL_DOMAINS, type DuelPowerSource } from './resources.js';
 import {
-  prepareResourcePayment, resourcePoolFromDomains,
+  prepareResourcePayment,
   type ResourcePool, type ResourcePayment, type ResourcePaymentOptions
 } from './resource-provenance.js';
 import {
@@ -13,6 +13,41 @@ import { disempowerTransition, tryReadEmpowered } from '../zones/empower-state.j
 
 function cannotPay(message: string, action?: PreparedCostAction): never {
   throw new CostPlanError('cannot-pay-cost', message, action);
+}
+
+function universal(value: unknown): boolean {
+  return value === 'any' || value === 'universal' || value === 'universal-power';
+}
+
+function assertResourcePaymentConsumed(
+  before: ReturnType<ResolveContext['player']>,
+  after: ReturnType<ResolveContext['player']>,
+  action: Extract<GameAction, { type: 'pay' }>,
+  payment: PreparedCostAction,
+): void {
+  const counts = (values: readonly unknown[]): { named: Map<string, number>; universal: number } => {
+    const named = new Map<string, number>();
+    let wild = 0;
+    for (const value of values) {
+      if (universal(value)) wild++;
+      else named.set(String(value), (named.get(String(value)) ?? 0) + 1);
+    }
+    return { named, universal: wild };
+  };
+  const expected = counts(before.power as readonly unknown[]);
+  for (const domain of action.plan.power ?? []) expected.named.set(domain, (expected.named.get(domain) ?? 0) - 1);
+  expected.universal -= action.plan.universalPower ?? 0;
+  if (expected.universal < 0 || [...expected.named.values()].some(amount => amount < 0)) {
+    cannotPay('Resource payment plan exceeds the paying player’s snapshot', payment);
+  }
+  const actual = counts(after.power as readonly unknown[]);
+  const declaresUniversal = (action.plan.universalPower ?? 0) > 0 ||
+    (action.plan.powerSources ?? []).some(entry => universal(entry.source));
+  const same =
+    after.energy === before.energy - (action.plan.energy ?? 0) &&
+    (declaresUniversal ? actual.universal < (counts(before.power as readonly unknown[]).universal) : actual.universal === expected.universal) &&
+    [...expected.named].every(([domain, amount]) => (actual.named.get(domain) ?? 0) === amount);
+  if (!same) cannotPay('The paying host did not consume the prepared Power resources', payment);
 }
 
 /**
@@ -90,7 +125,10 @@ function checkAction(ctx: ResolveContext, payment: PreparedCostAction): void {
   } else if (action.type === 'exhaust') {
     if (object.controller !== ctx.controller || !['board', 'rune-zone'].includes(object.zone) || object.exhausted) cannotPay('An exhaust cost requires a ready controlled object on the Board', payment);
   } else if (action.type === 'recycle') {
-    if (object.owner !== ctx.controller || !(object.zone === 'trash' || object.zone === 'rune-zone' && object.types.some(type => type.toLowerCase() === 'rune'))) cannotPay('A recycle cost requires an owned card in Trash or a Rune in the Rune Zone', payment);
+    const allowed = object.owner === ctx.controller && object.zone === 'trash' ||
+      object.controller === ctx.controller && object.zone === 'board' ||
+      object.owner === ctx.controller && object.zone === 'rune-zone' && object.types.some(type => type.toLowerCase() === 'rune');
+    if (!allowed) cannotPay('A recycle cost requires a friendly Board object, an owned card in Trash, or an owned Rune in the Rune Zone', payment);
   } else if (action.type === 'banish') {
     // Banish itself has no ownership predicate (CR 428.1/428.5). The cost's
     // authored selector decides the zone/type set; the paying ability must
@@ -116,23 +154,59 @@ export function prepareCostPayment(ctx: ResolveContext, plan: CostPlan, options:
   if (plan.finalized !== true || plan.player !== ctx.controller || plan.source.id !== ctx.source.ref.id || (!chainFinalize && plan.source.zoneEntryId !== ctx.source.ref.zoneEntryId)) invalid('Payment must use this source and controller’s finalized cost plan');
   assertSourceIncarnation(ctx, plan);
   const player = ctx.player(plan.player);
-  for (const domain of player.power) {
-    if (!DUEL_DOMAINS.includes(domain)) invalid('Invalid Power domain in player snapshot');
-  }
   const energy = count(player.energy, 'Player Energy');
+  const inventory: { readonly id: string; readonly resource: 'energy' | DuelPowerSource; readonly amount: number }[] = [
+    { id: 'energy', resource: 'energy', amount: energy },
+  ];
+  const amounts = new Map<DuelPowerSource, number>();
+  for (const value of player.power as readonly unknown[]) {
+    const source = universal(value)
+      ? 'any'
+      : DUEL_DOMAINS.includes(value as typeof DUEL_DOMAINS[number])
+        ? value as typeof DUEL_DOMAINS[number]
+        : null;
+    if (source === null) invalid('Invalid Power domain in player snapshot');
+    amounts.set(source, (amounts.get(source) ?? 0) + 1);
+  }
+  for (const [source, amount] of amounts) inventory.push({ id: `power:${source}`, resource: source, amount });
   let power;
+  const pool = { sources: inventory };
   try {
-    const pool = resourcePoolFromDomains(energy, player.power);
     power = prepareCostPlanResourcePayment(pool, plan, { power: options.power }).power;
   } catch (error) {
     if (!(error instanceof TypeError)) throw error;
     cannotPay(error.message);
   }
   const paidPower = power.power.flatMap(allocation => {
-    if (allocation.from === 'any') invalid('ResolveContext cannot represent a domainless Power resource');
+    if (allocation.from === 'any') return [];
     return Array.from({ length: allocation.amount }, () => allocation.from as typeof DUEL_DOMAINS[number]);
   });
-  const standard: PreparedCostAction = { id: `${plan.id}:resources`, action: { type: 'pay', player: plan.player, plan: { finalized: true, energy: plan.total.energy, power: paidPower } } };
+  const universalPower = power.power.reduce((total, allocation) => total + (allocation.from === 'any' ? allocation.amount : 0), 0);
+  const preparedPowerSources = power.power.map(allocation => ({ source: allocation.from as DuelPowerSource, amount: allocation.amount }));
+  const sourceByAllocation = new Map<number, string>();
+  for (const source of pool.sources) {
+    if (source.resource === 'energy') continue;
+    for (const allocation of power.power) {
+      if (allocation.requirementIndex !== undefined && allocation.from === source.resource && !sourceByAllocation.has(allocation.requirementIndex)) {
+        sourceByAllocation.set(allocation.requirementIndex, source.id);
+      }
+    }
+  }
+  const selectedResources = pool.sources.map(source => {
+    let amount = source.resource === 'energy' ? plan.total.energy : 0;
+    for (const allocation of power.power) {
+      if (source.resource !== 'energy' && sourceByAllocation.get(allocation.requirementIndex!) === source.id) amount += allocation.amount;
+    }
+    return amount === 0 ? null : { sourceId: source.id, amount, ...(source.resource === 'energy' ? {} : { requirementIndex: power.power.find(allocation => sourceByAllocation.get(allocation.requirementIndex!) === source.id)!.requirementIndex }) };
+  }).filter(entry => entry !== null);
+  const checkedPayment = prepareResourcePayment(pool, { energy: plan.total.energy, power: plan.total.power }, { ...options, power, sources: selectedResources });
+  const standard: PreparedCostAction = { id: `${plan.id}:resources`, action: { type: 'pay', player: plan.player, plan: {
+    finalized: true,
+    energy: plan.total.energy,
+    power: paidPower,
+    ...(universalPower ? { universalPower } : {}),
+    ...(power.power.some(allocation => allocation.from === 'any') ? { powerSources: preparedPowerSources } : {}),
+  } } };
   const nonstandard: PreparedCostAction[] = plan.total.actions.map(cost => ({ id: cost.id, action: cost.action }));
   if (plan.total.xp) nonstandard.push({ id: `${plan.id}:xp`, action: { type: 'spend-xp', player: plan.player, amount: plan.total.xp } });
   const ordered = orderedById(nonstandard, options.nonstandardOrder);
@@ -179,9 +253,13 @@ function payCostPlanNow(ctx: ResolveContext, plan: CostPlan, options: CostPaymen
     // by this plan (Gold's Exhaust then Kill this); that identity is not stale.
     if (!consumedSource) assertSourceIncarnation(ctx, plan);
     checkAction(ctx, payment);
+    const resourceBefore = payment.action.type === 'pay' ? ctx.player(payment.action.player) : null;
     const outcome = ctx.perform(payment.action);
     if (outcome.status !== 'done' && outcome.status !== 'replaced') {
       throw new CostPlanError('cannot-pay-cost', `Payment action ${payment.id} was ${outcome.status}; abort the Finalize transaction`, payment, outcome);
+    }
+    if (payment.action.type === 'pay' && resourceBefore !== null) {
+      assertResourcePaymentConsumed(resourceBefore, ctx.player(payment.action.player), payment.action, payment);
     }
     events.push(...outcome.events);
     actions.push({ ...payment, status: outcome.status });
