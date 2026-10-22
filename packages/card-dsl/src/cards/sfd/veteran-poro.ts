@@ -10,8 +10,9 @@ import type { CardProgram } from "../../ir/index.js";
  * original [A] provenance, pays the remaining cost, and attaches it to Poro.
  * Missing or ambiguous Equip-cost provenance remains fail-closed in the
  * cost.modify source branch (CR 821.1.c.2-.5). The card-dsl golden also covers
- * declining the optional choice and re-attaching Equipment that is already
- * attached.
+ * declining the optional choice, re-attaching Equipment that is already
+ * attached, and the Radiance ruling's Unit-Gear case: it remains a legal
+ * target, but the attempt cannot attach a Unit and leaves it in place.
  */
 const veteranPoro = {
   canonicalCardId: "card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7",

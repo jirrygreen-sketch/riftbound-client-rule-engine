@@ -131,6 +131,10 @@ test("sfd-099-221 Veteran Poro: the Weaponmaster expansion is structurally valid
 //   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
 // - Radiance patch notes effective 2026-10-16; reviewed for relevant rulings:
 //   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+//   The official Orianna/Weaponmaster ruling (143.5, 435.1.h, 718.6) says a
+//   Gear that became a Unit stays a legal Weaponmaster target but cannot attach;
+//   the attachment attempt does nothing. The production test below pins that
+//   state transition while still charging the selected Equip cost.
 // - Spiritforged errata; this card has no applicable text change:
 //   https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/
 // canonicalCardId: card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7
@@ -236,6 +240,30 @@ test("sfd-099-221 Veteran Poro: an already attached Equipment is reattached to P
     f.engine.pipeline.events.filter(event => event.timingPoint === "object-attached" && event.object.ref.id === "sword").length,
     1
   );
+});
+
+test("sfd-099-221 Veteran Poro: a Unit-Gear is a legal target but cannot attach (Radiance 143.5/435.1.h/718.6)", () => {
+  const { f } = runProduction({
+    answers: { "target:weaponmaster-equipment": ["gear-unit"] },
+    board: w => veteranPoroBoard({ energy: 20, power: ["Body", "Order"] })(w)
+      .unit("gear-unit", {
+        owner: "A", controller: "A", cardId: "card:gear-unit", name: "Unit Gear",
+        types: ["gear", "unit"], tags: ["Equipment"], zone: "board", location: BASE,
+        energy: null, power: null, might: 2,
+        keywords: [equipKeyword(2)]
+      })
+  });
+  assert.deepEqual(f.targetRequests()[0].options, [f.kernel.ref("sword"), f.kernel.ref("gear-unit")]);
+  assert.equal(f.kernel.player("A").energy, 18);
+  assert.deepEqual(f.kernel.player("A").power, ["Order"]);
+  assert.equal(f.kernel.getObject("gear-unit").attachedTo, null);
+  assert.deepEqual(f.kernel.getObject("gear-unit").types, ["gear", "unit"]);
+  assert.ok(f.kernel.events.some(event => event.action === "attach"));
+  assert.equal(
+    f.engine.pipeline.events.some(event => event.timingPoint === "object-attached" && event.object.ref.id === "gear-unit"),
+    false
+  );
+  assert.deepEqual(f.engine.items, []);
 });
 
 test("sfd-099-221 Veteran Poro: an unpayable discounted Equip cost leaves the Equipment unchanged", () => {
