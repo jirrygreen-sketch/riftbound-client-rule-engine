@@ -144,52 +144,72 @@ function settleChain(runtime: EngineRuntime, owner: string, prefix: string): voi
   void owner;
 }
 
-function moveToBattlefield(runtime: EngineRuntime, playerId: string, objectId: string,
-  battlefieldId: string, commandId: string) {
-  const receipt = submit(runtime, playerId, {
-    type: "move", commandId, stateVersion: runtime.projectFor(null).stateVersion,
-      objectId, to: { zone: "battlefield", locationId: battlefieldId },
+function advanceAuthorizationRuntime(): EngineRuntime {
+  const deck = (seat: "A" | "B"): EngineRuntimeDeck => ({
+    mainDeck: Array.from({ length: 12 }, (_, index) => ({
+      id: `${seat}:unit:${index}`, cardId: `${seat}:unit-card`, name: `${seat} Unit`,
+      types: ["unit"], energy: 0, power: null, might: 3,
+    })),
+    runeDeck: Array.from({ length: 12 }, (_, index) => ({
+      id: `${seat}:rune:${index}`, cardId: `${seat}:rune-card`, name: "Mind Rune",
+      types: ["rune"], tags: ["Basic"], energy: null, power: null, domains: ["Mind"],
+    })),
+    championLegend: { id: `${seat}:legend`, cardId: `${seat}:legend-card`, name: "Legend", types: ["legend"] },
+    chosenChampion: { id: `${seat}:champion`, cardId: `${seat}:champion-card`, name: "Champion", types: ["champion"] },
+    battlefields: [0, 1, 2].map(index => ({
+      id: `${seat}:field:${index}`, cardId: `${seat}:field-card:${index}`,
+      name: `Field ${index}`, types: ["battlefield"],
+    })) as unknown as EngineRuntimeDeck["battlefields"],
   });
-  expect(receipt.status, receipt.error).toBe("accepted");
-  return receipt;
+  const seats = ["A", "B"] as const;
+  const programs: readonly CardProgram[] = seats.flatMap(seat => [
+    { canonicalCardId: `${seat}:unit-card`, rulesetVersion: "core-1.5" as const,
+      status: "executable" as const, sourceText: "RIFT-924 advance authorization fixture",
+      abilities: [{ kind: "play" as const, cost: { energy: { kind: "constant" as const, value: 0 } }, body: [] }] },
+    { canonicalCardId: `${seat}:rune-card`, rulesetVersion: "core-1.5" as const,
+      status: "no-ability" as const, sourceText: "fixture", abilities: [] },
+    { canonicalCardId: `${seat}:legend-card`, rulesetVersion: "core-1.5" as const,
+      status: "no-ability" as const, sourceText: "fixture", abilities: [] },
+    { canonicalCardId: `${seat}:champion-card`, rulesetVersion: "core-1.5" as const,
+      status: "no-ability" as const, sourceText: "fixture", abilities: [] },
+    ...[0, 1, 2].map(index => ({ canonicalCardId: `${seat}:field-card:${index}`,
+      rulesetVersion: "core-1.5" as const, status: "no-ability" as const,
+      sourceText: "fixture", abilities: [] })),
+  ]);
+  const decks = [deck("A"), deck("B")] as const;
+  return createEngineRuntime({ matchId: "v2-advance-authorization", roomId: "v2-advance-authorization",
+    decks, seed: "RIFT-924-advance-authorization", firstPlayer: "A", battlefieldChoice: [0, 0], programs })
+    .start();
 }
 
-function resolveShowdown(runtime: EngineRuntime, prefix: string): void {
-  for (let index = 0; index < 24; index += 1) {
-    const view = runtime.projectFor(null);
-    if (view.combat.status === "active" && view.combat.step === "damage") return;
-    if (view.chain.items.length > 0) {
-      const actor = view.chain.priorityPlayerId;
-      if (actor === null) throw new Error("A nonempty Chain must have a Priority holder");
-      const receipt = nextPass(runtime, actor, `${prefix}:chain:${index}`);
-      expect(receipt.status, receipt.error).toBe("accepted");
-      continue;
-    }
-    if (view.combat.status === "active" && view.combat.step === "showdown") {
-      const actor = view.priority.focusPlayerId;
-      if (actor !== null) {
-        const receipt = nextPass(runtime, actor, `${prefix}:focus:${index}`);
-        expect(receipt.status, receipt.error).toBe("accepted");
-      } else {
-        const advance = submit(runtime, view.activePlayerId, {
-          type: "advance", commandId: `${prefix}:advance:${index}`,
-          stateVersion: view.stateVersion,
-        });
-        expect(advance.status, advance.error).toBe("accepted");
-      }
-      continue;
-    }
-    if (view.combat.status === "active") {
-      const advance = submit(runtime, view.activePlayerId, {
-        type: "advance", commandId: `${prefix}:advance:${index}`,
-        stateVersion: view.stateVersion,
-      });
-      expect(advance.status, advance.error).toBe("accepted");
-      continue;
-    }
-    return;
+function playUnit(runtime: EngineRuntime, playerId: "A" | "B", commandId: string): string {
+  const view = runtime.projectFor(playerId);
+  const card = ownedHand(view, playerId).find(object => object.cardId === `${playerId}:unit-card`);
+  expect(card).toBeTruthy();
+  const receipt = submit(runtime, playerId, {
+    type: "play", commandId, stateVersion: view.stateVersion, cardObjectId: card!.objectId,
+    destination: { kind: "base", playerId },
+  });
+  expect(receipt.status, receipt.error).toBe("accepted");
+  const chainView = runtime.projectFor(playerId);
+  if (chainView.chain.items.length > 0) {
+    const chainAdvance = submit(runtime, chainView.chain.priorityPlayerId!, {
+      type: "advance", commandId: `${commandId}:unstable-chain`, stateVersion: chainView.stateVersion,
+    });
+    expect(chainAdvance.status).toBe("rejected");
+    expect(runtime.projectFor(playerId).stateVersion).toBe(chainView.stateVersion);
+    expect(runtime.projectFor(playerId).eventSeq).toBe(chainView.eventSeq);
   }
-  throw new Error("Showdown did not close");
+  settleChain(runtime, playerId, `${commandId}:chain`);
+  return card!.objectId;
+}
+
+function endCurrentTurn(runtime: EngineRuntime, commandId: string): void {
+  const view = runtime.projectFor(null);
+  const receipt = submit(runtime, view.activePlayerId, {
+    type: "end-turn", commandId, stateVersion: view.stateVersion,
+  });
+  expect(receipt.status, receipt.error).toBe("accepted");
 }
 
 describe("RIFT-924 protocol v2 playable turn runtime", () => {
@@ -254,16 +274,18 @@ describe("RIFT-924 protocol v2 playable turn runtime", () => {
     const showdown = runtime.projectFor("A");
     expect(showdown.priority.window).toBe("showdown");
     expect(showdown.combat).toMatchObject({ status: "active", step: "showdown" });
+    expect(showdown.actionOptions.canAdvance).toBe(false);
+    const earlyAdvance = submit(runtime, "A", {
+      type: "advance", commandId: "showdown-advance-too-early",
+      stateVersion: showdown.stateVersion,
+    });
+    expect(earlyAdvance.status).toBe("rejected");
+    expect(earlyAdvance.error).toMatch(/stable empty Chain/);
+    expect(runtime.projectFor("A")).toEqual(showdown);
     const focusA = nextPass(runtime, "A", "showdown-focus-a");
     expect(focusA.status, focusA.error).toBe("accepted");
     const focusB = nextPass(runtime, "B", "showdown-focus-b");
     expect(focusB.status, focusB.error).toBe("accepted");
-    expect(runtime.projectFor("A").actionOptions.canAdvance).toBe(false);
-    const advanced = submit(runtime, "A", {
-      type: "advance", commandId: "showdown-advance",
-      stateVersion: runtime.projectFor(null).stateVersion,
-    });
-    expect(advanced.status, advanced.error).toBe("accepted");
     expect(runtime.projectFor("A").scoring.players.find(player => player.playerId === "A")?.points)
       .toBeGreaterThanOrEqual(1);
     let winner = runtime.projectFor(null).winnerPlayerId;
@@ -320,6 +342,130 @@ describe("RIFT-924 protocol v2 playable turn runtime", () => {
     expect(invalid.status).toBe("rejected");
     expect(invalid.error).toMatch(/Unknown object/);
     expect(runtime.projectFor(null).stateVersion).toBe(before.stateVersion);
+  }, 120_000);
+
+  it("authorizes advance only at the public Combat Showdown handoff", () => {
+    const runtime = setup("v2-advance-auth", "RIFT-924-advance-auth");
+    const main = runtime.projectFor("A");
+    expect(main.phase).toBe("main");
+    expect(main.actionOptions.canEndTurn).toBe(true);
+    expect(main.actionOptions.canAdvance).toBe(false);
+    expect(runtime.projectFor("B").actionOptions.canAdvance).toBe(false);
+    expect(runtime.projectFor(null).actionOptions.canAdvance).toBe(false);
+
+    const beforeMain = runtime.projectFor(null);
+    for (const [player, commandId] of [["A", "main-advance"], ["B", "wrong-player-main-advance"]] as const) {
+      const receipt = submit(runtime, player, {
+        type: "advance", commandId, stateVersion: beforeMain.stateVersion,
+      });
+      expect(receipt.status).toBe("rejected");
+      expect(receipt.stateVersion).toBe(beforeMain.stateVersion);
+      expect(runtime.projectFor(null)).toEqual(beforeMain);
+    }
+
+    const beforeSpectator = runtime.projectFor(null);
+    const spectator = runtime.submit(null as never, {
+      type: "advance", commandId: "spectator-advance", stateVersion: beforeSpectator.stateVersion,
+    });
+    expect(spectator.receipt.status).toBe("rejected");
+    expect(spectator.receipt.stateVersion).toBe(beforeSpectator.stateVersion);
+    expect(runtime.projectFor(null)).toEqual(beforeSpectator);
+    expect(runtime.journal().entries).toHaveLength(0);
+  }, 120_000);
+
+  it("binds advance and both combat-damage allocations to the public responsible actors", () => {
+    const runtime = advanceAuthorizationRuntime();
+    const aUnit = playUnit(runtime, "A", "auth-play-a");
+    endCurrentTurn(runtime, "auth-end-a-1");
+    const bUnit = playUnit(runtime, "B", "auth-play-b");
+    endCurrentTurn(runtime, "auth-end-b-1");
+
+    const aView = runtime.projectFor("A");
+    const aMove = aView.actionOptions.moves.find(option => option.objectId === aUnit &&
+      option.destination.kind === "battlefield");
+    expect(aMove).toBeTruthy();
+    const aMoved = submit(runtime, "A", {
+      type: "move", commandId: "auth-move-a", stateVersion: aView.stateVersion, objectId: aUnit,
+      to: { zone: "battlefield", locationId: aMove!.destination.kind === "battlefield"
+        ? aMove!.destination.battlefieldId : "" },
+    });
+    expect(aMoved.status, aMoved.error).toBe("accepted");
+    expect(nextPass(runtime, "A", "auth-a-showdown-focus-a").status).toBe("accepted");
+    expect(nextPass(runtime, "B", "auth-a-showdown-focus-b").status).toBe("accepted");
+    endCurrentTurn(runtime, "auth-end-a-2");
+
+    const bView = runtime.projectFor("B");
+    const bMove = bView.actionOptions.moves.find(option => option.objectId === bUnit &&
+      option.destination.kind === "battlefield");
+    expect(bMove).toBeTruthy();
+    const bMoved = submit(runtime, "B", {
+      type: "move", commandId: "auth-move-b", stateVersion: bView.stateVersion, objectId: bUnit,
+      to: { zone: "battlefield", locationId: bMove!.destination.kind === "battlefield"
+        ? bMove!.destination.battlefieldId : "" },
+    });
+    expect(bMoved.status, bMoved.error).toBe("accepted");
+    expect(runtime.projectFor(null).combat).toMatchObject({ status: "active", step: "showdown" });
+    expect(runtime.projectFor("A").actionOptions.canAdvance).toBe(false);
+    expect(nextPass(runtime, "B", "auth-combat-focus-b").status).toBe("accepted");
+    expect(nextPass(runtime, "A", "auth-combat-focus-a").status).toBe("accepted");
+
+    const stable = runtime.projectFor(null);
+    const responsible = runtime.projectFor("B");
+    const other = runtime.projectFor("A");
+    expect(stable.priority).toMatchObject({ playerId: "B", focusPlayerId: null, window: "open" });
+    expect(stable.combat).toMatchObject({ status: "active", step: "showdown" });
+    expect(responsible.actionOptions.canAdvance).toBe(true);
+    expect(other.actionOptions.canAdvance).toBe(false);
+
+    const beforeWrong = runtime.projectFor("A");
+    const wrong = submit(runtime, "A", {
+      type: "advance", commandId: "auth-advance-wrong-player", stateVersion: beforeWrong.stateVersion,
+    });
+    expect(wrong.status).toBe("rejected");
+    expect(wrong.stateVersion).toBe(beforeWrong.stateVersion);
+    expect(runtime.projectFor("A")).toEqual(beforeWrong);
+
+    const beforeAdvance = runtime.projectFor("B");
+    const advanced = submit(runtime, "B", {
+      type: "advance", commandId: "auth-advance", stateVersion: beforeAdvance.stateVersion,
+    });
+    expect(advanced.status, advanced.error).toBe("accepted");
+    const damage = runtime.projectFor(null).combat;
+    expect(damage).toMatchObject({ status: "active", step: "damage", attackerPlayerId: "B", defenderPlayerId: "A" });
+    if (damage.status !== "active" || damage.step !== "damage" || damage.damage === undefined || damage.combatId === undefined) {
+      throw new Error("Expected an authoritative Combat damage window");
+    }
+
+    const beforeWrongDamage = runtime.projectFor("A");
+    const wrongDamage = submit(runtime, "A", {
+      type: "combat-damage", commandId: "auth-damage-wrong-actor",
+      stateVersion: beforeWrongDamage.stateVersion, combatId: damage.combatId,
+      assignments: [{ unitObjectId: aUnit, amount: damage.damage.attackerMight }],
+    });
+    expect(wrongDamage.status).toBe("rejected");
+    expect(wrongDamage.stateVersion).toBe(beforeWrongDamage.stateVersion);
+    expect(runtime.projectFor("A")).toEqual(beforeWrongDamage);
+
+    const attacker = submit(runtime, "B", {
+      type: "combat-damage", commandId: "auth-damage-b",
+      stateVersion: runtime.projectFor("B").stateVersion, combatId: damage.combatId,
+      assignments: [{ unitObjectId: aUnit, amount: damage.damage.attackerMight }],
+    });
+    expect(attacker.status, attacker.error).toBe("accepted");
+    expect(runtime.projectFor("A").combat).toMatchObject({
+      status: "active", step: "damage", damage: { attackerSubmitted: true, expectedPlayerId: "A" },
+    });
+    const defender = submit(runtime, "A", {
+      type: "combat-damage", commandId: "auth-damage-a",
+      stateVersion: runtime.projectFor("A").stateVersion, combatId: damage.combatId,
+      assignments: [{ unitObjectId: bUnit, amount: damage.damage.defenderMight }],
+    });
+    expect(defender.status, defender.error).toBe("accepted");
+    expect(runtime.projectFor(null).combat.status).toBe("none");
+    const afterCombat = runtime.projectFor(null);
+    expect(afterCombat.combat.status).toBe("none");
+    expect(afterCombat.chain.items).toHaveLength(0);
+    expect(afterCombat.priority).toMatchObject({ playerId: "B", focusPlayerId: null, window: "open" });
   }, 120_000);
 
   it("rejects forged combat assignments and keeps an unstarted turn actionable", () => {

@@ -22,7 +22,7 @@ import {
 } from "../../../../packages/protocol/dist/v2/index.js";
 import { assertRuntimeJournal, ENGINE_RUNTIME_RULESET_VERSION, RuntimeJournalWriter, canonicalJson, type RuntimeJournal, type RuntimeJournalEntry, digest } from "./journal.js";
 import { EngineRuntimeHost, type RuntimeCard } from "./host.js";
-import { projectRuntime, projectionDigest } from "./projection.js";
+import { advanceResponsiblePlayer, projectRuntime, projectionDigest } from "./projection.js";
 
 export interface EngineRuntimeDeck extends MatchDeck {
   readonly mainDeck: readonly RuntimeCard[];
@@ -438,12 +438,15 @@ class MatchRuntime implements EngineRuntime {
       return { accepted: true, activePlayerId: match.flow.turnPlayer };
     }
     if (command.type === "advance") {
+      if (advanceResponsiblePlayer(match, this.pending !== null, playerId) !== playerId) {
+        throw new Error("Advance is only available to the projected responsible Turn Player " +
+          "after a Combat Showdown closes with a stable empty Chain and no pending choice");
+      }
       if (match.flow.combat.current?.step === "showdown" && match.flow.chain.focus === null) {
         match.flow.combat.prepareDamage();
         return { accepted: true, activePlayerId: match.flow.turnPlayer, combatStep: "damage" };
       }
-      match.flow.advance();
-      return { accepted: true, activePlayerId: match.flow.turnPlayer };
+      throw new Error("Advance is not available in the current Combat Showdown");
     }
     if (command.type === "combat-damage") return this.executeCombatDamage(playerId, command);
     if (command.type === "declare-attack" || command.type === "declare-defense") {

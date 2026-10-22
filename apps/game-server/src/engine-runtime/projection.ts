@@ -112,9 +112,29 @@ function eventProjection(match: Match, host: EngineRuntimeHost, viewer: string |
   })) as readonly V2Event[];
 }
 
-function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | null): V2ActionOptions {
+/**
+ * The public player responsible for continuing a Combat Showdown after both
+ * Focus passes. The Chain has returned to neutral/open with no items or Focus,
+ * and renewed Priority belongs to the current Turn Player. This is deliberately
+ * narrower than "any state where TurnFlow.advance() changes something".
+ */
+export function advanceResponsiblePlayer(match: Match, pendingChoice: boolean,
+  viewer: PlayerId | null): PlayerId | null {
+  const chain = match.flow.chain;
+  const combat = match.flow.combat.current;
+  if (viewer === null || pendingChoice || match.result().winner !== null || match.flow.phase !== "main" ||
+      combat?.step !== "showdown" || chain.turnState !== "neutral-open" ||
+      chain.items.length !== 0 || chain.focus !== null ||
+      chain.priority === null || chain.priority !== match.flow.turnPlayer ||
+      chain.priority !== viewer) return null;
+  return viewer;
+}
+
+function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | null,
+  pendingChoice: boolean): V2ActionOptions {
+  const canAdvance = advanceResponsiblePlayer(match, pendingChoice, viewer) !== null;
   if (viewer === null || match.result().winner !== null || match.flow.phase !== "main") {
-    return { canEndTurn: false, canAdvance: false, moves: [], plays: [] };
+    return { canEndTurn: false, canAdvance, moves: [], plays: [] };
   }
   const chain = match.flow.chain;
   const priority = chain.priority;
@@ -124,7 +144,7 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
     (chain.canAct(viewer, "normal") || waitingForFutureCommand);
   const canEndTurn = viewer === match.flow.turnPlayer && open;
   if ((priority !== viewer && !waitingForFutureCommand) || !open || chain.items.length > 0) {
-    return { canEndTurn, canAdvance: false, moves: [], plays: [] };
+    return { canEndTurn, canAdvance, moves: [], plays: [] };
   }
   const objects = host.objects();
   const battlefields = match.flow.battlefields;
@@ -180,8 +200,6 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
       }
     }
   }
-  const canAdvance = match.flow.chain.items.length === 0 &&
-    match.flow.combat.current?.step === "showdown" && match.flow.chain.focus === null;
   return { canEndTurn, canAdvance, moves, plays };
 }
 
@@ -304,7 +322,7 @@ export function projectRuntime(
     scoring,
     battlefields: battlefieldProjection(match, host),
     combat: combatProjection(match),
-    actionOptions: actionOptions(match, host, viewer),
+    actionOptions: actionOptions(match, host, viewer, pendingChoice !== null),
     pendingChoice: projectedChoice,
     winnerPlayerId: match.result().winner,
     events: eventProjection(match, host, viewer, stateVersion),
