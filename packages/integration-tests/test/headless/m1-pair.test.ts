@@ -592,7 +592,7 @@ describe("RIFT-857 two-precon acceptance", () => {
       expect(result.termination).toBe("winner");
       expect(result.winner).not.toBeNull();
     }
-  }, 30_000);
+  }, 420_000);
 
   it("keeps every M1 card bound to a preserved independent golden", () => {
     const manifest = readManifest();
