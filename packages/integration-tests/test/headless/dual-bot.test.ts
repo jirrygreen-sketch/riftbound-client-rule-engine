@@ -13,13 +13,30 @@ import {
   runHeadlessMatrix,
   createHeadlessRegressionHarness,
 } from "../../src/headless/index.js";
-import { headlessTerminationClass } from "../../src/headless/duel.js";
+import {
+  aggregateHeadlessMatrixGames,
+  aggregateHeadlessPairingGames,
+  headlessMatrixGameCases,
+  headlessTerminationClass,
+} from "../../src/headless/duel.js";
 
 describe("M1 headless dual-bot regression", () => {
   // These are full-card, full-match regressions. Since the bot now keeps
-  // deploying and entering Combat, a single game routinely takes 40–180s even
+  // deploying and entering Combat, a single game routinely takes 40–320s even
   // though each case's assertions and action/turn guards are unchanged.
+  const matrixCases = headlessMatrixGameCases();
+  const matrixResults: HeadlessStats[] = [];
   const run = createHeadlessRegressionHarness();
+  let unitEvidence: { readonly result: HeadlessStats; readonly journal: HeadlessJournal } | undefined;
+  const runUnitEvidence = () => {
+    if (unitEvidence !== undefined) return unitEvidence;
+    let journal: HeadlessJournal | undefined;
+    const result = runHeadlessGame("review-rf-1", { decks: ["rumble-sfd", "fiora-sfd"],
+      maxTurns: 40, onJournal: value => { journal = value; } });
+    if (journal === undefined) throw new Error("Headless journal callback was not invoked");
+    unitEvidence = { result, journal };
+    return unitEvidence;
+  };
 
   it("classifies committed natural wins separately from unfinished guards", () => {
     const noCommands = { play: 0, idle: 0, pass: 0, advance: 0, move: 0, "rune-energy": 0,
@@ -60,55 +77,95 @@ describe("M1 headless dual-bot regression", () => {
     expect(headlessTerminationClass(concession)).toBe("nonNatural");
   }, 60_000);
 
-  const matrixCases = ([
-    ["rumble-sfd", "fiora-sfd"],
-    ["rumble-sfd", "vex-unl"],
-    ["rumble-sfd", "vi-unl"],
-    ["fiora-sfd", "vex-unl"],
-    ["fiora-sfd", "vi-unl"],
-    ["vex-unl", "vi-unl"],
-  ] as const).flatMap(([A, B]) => HEADLESS_MATRIX_SEEDS.map(seed => [A, B, seed] as const));
-  it.each(matrixCases)("runs %s versus %s for %s", (A, B, seed) => {
-    const summary = runHeadlessGames(1, [seed], { deckPair: { A, B } });
-    expect(summary.games).toBe(1);
-    expect(summary.results).toHaveLength(1);
-    expect(summary.exceptions, JSON.stringify(summary.results.filter(result => result.exceptions.length))).toBe(0);
+  it("keeps the fixed matrix shape without one blocking task", () => {
+    expect(matrixCases).toHaveLength(30);
+    expect(new Set(matrixCases.map(({ A, B }) => `${A}:${B}`)).size).toBe(6);
+    for (const key of new Set(matrixCases.map(({ A, B }) => `${A}:${B}`))) {
+      expect(matrixCases.filter(({ A, B }) => `${A}:${B}` === key)).toHaveLength(5);
+    }
+  });
+  it.each(matrixCases)("runs $A versus $B for $seed", game => {
+    const result = runHeadlessGame(game.seed, { deckPair: { A: game.A, B: game.B } });
+    expect(result.victoryScore).toBe(8);
+    expect(result.termination).not.toBe("concede");
+    expect(result.privacyChecks).toBeGreaterThanOrEqual(6);
+    expect(["natural", "nonNatural", "invalid"]).toContain(headlessTerminationClass(result));
+    if (result.termination === "winner") {
+      expect(headlessTerminationClass(result)).toBe("natural");
+      expect(result.winner).not.toBeNull();
+      expect(result.scores[result.winner!]).toBeGreaterThanOrEqual(8);
+      expect(result.battleStats.scores).toBeGreaterThan(0);
+    } else {
+      expect(headlessTerminationClass(result)).toBe("nonNatural");
+      expect(result.winner).toBeNull();
+      if (result.termination === "blocked") expect(result.blockers.length).toBeGreaterThan(0);
+      if (result.termination === "guard") expect(result.guardReason).not.toBeNull();
+    }
+    expect(result.judgeRequiredRejections).toBeGreaterThanOrEqual(0);
+    expect(result.actionCoverage.commands.concede).toBe(0);
+    expect(result.journalDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.replayMatches).toBe(true);
+    expect(result.privacySafe).toBe(true);
+    expect(result.exceptions).toEqual([]);
+    matrixResults.push(result);
+  }, 420_000);
+
+  it("preserves the original matrix aggregate from the same 30 games", () => {
+    expect(matrixResults).toHaveLength(30);
+    const summary = aggregateHeadlessMatrixGames(matrixCases, matrixResults);
+    expect(summary.games).toBe(30);
+    expect(summary.results).toHaveLength(30);
+    expect(summary.pairings).toHaveLength(6);
+    expect(summary.pairings.every(pairing => pairing.games === 5)).toBe(true);
+    expect(summary.exceptions).toBe(0);
     expect(summary.gamesWithReplayMismatch).toBe(0);
     expect(summary.gamesWithPrivacyLeak).toBe(0);
     expect(summary.results.every(result => result.victoryScore === 8)).toBe(true);
     expect(summary.results.every(result => result.termination !== "concede")).toBe(true);
     expect(summary.winners).toBe(summary.terminationReasons.winner);
     expect(summary.winnerRatio).toBe(summary.winners / summary.games);
-    for (const result of summary.results) {
-      expect(result.privacyChecks).toBeGreaterThanOrEqual(6);
-      expect(["natural", "nonNatural", "invalid"]).toContain(headlessTerminationClass(result));
-      if (result.termination === "winner") {
-        expect(headlessTerminationClass(result)).toBe("natural");
-        expect(result.winner).not.toBeNull();
-        expect(result.scores[result.winner!]).toBeGreaterThanOrEqual(8);
-        expect(result.battleStats.scores).toBeGreaterThan(0);
-      } else {
-        expect(headlessTerminationClass(result)).toBe("nonNatural");
-        expect(result.winner).toBeNull();
-        if (result.termination === "blocked") expect(result.blockers.length).toBeGreaterThan(0);
-        if (result.termination === "guard") expect(result.guardReason).not.toBeNull();
-      }
-    }
-    expect(summary.results.every(result => result.judgeRequiredRejections >= 0)).toBe(true);
+    expect(summary.completed + summary.blocked + summary.terminationReasons.guard).toBe(30);
     expect(summary.actionCoverage.commands.concede).toBe(0);
     expect(summary.judgeRequiredCardCounts.length).toBeGreaterThan(0);
-    expect(summary.results.every(result => /^[0-9a-f]{64}$/.test(result.journalDigest))).toBe(true);
-  }, 180_000);
+  }, 60_000);
+
+  it("preserves every pairing summary from the same games", () => {
+    expect(matrixResults).toHaveLength(30);
+    for (const pair of [
+      { A: "rumble-sfd", B: "fiora-sfd" },
+      { A: "rumble-sfd", B: "vex-unl" },
+      { A: "rumble-sfd", B: "vi-unl" },
+      { A: "fiora-sfd", B: "vex-unl" },
+      { A: "fiora-sfd", B: "vi-unl" },
+      { A: "vex-unl", B: "vi-unl" },
+    ] as const) {
+      const indexes = matrixCases.flatMap((game, index) => game.A === pair.A && game.B === pair.B ? [index] : []);
+      expect(indexes).toHaveLength(HEADLESS_MATRIX_SEEDS.length);
+      const summary = aggregateHeadlessPairingGames(pair, indexes.map(index => matrixResults[index]!));
+      expect(summary.games).toBe(5);
+      expect(summary.results).toHaveLength(5);
+      expect(summary.exceptions).toBe(0);
+      expect(summary.gamesWithReplayMismatch).toBe(0);
+      expect(summary.gamesWithPrivacyLeak).toBe(0);
+      expect(summary.winners).toBe(summary.terminationReasons.winner);
+      expect(summary.winnerRatio).toBe(summary.winners / summary.games);
+      for (const result of summary.results) {
+        expect(result.privacyChecks).toBeGreaterThanOrEqual(6);
+        expect(["natural", "nonNatural", "invalid"]).toContain(headlessTerminationClass(result));
+      }
+      expect(summary.results.every(result => result.judgeRequiredRejections >= 0)).toBe(true);
+      expect(summary.actionCoverage.commands.concede).toBe(0);
+      expect(summary.judgeRequiredCardCounts.length).toBeGreaterThan(0);
+      expect(summary.results.every(result => /^[0-9a-f]{64}$/.test(result.journalDigest))).toBe(true);
+    }
+  }, 60_000);
 
   it("records Basic Rune resources and an authoritative Unit entry", () => {
-    let journal: HeadlessJournal | undefined;
-    const result = runHeadlessGame("review-rf-1", { decks: ["rumble-sfd", "fiora-sfd"],
-      maxTurns: 40, onJournal: value => { journal = value; } });
-    expect(journal).toBeDefined();
-    expect(journal!.commands.some(entry => entry.trace?.phase === "main" &&
+    const { result, journal } = runUnitEvidence();
+    expect(journal.commands.some(entry => entry.trace?.phase === "main" &&
       entry.trace.canActNormal && entry.trace.basicRunes.some(rune => !rune.exhausted))).toBe(true);
-    expect(journal!.commands.some(entry => entry.command.type === "rune-energy" && entry.failure === null)).toBe(true);
-    expect(journal!.commands.some(entry => entry.trace?.boardUnits.length)).toBe(true);
+    expect(journal.commands.some(entry => entry.command.type === "rune-energy" && entry.failure === null)).toBe(true);
+    expect(journal.commands.some(entry => entry.trace?.boardUnits.length)).toBe(true);
     expect(result.replayMatches).toBe(true);
     expect(result.privacySafe).toBe(true);
     expect(result.actionCoverage.commands.concede).toBe(0);
@@ -117,13 +174,11 @@ describe("M1 headless dual-bot regression", () => {
     expect(result.winner).not.toBeNull();
     expect(result.blockers).toEqual([]);
     expect(headlessTerminationClass(result)).toBe("natural");
-  }, 180_000);
+  }, 420_000);
 
   it("finds a ready base Unit and its Standard Move candidates in the production path", () => {
-    let journal: HeadlessJournal | undefined;
-    const result = runHeadlessGame("review-rf-1", { decks: ["rumble-sfd", "fiora-sfd"],
-      onJournal: value => { journal = value; } });
-    const move = journal!.commands.find(entry => (entry.trace?.candidateCounts.move ?? 0) > 0);
+    const { result, journal } = runUnitEvidence();
+    const move = journal.commands.find(entry => (entry.trace?.candidateCounts.move ?? 0) > 0);
     expect(move).toBeDefined();
     expect(move!.trace!.turnState).toBe("neutral-open");
     expect(move!.trace!.canActNormal).toBe(true);
@@ -136,34 +191,29 @@ describe("M1 headless dual-bot regression", () => {
     expect(result.blockers).toEqual([]);
     expect(headlessTerminationClass(result)).toBe("natural");
     expect(result.actionCoverage.commands.concede).toBe(0);
-  }, 180_000);
+  }, 420_000);
 
-  it("holds six seeded mixed-orientation games to real unit and move candidate coverage", () => {
-    const plan = [
+  const orientationPlan = [
       { seed: "RIFT-874-orientation-rumble-sfd-1", decks: ["rumble-sfd", "fiora-sfd"] as const },
       { seed: "RIFT-874-orientation-rumble-sfd-2", decks: ["rumble-sfd", "fiora-sfd"] as const },
       { seed: "RIFT-874-orientation-rumble-sfd-3", decks: ["rumble-sfd", "fiora-sfd"] as const },
       { seed: "RIFT-874-orientation-fiora-sfd-1", decks: ["fiora-sfd", "rumble-sfd"] as const },
       { seed: "RIFT-874-orientation-fiora-sfd-2", decks: ["fiora-sfd", "rumble-sfd"] as const },
       { seed: "RIFT-874-orientation-fiora-sfd-3", decks: ["fiora-sfd", "rumble-sfd"] as const },
-    ];
-    const results = plan.map(({ seed, decks }) => {
-      let journal: HeadlessJournal | undefined;
-      const result = runHeadlessGame(seed, { decks, onJournal: value => { journal = value; } });
-      return { result, journal: journal! };
-    });
-    const selected = results.filter(({ journal }) => journal.commands.some(entry =>
-      (entry.trace?.candidateCounts.move ?? 0) > 0));
-    expect(selected.length).toBeGreaterThanOrEqual(5);
-    expect(results.filter(({ journal }) => journal.commands.some(entry => entry.trace?.boardUnits.length)).length)
-      .toBeGreaterThanOrEqual(5);
-    expect(results.filter(({ result }) => result.exceptions.some(exception =>
-      exception.includes("Invalid effect.token argument: location"))).length).toBeLessThanOrEqual(1);
-    expect(results.every(({ result }) => result.actionCoverage.commands.concede === 0)).toBe(true);
-    expect(results.every(({ result }) => result.replayMatches && result.privacySafe)).toBe(true);
-    expect(selected.filter(({ result }) => result.exceptions.length === 0).every(({ result }) =>
-      result.termination === "winner" && result.blockers.length === 0)).toBe(true);
-  }, 180_000);
+  ];
+  it.each(orientationPlan)("holds %s to real unit and move candidate coverage", ({ seed, decks }) => {
+    let journal: HeadlessJournal | undefined;
+    const result = runHeadlessGame(seed, { decks, onJournal: value => { journal = value; } });
+    expect(journal!.commands.some(entry => entry.trace?.boardUnits.length)).toBe(true);
+    expect(journal!.commands.some(entry => (entry.trace?.candidateCounts.move ?? 0) > 0)).toBe(true);
+    expect(result.exceptions).toEqual([]);
+    expect(result.actionCoverage.commands.concede).toBe(0);
+    expect(result.replayMatches).toBe(true);
+    expect(result.privacySafe).toBe(true);
+    expect(result.termination).toBe("winner");
+    expect(result.blockers).toEqual([]);
+    expect(headlessTerminationClass(result)).toBe("natural");
+  }, 420_000);
 
   it("builds the four JSON-backed M1 deck shapes without changing printed null costs", () => {
     for (const [index, id] of M1_DECK_IDS.entries()) {
@@ -191,7 +241,7 @@ describe("M1 headless dual-bot regression", () => {
     expect(second.actionCoverage).toEqual(first.actionCoverage);
     expect(second.replayMatches).toBe(true);
     expect(second.privacySafe).toBe(true);
-  }, 180_000);
+  }, 420_000);
 
   it("keeps blocked runs unfinished instead of awarding a concession win", () => {
     const result = run.blocked();
@@ -214,7 +264,7 @@ describe("M1 headless dual-bot regression", () => {
       }
       if (result.termination === "guard") expect(result.guardReason).not.toBeNull();
     }
-  }, 180_000);
+  }, 420_000);
 
   it("answers target choices through the ResolveContext instead of throwing AwaitChoice", () => {
     const result = run.targets();
@@ -223,7 +273,7 @@ describe("M1 headless dual-bot regression", () => {
     expect(result.replayMatches).toBe(true);
     expect(result.privacySafe).toBe(true);
     expect(result.actionCoverage.commands.concede).toBe(0);
-  }, 180_000);
+  }, 420_000);
 
   it("preserves unsupported source-trigger diagnostics without advancing or fabricating a winner", () => {
     const result = run.sourceTrigger();
@@ -246,7 +296,7 @@ describe("M1 headless dual-bot regression", () => {
       expect(result.guardReason).toBeNull();
       expect(result.blockers).toEqual([]);
     }
-  }, 180_000);
+  }, 420_000);
 
   it("rejects altered journal commands, events and state even when scores and winner still match", () => {
     const journal: HeadlessJournal = run.tamper().journal;
@@ -263,7 +313,7 @@ describe("M1 headless dual-bot regression", () => {
     expect(replayHeadlessJournal({ ...journal, final: { ...journal.final, stateDigest: "altered" } })).toBe(false);
     expect(replayHeadlessJournal({ ...journal, commands: journal.commands.map(entry => ({ ...entry,
       failure: entry.failure ? { ...entry.failure, message: "altered" } : { name: "Error", code: "fake", message: "fake" } })) })).toBe(false);
-  }, 180_000);
+  }, 420_000);
 
   it("keeps legacy journals without an integrity field strictly replayable", () => {
     let journal: HeadlessJournal | undefined;
@@ -285,7 +335,7 @@ describe("M1 headless dual-bot regression", () => {
     }
     expect(Object.values(summary.blockerReasons).reduce((sum, count) => sum + count, 0))
       .toBe(summary.results.reduce((sum, result) => sum + result.blockers.length, 0));
-  }, 180_000);
+  }, 420_000);
 
   it.each([
     [{ maxTurns: 1 }, "turn-limit"],

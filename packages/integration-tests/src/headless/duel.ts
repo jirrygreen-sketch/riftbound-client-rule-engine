@@ -57,9 +57,6 @@ export interface HeadlessGameOptions {
   readonly onJournal?: (journal: HeadlessJournal) => void;
   readonly decks?: readonly [M1PreconId, M1PreconId];
   readonly deckPair?: HeadlessDeckPair;
-  /** Internal test controls; defaults preserve full replay and per-command privacy audits. */
-  readonly verifyReplay?: boolean;
-  readonly privacyAuditEveryAction?: boolean;
 }
 
 interface HeadlessNoProgressCache {
@@ -67,6 +64,12 @@ interface HeadlessNoProgressCache {
   readonly peek: (context: HeadlessContext) => string;
   readonly refresh: (context: HeadlessContext) => string;
   readonly invalidate: () => void;
+}
+
+export interface HeadlessMatrixGameCase {
+  readonly A: M1PreconId;
+  readonly B: M1PreconId;
+  readonly seed: string;
 }
 
 export interface HeadlessGamesOptions extends HeadlessGameOptions {}
@@ -840,6 +843,27 @@ function setupMatch(
   });
 }
 
+/**
+ * LayerEngine asks for the identical attachment signature once per dependent
+ * evaluation. The headless state owner replaces the layer object map only via
+ * setObjects, so one signature per authoritative object-map installation is
+ * sufficient. The wrapped method still delegates to the engine implementation.
+ */
+function cacheLayerAttachmentSignature(layers: Match["flow"]["chain"]["layers"]): void {
+  const target = layers as unknown as {
+    setObjects: (objects: readonly ObjectSnapshot[] | ReadonlyMap<string, ObjectSnapshot>) => void;
+    attachmentSignature: () => string;
+  };
+  const setObjects = target.setObjects.bind(target);
+  const attachmentSignature = target.attachmentSignature.bind(target);
+  let cached: string | undefined;
+  target.setObjects = objects => {
+    setObjects(objects);
+    cached = undefined;
+  };
+  target.attachmentSignature = () => cached ??= attachmentSignature();
+}
+
 function chooseMulligans(seed: string, openingHands: readonly [readonly string[], readonly string[]]): readonly [readonly string[], readonly string[]] {
   const random = new BotRandom(`${seed}:mulligan`);
   const choose = (hand: readonly string[]): readonly string[] => {
@@ -866,6 +890,7 @@ function createHeadlessContext(
   const mulligans = requestedMulligans ?? chooseMulligans(seed, openingHandsFor(seed, decks));
   const state = makeWorld(seed);
   const match = setupMatch(seed, state, programs, decks, mulligans);
+  cacheLayerAttachmentSignature(match.flow.chain.layers);
   const runeDomains = new Map<string, string>();
   const runeIdentities = new Map<string, BasicRuneIdentity>();
   for (const card of [...decks[0].runeDeck, ...decks[1].runeDeck]) {
@@ -1026,14 +1051,23 @@ function executeGuardedCommand(
 }
 
 /** Candidates are timing/permission filtered; the public command still owns final legality and cost checks. */
-function enumerateCandidates(context: HeadlessContext, sequence: number): readonly HeadlessCommand[] {
+interface HeadlessCandidateEnumeration {
+  readonly commands: readonly HeadlessCommand[];
+  readonly objects: readonly ObjectSnapshot[] | null;
+}
+
+function enumerateCandidates(context: HeadlessContext, sequence: number): HeadlessCandidateEnumeration {
   const { match, state, programs } = context;
   const flow = match.flow;
   const chain = flow.chain;
   const player = chain.priority;
-  if (!player || flow.phase !== "main") return [];
+  if (!player || flow.phase !== "main") return { commands: [], objects: null };
   const commands: HeadlessCommand[] = [];
-  chain.layers.setObjects(state.kernel.objects);
+  // Reuse the host identity cache and this layer evaluation for the journal
+  // trace. Reading TestWorld.objects directly copies every snapshot, and a
+  // second evaluateAll repeats the dominant layer pass for the same state.
+  const kernelObjects = state.host.objects();
+  chain.layers.setObjects(kernelObjects);
   const objects = chain.layers.evaluateAll();
   if (!flow.combat.active && chain.turnState === "neutral-open" && chain.canAct(player, "normal")) {
     for (const object of objects) {
@@ -1095,7 +1129,7 @@ function enumerateCandidates(context: HeadlessContext, sequence: number): readon
       }
     }
   }
-  return commands;
+  return { commands, objects };
 }
 
 function finalState(
@@ -1140,21 +1174,30 @@ function traceObject(context: HeadlessContext, object: ObjectSnapshot): Headless
       object.ref, object, object.controller).flatMap(rule => rule.name === undefined ? [] : [rule.name]) };
 }
 
-function boardUnitTrace(context: HeadlessContext, player?: PlayerId): readonly HeadlessCommandTraceObject[] {
-  const { match, state } = context;
-  match.flow.chain.layers.setObjects(state.kernel.objects);
-  return match.flow.chain.layers.evaluateAll()
-    .filter(object => object.zone === "board" && object.types.includes("unit") &&
-      (player === undefined || object.controller === player))
+function boardUnitTrace(
+  context: HeadlessContext,
+  objects: readonly ObjectSnapshot[],
+  player?: PlayerId,
+): readonly HeadlessCommandTraceObject[] {
+  return objects.filter(object => object.zone === "board" && object.types.includes("unit") &&
+    (player === undefined || object.controller === player))
     .map(object => traceObject(context, object));
 }
 
-function commandTrace(context: HeadlessContext, candidates: readonly HeadlessCommand[]): HeadlessCommandTrace {
+function commandTrace(
+  context: HeadlessContext,
+  candidates: readonly HeadlessCommand[],
+  evaluatedObjects?: readonly ObjectSnapshot[],
+): HeadlessCommandTrace {
   const { match, state } = context;
   const counts: Record<HeadlessCommandType, number> = { play: 0, idle: 0, pass: 0, advance: 0, move: 0,
     "rune-energy": 0, "combat-damage": 0, concede: 0 };
   for (const command of candidates) counts[command.type] += 1;
-  const objects = new Map(state.kernel.objects.map(object => [
+  const layeredObjects = evaluatedObjects ?? (() => {
+    match.flow.chain.layers.setObjects(state.host.objects());
+    return match.flow.chain.layers.evaluateAll();
+  })();
+  const objects = new Map(layeredObjects.map(object => [
     `${object.ref.id}:${object.ref.zoneEntryId}`, object]));
   return { turn: match.flow.turn, turnPlayer: match.flow.turnPlayer, phase: match.flow.phase,
     priority: match.flow.chain.priority, focus: match.flow.chain.focus,
@@ -1167,8 +1210,8 @@ function commandTrace(context: HeadlessContext, candidates: readonly HeadlessCom
       const player = state.kernel.player(id);
       return player.energy !== 0 || player.power.length !== 0;
     }),
-    candidateCounts: counts, battlefields: match.flow.battlefields, boardUnits: boardUnitTrace(context),
-    basicRunes: state.kernel.objects.filter(object => object.zone === "rune-zone" &&
+    candidateCounts: counts, battlefields: match.flow.battlefields, boardUnits: boardUnitTrace(context, layeredObjects),
+    basicRunes: layeredObjects.filter(object => object.zone === "rune-zone" &&
       object.types.some(type => type.toLowerCase() === "rune")).map(object => ({ id: object.ref.id,
         name: object.name, cardId: object.cardId, domain: context.basicRuneDomain(object.cardId),
         exhausted: object.exhausted })),
@@ -1337,9 +1380,10 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
     if (match.flow.turn > maxTurns) { guardReason = "turn-limit"; break; }
     if (commands.length >= maxActions) { guardReason = "action-limit"; break; }
     noProgress.before = noProgress.peek(context);
-    const allCandidates = enumerateCandidates(context, commands.length);
+    const enumeration = enumerateCandidates(context, commands.length);
+    const allCandidates = enumeration.commands;
     const candidates = allCandidates.filter(command => !rejected.has(commandKey(command)));
-    const trace = commandTrace(context, allCandidates);
+    const trace = commandTrace(context, allCandidates, enumeration.objects ?? undefined);
     const preferred = prioritizedHeadlessCommands(candidates, trace, match.flow.combat);
     const command = preferred.length ? preferred[random.next(preferred.length)]! :
       match.flow.chain.priority
@@ -1360,7 +1404,7 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
     }
     recordCommand(state.counters, command.type);
     commands.push({ command, failure, trace });
-    if (options.privacyAuditEveryAction !== false) checkPrivacy();
+    checkPrivacy();
     if (fatal) break;
     if (!failure) {
       rejected.clear();
@@ -1388,7 +1432,7 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
     observedActions,
     eventCount: events.length, journalDigest: digest(journal),
     projectionDigests: { A: digest(projections.A), B: digest(projections.B) },
-    replayMatches: options.verifyReplay === false || replayHeadlessGame(journal), privacySafe,
+    replayMatches: replayHeadlessGame(journal), privacySafe,
   };
 }
 
@@ -1465,6 +1509,70 @@ export function runHeadlessGames(
     return runHeadlessGame(seed, { ...resolvedOptions, deckPair: decks });
   });
   return aggregateHeadlessResults(games, decks, results);
+}
+
+export function headlessMatrixGameCases(
+  decks: readonly M1PreconId[] = M1_DECK_IDS,
+  seeds: readonly string[] = HEADLESS_MATRIX_SEEDS,
+): readonly HeadlessMatrixGameCase[] {
+  const unique = [...new Set(decks)];
+  if (unique.length < 2) throw new RangeError("At least two distinct decks are required");
+  if (seeds.length === 0) throw new RangeError("seeds must contain at least one seed");
+  const pairs: HeadlessDeckPair[] = [];
+  for (let left = 0; left < unique.length; left += 1) {
+    for (let right = left + 1; right < unique.length; right += 1) {
+      pairs.push({ A: unique[left]!, B: unique[right]! });
+    }
+  }
+  return pairs.flatMap(pair => seeds.map(seed => ({ A: pair.A, B: pair.B, seed })));
+}
+
+/** Product-facing grouping of identical detailed games into pairing summaries. */
+export function aggregateHeadlessPairingGames(
+  pair: HeadlessDeckPair,
+  results: readonly HeadlessStats[],
+): HeadlessMatrixPairSummary {
+  const aggregate = aggregateHeadlessResults(results.length, pair, results);
+  return {
+    ...aggregate,
+    decks: pair,
+    games: results.length,
+  };
+}
+
+/** Build the same matrix summary from games that were scheduled independently. */
+export function aggregateHeadlessMatrixGames(
+  cases: readonly HeadlessMatrixGameCase[],
+  results: readonly HeadlessStats[],
+  decks: readonly M1PreconId[] = M1_DECK_IDS,
+): HeadlessMatrixSummary {
+  if (cases.length !== results.length) throw new RangeError("Matrix cases and results must have equal length");
+  const deckIds = [...new Set(decks)];
+  const pairings = pairingsFor(deckIds).map(pair => {
+    const indexes = cases.flatMap((game, index) => game.A === pair.A && game.B === pair.B ? [index] : []);
+    return aggregateHeadlessPairingGames(pair, indexes.map(index => results[index]!));
+  });
+  const aggregate = aggregateHeadlessResults(results.length, { A: deckIds[0]!, B: deckIds[1]! }, results);
+  return {
+    games: results.length,
+    decks: deckIds,
+    pairings,
+    completed: aggregate.completed,
+    blocked: aggregate.blocked,
+    exceptions: aggregate.exceptions,
+    judgeRequiredRejections: aggregate.judgeRequiredRejections,
+    judgeRequiredCards: aggregate.judgeRequiredCards,
+    judgeRequiredCardCounts: aggregate.judgeRequiredCardCounts,
+    judgeRequiredTop: aggregate.judgeRequiredTop,
+    actionCoverage: aggregate.actionCoverage,
+    terminationReasons: aggregate.terminationReasons,
+    totalTurns: aggregate.totalTurns,
+    winners: aggregate.winners, winnerRatio: aggregate.winnerRatio, winsByPlayer: aggregate.winsByPlayer,
+    averageTurns: aggregate.averageTurns, battleStats: aggregate.battleStats, blockerReasons: aggregate.blockerReasons,
+    gamesWithReplayMismatch: aggregate.gamesWithReplayMismatch,
+    gamesWithPrivacyLeak: aggregate.gamesWithPrivacyLeak,
+    results,
+  };
 }
 
 function pairingsFor(decks: readonly M1PreconId[]): readonly HeadlessDeckPair[] {
