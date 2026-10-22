@@ -110,7 +110,7 @@ test('setup-legend-and-champion-zones-populated', () => {
   assert.deepEqual(m.setup.legendZone.A, ['card:legend-A']);
   assert.deepEqual(m.setup.championZone.A, ['card:champion-A']);
   const legend = kernel.objects.find(object => object.cardId === 'card:legend-A' && object.owner === 'A');
-  assert.equal(legend.zone, 'chain');
+  assert.equal(legend.zone, 'legend');
   assert.deepEqual(legend.types, ['legend']);
   const champion = kernel.objects.find(object => object.cardId === 'card:champion-A' && object.owner === 'A');
   assert.equal(champion.zone, 'chain');
