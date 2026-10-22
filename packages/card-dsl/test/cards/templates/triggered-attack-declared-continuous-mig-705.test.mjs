@@ -219,7 +219,7 @@ const rows = [
       players: { A: { energy: 3 }, B: { energy: 3 } },
       objects: [
         // A Legend prints no energy/power; those stay null, never 0.
-        { id: "fox", cardId: foxId, program: foxView, types: ["legend"], zone: "legend", location: null, might: 3, energy: null, power: null },
+        { id: "fox", cardId: foxId, program: foxView, types: ["legend"], zone: "board", location: BF1, might: 3, energy: null, power: null },
         { id: "raider", owner: "B", types: ["unit"], zone: "board", location: BF1, might: 4 },
         { id: "bystander", owner: "B", types: ["unit"], zone: "board", location: BF2, might: 4 },
       ],
@@ -359,7 +359,7 @@ const boundaries = [
       ],
       expect: {
         objects: {
-          fox: { zone: "legend", might: 3 },
+          fox: { zone: "board", might: 3 },
           "hand-raider": { zone: "hand", might: 4 },
         },
         events: { includes: [{ timingPoint: "attack-declared", object: { ref: "hand-raider" } }] },
