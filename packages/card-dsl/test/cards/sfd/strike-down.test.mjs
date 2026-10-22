@@ -250,6 +250,8 @@ test("Strike Down production golden: Finalize, damage, payment, linked Equipment
     [f.kernel.ref("equipped-host")],
     [f.kernel.ref("enemy")]
   ]);
+  assert.equal(f.kernel.player("A").energy, 0, "3 Energy was paid during Finalize, before either Priority pass");
+  assert.deepEqual(f.kernel.player("A").power, [], "1 Body Power was paid during Finalize");
 
   f.settle();
   assert.deepEqual(
