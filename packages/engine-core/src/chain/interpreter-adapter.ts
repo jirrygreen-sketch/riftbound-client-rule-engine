@@ -1,4 +1,5 @@
-import type { Expr, Instruction, InstructionDef, ObjectRef, ResolveContext, Value } from '../effects/contract.js';
+import type { ChoiceRequest, Expr, Instruction, InstructionDef, ObjectRef, ResolveContext, Value } from '../effects/contract.js';
+import type { TargetPlan } from '../target/target-plan.js';
 import { runAbilityBody, type InterpreterOptions } from '../effects/interpreter.js';
 import { instructionDefinitionsById } from '../effects/instructions/registry.generated.js';
 import { bindOrderedPickInstructions, orderedPickResolver } from './picks/linked.js';
@@ -24,6 +25,29 @@ function targetObjectSelector(instruction: Instruction): Expr | undefined {
 }
 
 const constant = (value: Value): Expr => ({ kind: 'constant', value });
+
+/**
+ * Paid whole-body Repeat creates one execution for the original and one for
+ * every exact paid receipt (CR 820.1.d, 820.3). The ChoicePlan owns one target
+ * lock per execution, and 820.2.a permits those locks to match or differ.
+ */
+export function paidRepeatBody(
+  body: readonly Instruction[],
+  cost: unknown,
+): readonly Instruction[] | undefined {
+  if (body.some(instruction => instruction.op === 'effect.repeat')) return undefined;
+  const paid = paidRepeatInstanceIds(cost);
+  if (paid === undefined || paid.length === 0) return undefined;
+  return [{
+    id: '__riftbound.repeat.paid-body',
+    op: 'repeat',
+    args: {
+      count: constant(paid.length + 1),
+      body: constant(body as unknown as Value),
+      reselectTargets: constant(true),
+    },
+  }];
+}
 
 function paidRepeatControl(body: readonly Instruction[], instruction: Instruction, cost: unknown): Instruction | undefined {
   if (instruction.op !== 'effect.repeat' || instruction.linkedTo === undefined) return undefined;
@@ -157,6 +181,49 @@ function repeatSettlement(marker: Instruction, instanceId: string): string {
   return `${marker.id}:${encodeURIComponent(instanceId)}`;
 }
 
+export interface ResolveChainOptions extends InterpreterOptions {
+  /** Finalize locks, including one independently selected set per execution. */
+  readonly targetPlans?: readonly TargetPlan[];
+}
+
+/** Bind each locked Repeat execution without reopening any target choice. */
+function withRepeatExecutions(
+  context: ResolveContext,
+  executions: readonly TargetPlan[],
+): ResolveContext {
+  const iterations = new Map<number, Map<string, readonly ObjectRef[]>>();
+  for (const plan of executions) {
+    if (plan.repeatIndex === undefined) continue;
+    const values = iterations.get(plan.repeatIndex) ?? new Map<string, readonly ObjectRef[]>();
+    values.set(plan.requirement.id, [...plan.selected]);
+    iterations.set(plan.repeatIndex, values);
+  }
+  if (iterations.size === 0) return context;
+  let current = 0;
+  return bindResolveContext(context, {
+    choose: <T>(request: ChoiceRequest<T>): T => {
+      const execution = repeatExecutionPath(request);
+      if (request.type === 'select-objects' && execution !== undefined) {
+        current = execution;
+        // The interpreter prefixes a target request with its coded instruction
+        // path. Match the exact final segment (e.g. target%3Aaffected-unit).
+        const suffix = request.id.slice(request.id.lastIndexOf('/') + 1);
+        const locked = iterations.get(current)!;
+        const exact = [...locked.entries()].find(([id]) => suffix === `target%3A${encodeURIComponent(id)}`);
+        if (exact !== undefined) return [...exact[1]] as T;
+        return context.choose(request);
+      }
+      return context.choose(request);
+    },
+    targets: id => [...(iterations.get(current)?.get(id) ?? [])],
+  });
+}
+
+function repeatExecutionPath(request: ChoiceRequest<unknown>): number | undefined {
+  const match = /(?:^|\/)__riftbound\.repeat\.paid-body\/(\d+)(?:\/|$)/.exec(request.id);
+  return match === null ? undefined : Number(match[1]);
+}
+
 const SETTLEMENT_OPS = new Set([
   'continuous.might', 'continuous.base-might', 'continuous.grant-keyword',
   'continuous.keyword', 'continuous.movement',
@@ -223,21 +290,10 @@ const registry = new Map<string, InstructionDef<unknown>>([...instructionDefinit
 export function resolveChainBody(
   body: readonly Instruction[],
   context: ResolveContext,
-  options: InterpreterOptions = {}
+  options: ResolveChainOptions = {}
 ) {
   const repeatPayment = repeatPaymentFor(body, options.cost);
-  const paid = repeatsWholeBody(body, options.cost);
-  const preparedBody: readonly Instruction[] = paid
-    ? [{
-      id: '__riftbound.repeat.paid-body',
-      op: 'repeat',
-      args: {
-        count: constant((paidRepeatInstanceIds(options.cost)?.length ?? 0) + 1),
-        body: constant(body as unknown as Value),
-        reselectTargets: constant(false),
-      },
-    }]
-    : body;
+  const preparedBody: readonly Instruction[] = paidRepeatBody(body, options.cost) ?? body;
   const orderedPicks = orderedPickResolver(body);
   // Continuous primitives derive their per-settlement registration id from a
   // shared settlement counter keyed by source identity (CR 478.1: layers are
@@ -248,11 +304,12 @@ export function resolveChainBody(
   // so counters survive across settlements; host checkpoints still roll the
   // mirrored write back with the transaction (AwaitChoice replays recompute the
   // same id deterministically instead of resubmitting registrations).
-  const settlementContext = bindResolveContext(context, {
+  const executionContext = withRepeatExecutions(context, options.targetPlans ?? []);
+  const settlementContext = bindResolveContext(executionContext, {
     link: (key, value) => {
-      context.link(key, value);
+      executionContext.link(key, value);
       const marker = key.indexOf('__continuous.settlement.');
-      if (marker > 0) context.link(key.slice(marker), value);
+      if (marker > 0) executionContext.link(key.slice(marker), value);
     }
   });
   const continuationBody: Instruction[] = [];
