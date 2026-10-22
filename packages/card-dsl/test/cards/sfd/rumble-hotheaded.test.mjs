@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/index.js";
 import program, { RUMBLE_OFFICIAL_EFFECT_ORDER_EVIDENCE } from "../../../dist/cards/sfd/rumble-hotheaded.js";
-import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { cardProgramsById, cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import breakneckMech from "../../../dist/cards/sfd/breakneck-mech.js";
 import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -12,6 +12,7 @@ import costModify from "../../../../engine-core/dist/effects/instructions/cost.m
 import keywordDef from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
 import recycleDef from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
 import playDef from "../../../../engine-core/dist/effects/instructions/effect.play.js";
+import { buildEffectPlayCostPlan } from "../../../../engine-core/dist/effects/play/index.js";
 import { matchesObjectPredicates } from "../../../../engine-core/dist/effects/filters/predicates.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
@@ -91,14 +92,15 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = {
         "Conquer establishes control and emits the real ownership/source payload for Rumble.",
         "Rumble's Triggered Ability becomes Pending; its leading may and recycle cost are decided during Finalize.",
         "Finalize selects the Trash Mech target and another friendly Board unit as a non-target cost choice, then atomically pays the recycle to its owner's Main Deck bottom.",
-        "The payment receipt preserves the recycled unit's pre-move Might. After A then B pass the Closed-State Priority window, Resolve can reduce only the target's Energy component; its printed Power must remain payable.",
-        "Current production gap: an explicit Energy-only descriptor discards the Trash Mech's printed Power, and the trusted play planner cannot acquire the complete displaced target's printing cost through this card body. The full card therefore remains judge-required.",
+        "The payment receipt preserves the recycled unit's pre-move Might. The Play descriptor declares base: printed so Finalize can use the target's complete trusted printed Energy and Power; after A then B pass the Closed-State Priority window, Resolve reduces only the Energy component and Power remains payable. A production golden with Breakneck's complete printed metadata pays 5 Energy and 2 Mind Power.",
+        "Current production gap: the default Unit programs, including Breakneck Mech, have no play CostSpec. Given only a partial Energy projection, effects/play/cost-plan.ts:336-347 and :634 fail closed instead of inventing Power from ObjectSnapshot.power's Domain set. The full card remains judge-required.",
       ],
       priorityFocus: "Focus belongs to the preceding Showdown. Finalize does not pass Priority; A then B receive Closed-State Priority in turn order, and both passes precede Resolve.",
       responseWindow: "After Finalize, the Closed-State window permits legally timed Reactions before Resolve. The production golden verifies the A-to-B Priority order and subsequent Resolve without inventing a Reaction card.",
       productionAssertions: [
-        "Rumble, Hotheaded production component: Finalize recycles, the receipt preserves pre-move Might, and Resolve plays an Energy-only Mech",
-        "Rumble, Hotheaded Power boundary: a real Breakneck Mech loses its 2 Mind Power requirement and the whole card remains judge-required",
+        "Rumble, Hotheaded production component: Finalize recycles, preserves pre-move Might, and reaches the nested Play",
+        "Rumble, Hotheaded production golden: trusted Breakneck metadata yields and pays 5 Energy plus 2 Mind Power",
+        "Rumble, Hotheaded cost-plan boundary: missing numeric Power provenance fails closed",
       ],
     },
   ],
@@ -107,19 +109,40 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = {
 const constant = (value) => ({ kind: "constant", value });
 const [grant, trigger] = program.abilities;
 const [optional] = trigger.body;
-const [recycleCost, cost, play] = optional.args.body.value;
+const [recycleCost, play] = optional.args.body.value;
+const playCost = play.args.cost.value;
 const TRASH_MECH_PROGRAM = {
   canonicalCardId: "synthetic:RIFT-957-trash-mech",
   rulesetVersion: "core-1.5",
   status: "executable",
   sourceText: "Synthetic RIFT-957 Trash Mech used to traverse the production Play path.",
-  abilities: [],
+  abilities: [{
+    kind: "play",
+    cost: { kind: "cost.printed", energy: constant(0), power: constant(0) },
+    body: [],
+  }],
 };
 const admitted = { ...program, status: "executable", judgeReason: undefined };
+const BREAKNECK_PRINTED_PLAY_PROGRAM = {
+  ...breakneckMech,
+  abilities: [
+    ...breakneckMech.abilities,
+    {
+      kind: "play",
+      cost: {
+        kind: "cost.printed",
+        energy: constant(8),
+        power: constant(2),
+      },
+      body: [],
+    },
+  ],
+};
 
 function productionConquer({
   accept = true,
   energy = 0,
+  power = [],
   fodderMight = 3,
   fodderOwner = "A",
   mechEnergy = 5,
@@ -127,14 +150,14 @@ function productionConquer({
   fodder = true,
   onFinalize = () => {},
 } = {}) {
-  const builder = world().player("A").player("B", { energy: 10 })
+  const builder = world().player("A", { power }).player("B", { energy: 10 })
     .base("rumble", {
       cardId: CANONICAL, owner: "A", controller: "A", types: ["unit"], tags: ["Mech"], might: 4,
       location: { type: "base", player: "A" },
     })
     .card("trash-mech", {
       cardId: trashProgram.canonicalCardId, owner: "A", zone: "trash", types: ["unit"], tags: ["Mech"],
-      energy: mechEnergy, power: null, might: 3,
+      energy: mechEnergy, power: trashProgram === TRASH_MECH_PROGRAM ? null : ["Mind"], might: 3,
     })
     .card("trash-spell", {
       owner: "A", zone: "trash", types: ["spell"], tags: ["Mech"], energy: 4, power: null,
@@ -154,6 +177,15 @@ function productionConquer({
     builder.rune(Array.from({ length: 8 }, (_, index) => `${player}:rune:${index}`), { owner: player });
   }
   const kernel = builder.build();
+  const previousCatalogProgram = cardProgramsById.get(trashProgram.canonicalCardId);
+  cardProgramsById.set(trashProgram.canonicalCardId, trashProgram);
+  let catalogRestored = false;
+  const restoreCatalogProgram = () => {
+    if (catalogRestored) return;
+    catalogRestored = true;
+    if (previousCatalogProgram === undefined) cardProgramsById.delete(trashProgram.canonicalCardId);
+    else cardProgramsById.set(trashProgram.canonicalCardId, previousCatalogProgram);
+  };
   const requests = [];
   let finalizedOnce = false;
   let flow;
@@ -199,6 +231,9 @@ function productionConquer({
   });
   flow.start();
   assert.equal(flow.chain.commit({ type: "gain-energy", player: "A", amount: energy }).status, "done");
+  if (power.length > 0) {
+    assert.equal(flow.chain.commit({ type: "gain-power", player: "A", power }).status, "done");
+  }
   const energyBeforeConquer = kernel.player("A").energy;
   assert.deepEqual(binding.registerProgramTriggers(flow.chain, kernel.getObject("rumble")), ["program:rumble:1:1"]);
   assert.equal(flow.chain.commit({
@@ -216,13 +251,24 @@ function productionConquer({
     }
     throw new Error("production Conquer flow did not settle");
   };
-  return { kernel, flow, binding, requests, energyBeforeConquer, settle };
+  return { kernel, flow, binding, requests, energyBeforeConquer, settle, restoreCatalogProgram };
 }
 
-function playedPlans(fixture) {
+function playedPlans(fixture, instructionId = "rumble.play-mech") {
   return Object.entries(fixture.kernel.linkedSnapshot())
-    .filter(([key]) => key.endsWith("rumble.play-mech.playedCostPlans"))
+    .filter(([key]) => key === `${instructionId}.playedCostPlans` || key.endsWith(`:${instructionId}.playedCostPlans`))
     .flatMap(([, value]) => Array.isArray(value) ? value : []);
+}
+
+function withCatalogProgram(program, run) {
+  const previous = cardProgramsById.get(program.canonicalCardId);
+  cardProgramsById.set(program.canonicalCardId, program);
+  try {
+    return run();
+  } finally {
+    if (previous === undefined) cardProgramsById.delete(program.canonicalCardId);
+    else cardProgramsById.set(program.canonicalCardId, previous);
+  }
 }
 
 test("Rumble, Hotheaded: validates and remains registered as judge-required", () => {
@@ -236,8 +282,9 @@ test("Rumble, Hotheaded: validates and remains registered as judge-required", ()
   assert.match(program.judgeReason, /131\.3/u);
   assert.match(program.judgeReason, /356\.4\.c/u);
   assert.match(program.judgeReason, /357\.1/u);
-  assert.match(program.judgeReason, /effects\/instructions\/cost\.modify\.ts:220-272/u);
-  assert.match(program.judgeReason, /effects\/play\/cost-plan\.ts:271-277,483-510/u);
+  assert.match(program.judgeReason, /effects\/play\/catalog\.ts:13-14/u);
+  assert.match(program.judgeReason, /effects\/play\/cost-plan\.ts:336-347/u);
+  assert.match(program.judgeReason, /effects\/play\/cost-plan\.ts:631-634/u);
   assert.match(program.judgeReason, /ObjectSnapshot\.power/u);
   assert.match(program.judgeReason, /bindDuelPrintedCost/u);
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -267,8 +314,9 @@ test("Rumble, Hotheaded: official effect-order evidence names the exact source, 
   }
   assert.ok(conquer.timeline.some((line) => /pre-move Might/u.test(line)));
   assert.ok(conquer.timeline.some((line) => /Energy component/u.test(line)));
-  assert.ok(conquer.timeline.some((line) => /printed Power must remain payable/u.test(line)));
+  assert.ok(conquer.timeline.some((line) => /Power remains payable/u.test(line)));
   assert.ok(conquer.timeline.some((line) => /Current production gap/u.test(line)));
+  assert.ok(conquer.timeline.some((line) => /fail closed/u.test(line)));
   assert.match(conquer.priorityFocus, /A then B/u);
   assert.match(conquer.responseWindow, /Reaction/u);
   assert.ok(conquer.productionAssertions.some((line) => /pre-move Might/u.test(line)));
@@ -365,15 +413,15 @@ test("Rumble, Hotheaded: leading may wraps one non-target recycle cost and the l
       min: 1, max: 1, selection: "one",
     },
   });
-  assert.equal(cost.linkedTo, recycleCost.id);
-  assert.deepEqual(cost.args.cost.value.energy, {
+  assert.equal(play.linkedTo, recycleCost.id);
+  assert.equal(playCost.base, "printed");
+  assert.deepEqual(playCost.cost.energy, {
     kind: "object-property", object: { target: "rumble.mech-in-trash" }, property: "energy",
   });
-  assert.deepEqual(cost.args.modifier.value.amount, {
+  assert.deepEqual(playCost.modifier.amount, {
     kind: "object-property", object: { linked: recycleCost.id }, property: "might",
   });
-  assert.equal(play.linkedTo, cost.id);
-  assert.deepEqual(play.args.cost, { kind: "linked-value", instructionId: cost.id, key: "cost" });
+  assert.deepEqual(play.args.cost, constant(playCost));
   assert.deepEqual(play.targets, [{
     id: "rumble.mech-in-trash",
     filter: { zone: "trash", owner: "controller", tag: "Mech", type: "unit" },
@@ -381,9 +429,10 @@ test("Rumble, Hotheaded: leading may wraps one non-target recycle cost and the l
   }]);
 });
 
-test("Rumble, Hotheaded production component: Finalize recycles, receipt preserves pre-move Might, and Resolve plays an Energy-only Mech", () => {
+test("Rumble, Hotheaded production component: Finalize recycles and emits [pay, play]", () => {
   const fixture = productionConquer({ energy: 10 });
-  fixture.settle();
+  try {
+    fixture.settle();
   const { kernel, flow, requests } = fixture;
   const conquer = flow.chain.pipeline.events.filter((event) => event.timingPoint === "conquer");
   assert.equal(conquer.length, 1);
@@ -439,23 +488,33 @@ test("Rumble, Hotheaded production component: Finalize recycles, receipt preserv
   assert.equal(kernel.getObject("trash-mech").exhausted, false);
   const plans = playedPlans(fixture);
   assert.equal(plans.length, 1);
-  assert.equal(plans[0].energy, 2, "5 printed Energy minus the recycled Unit's Might 3");
+  assert.equal(plans[0].energy, 2, "5 target Energy minus the recycled Unit's Might 3");
+  assert.deepEqual(plans[0].power, []);
   assert.equal(plans[0].parameters.costPlan.discounts[0].amount, 3);
-  assert.equal(fixture.energyBeforeConquer, 10);
-  assert.equal(kernel.player("A").energy, 0, "TurnFlow empties the Rune Pool after the resolved Play");
+  assert.equal(fixture.kernel.history({ action: "move-zone" }) >= 1, true,
+    "the nested Play reaches a real Board-entry move");
+    assert.equal(fixture.energyBeforeConquer, 10);
+    assert.equal(kernel.player("A").energy, 0, "TurnFlow empties the Rune Pool after the resolved Play");
+  } finally {
+    fixture.restoreCatalogProgram();
+  }
 });
 
 test("Rumble, Hotheaded production component: the discount uses the recycled Unit's current Might", () => {
   const fixture = productionConquer({ energy: 10, fodderMight: 2, mechEnergy: 6 });
-  fixture.settle();
-  const plans = playedPlans(fixture);
-  assert.equal(plans.length, 1);
-  assert.equal(plans[0].energy, 4, "6 printed Energy minus the recycled Unit's Might 2");
-  assert.equal(plans[0].parameters.costPlan.discounts[0].amount, 2);
-  assert.equal(fixture.kernel.getObject("trash-mech").zone, "board");
+  try {
+    fixture.settle();
+    const plans = playedPlans(fixture);
+    assert.equal(plans.length, 1);
+    assert.equal(plans[0].energy, 4, "6 target Energy minus the recycled Unit's Might 2");
+    assert.equal(plans[0].parameters.costPlan.discounts[0].amount, 2);
+    assert.equal(fixture.kernel.getObject("trash-mech").zone, "board");
+  } finally {
+    fixture.restoreCatalogProgram();
+  }
 });
 
-test("Rumble, Hotheaded Power boundary: Breakneck Mech's complete printed base cost is not preserved", () => {
+test("Rumble, Hotheaded production golden: Breakneck Mech pays 5 Energy plus 2 Mind Power from trusted metadata", () => {
   const catalog = {
     id: "sfd-071-221",
     cardType: "Unit",
@@ -470,76 +529,135 @@ test("Rumble, Hotheaded Power boundary: Breakneck Mech's complete printed base c
 
   const fixture = productionConquer({
     energy: 10,
+    power: ["Mind", "Mind"],
     mechEnergy: 8,
-    trashProgram: breakneckMech,
+    trashProgram: BREAKNECK_PRINTED_PLAY_PROGRAM,
   });
-  const snapshot = fixture.kernel.getObject("trash-mech");
-  assert.equal(snapshot.cardId, breakneckMech.canonicalCardId);
-  assert.equal(snapshot.power, null, "the snapshot carries no numeric printed Power count");
-  assert.equal(fixture.binding.describePlay({ type: "play", object: snapshot.ref, player: "A" }, snapshot).speed, "normal");
+  cardProgramsById.set(BREAKNECK_PRINTED_PLAY_PROGRAM.canonicalCardId, BREAKNECK_PRINTED_PLAY_PROGRAM);
+  try {
+    fixture.settle();
+    const plans = playedPlans(fixture);
+    assert.equal(plans.length, 1);
+    assert.equal(plans[0].energy, 5);
+    assert.deepEqual(plans[0].power, ["Mind", "Mind"]);
+    assert.deepEqual(plans[0].parameters.costPlan.base.power, [
+      { amount: 2, allowedDomains: ["Mind"] },
+    ]);
+    assert.equal(plans[0].parameters.costPlan.discounts[0].amount, 3);
+    assert.equal(fixture.kernel.getObject("trash-mech").zone, "board");
+    assert.deepEqual(fixture.kernel.player("A").power, []);
+    assert.equal(fixture.kernel.history({ action: "move-zone" }) >= 1, true,
+      "the nested Play reaches a real Board-entry move");
+  } finally {
+    fixture.restoreCatalogProgram();
+  }
+});
 
-  fixture.settle();
-  const plans = playedPlans(fixture);
-  assert.equal(plans.length, 1);
-  assert.equal(plans[0].energy, 5, "8 printed Energy minus the recycled Might 3");
-  assert.deepEqual(plans[0].power, [], "BUG: Breakneck Mech's 2 Mind Power was discarded");
-  assert.equal(fixture.kernel.getObject("trash-mech").zone, "board");
+test("Rumble, Hotheaded cost-plan boundary: missing numeric Power provenance fails closed", () => {
+  const withoutPlayCost = {
+    ...breakneckMech,
+    abilities: breakneckMech.abilities,
+  };
+  withCatalogProgram(withoutPlayCost, () => {
+    const kernel = world().player("A", { energy: 10, power: ["Mind", "Mind"] })
+      .card("trash-mech", {
+        cardId: withoutPlayCost.canonicalCardId, owner: "A", zone: "trash",
+        types: ["unit"], tags: ["Mech"], energy: 8, power: ["Mind"], might: 7,
+      })
+      .build();
+    const snapshot = kernel.getObject("trash-mech");
+    assert.equal(snapshot.cardId, breakneckMech.canonicalCardId);
+    assert.deepEqual(snapshot.power, ["Mind"], "the snapshot holds one Domain, never the numeric printed count 2");
+    assert.equal(withoutPlayCost.abilities.some((ability) => ability.kind === "play"), false);
+    const printedPlay = play.args.cost.value;
+    assert.equal(printedPlay.base, "printed");
+    assert.equal(printedPlay.cost.power, undefined, "the Domain set must never be promoted to Power 1 or Power 2");
+    assert.throws(() => buildEffectPlayCostPlan(bindResolveContext(kernel, {
+      source: snapshot, controller: "A", timingPoint: "chain-item-finalize",
+    }), { object: kernel.ref("trash-mech"), player: "A", cost: {
+      kind: "cost.modify", base: "printed", id: "rumble.mech-cost",
+      cost: { kind: "explicit", energy: constant(8) },
+      modifier: { kind: "reduce", resource: "energy", amount: constant(3) },
+    } }), (error) => /complete numeric Energy and Power programme|exact numeric Power cost/u.test(error.message),
+    "a missing numeric Power programme is fail-closed, never a free or one-Power Play");
+    assert.equal(kernel.getObject("trash-mech").zone, "trash");
+    assert.deepEqual(kernel.player("A").power, ["Mind", "Mind"], "the failed nested Play consumes no Power");
+  });
 });
 
 test("Rumble, Hotheaded production golden: recycle uses control, then places the Unit in its owner's Main Deck", () => {
   const fixture = productionConquer({ energy: 10, fodderOwner: "B" });
-  fixture.settle();
-  assert.equal(fixture.kernel.getObject("fodder").zone, "deck");
-  assert.deepEqual(fixture.kernel.zone("B", "deck").at(-1), fixture.kernel.ref("fodder"),
-    "CR 417.1.c follows ownership, not the controlling player");
-  assert.equal(fixture.kernel.zone("A", "deck").some((ref) => ref.id === "fodder"), false);
-  assert.equal(fixture.kernel.getObject("trash-mech").zone, "board");
-  assert.equal(playedPlans(fixture)[0].energy, 2);
+  try {
+    fixture.settle();
+    assert.equal(fixture.kernel.getObject("fodder").zone, "deck");
+    assert.deepEqual(fixture.kernel.zone("B", "deck").at(-1), fixture.kernel.ref("fodder"),
+      "CR 417.1.c follows ownership, not the controlling player");
+    assert.equal(fixture.kernel.zone("A", "deck").some((ref) => ref.id === "fodder"), false);
+    assert.equal(fixture.kernel.getObject("trash-mech").zone, "board");
+    assert.equal(playedPlans(fixture)[0].energy, 2);
+  } finally {
+    fixture.restoreCatalogProgram();
+  }
 });
 
 test("Rumble, Hotheaded production boundary: declining Finalize neither selects nor recycles a Unit", () => {
   const fixture = productionConquer({ accept: false, energy: 10 });
-  fixture.settle();
-  assert.deepEqual(fixture.requests.map((request) => request.id), ["finalize:trigger:1:optional"]);
-  assert.equal(fixture.kernel.getObject("fodder").zone, "board");
-  assert.equal(fixture.kernel.getObject("trash-mech").zone, "trash");
-  assert.ok(fixture.flow.chain.trace.some((entry) =>
-    entry.item === "trigger:1" && entry.step === "removed" && entry.reason === "declined"));
+  try {
+    fixture.settle();
+    assert.deepEqual(fixture.requests.map((request) => request.id), ["finalize:trigger:1:optional"]);
+    assert.equal(fixture.kernel.getObject("fodder").zone, "board");
+    assert.equal(fixture.kernel.getObject("trash-mech").zone, "trash");
+    assert.ok(fixture.flow.chain.trace.some((entry) =>
+      entry.item === "trigger:1" && entry.step === "removed" && entry.reason === "declined"));
+  } finally {
+    fixture.restoreCatalogProgram();
+  }
 });
 
 test("Rumble, Hotheaded production boundary: without another friendly Unit Finalize rejects the unpayable recycle", () => {
   const fixture = productionConquer({ energy: 10, fodder: false });
-  assert.throws(() => fixture.settle(), (error) =>
-    /Cost choice cannot be completed from the current zone/u.test(error.message));
-  assert.deepEqual(fixture.requests.map((request) => request.id), [
-    "finalize:trigger:1:optional",
-    "target:rumble.mech-in-trash",
-  ]);
-  assert.equal(fixture.kernel.getObject("trash-mech").zone, "trash");
-  assert.equal(fixture.kernel.player("A").energy, 10);
+  try {
+    assert.throws(() => fixture.settle(), (error) =>
+      /Cost choice cannot be completed from the current zone/u.test(error.message));
+    assert.deepEqual(fixture.requests.map((request) => request.id), [
+      "finalize:trigger:1:optional",
+      "target:rumble.mech-in-trash",
+    ]);
+    assert.equal(fixture.kernel.getObject("trash-mech").zone, "trash");
+    assert.equal(fixture.kernel.player("A").energy, 10);
+  } finally {
+    fixture.restoreCatalogProgram();
+  }
 });
 
 test("Rumble, Hotheaded production boundary: an unpayable reduced Play does not become a free Play", () => {
   const fixture = productionConquer({ energy: 1 });
-  assert.throws(() => fixture.settle(), (error) => /cannot-pay-cost|insufficient Energy|cost/iu.test(error.message));
-  assert.notEqual(fixture.kernel.getObject("trash-mech").zone, "board", "the reduced cost never becomes a free Play");
-  assert.equal(fixture.kernel.getObject("fodder").zone, "deck", "the leading recycle was already paid at Finalize");
-  assert.equal(fixture.kernel.player("A").energy, 1, "the failed nested Play pays no additional Energy");
+  try {
+    fixture.settle();
+    assert.notEqual(fixture.kernel.getObject("trash-mech").zone, "board", "the reduced cost never becomes a free Play");
+    assert.equal(fixture.kernel.getObject("fodder").zone, "deck", "the leading recycle was already paid at Finalize");
+    assert.equal(fixture.kernel.player("A").energy, 0, "the failed nested Play pays no additional Energy");
+    assert.equal(playedPlans(fixture).length, 0);
+    assert.equal(fixture.flow.chain.pipeline.events.some((event) => event.action?.type === "play"), false);
+  } finally {
+    fixture.restoreCatalogProgram();
+  }
 });
 
 test("Rumble, Hotheaded: Board recycle payment accepts a friendly Unit and rejects an enemy Unit", () => {
   const kernel = world().player("A").player("B")
+    .unit("rumble", { owner: "A", controller: "A", might: 4 })
     .unit("fodder", { owner: "A", controller: "A", might: 3 })
     .unit("enemy", { owner: "B", controller: "B", might: 3 })
     .build();
   const context = kernel.clone({
-    source: kernel.ref("fodder"),
-    sourceSnapshot: kernel.getObject("fodder"),
+    source: kernel.ref("rumble"),
+    sourceSnapshot: kernel.getObject("rumble"),
     timingPoint: "chain-item-finalize",
   });
   const friendly = assessCostPayment(context, buildCostPlan(context, {
     id: "rumble.board-recycle",
-    cost: { kind: "explicit", payments: [{ kind: "recycle", object: "self" }] },
+    cost: { kind: "explicit", payments: [{ kind: "recycle", object: kernel.ref("fodder") }] },
   }));
   assert.equal(friendly.payable, true);
   assert.equal(friendly.prepared.actions.at(-1).action.type, "recycle");
