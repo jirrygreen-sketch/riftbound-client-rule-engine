@@ -327,6 +327,8 @@ export interface ChainItem extends ChainDraft {
   choicePlan?: ChoicePlan;
   finalizeLinks?: Readonly<Record<string, Readonly<Record<string, Value>>>>;
   costInput?: CostPlanInput;
+  /** Number of paid whole-body Repeat executions whose targets were locked. */
+  repeatTargetCount?: number;
 }
 export interface ChainTrace {
   readonly step: string;
@@ -629,6 +631,7 @@ export class ChainEngine {
     at: TimingPointId = 'chain-item-finalize',
     targetPlans: readonly TargetPlan[] = [],
     choicePlan?: ChoicePlan,
+    repeatExecution?: number,
   ): ResolveContext {
     const source = item.trigger?.source ?? item.source;
     const base = this.options.host.context(source, item.controller, at);
@@ -681,6 +684,7 @@ export class ChainEngine {
       const value = Reflect.get(target, key); return typeof value === 'function' ? value.bind(target) : value;
     } });
     for (const plan of targetPlans) {
+      if (repeatExecution !== undefined && plan.repeatIndex !== repeatExecution) continue;
       const resolution = resolveTargetPlan(context, plan, {
         isPending: ref => this.isPending(ref),
         isLegal: snapshot => this.targetIsLegal(snapshot, item.controller),
@@ -739,6 +743,7 @@ export class ChainEngine {
       const targetTaxes: CostComponentInput[] = [];
       const answerPrefix = this.finalizeAnswerPrefix(item);
       try {
+        const baseInput = item.costInput ?? item.cost ?? (['unit', 'gear', 'spell'].includes(item.kind) ? { id: `cost:${item.id}`, cost: { kind: 'printed' } } : undefined);
         if (controlPlanRequired) {
           const rememberModes = hasChoiceMemory(item.body);
           const abilityId = item.trigger?.registration.id ?? `${item.kind}:${item.body.map(instruction => instruction.id).join('/')}`;
@@ -856,9 +861,92 @@ export class ChainEngine {
           item.finalizeLinks = Object.freeze({ ...(item.finalizeLinks ?? {}), [instanceKey]: links });
           context = withFinalizePlanLinks(context, item.finalizeLinks);
         }
-        this.collectBoundTargetTaxes(item, context, targetTaxes);
         item.pickPlans = finalizeOrderedPickPlans(context, item.body);
-        const baseInput = item.costInput ?? item.cost ?? (['unit', 'gear', 'spell'].includes(item.kind) ? { id: `cost:${item.id}`, cost: { kind: 'printed' } } : undefined);
+        // Preserve the production Make Relevant Choices order: existing target
+        // locks are made before optional additional costs. Once the frozen
+        // Repeat decision is known, add one target lock per paid execution and
+        // collect all target taxes before payment (CR 355.1.a, 355.5, 820.2.a).
+        const hasRepeat = (baseInput?.optionalAdditional ?? []).some(optional => optional.kind === 'repeat');
+        if (hasRepeat && item.repeatTargetCount === undefined) {
+          const repeatAnswers = (baseInput!.optionalAdditional ?? []).filter(optional => optional.kind === 'repeat');
+          const selections = new Map<string, boolean>();
+          for (const optional of repeatAnswers) {
+            if (optional.selected !== undefined) selections.set(optional.id, optional.selected);
+          }
+          const paid = repeatAnswers.filter(optional => {
+            if (optional.selected !== undefined) return optional.selected;
+            const answer = context.choose<boolean>({
+              id: `${baseInput!.id}:optional:${optional.id}`,
+              type: 'optional',
+              chooser: item.controller,
+              visibility: 'public',
+            });
+            if (typeof answer !== 'boolean') throw new TypeError('Optional additional cost selection must be boolean');
+            selections.set(optional.id, answer);
+            return answer;
+          });
+          item.repeatTargetCount = paid.length;
+          if (item.targetPlans.length === 0) {
+            const targetSpecs = item.targets ?? item.body.flatMap(instruction =>
+              (instruction.targets ?? []).map(requirement => ({ requirement })));
+            for (const target of targetSpecs) {
+              item.targetPlans.push(finalizeTargetPlan(context, target.requirement, {
+                ...('options' in target ? target.options : {}),
+                repeatIndex: 0,
+                isPending: ref => this.isPending(ref),
+                isLegal: (snapshot, phase) => {
+                  const existing = 'options' in target ? target.options?.isLegal : undefined;
+                  return (existing?.(snapshot, phase) ?? true) && this.targetIsLegal(snapshot, item.controller);
+                },
+                taxAdapter: { appendTargetTax: tax => {
+                  if (tax.kind !== 'deflect' || tax.amount === 0) return;
+                  targetTaxes.push({
+                    id: `target-tax:${target.requirement.id}:0:${targetTaxes.length}`,
+                    cost: { energy: { kind: 'constant', value: tax.amount } },
+                  });
+                } },
+                onTargetsFinalized: () => this.record({ step: 'targets-finalized', item: item.id }),
+                onTargeted: event => this.emitBecameTarget(item, context, event.target),
+              }));
+            }
+          }
+          const optionalAdditional = (baseInput!.optionalAdditional ?? []).map(optional =>
+            selections.has(optional.id) ? { ...optional, selected: selections.get(optional.id)! } : optional);
+          item.costInput = { ...baseInput!, optionalAdditional };
+        }
+        const paidRepeatCount = item.repeatTargetCount ?? 0;
+        if (paidRepeatCount > 0) {
+          if (controlPlanRequired) {
+            throw new ChainContractBlockedError('Paid whole-body Repeat requires an instruction-and-iteration mode lifecycle');
+          }
+          const originals = item.targetPlans.map(plan => ({ ...plan, repeatIndex: plan.repeatIndex ?? 0 }));
+          item.targetPlans = [...originals];
+          for (let repeatIndex = 1; repeatIndex <= paidRepeatCount; repeatIndex++) {
+            for (const original of originals) {
+              const configured = item.targets?.find(target => target.requirement.id === original.requirement.id);
+              const selected = finalizeTargetPlan(context, original.requirement, {
+                ...(configured?.options ?? {}),
+                repeatIndex,
+                isPending: ref => this.isPending(ref),
+                isLegal: snapshot => {
+                  const existing = configured?.options?.isLegal;
+                  return (existing?.(snapshot, 'finalize') ?? true) && this.targetIsLegal(snapshot, item.controller);
+                },
+                taxAdapter: { appendTargetTax: tax => {
+                  if (tax.kind !== 'deflect' || tax.amount === 0) return;
+                  targetTaxes.push({
+                    id: `target-tax:${original.requirement.id}:${repeatIndex}:${targetTaxes.length}`,
+                    cost: { energy: { kind: 'constant', value: tax.amount } },
+                  });
+                } },
+                onTargetsFinalized: () => this.record({ step: 'targets-finalized', item: item.id }),
+                onTargeted: event => this.emitBecameTarget(item, context, event.target),
+              });
+              item.targetPlans.push(selected);
+            }
+          }
+        }
+        this.collectBoundTargetTaxes(item, context, targetTaxes);
         if (baseInput || targetTaxes.length) {
           // Leaving-source abilities retain LKI for the effect, but a leading
           // "recycle me" cost acts on the card now in Trash (CR 383.3.b).
@@ -1151,9 +1239,8 @@ export class ChainEngine {
     return receipt;
   }
   private assertFinalizedTargetsLegal(item: ChainItem, boundary: 'before Pay Costs' | 'after the Reaction Add'): void {
-    const context = this.context(item, 'chain-item-finalize', [], item.choicePlan);
     for (const plan of item.targetPlans) {
-      const resolution = resolveTargetPlan(context, plan, {
+      const resolution = resolveTargetPlan(this.context(item, 'chain-item-finalize', [], item.choicePlan, plan.repeatIndex), plan, {
         isPending: ref => this.isPending(ref), isLegal: snapshot => this.targetIsLegal(snapshot, item.controller),
       });
       if (resolution.invalid.length > 0 || resolution.status !== 'resolved' ||
@@ -1266,7 +1353,7 @@ export class ChainEngine {
             : {})
         };
       const beforeMight = this.layerObjects();
-      const result = resolveChainBody(item.body, context, conditionInputs);
+      const result = resolveChainBody(item.body, context, { ...conditionInputs, targetPlans: item.targetPlans });
       this.publishMightChanges(beforeMight, item.source, `resolve:${item.id}`);
       if (item.kind === 'spell' || item.kind === 'unit' || item.kind === 'gear') {
         const playedObject = this.options.host.objects().find(object => object.ref.id === item.source.ref.id) ?? item.source;
