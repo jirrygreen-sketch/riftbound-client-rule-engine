@@ -44,6 +44,14 @@ function playerMatches(expected: unknown, actual: string, source: ObjectSnapshot
   return expected === 'any' || expected === actual;
 }
 
+/** CR 706-710: compare the current layered Might, with a null characteristic matching nothing. */
+function currentMightAtLeast(object: ObjectSnapshot, threshold: unknown): boolean {
+  if (typeof threshold !== 'number' || !Number.isSafeInteger(threshold)) blocked('Cost filter mightGte requires a safe integer threshold');
+  if (object.might === null) return false;
+  if (typeof object.might !== 'number' || !Number.isSafeInteger(object.might)) blocked('Cost filter mightGte requires an integer current Might');
+  return object.might >= threshold;
+}
+
 /** Strict matching: a descriptive/unknown filter must never become an unconditional discount. */
 export function matchesCostFilter(filter: unknown, object: ObjectSnapshot, env: CostEnvironment): boolean {
   const checks = Object.entries(record(literal(filter))).map(([key, raw]) => {
@@ -64,6 +72,7 @@ export function matchesCostFilter(filter: unknown, object: ObjectSnapshot, env: 
       case 'tag': case 'tags': return list(value).every(tag => object.tags.includes(String(tag)));
       case 'keywords': return list(value).every(keyword => object.keywords.some(item => item.id.toLowerCase() === String(keyword).toLowerCase()));
       case 'zone': return list(value).includes(object.zone);
+      case 'mightGte': return currentMightAtLeast(object, value);
       case 'isToken': case 'exhausted': case 'stunned': case 'faceDown': return value === object[key];
       case 'location':
         if (value === 'base' || value === 'battlefield') return object.location?.type === value;
