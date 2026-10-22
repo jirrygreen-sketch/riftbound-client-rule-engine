@@ -14,25 +14,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   merged continuous.grant-keyword 指令注册 ability 层效果，duration
  *   "this-turn"/"end-of-turn" 映射到 turn-end 到期。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。合入的
- * KeywordGrantLayerEngine 已能把运行时 Ganking 重新展开为 movement permission，
- * movement()/canGank 也能读取该路由；但 production lifecycle 仍创建普通 LayerEngine，
- * 不会在 card-played 结算后重建关键词展开，因此标准移动路径尚不能消费这张卡授予的许可。
- * 已合入并真实执行：continuous.grant-keyword、Ganking KeywordDef 与触发注册；golden
- * 经真实 ChainEngine 管线解析本卡的 card-played 触发，
- * 断言授予只落在被选单位、duration 到期后消失（不构成整卡证据）。
+ * status 判定（cards/README.md 第 2 节）：executable（2026-10-22 integration 复核）。
+ * card-played 触发、场上单位目标、continuous.grant-keyword、KeywordGrantLayerEngine
+ * 的动态重展开及真实 Standard Move 均在生产路径执行。turn-end Ending Step 中许可
+ * 仍有效；Expiration Step 的 TurnPhaseLayers.expireTurn() 会同步撤销 Ganking 与派生
+ * movement permission（317.1.a / 317.2.c），之后战场间 Standard Move 被拒绝。
  */
 export default {
   canonicalCardId: "card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "当前缺口是 production lifecycle 的动态重展开接线：运行时获得的 Ganking 已可由合入的 KeywordGrantLayerEngine" +
-    "消费成 810.1.b/810.1.c 的 movement permission，layers/rules/query 的 movement()/canGank 也能读取" +
-    "battlefield-to-battlefield route；但 production lifecycle 仍使用普通 LayerEngine，card-played 结算后的授予" +
-    "不会进入该 re-expander，标准移动合法性检查因此还不能消费这张卡的许可。" +
-    "continuous.grant-keyword、Ganking KeywordDef 与 card-played 触发注册本身已可执行；" +
-    "golden 经真实 ChainEngine 管线执行本卡 card-played 触发并断言授予范围与 end-of-turn 到期，不近似实现。",
+  status: "executable",
   abilities: [
     {
       kind: "triggered",
