@@ -3,12 +3,9 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import mechanizedMenace from "../../../dist/cards/sfd/mechanized-menace.js";
-import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
-import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { CombatFlow } from "../../../../engine-core/dist/combat/flow.js";
-import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { getTokenDefinition } from "../../../../engine-core/dist/effects/tokens/definitions.js";
+import { productionPlay } from "../../fixtures/production-play.mjs";
 
 const CARD_ID = "card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7";
 const CORE_URL = "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf";
@@ -53,79 +50,64 @@ const PRODUCTION_EVIDENCE = Object.freeze({
       "Your Mechs have [Shield].",
       "(+1 :rb_might: while they're defenders.)"
     ]),
-    ruleRefs: Object.freeze(["187.4", "466.2.c", "466.2.c.2", "466.2.c.3", "801.3.a", "801.3.a.3", "814.1", "814.1.b.3", "814.1.c", "814.1.d", "814.1.d.1", "814.2"]),
+    ruleRefs: Object.freeze(["187.4", "323.2", "466.2.c", "466.2.c.1.a", "466.2.c.2", "466.2.c.3", "467.2", "467.2.a", "467.2.b", "478.1", "478.2", "478.3", "478.4", "801.3.a", "801.3.a.3", "814.1", "814.1.b.3", "814.1.c", "814.1.d", "814.1.d.1", "814.2"]),
     timeline: Object.freeze([
       "Legend resolves into the public Legend Zone and attachLifecycle binds its static from that exact incarnation.",
       "The continuous ability layer grants Shield 1 to each controlled Board Unit tagged Mech; an opposing Mech and a friendly non-Mech do not match.",
-      "At combat start, CR 466.2.c.2-.3 gives the defending controller's Units the Defender designation.",
-      "The Shield-aware keyword view re-expands Defender's Shield 1 and the arithmetic layer must add +1 Might while the designation remains.",
-      "No Chain item is created by this passive grant. During the Combat Showdown, ordinary Focus/Priority still governs legally timed actions."
+      "At combat start, CR 466.2.c.1.a gives the Attacker Focus and CR 466.2.c.2-.3 gives each participant's Units the matching designation.",
+      "While the Showdown closes, the Shield-aware keyword view re-expands Defender's Shield 1; CR 478 requires the arithmetic layer to apply it once and recalculate after dependencies.",
+      "CR 467.2 sums current Might when damage starts: the Attacker budgets 3 and the Shielded Mech Defender budgets 4. CR 814.1.d.1 removes the bonus when Defender designation ends."
     ]),
-    priorityFocus: "The static grant and its layer evaluation create no Focus or Priority. A begins the Combat Showdown with Focus/Priority under CR 466.2.c.1.a; closing the Showdown follows CR 347/348.",
-    responseWindow: "A legal sideline reaction window is the ordinary Combat Showdown: Focus holder A may act, then B in Turn Order, and both must pass before combat damage. The static grant itself opens no separate response.",
-    lki: "Not applicable to this static grant: CR 814.1.d.1 ends the Shield Might bonus as soon as the Unit loses Defender. No left-board value is cached.",
+    priorityFocus: "The static grant and its layer evaluation create no Focus or Priority. The Attacker B begins the Combat Showdown with Focus/Priority under CR 466.2.c.1.a; closing the Showdown follows CR 347/348.",
+    responseWindow: "A legal reaction window is the ordinary Combat Showdown: Attacker B may act with Focus, control passes to A in Turn Order, and both must pass before combat damage. The static grant opens no separate response.",
+    lki: "Not applicable to this static grant: CR 814.1.d.1 ends the Shield Might bonus as soon as the Unit loses Defender, and the effect caches no left-board value.",
     productionAssertions: Object.freeze([
       "legend lifecycle grants Shield 1 only to controlled Mechs",
       "CombatFlow assigns the real Defender role and sends it through the damage runtime",
-      "the production keyword registry omits Shield's derived arithmetic effect, so the defender budget remains 3 instead of 4"
+      "the production Shield re-expansion creates exactly one +1 arithmetic rule",
+      "prepareDamage budgets the Mech Defender at 4 and its non-Mech control case at 3"
     ])
   })
 });
 
-// The published program stays gated. This view admits only the status gate so
-// the real binding, lifecycle, LayerEngine and CombatFlow can be exercised.
-const admitted = Object.freeze({ ...mechanizedMenace, status: "executable", judgeReason: undefined });
 const battlefield = Object.freeze({ type: "battlefield", id: "bf1" });
 
 function shieldKeywords(keywords) {
   return keywords.filter(keyword => keyword.id.toLowerCase() === "shield");
 }
 
-function productionScene({ includeAttacker = true, includeDefender = true } = {}) {
-  const builder = world().player("A").player("B")
-    .base("friendly-mech", { controller: "A", might: 3, tags: ["Mech", "Yordle"] })
-    .base("friendly-plain", { controller: "A", might: 3, tags: ["Yordle"] })
-    .unit("enemy-mech", {
-      owner: "B", controller: "B", might: 3, tags: ["Mech"],
-      location: { type: "base", player: "B" }
-    });
-  if (includeAttacker) builder.unit("attacker", {
-    owner: "A", controller: "A", might: 3, power: null, keywords: [], location: battlefield
+function productionScene({
+  legendController = "A",
+  attackerController = "A",
+  defenderController = "B",
+  attackerTags = [],
+  defenderTags = ["Mech"]
+} = {}) {
+  const production = productionPlay({
+    programs: [mechanizedMenace],
+    build: builder => builder.player("A").player("B")
+      .base("friendly-mech", { controller: "A", might: 3, tags: ["Mech", "Yordle"] })
+      .base("friendly-plain", { controller: "A", might: 3, tags: ["Yordle"] })
+      .unit("enemy-mech", {
+        owner: "B", controller: "B", might: 3, tags: ["Mech"],
+        location: { type: "base", player: "B" }
+      })
+      .unit("attacker", {
+        owner: attackerController, controller: attackerController, might: 3, power: null, tags: attackerTags,
+        keywords: [], location: battlefield
+      })
+      .unit("defender", {
+        owner: defenderController, controller: defenderController, might: 3, power: null, tags: defenderTags,
+        keywords: [], location: battlefield
+      })
+      .deck("A:deck:0", { owner: "A" }).deck("B:deck:0", { owner: "B" })
+      .rune("A:rune:0", { owner: "A" }).rune("B:rune:0", { owner: "B" })
   });
-  if (includeDefender) builder.unit("defender", {
-    owner: "B", controller: "B", might: 3, power: null, tags: ["Mech"], keywords: [], location: battlefield
-  });
-  for (const player of ["A", "B"]) {
-    builder.deck(`${player}:deck:0`, { owner: player });
-    builder.rune(`${player}:rune:0`, { owner: player });
-  }
-  const kernel = builder.build();
-  const requests = [];
-  const choose = request => {
-    requests.push(request);
-    if (request.type === "mode" && request.id.startsWith("engagement:")) return request.options[0];
-    if (request.type === "select-objects" && request.min === request.max &&
-        request.options.length === request.min) return [...request.options];
-    throw new Error(`Unexpected production choice ${request.type} ${request.id}`);
-  };
-  const host = createActionPipelineHost({
-    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
-    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
-    objects: () => kernel.objects,
-    perform: action => kernel.perform(action),
-    performContract: action => kernel.performContract(action),
-    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
-    choose,
-    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
-    testTrigger: registration => kernel.test(registration.spec.condition)
-  });
-  const chain = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
-  const flow = new CombatFlow(chain, host,
-    [{ id: "bf1", controller: "B" }, { id: "bf2", controller: null }], () => {},
+  const { kernel, engine: chain, binding, requests } = production;
+  const flow = new CombatFlow(chain, chain.pipeline.host,
+    [{ id: "bf1", controller: defenderController }, { id: "bf2", controller: null }], () => {},
     { events: true, lifecycle: true });
-  const binding = createProgramBinding({ cardPrograms: [admitted] });
-  binding.attachLifecycle(chain, error => { throw error; });
-  const created = chain.commit({ type: "create-token", player: "A", to: "legend", token: {
+  const created = chain.commit({ type: "create-token", player: legendController, to: "legend", token: {
     cardId: CARD_ID, name: "Mechanized Menace", types: ["legend"], tags: ["Rumble"],
     championLegend: true, keywords: [], might: null, energy: null, power: null
   } });
@@ -148,14 +130,20 @@ function scene(kernel, chain, flow, binding, legendRef, requests) {
     for (let guard = 0; guard < 40 && chain.items.length > 0; guard++) chain.pass(chain.priority);
     assert.equal(chain.items.length, 0, "the Combat Showdown chain must settle");
   };
-  const closeShowdown = () => {
-    assert.equal(chain.focus, "A");
-    chain.pass("A");
-    assert.equal(chain.focus, "B");
-    chain.pass("B");
+  const closeShowdown = attacker => {
+    assert.equal(chain.focus, attacker);
+    chain.pass(attacker);
+    const next = chain.pipeline.turnOrder[
+      (chain.pipeline.turnOrder.indexOf(attacker) + 1) % chain.pipeline.turnOrder.length
+    ];
+    assert.equal(chain.focus, next);
+    chain.pass(chain.focus);
     assert.equal(chain.turnState, "neutral-open");
   };
-  return { kernel, chain, flow, binding, legendRef, requests, setObjects, evaluate, freshLayers, settleChain, closeShowdown };
+  return {
+    kernel, chain, flow, binding, legendRef, requests, setObjects, evaluate, freshLayers,
+    settleChain, closeShowdown
+  };
 }
 
 test("sfd-181-221 Mechanized Menace: program passes validateCardProgram", () => {
@@ -164,17 +152,11 @@ test("sfd-181-221 Mechanized Menace: program passes validateCardProgram", () => 
   assert.equal(result.ok, true);
 });
 
-test("sfd-181-221 Mechanized Menace: identity, status and current production blocker", () => {
+test("sfd-181-221 Mechanized Menace: identity, status and executable IR", () => {
   assert.equal(mechanizedMenace.canonicalCardId, CARD_ID);
   assert.equal(mechanizedMenace.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(mechanizedMenace.status, "judge-required");
-  assert.match(mechanizedMenace.judgeReason, /Legend 区/);
-  assert.match(mechanizedMenace.judgeReason, /combat\/transactions\/damage\.ts:162-171/);
-  assert.match(mechanizedMenace.judgeReason, /programs\/statics\.ts:244-260/);
-  assert.match(mechanizedMenace.judgeReason, /Defender 角色已进入/);
-  assert.match(mechanizedMenace.judgeReason, /防守方预算仍为印刷 3 而非 4/);
-  assert.match(mechanizedMenace.judgeReason, /814\.1\.c/);
-  assert.doesNotMatch(mechanizedMenace.judgeReason, /尚缺真实战斗验证/);
+  assert.equal(mechanizedMenace.status, "executable");
+  assert.equal(mechanizedMenace.judgeReason, undefined);
 });
 
 test("sfd-181-221 Mechanized Menace: single static Shield 1 grant scoped to controlled Board Mechs", () => {
@@ -203,14 +185,14 @@ test("sfd-181-221 Mechanized Menace: official effect-order evidence is pinned to
   assert.equal(OFFICIAL_EVIDENCE.sources.radianceRulings.applicableToThisCard, false);
   assert.equal(OFFICIAL_EVIDENCE.sources.spiritforgedErrata.applicableToThisCard, false);
   assert.equal(PRODUCTION_EVIDENCE.grant.canonicalCardId, mechanizedMenace.canonicalCardId);
-  for (const rule of ["466.2.c.3", "801.3.a", "814.1.b.3", "814.1.c", "814.1.d.1"]) {
+  for (const rule of ["466.2.c.1.a", "466.2.c.3", "467.2.a", "467.2.b", "478.1", "478.4", "801.3.a", "814.1.b.3", "814.1.c", "814.1.d.1"]) {
     assert.ok(PRODUCTION_EVIDENCE.grant.ruleRefs.includes(rule), `${rule} is pinned`);
   }
   assert.equal(PRODUCTION_EVIDENCE.grant.timeline.length, 5);
   assert.match(PRODUCTION_EVIDENCE.grant.priorityFocus, /Focus/);
   assert.match(PRODUCTION_EVIDENCE.grant.responseWindow, /Combat Showdown/);
   assert.match(PRODUCTION_EVIDENCE.grant.lki, /814\.1\.d\.1/);
-  assert.equal(PRODUCTION_EVIDENCE.grant.productionAssertions.length, 3);
+  assert.equal(PRODUCTION_EVIDENCE.grant.productionAssertions.length, 4);
 });
 
 test("sfd-181-221 Mechanized Menace production: lifecycle grants Shield 1 only to its controller's Mechs", () => {
@@ -236,19 +218,22 @@ test("sfd-181-221 Mechanized Menace keeps a Champion Legend and its Shield grant
   assert.equal(f.kernel.getObject(f.legendRef.id).zone, "legend");
 });
 
-test("sfd-181-221 Mechanized Menace production: the damage runtime supplies Defender, while granted Shield has no derived arithmetic effect", () => {
-  const f = productionScene();
+test("sfd-181-221 Mechanized Menace production: granted Shield adds one Might to the real Defender damage budget", () => {
+  const f = productionScene({
+    legendController: "A", attackerController: "B", defenderController: "A",
+    attackerTags: ["Mech"]
+  });
   f.flow.entered(f.kernel.getObject("attacker"));
   f.flow.cleanup();
   f.chain.advance();
   const started = f.flow.startCombat("bf1");
   assert.deepEqual(started, {
-    field: "bf1", combatId: "combat:bf1:1", attacker: "A", defender: "B", focus: "A"
+    field: "bf1", combatId: "combat:bf1:1", attacker: "B", defender: "A", focus: "B"
   });
-  assert.equal(f.chain.focus, "A");
-  assert.equal(f.chain.priority, "A");
-  assert.equal(f.chain.canAct("A", "action"), true);
-  assert.equal(f.chain.canAct("B", "action"), false);
+  assert.equal(f.chain.focus, "B");
+  assert.equal(f.chain.priority, "B");
+  assert.equal(f.chain.canAct("B", "action"), true);
+  assert.equal(f.chain.canAct("A", "action"), false);
   assert.deepEqual(
     f.chain.pipeline.events
       .filter(event => ["combat-start", "attack-declared", "defense-declared"].includes(event.timingPoint))
@@ -260,27 +245,59 @@ test("sfd-181-221 Mechanized Menace production: the damage runtime supplies Defe
     "CombatFlow keeps its rolled roles private and does not write the host incarnation");
 
   f.settleChain();
-  f.closeShowdown();
-  // This is the exact object set and role projection the real damage planner
-  // sends to its LayerEngine (combat/transactions/damage.ts:162-171).
-  const runtime = f.flow.runtime();
-  assert.deepEqual(runtime.units.map(unit => [unit.object.ref.id, unit.object.combatRole]), [
-    ["attacker", "attacker"], ["defender", "defender"]
-  ]);
-  assert.equal(
-    f.chain.layers.registry.list().some(entry => entry.effect.id.startsWith("program-keyword:") &&
-      entry.effect.layer === "arithmetic"),
-    false,
-    "no production arithmetic registration is generated from the Shield grant"
-  );
+  f.closeShowdown("B");
+  const plan = f.flow.prepareDamage();
+  const shieldRules = f.chain.layers.registry.lifecycleRuleEffects().filter(entry =>
+    entry.effect.source?.id === "defender" &&
+    entry.effect.effect.kind === "continuous.might" &&
+    entry.effect.id.startsWith("program-keyword:"));
+  assert.equal(shieldRules.length, 1, "the lifecycle publishes exactly one derived Shield Might rule");
+  assert.equal(shieldRules[0].effect.effect.amount, 1);
+  assert.equal(shieldRules[0].effect.effect.condition(f.flow.snapshot(f.kernel.getObject("defender"))), true);
+  assert.equal(plan.attacker.budget, 3, "the opposing Attacker does not receive the grant");
+  assert.equal(plan.defender.budget, 4, "the Shielded Mech Defender resolves damage using Might 4");
+  assert.deepEqual(f.flow.damageView(), {
+    combatId: "combat:bf1:1", battlefieldId: "bf1", attackerPlayerId: "B", defenderPlayerId: "A",
+    attackerMight: 3, defenderMight: 4, attackerSubmitted: false
+  });
 
   assert.deepEqual(f.requests, []);
 });
 
-test("sfd-181-221 Mechanized Menace production boundary: a combat without the defending Mech does not obtain Shield", () => {
-  const f = productionScene({ includeDefender: false });
-  f.freshLayers();
-  assert.equal(f.kernel.getObject("defender"), null);
-  assert.deepEqual(shieldKeywords(f.evaluate("enemy-mech").keywords), [],
-    "the other player's Mech remains unaffected while the Legend's opponent is acting");
+test("sfd-181-221 Mechanized Menace production boundary: a non-Mech Defender keeps its printed Might", () => {
+  const f = productionScene({
+    legendController: "A", attackerController: "B", defenderController: "A",
+    attackerTags: ["Mech"], defenderTags: []
+  });
+  f.flow.entered(f.kernel.getObject("attacker"));
+  f.flow.cleanup();
+  f.chain.advance();
+  f.flow.startCombat("bf1");
+  f.settleChain();
+  f.closeShowdown("B");
+  const plan = f.flow.prepareDamage();
+  assert.deepEqual(shieldKeywords(f.evaluate("defender").keywords), [],
+    "a friendly-to-its-controller non-Mech does not gain Shield");
+  assert.equal(plan.attacker.budget, 3);
+  assert.equal(plan.defender.budget, 3, "without Shield, the Defender damage budget remains 3");
+  assert.deepEqual(f.requests, []);
+});
+
+test("sfd-181-221 Mechanized Menace production boundary: Shield does not add Might to an Attacker", () => {
+  const f = productionScene({
+    legendController: "A", attackerController: "A", defenderController: "B",
+    attackerTags: ["Mech"], defenderTags: []
+  });
+  f.flow.entered(f.kernel.getObject("attacker"));
+  f.flow.cleanup();
+  f.chain.advance();
+  f.flow.startCombat("bf1");
+  f.settleChain();
+  f.closeShowdown("A");
+  const plan = f.flow.prepareDamage();
+  assert.equal(shieldKeywords(f.evaluate("attacker").keywords).length, 1,
+    "the controlled Mech Attacker has Shield");
+  assert.equal(plan.attacker.budget, 3, "CR 814.1.c adds this Shield bonus only while defending");
+  assert.equal(plan.defender.budget, 3);
+  assert.deepEqual(f.requests, []);
 });
