@@ -21,6 +21,8 @@ test("v2 admits every engine command with idempotency and state version", () => 
     { ...base, type: "mulligan", selectedUIDs: ["a-hand-1"] },
     { ...base, type: "play", cardObjectId: "a-hand-1", cost: { energy: 2 },
       targets: [{ kind: "object", objectId: "b-unit-1" }], picks: [{ kind: "value", value: "mode-a" }] },
+    { ...base, type: "play", cardObjectId: "a-hand-2",
+      destination: { kind: "battlefield", battlefieldId: "field-1" } },
     { ...base, type: "activate", sourceObjectId: "a-gear-1", abilityId: "equip",
       cost: { power: [{ domains: ["Fury"], amount: 1 }] } },
     { ...base, type: "pass" },
@@ -29,6 +31,10 @@ test("v2 admits every engine command with idempotency and state version", () => 
     { ...base, type: "declare-attack", battlefieldId: "field-1", attackerObjectIds: ["a-unit-1"] },
     { ...base, type: "declare-defense", battlefieldId: "field-1", defenderObjectIds: ["b-unit-1"] },
     { ...base, type: "concede" },
+    { ...base, type: "end-turn" },
+    { ...base, type: "advance" },
+    { ...base, type: "combat-damage", combatId: "combat-1",
+      assignments: [{ unitObjectId: "b-unit-1", amount: 3 }] },
     { ...base, type: "rune-energy", runeObjectId: "a-rune-1", zoneEntryId: 0 },
     { ...base, type: "rune-power", runeObjectId: "b-rune-1", zoneEntryId: 1 }
   ];
@@ -45,6 +51,12 @@ test("v2 rejects stale, actor-bearing, malformed, and null-cost commands", () =>
     { ...play, cost: { energy: null } },
     { ...play, targets: [{ kind: "object", objectId: "" }] },
     { ...play, picks: [{ kind: "unknown", value: "x" }] },
+    { ...play, destination: { kind: "base", playerId: "" } },
+    { ...base, type: "combat-damage", combatId: "combat-1", assignments: [] },
+    { ...base, type: "combat-damage", combatId: "combat-1",
+      assignments: [{ unitObjectId: "b-unit-1", amount: 0 }] },
+    { ...base, type: "combat-damage", combatId: "combat-1",
+      assignments: [{ unitObjectId: "b-unit-1", amount: 1 }, { unitObjectId: "b-unit-1", amount: 1 }] },
     { ...base, type: "mulligan" },
     { ...base, type: "pass", expectedVersion: 7 }
   ]) assert.equal(isV2Command(value), false);
@@ -118,6 +130,10 @@ function projection(viewer) {
       { playerId: "alice", points: 1, controlledBattlefieldIds: ["field-1"], scoredBattlefieldLocationIds: [] },
       { playerId: "bob", points: 0, controlledBattlefieldIds: [], scoredBattlefieldLocationIds: [] }
     ] },
+    battlefields: [{ battlefieldId: "field-1", controllerPlayerId: "alice", contestedByPlayerId: null,
+      staged: "none", occupantObjectIds: ["a-unit-1"] }],
+    combat: { status: "none" },
+    actionOptions: { canEndTurn: true, canAdvance: false, moves: [], plays: [] },
     pendingChoice: viewer === "alice" ? { status: "pending", choiceId: "choice-1", ownerPlayerId: "alice", stateVersion: 7,
       kind: "mode", options: [{ id: "yes", label: "Yes", value: true }] } :
       { status: "pending", choiceId: "choice-1", ownerPlayerId: "alice", stateVersion: 7, kind: "mode" },
@@ -145,6 +161,12 @@ test("projections preserve owner privacy and never expose hidden zone order", ()
   const choiceLeak = projection("bob");
   choiceLeak.pendingChoice.options = [{ id: "secret", label: "Secret" }];
   assert.equal(isV2Projection(choiceLeak), false);
+  const malformedCombat = projection("alice");
+  malformedCombat.combat = { status: "active", battlefieldId: "field-1", step: "damage" };
+  assert.equal(isV2Projection(malformedCombat), false);
+  const malformedActions = projection("alice");
+  malformedActions.actionOptions.moves = [{ objectId: "", destination: { kind: "base", playerId: "alice" } }];
+  assert.equal(isV2Projection(malformedActions), false);
 });
 
 test("transport guards admit only versioned v2 packets", () => {

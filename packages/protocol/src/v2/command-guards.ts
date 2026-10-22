@@ -4,9 +4,9 @@ import {
 import type {
   V2ActivateCommand, V2ChoiceAnswer, V2Command, V2CommandEnvelope,
   V2ConcedeCommand, V2CostSelection, V2DeclareAttackCommand,
-  V2DeclareDefenseCommand, V2MoveCommand, V2MoveDestination, V2MulliganCommand,
+  V2DeclareDefenseCommand, V2MoveCommand, V2MoveDestination, V2MulliganCommand, V2Location,
   V2ObjectRef, V2PassCommand, V2Pick, V2PlayCommand, V2PowerPayment,
-  V2RuneResourceCommand, V2Target
+  V2RuneResourceCommand, V2Target, V2CombatDamageCommand, V2EndTurnCommand, V2AdvanceCommand
 } from "./commands.js";
 
 type Data = Record<string, unknown>;
@@ -139,6 +139,12 @@ function destination(value: unknown): value is V2MoveDestination {
     (value.playerId === undefined || text(value.playerId));
 }
 
+function location(value: unknown): value is V2Location {
+  if (!data(value) || typeof value.kind !== "string") return false;
+  if (value.kind === "base") return exact(value, ["kind", "playerId"]) && text(value.playerId);
+  return value.kind === "battlefield" && exact(value, ["kind", "battlefieldId"]) && text(value.battlefieldId);
+}
+
 export function isV2MulliganCommand(value: unknown): value is V2MulliganCommand {
   if (!data(value) || !base(value, "mulligan", ["selectedObjectIds", "selectedUIDs"])) return false;
   const hasObjects = Object.hasOwn(value, "selectedObjectIds");
@@ -148,9 +154,10 @@ export function isV2MulliganCommand(value: unknown): value is V2MulliganCommand 
 }
 
 export function isV2PlayCommand(value: unknown): value is V2PlayCommand {
-  return data(value) && base(value, "play", ["cardObjectId", "cost", "targets", "picks"]) &&
-    exact(value, ["type", "commandId", "stateVersion", "cardObjectId"], ["cost", "targets", "picks"]) &&
-    text(value.cardObjectId) && (value.cost === undefined || cost(value.cost)) &&
+  return data(value) && base(value, "play", ["cardObjectId", "destination", "cost", "targets", "picks"]) &&
+    exact(value, ["type", "commandId", "stateVersion", "cardObjectId"], ["destination", "cost", "targets", "picks"]) &&
+    text(value.cardObjectId) && (value.destination === undefined || location(value.destination)) &&
+    (value.cost === undefined || cost(value.cost)) &&
     (value.targets === undefined || targets(value.targets)) && (value.picks === undefined || picks(value.picks));
 }
 
@@ -193,6 +200,31 @@ export function isV2ConcedeCommand(value: unknown): value is V2ConcedeCommand {
   return data(value) && base(value, "concede", []) && exact(value, ["type", "commandId", "stateVersion"]);
 }
 
+export function isV2EndTurnCommand(value: unknown): value is V2EndTurnCommand {
+  return data(value) && base(value, "end-turn", []) && exact(value, ["type", "commandId", "stateVersion"]);
+}
+
+export function isV2AdvanceCommand(value: unknown): value is V2AdvanceCommand {
+  return data(value) && base(value, "advance", []) && exact(value, ["type", "commandId", "stateVersion"]);
+}
+
+function combatAssignments(value: unknown): value is V2CombatDamageCommand["assignments"] {
+  if (!array(value) || value.length === 0) return false;
+  const ids: string[] = [];
+  for (const assignment of value) {
+    if (!data(assignment) || !exact(assignment, ["unitObjectId", "amount"]) ||
+        !text(assignment.unitObjectId) || !count(assignment.amount) || assignment.amount <= 0) return false;
+    ids.push(assignment.unitObjectId);
+  }
+  return new Set(ids).size === ids.length;
+}
+
+export function isV2CombatDamageCommand(value: unknown): value is V2CombatDamageCommand {
+  return data(value) && base(value, "combat-damage", ["combatId", "assignments"]) &&
+    exact(value, ["type", "commandId", "stateVersion", "combatId", "assignments"]) &&
+    text(value.combatId) && combatAssignments(value.assignments);
+}
+
 /** Strict guard for the Basic Rune resource intents. */
 export function isV2RuneResourceCommand(value: unknown): value is V2RuneResourceCommand {
   return data(value) &&
@@ -214,6 +246,9 @@ export function isV2Command(value: unknown): value is V2Command {
     case "declare-attack": return isV2DeclareAttackCommand(value);
     case "declare-defense": return isV2DeclareDefenseCommand(value);
     case "concede": return isV2ConcedeCommand(value);
+    case "end-turn": return isV2EndTurnCommand(value);
+    case "advance": return isV2AdvanceCommand(value);
+    case "combat-damage": return isV2CombatDamageCommand(value);
     case "rune-energy": return isV2RuneResourceCommand(value);
     case "rune-power": return isV2RuneResourceCommand(value);
     default: return false;
