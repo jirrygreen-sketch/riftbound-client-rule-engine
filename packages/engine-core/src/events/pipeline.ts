@@ -7,6 +7,7 @@ import { evaluateCondition } from '../effects/interpreter/condition.js';
 import { MissingInformation } from '../effects/interpreter/values.js';
 import { bindEventHistory } from '../effects/interpreter/expr-ext/event-history.js';
 import { matchesObjectPredicates } from '../effects/filters/predicates.js';
+import { matchesObjectFilter } from '../layers/filter.js';
 import { resolveRuleAmount } from './trigger-rules/index.js';
 import { evaluateAcceleratePayment } from '../effects/keywords/Accelerate.js';
 
@@ -49,6 +50,48 @@ function relativeQuery(context: ResolveContext, controller: PlayerId): ResolveCo
   };
 }
 
+/**
+ * CR 383.4.c.2 / 359.3.f.3 freezes the Units participating in one Conquer or
+ * Hold wave. Their identities stay fixed, while current characteristics come
+ * from the host's already-layered query view (CR 708/710). A malformed payload
+ * fails the condition closed instead of widening it to every object.
+ */
+function participatingUnitQuery(
+  host: PipelineHost,
+  event: PipelineEvent,
+  controller: PlayerId,
+): ResolveContext['query'] {
+  const raw = (event.details as Readonly<Record<string, unknown>> | undefined)?.participatingUnits;
+  const refs: { readonly id: string; readonly zoneEntryId: number }[] = [];
+  if (raw !== undefined) {
+    if (!Array.isArray(raw)) throw new TypeError('participatingUnits must be an array of ObjectRefs');
+    for (const candidate of raw) {
+      const item = candidate as { readonly id?: unknown; readonly zoneEntryId?: unknown };
+      if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate) ||
+          typeof item.id !== 'string' || item.id.length === 0 ||
+          !Number.isSafeInteger(item.zoneEntryId) || (item.zoneEntryId as number) < 0) {
+        throw new TypeError('participatingUnits must contain exact ObjectRefs');
+      }
+      refs.push({ id: item.id, zoneEntryId: item.zoneEntryId as number });
+    }
+  }
+  return filter => {
+    if (raw === undefined) {
+      return host.context(event.source ?? event.object!, controller, event.timingPoint).query(filter);
+    }
+    const source = host.objects().find(object => object.ref.id === event.source?.ref.id &&
+      object.ref.zoneEntryId === event.source?.ref.zoneEntryId) ?? event.source;
+    const candidates = refs.flatMap(ref => {
+      const object = host.context(source ?? event.object!, controller, event.timingPoint).object(ref);
+      return object === null ? [] : [object];
+    });
+    return candidates.filter(object => matchesObjectFilter(filter, object, {
+      anchor: source ?? null,
+      controller,
+    }));
+  };
+}
+
 function evaluateTriggerCondition(
   pipeline: { readonly events: readonly PipelineEvent[] },
   host: PipelineHost,
@@ -60,8 +103,14 @@ function evaluateTriggerCondition(
   const condition = registration.spec.condition;
   if (condition === undefined) return true;
   const base = host.context(source, controller, event.timingPoint);
+  const frozenQuery = participatingUnitQuery(host, event, controller);
   const context = bindEventHistory(new Proxy(base, { get(target, key) {
-    if (key === 'query') return relativeQuery(target, controller);
+    if (key === 'query') return (filter: ObjectFilter) => {
+      if ((event.details as Readonly<Record<string, unknown>> | undefined)?.participatingUnits !== undefined) {
+        return frozenQuery(filter);
+      }
+      return relativeQuery(target, controller)(filter);
+    };
     const value = Reflect.get(target, key);
     return typeof value === 'function' ? value.bind(target) : value;
   } }), pipeline);

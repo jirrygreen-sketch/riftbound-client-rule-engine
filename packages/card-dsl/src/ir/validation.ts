@@ -74,7 +74,7 @@ const OBJECT_RELATIONS = new Set([
 ]);
 const PRINTED_CHARACTERISTICS = new Set(["energy", "power", "might"]);
 const SELECTIONS = new Set(["one", "any", "all", "up-to"]);
-const TRIGGER_LIFETIMES = new Set(["per-turn", "per-combat", "per-chain", "per-game"]);
+const TRIGGER_LIFETIMES = new Set(["per-turn", "per-combat", "per-chain", "per-batch", "per-game"]);
 const ARITHMETIC_OPERATORS = new Set(["add", "sub", "subtract", "mul", "multiply", "div", "divide", "min", "max", "neg"]);
 
 interface ValidationContext {

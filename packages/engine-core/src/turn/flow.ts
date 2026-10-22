@@ -17,6 +17,7 @@ import {
   type HiddenState,
 } from '../zones/hidden/index.js';
 import { inheritTurnTaskCapability, registerTurnTaskCapability } from '../effects/instructions/effect.additional-turn.js';
+import { matchesObjectFilter } from '../layers/filter.js';
 import type { StandardMoveFormationInput } from '../combat/flow.js';
 import type { StandardMoveBatchResult } from './movement.js';
 
@@ -48,6 +49,8 @@ interface ActiveScoreBase {
   readonly field: string;
   readonly finalDraw: boolean;
   readonly units: readonly ObjectRef[];
+  /** One committed Hold/Conquer operation has one rule identity. */
+  readonly batchId: string;
 }
 type ActiveScore =
   | (ActiveScoreBase & { readonly method: 'hold' })
@@ -78,6 +81,7 @@ export class TurnFlow {
   private scoring: ActiveScore | null = null;
   private readonly turnQueue: TurnQueue;
   private burnOutSequence = 0;
+  private scoreWaveSequence = 0;
   private emptyingRunePool = false;
   private hiddenState: HiddenState;
   private hiddenControllers = new Map<string, PlayerId | null>();
@@ -105,7 +109,21 @@ export class TurnFlow {
       },
       objects: () => options.host.objects(),
       context: (source, controller, at) => {
-        const context = options.host.context(source, controller, at);
+        const base = options.host.context(source, controller, at);
+        const context = new Proxy(base, { get: (target, key) => {
+          if (key === 'object') return (ref: ObjectRef) => {
+            this.layers.setObjects(options.host.objects());
+            return this.layers.evaluate(ref);
+          };
+          if (key === 'query') return (filter: import('@riftbound/card-dsl').ObjectFilter) => {
+            this.layers.setObjects(options.host.objects());
+            return this.layers.evaluateAll().filter(object => matchesObjectFilter(filter, object, {
+              anchor: source, controller,
+            }));
+          };
+          const value = Reflect.get(target, key);
+          return typeof value === 'function' ? value.bind(target) : value;
+        } });
         registerTurnTaskCapability(context.source, {
           version: 'riftbound.turn-task.v1',
           scheduleAdditionalTurn: (owner, sourceInstructionId) => {
@@ -160,7 +178,7 @@ export class TurnFlow {
             const object = options.host.objects().find(candidate => candidate.ref.id === unit.id &&
               candidate.ref.zoneEntryId === unit.zoneEntryId);
             emissions.push({ timingPoint: score.method, object, source: object, it: object, player: score.player,
-              details: { ...details, objectId: unit.id, playerId: score.player } });
+              details: { ...details, objectId: unit.id, playerId: score.player, participatingUnits } });
           }
           const battlefieldObject = this.battlefieldObject(score.field);
           emissions.push({ timingPoint: 'score', player: score.player, details: { ...details, participatingUnits },
@@ -170,7 +188,8 @@ export class TurnFlow {
             ...(battlefieldObject === null ? {} : { object: battlefieldObject }),
           });
           // One committed action publishes the whole Score trigger wave atomically.
-          return { ...execution, emissions: emissions.map(event => ({ ...event, simultaneousGroup: 'battlefield-score' })) };
+          return { ...execution, emissions: emissions.map(event => ({ ...event, batchId: score.batchId,
+            simultaneousGroup: score.batchId })) };
         }
         return { ...execution, emissions };
       },
@@ -197,13 +216,15 @@ export class TurnFlow {
     return { phase: this.phaseValue, turn: this.turnValue, winner: this.winnerValue, special: this.special,
       turns: new Map(this.turns), ledger: this.scoreLedger.snapshot(), turnQueue: this.turnQueue.snapshot(),
       combat: this.combat?.checkpoint(), tasks: [...this.tasks], scoring: this.scoring,
-      burnOutSequence: this.burnOutSequence, emptyingRunePool: this.emptyingRunePool,
+      burnOutSequence: this.burnOutSequence, scoreWaveSequence: this.scoreWaveSequence,
+      emptyingRunePool: this.emptyingRunePool,
       hidden: this.hiddenState, hiddenControllers: new Map(this.hiddenControllers) };
   }
   private restore(saved: ReturnType<TurnFlow['checkpoint']>): void {
     this.phaseValue = saved.phase; this.turnValue = saved.turn; this.winnerValue = saved.winner; this.special = saved.special;
     this.turns = saved.turns; this.scoreLedger.restore(saved.ledger); this.turnQueue.restore(saved.turnQueue);
     this.tasks = saved.tasks; this.burnOutSequence = saved.burnOutSequence;
+    this.scoreWaveSequence = saved.scoreWaveSequence;
     this.emptyingRunePool = saved.emptyingRunePool; this.hiddenState = restoreHiddenState(saved.hidden);
     this.hiddenControllers = saved.hiddenControllers;
     if (saved.combat) this.combat.restore(saved.combat);
@@ -447,9 +468,10 @@ export class TurnFlow {
         return;
       }
       const units = this.battlefieldUnits(field, player).map(unit => unit.ref);
+      const batchId = `score-wave:${this.turnValue}:${++this.scoreWaveSequence}`;
       this.scoring = battlefieldControllerBefore === undefined
-        ? { player, field, method: 'hold', finalDraw, units }
-        : { player, field, method: 'conquer', finalDraw, units, battlefieldControllerBefore };
+        ? { player, field, method: 'hold', finalDraw, units, batchId }
+        : { player, field, method: 'conquer', finalDraw, units, battlefieldControllerBefore, batchId };
       try {
         if (finalDraw) this.draw(player);
         else this.commit({ type: 'score', player, amount: 1 });
