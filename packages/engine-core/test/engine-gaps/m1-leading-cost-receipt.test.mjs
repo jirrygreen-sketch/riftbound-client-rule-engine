@@ -168,7 +168,7 @@ test('RIFT-953: declining the leading may neither choose, recycle nor play', () 
   assert.deepEqual(captureState(f), f.initial);
 });
 
-test('RIFT-953: an unpayable reduced cost rolls back choice, recycle and payment', () => {
+test('RIFT-953: an unpayable nested Play leaves the Finalize recycle paid and admits no Mech', () => {
   const f = runtime({ energy: 1 });
   assert.throws(() => settleProduction(f), error => /cannot-pay-cost|insufficient Energy|cost/i.test(error.message));
   assert.equal(f.kernel.getObject('trash-mech').zone === 'board', false, 'the reduced cost never becomes a free Play');
