@@ -1,14 +1,19 @@
 import type {
+  V2ActionOptions,
+  V2BattlefieldSnapshot,
   V2ChainSnapshot,
   V2Command,
+  V2CombatSnapshot,
   V2Event,
   V2Phase,
   V2Projection,
   V2ProjectedObject,
   V2Zone,
 } from "../../../../packages/protocol/dist/v2/index.js";
+import { playLocations } from "../../../../packages/engine-core/dist/layers/rules/query.js";
 import type { Match } from "../../../../packages/engine-core/dist/game/lifecycle.js";
 import type { ObjectSnapshot, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
+import { playPermissionAllows, playPermissions } from "../../../../packages/engine-core/dist/programs/play-permissions.js";
 import { readEmpowered } from "../../../../packages/engine-core/dist/zones/empower-state.js";
 import type { EngineRuntimeHost } from "./host.js";
 import { digest } from "./journal.js";
@@ -20,6 +25,7 @@ function v2Zone(zone: ObjectSnapshot["zone"]): V2Zone {
 }
 
 function phase(match: Match): V2Phase {
+  if (match.result().winner !== null) return "ended";
   switch (match.flow.phase) {
     case "awaken": return "awaken";
     case "beginning": return "beginning";
@@ -84,7 +90,7 @@ function projectedObject(object: ObjectSnapshot, viewer: string | null, grants: 
   return value as unknown as V2ProjectedObject;
 }
 
-function eventProjection(match: Match, stateVersion: number): readonly V2Event[] {
+function eventProjection(match: Match, host: EngineRuntimeHost, viewer: string | null, stateVersion: number): readonly V2Event[] {
   return match.events().map((event, index) => ({
     contract: "riftbound.protocol.v2.event",
     seq: event.eventId ?? index + 1,
@@ -95,8 +101,142 @@ function eventProjection(match: Match, stateVersion: number): readonly V2Event[]
     payload: {
       reason: { visibility: "public", value: event.kind ?? event.timingPoint },
       ...(event.player === undefined ? {} : { playerId: { visibility: "public", value: event.player } }),
+      ...(event.details?.battlefieldId === undefined ? {} : {
+        battlefieldId: { visibility: "public", value: String(event.details.battlefieldId) },
+      }),
+      ...(event.object === undefined || !isPublic(event.object, viewer, host.visibility()) ||
+        event.object.faceDown || event.object.zone === "hand" || event.object.zone === "deck" || event.object.zone === "rune-deck" ? {} : {
+        objectId: { visibility: "public", value: event.object.ref.id },
+      }),
     },
   })) as readonly V2Event[];
+}
+
+/**
+ * The public player responsible for continuing a Combat Showdown after both
+ * Focus passes. The Chain has returned to neutral/open with no items or Focus,
+ * and renewed Priority belongs to the current Turn Player. This is deliberately
+ * narrower than "any state where TurnFlow.advance() changes something".
+ */
+export function advanceResponsiblePlayer(match: Match, pendingChoice: boolean,
+  viewer: PlayerId | null): PlayerId | null {
+  const chain = match.flow.chain;
+  const combat = match.flow.combat.current;
+  if (viewer === null || pendingChoice || match.result().winner !== null || match.flow.phase !== "main" ||
+      combat?.step !== "showdown" || chain.turnState !== "neutral-open" ||
+      chain.items.length !== 0 || chain.focus !== null ||
+      chain.priority === null || chain.priority !== match.flow.turnPlayer ||
+      chain.priority !== viewer) return null;
+  return viewer;
+}
+
+function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | null,
+  pendingChoice: boolean): V2ActionOptions {
+  const canAdvance = advanceResponsiblePlayer(match, pendingChoice, viewer) !== null;
+  if (viewer === null || match.result().winner !== null || match.flow.phase !== "main") {
+    return { canEndTurn: false, canAdvance, moves: [], plays: [] };
+  }
+  const chain = match.flow.chain;
+  const priority = chain.priority;
+  const waitingForFutureCommand = chain.items.length === 0 && !match.flow.combat.active &&
+    match.flow.phase === "main" && chain.turnState === "neutral-open" && priority === null;
+  const open = !match.flow.combat.active && chain.turnState === "neutral-open" &&
+    (chain.canAct(viewer, "normal") || waitingForFutureCommand);
+  const canEndTurn = viewer === match.flow.turnPlayer && open;
+  if ((priority !== viewer && !waitingForFutureCommand) || !open || chain.items.length > 0) {
+    return { canEndTurn, canAdvance, moves: [], plays: [] };
+  }
+  const objects = host.objects();
+  const battlefields = match.flow.battlefields;
+  const moves: V2ActionOptions["moves"][number][] = [];
+  for (const object of objects) {
+    if (object.controller !== viewer || object.zone !== "board" || !object.types.includes("unit") ||
+        object.exhausted || object.location === null) continue;
+    if (object.location.type === "battlefield") {
+      moves.push({ objectId: object.ref.id, destination: { kind: "base", playerId: viewer } });
+    }
+    if (object.location.type === "base" || object.location.type === "battlefield") {
+      for (const field of battlefields) {
+        if (object.location.type === "battlefield" && object.location.id === field.id) continue;
+        if (object.location.type === "base" || object.keywords.some(keyword =>
+          keyword.id.toLowerCase().replace(/[\s_-]+/g, "") === "ganking")) {
+          moves.push({ objectId: object.ref.id, destination: { kind: "battlefield", battlefieldId: field.id } });
+        }
+      }
+    }
+  }
+  const plays: V2ActionOptions["plays"][number][] = [];
+  const energy = host.player(viewer).energy;
+  const explicitPermissions = (source: ObjectSnapshot) => playPermissions(chain.layers.registry, source);
+  if (!chain.items.length) {
+    for (const source of objects) {
+      if (source.controller !== viewer || source.zone !== "hand" || source.cardId === null ||
+          source.energy === null || source.energy > energy ||
+          (!waitingForFutureCommand && !chain.canAct(viewer, source.types.includes("spell") || source.types.includes("gear") ? "action" : "normal", source.ref, source))) continue;
+      if (!source.types.some(type => ["unit", "gear"].includes(type.toLowerCase()))) continue;
+      const view = playLocations(chain.layers.registry, source.ref, source, viewer);
+      if (view.restrictions.some(rule => ["no-base", "cannot-base", "cannot-play-base"].includes(rule.name.toLowerCase()))) continue;
+      if (explicitPermissions(source).length === 0) {
+        plays.push({ cardObjectId: source.ref.id, destination: { kind: "base", playerId: viewer } });
+      }
+      for (const field of battlefields) {
+        if (view.restrictions.some(rule => ["no-battlefield", "cannot-battlefield", "cannot-play-battlefield"].includes(rule.name.toLowerCase()))) continue;
+        const permissions = explicitPermissions(source);
+        const objectLocationMatches = permissions.length === 0 ||
+          playPermissionAllows(chain.layers.registry, source, { type: "battlefield", id: field.id }, {
+            player: viewer,
+            state: {
+              ref: { type: "battlefield", id: field.id }, owner: field.id, controller: field.controller,
+              occupied: objects.some(object => object.zone === "board" && object.types.includes("unit") &&
+                object.location?.type === "battlefield" && object.location.id === field.id),
+              contested: field.contestedBy !== null,
+              units: objects.filter(object => object.zone === "board" && object.types.includes("unit") &&
+                object.location?.type === "battlefield" && object.location.id === field.id).map(object => object.ref),
+            },
+            objects,
+          });
+        if (!objectLocationMatches) continue;
+        plays.push({ cardObjectId: source.ref.id, destination: { kind: "battlefield", battlefieldId: field.id } });
+      }
+    }
+  }
+  return { canEndTurn, canAdvance, moves, plays };
+}
+
+function battlefieldProjection(match: Match, host: EngineRuntimeHost): readonly V2BattlefieldSnapshot[] {
+  const units = host.objects().filter(object => object.zone === "board" && object.types.includes("unit"));
+  return match.flow.battlefields.map(field => ({
+    battlefieldId: field.id,
+    controllerPlayerId: field.controller,
+    contestedByPlayerId: field.contestedBy,
+    staged: field.staged,
+    occupantObjectIds: units.filter(unit => unit.location?.type === "battlefield" &&
+      unit.location.id === field.id).map(unit => unit.ref.id),
+  }));
+}
+
+function combatProjection(match: Match): V2CombatSnapshot {
+  const combat = match.flow.combat.current;
+  if (combat === null) return { status: "none" };
+  if (combat.attacker === undefined || combat.defender === undefined || combat.combatId === undefined) {
+    return { status: "active", battlefieldId: combat.field, step: "showdown" };
+  }
+  if (combat.step === "damage") {
+    const view = match.flow.combat.damageView();
+    return {
+      status: "active", battlefieldId: combat.field, step: combat.step,
+      combatId: combat.combatId, attackerPlayerId: combat.attacker, defenderPlayerId: combat.defender,
+      damage: {
+        attackerMight: view.attackerMight, defenderMight: view.defenderMight,
+        attackerSubmitted: view.attackerSubmitted,
+        expectedPlayerId: view.attackerSubmitted ? view.defenderPlayerId : view.attackerPlayerId,
+      },
+    };
+  }
+  return {
+    status: "active", battlefieldId: combat.field, step: combat.step,
+    combatId: combat.combatId, attackerPlayerId: combat.attacker, defenderPlayerId: combat.defender,
+  };
 }
 
 export function projectRuntime(
@@ -180,9 +320,12 @@ export function projectRuntime(
       window: pendingChoice ? "choice" : match.flow.chain.focus !== null ? "showdown" : chain.length ? "closed" : "open",
     },
     scoring,
+    battlefields: battlefieldProjection(match, host),
+    combat: combatProjection(match),
+    actionOptions: actionOptions(match, host, viewer, pendingChoice !== null),
     pendingChoice: projectedChoice,
     winnerPlayerId: match.result().winner,
-    events: eventProjection(match, stateVersion),
+    events: eventProjection(match, host, viewer, stateVersion),
   } as V2Projection;
 }
 

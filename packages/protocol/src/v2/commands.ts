@@ -18,6 +18,10 @@ export interface V2ObjectRef {
   readonly zoneEntryId?: number;
 }
 
+export type V2Location =
+  | { readonly kind: "base"; readonly playerId: V2PlayerId }
+  | { readonly kind: "battlefield"; readonly battlefieldId: string };
+
 export type V2Target =
   | { readonly kind: "object"; readonly objectId: V2ObjectId; readonly zoneEntryId?: number }
   | { readonly kind: "player"; readonly playerId: V2PlayerId }
@@ -54,6 +58,8 @@ export interface V2MulliganCommand extends V2CommandBase {
 export interface V2PlayCommand extends V2CommandBase {
   readonly type: "play";
   readonly cardObjectId: V2ObjectId;
+  /** Permanent entry location. Omission preserves the engine's Base default. */
+  readonly destination?: V2Location;
   readonly cost?: V2CostSelection;
   readonly targets?: readonly V2Target[];
   readonly picks?: readonly V2Pick[];
@@ -112,6 +118,27 @@ export interface V2ConcedeCommand extends V2CommandBase {
   readonly type: "concede";
 }
 
+/** Explicitly ends the authenticated player's Main Phase through TurnFlow. */
+export interface V2EndTurnCommand extends V2CommandBase {
+  readonly type: "end-turn";
+}
+
+/** Continue the current authoritative rules task after a resolved Chain. */
+export interface V2AdvanceCommand extends V2CommandBase {
+  readonly type: "advance";
+}
+
+/** One player's ordered Combat damage allocation for the current Combat. */
+export interface V2CombatDamageCommand extends V2CommandBase {
+  readonly type: "combat-damage";
+  /** The exact Combat whose attacker/defender allocation order is live. */
+  readonly combatId: V2ObjectId;
+  readonly assignments: readonly {
+    readonly unitObjectId: V2ObjectId;
+    readonly amount: number;
+  }[];
+}
+
 /**
  * V2 intent for one rule-granted Basic Rune resource ability.
  *
@@ -141,6 +168,9 @@ export type V2Command =
   | V2DeclareAttackCommand
   | V2DeclareDefenseCommand
   | V2ConcedeCommand
+  | V2EndTurnCommand
+  | V2AdvanceCommand
+  | V2CombatDamageCommand
   | V2RuneResourceCommand;
 
 export type V2CommandType = V2Command["type"];

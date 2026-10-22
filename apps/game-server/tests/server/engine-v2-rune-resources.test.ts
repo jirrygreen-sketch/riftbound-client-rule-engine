@@ -337,7 +337,7 @@ describe("default createGameServer v2 Rune resource path", () => {
     // absence from Chain after Finalize/Resolve is the authoritative result;
     // the card and its real cost must no longer be in the paying hand/pool.
     expect(paid.objects.find(object => object.objectId === card!.objectId)).toMatchObject({
-      zone: "base",
+      zone: "board",
       location: { kind: "base", playerId: ownerPlayerId },
     });
     expect(paid.zones.find(zone => zone.zone === "hand" && zone.ownerPlayerId === ownerPlayerId)

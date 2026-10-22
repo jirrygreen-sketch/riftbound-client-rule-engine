@@ -3,8 +3,9 @@ import { createMatch, concede, type Match, type MatchDeck } from "../../../../pa
 import { createActionPipelineHost } from "../../../../packages/engine-core/dist/events/action-adapter.js";
 import { createProgramBinding, type ProgramBinding } from "../../../../packages/engine-core/dist/programs/index.js";
 import { createEngineStaticBinder } from "../../../../packages/engine-core/dist/programs/statics.js";
-import { inspectStandardMove } from "../../../../packages/engine-core/dist/game/commands/movement.js";
-import type { ChoiceRequest, Domain, GameAction, ObjectRef, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
+import { playPermissionAllows } from "../../../../packages/engine-core/dist/programs/play-permissions.js";
+import { moveUnits } from "../../../../packages/engine-core/dist/game/commands/movement.js";
+import type { ChoiceRequest, Domain, GameAction, LocationRef, ObjectRef, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
 import {
   executeBasicRuneResourcePlan,
   planBasicRuneResourceActivation,
@@ -13,13 +14,15 @@ import {
 import {
   isV2Command,
   type V2ChoiceAnswer,
+  type V2CombatDamageCommand,
   type V2Command,
+  type V2Location,
   type V2Projection,
   type V2RuneResourceCommand,
 } from "../../../../packages/protocol/dist/v2/index.js";
 import { assertRuntimeJournal, ENGINE_RUNTIME_RULESET_VERSION, RuntimeJournalWriter, canonicalJson, type RuntimeJournal, type RuntimeJournalEntry, digest } from "./journal.js";
 import { EngineRuntimeHost, type RuntimeCard } from "./host.js";
-import { projectRuntime, projectionDigest } from "./projection.js";
+import { advanceResponsiblePlayer, projectRuntime, projectionDigest } from "./projection.js";
 
 export interface EngineRuntimeDeck extends MatchDeck {
   readonly mainDeck: readonly RuntimeCard[];
@@ -80,6 +83,38 @@ interface SeenCommand {
   readonly receipt: RuntimeReceipt;
 }
 
+/**
+ * The engine-core action vocabulary distinguishes the Board zone from the
+ * location carried by each Permanent. EngineRuntimeHost's raw zone move keeps
+ * `base`/`battlefield` as the Zone, while TurnFlow's Awaken and Standard Move
+ * require a Unit/Gear to remain in `board` and carry its Location separately.
+ * Adapt only that host representation at the runtime boundary; Chain legality,
+ * location rules, events, and rollback remain engine-core owned.
+ */
+class RuntimeBoardHost extends EngineRuntimeHost {
+  override perform(action: GameAction): ReturnType<EngineRuntimeHost["perform"]> {
+    return this.normalizeBoardObject(super.perform(action));
+  }
+
+  private normalizeBoardObject(outcome: ReturnType<EngineRuntimeHost["perform"]>): ReturnType<EngineRuntimeHost["perform"]> {
+    // EngineRuntimeHost's concrete-location zone spelling is adapted at this
+    // single runtime seam so chain, Awaken, Move and projection all observe the
+    // same `board + location` authority expected by engine-core.
+    for (const object of this.objects()) {
+      if (String(object.zone) !== "base" && String(object.zone) !== "battlefield") continue;
+      if (!object.types.some(type => ["unit", "gear"].includes(type.toLowerCase()))) continue;
+      const players = (this as unknown as { players: Map<string, { zones: Record<string, string[]> }> }).players;
+      for (const player of players.values()) for (const ids of Object.values(player.zones)) {
+        const index = ids.indexOf(object.ref.id);
+        if (index >= 0) ids.splice(index, 1);
+      }
+      players.get(object.owner)!.zones.board!.unshift(object.ref.id);
+      (this as unknown as { objectMap: Map<string, { zone: string }> }).objectMap.get(object.ref.id)!.zone = "board";
+    }
+    return outcome;
+  }
+}
+
 function canonicalCommand(command: V2Command): string {
   return canonicalJson(command);
 }
@@ -113,7 +148,7 @@ class MatchRuntime implements EngineRuntime {
     let choice: ChoiceRequest<unknown> | null = null;
     const normalizedDecks = this.normalizeDecks(this.runtimeOptions.decks);
     const catalogDomains = this.catalogDomains(normalizedDecks);
-    const hostState = new EngineRuntimeHost(Object.fromEntries(seats.map(seat => [seat.playerId, seat.name])), request => {
+    const hostState = new RuntimeBoardHost(Object.fromEntries(seats.map(seat => [seat.playerId, seat.name])), request => {
       if (this.decision !== undefined) { const answer = this.decision; this.decision = undefined; return answer as never; }
       choice = request as ChoiceRequest<unknown>;
       throw new PendingChoiceError(request as ChoiceRequest<unknown>);
@@ -325,6 +360,7 @@ class MatchRuntime implements EngineRuntime {
         // priority holder can pass. Resume Finalize here; resolve passes through
         // the normal chain priority after the item is finalized.
         match.flow.chain.advance();
+        match.flow.advance();
         return { accepted: true };
       }
       match.flow.pass(playerId);
@@ -335,14 +371,14 @@ class MatchRuntime implements EngineRuntime {
     if (command.type === "move") {
       const ref = this.resolveObjectRef(command.objectId, command.stateVersion);
       this.assertCanControl(playerId, ref);
-      // Core owns Standard Move legality. Validation is complete today; the
-      // atomic Exhaust + Move transaction remains explicitly blocked there.
-      inspectStandardMove({ match, stateVersion: this.stateVersion }, playerId,
+      const execution = moveUnits({ match, stateVersion: this.stateVersion }, playerId,
         [command.objectId], command.to);
-      // Core has validated the full Standard Move formation. The transaction
-      // remains intentionally blocked until the core owner exposes its atomic
-      // Exhaust + Move operation.
-      throw new Error("Movement transaction is unavailable: standard-move-transaction");
+      return {
+        accepted: true,
+        objectId: command.objectId,
+        destination: execution.to,
+        transactionId: execution.receipt.transactionId ?? null,
+      };
     }
     if (command.type === "play") {
       if (!this.binding) throw new Error("No trusted card-program registry is bound");
@@ -351,7 +387,14 @@ class MatchRuntime implements EngineRuntime {
       }
       const source = this.resolveObject(command.cardObjectId);
       this.assertCanControl(playerId, source.ref);
-      const base = this.binding.describePlay({ type: "play", object: source.ref, player: playerId }, source);
+      const location = command.destination === undefined
+        ? undefined
+        : this.resolvePlayDestination(command.destination, playerId, source);
+      const base = this.binding.describePlay({
+        type: "play", object: source.ref, player: playerId,
+        ...(source.types.some(type => ["unit", "gear"].includes(type.toLowerCase())) && location !== undefined
+          ? { location } : {}),
+      }, source);
       const targets = this.finalizeTargets(base.body, base.targets, command.targets, playerId);
       const selections = command.cost;
       if (selections !== undefined && (selections.energy !== undefined || selections.power !== undefined || selections.xp !== undefined ||
@@ -368,7 +411,12 @@ class MatchRuntime implements EngineRuntime {
         ...(cost === undefined ? {} : { cost }),
       };
       match.flow.execute(draft);
-      return { accepted: true, objectId: command.cardObjectId, targets: targets.length };
+      return {
+        accepted: true,
+        objectId: command.cardObjectId,
+        targets: targets.length,
+        destination: location ?? { type: "base", player: playerId },
+      };
     }
     if (command.type === "activate") {
       if (!this.binding) throw new Error("No trusted card-program registry is bound");
@@ -385,7 +433,25 @@ class MatchRuntime implements EngineRuntime {
     if (command.type === "rune-energy" || command.type === "rune-power") {
       return this.executeRuneResource(playerId, command);
     }
-    if (command.type === "declare-attack" || command.type === "declare-defense") throw new Error(`${command.type} is not available until the combat transaction adapter is installed`);
+    if (command.type === "end-turn") {
+      match.flow.endTurn(playerId);
+      return { accepted: true, activePlayerId: match.flow.turnPlayer };
+    }
+    if (command.type === "advance") {
+      if (advanceResponsiblePlayer(match, this.pending !== null, playerId) !== playerId) {
+        throw new Error("Advance is only available to the projected responsible Turn Player " +
+          "after a Combat Showdown closes with a stable empty Chain and no pending choice");
+      }
+      if (match.flow.combat.current?.step === "showdown" && match.flow.chain.focus === null) {
+        match.flow.combat.prepareDamage();
+        return { accepted: true, activePlayerId: match.flow.turnPlayer, combatStep: "damage" };
+      }
+      throw new Error("Advance is not available in the current Combat Showdown");
+    }
+    if (command.type === "combat-damage") return this.executeCombatDamage(playerId, command);
+    if (command.type === "declare-attack" || command.type === "declare-defense") {
+      throw new Error(`${command.type} is not available: CR 466.2.c assigns all present Units automatically`);
+    }
     throw new Error(`Unhandled runtime command: ${(command as { readonly type?: unknown }).type ?? "unknown"}`);
   }
 
@@ -394,6 +460,96 @@ class MatchRuntime implements EngineRuntime {
   }
 
   private resolveObjectRef(id: string, _stateVersion: number): ObjectRef { return this.resolveObject(id).ref; }
+
+  private resolvePlayDestination(destination: V2Location, playerId: string,
+    source: ReturnType<EngineRuntimeHost["objects"]>[number]): LocationRef {
+    if (!source.types.some(type => ["unit", "gear"].includes(type.toLowerCase()))) {
+      throw new Error("Play destination is only valid for a Unit or Gear");
+    }
+    let location: LocationRef;
+    if (destination.kind === "base") {
+      if (destination.playerId !== playerId) throw new Error("A permanent may only be played to its controller's Base");
+      location = { type: "base", player: playerId };
+    } else {
+      const battlefield = this.match!.flow.battlefields.find(field => field.id === destination.battlefieldId);
+      if (!battlefield) throw new Error(`Unknown Battlefield ${destination.battlefieldId}`);
+      location = { type: "battlefield", id: battlefield.id };
+    }
+    const battlefield = location.type === "battlefield"
+      ? this.match!.flow.battlefields.find(field => field.id === location.id) ?? null : null;
+    const rulePermission = playPermissionAllows(this.match!.flow.layers.registry, source, location, {
+      player: playerId,
+      state: battlefield === null ? undefined : {
+        ref: location, owner: battlefield.id, controller: battlefield.controller,
+        occupied: this.host!.objects().some(object => object.zone === "board" &&
+          object.types.includes("unit") && object.location?.type === "battlefield" &&
+          object.location.id === battlefield.id),
+        contested: battlefield.contestedBy !== null,
+        units: this.host!.objects().filter(object => object.zone === "board" &&
+          object.types.includes("unit") && object.location?.type === "battlefield" &&
+          object.location.id === battlefield.id).map(object => object.ref),
+      },
+      objects: this.host!.objects(),
+    });
+    const defaultPermission = destination.kind === "base" || battlefield?.controller === playerId;
+    if (!defaultPermission && !rulePermission) {
+      throw new Error("A permanent may only be played to its controller's Base or a permitted Battlefield");
+    }
+    return location;
+  }
+
+  private executeCombatDamage(playerId: string, command: V2CombatDamageCommand): Record<string, unknown> {
+    const match = this.match!;
+    if (this.pending) throw new Error("Combat damage cannot continue while another choice is pending");
+    if (match.flow.chain.items.length > 0) throw new Error("Combat damage requires an idle Chain");
+    let combat = match.flow.combat.current;
+    if (combat === null) throw new Error("No Combat is active");
+    if (combat.attacker === undefined || combat.defender === undefined || combat.combatId === undefined) {
+      throw new Error("Combat damage requires an active Combat Showdown");
+    }
+    if (command.combatId !== combat.combatId) throw new Error(`Combat ${command.combatId} is no longer current`);
+    if (combat.step === "showdown" && match.flow.chain.turnState === "neutral-open") {
+      if (playerId !== combat.attacker) throw new Error("Only the Attacker may submit the first Combat allocation");
+      match.flow.combat.prepareDamage();
+      combat = match.flow.combat.current;
+    }
+    if (combat?.step !== "damage") throw new Error(`Combat damage is not available during ${combat?.step ?? "no step"}`);
+    const view = match.flow.combat.damageView();
+    if (command.combatId !== view.combatId) throw new Error(`Combat ${command.combatId} is no longer current`);
+    const assignments = command.assignments.map(assignment => ({
+      uid: assignment.unitObjectId,
+      amount: assignment.amount,
+    }));
+    if (!view.attackerSubmitted) {
+      match.flow.combat.submitAttackerDamage(playerId, assignments);
+      return { accepted: true, combatId: view.combatId, submittedBy: playerId,
+        nextPlayerId: view.defenderPlayerId, complete: false };
+    }
+    const result = match.flow.combat.submitDefenderDamage(playerId, assignments);
+    this.advanceCombatUntilBlocked();
+    return { accepted: true, combatId: result.combatId, submittedBy: playerId,
+      batchId: result.batchId, complete: true };
+  }
+
+  private advanceCombatUntilBlocked(): void {
+    const match = this.match!;
+    for (let step = 0; step < 64; step += 1) {
+      if (!match.flow.combat.active || match.flow.chain.items.length > 0) return;
+      const before = JSON.stringify({
+        step: match.flow.combat.current?.step ?? null,
+        turnState: match.flow.chain.turnState,
+        events: match.events().length,
+      });
+      match.flow.advance();
+      const after = JSON.stringify({
+        step: match.flow.combat.current?.step ?? null,
+        turnState: match.flow.chain.turnState,
+        events: match.events().length,
+      });
+      if (before === after) return;
+    }
+    throw new Error("Combat did not reach a stable public boundary");
+  }
 
   private assertCanControl(playerId: string, ref: ObjectRef): void {
     const object = this.host!.object(ref);
