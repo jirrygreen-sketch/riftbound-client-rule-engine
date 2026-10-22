@@ -24,38 +24,28 @@ import type { CardProgram } from "../../ir/index.js";
  * - "put it in your hand" 是 effect.zone 的 return-to-hand（056.1/056.2 归拥有者手牌）；
  *   "Otherwise, recycle it" 是 417.1/417.1.a/417.1.c 的 Recycle（回拥有者主牌库底）。
  *
- * status = judge-required（复核 2026-10-17）：仍缺 defense-declared 的发射方——
- * combat/flow.ts 的 advance() 在把 staged battlefield 转成 Combat 时抛
- * TurnCombatBlockedError('combat-start-transaction')，Defender 身份（466.2/323.2）
- * 因此尚未指派，events/action-adapter.ts 的 ACTION_TIMINGS 也没有该时点；
- * 以及 053.3 的 here 事件过滤表达（EventPattern/ObjectFilter 无战场相对锚，
- * 程序绑定实测抛 "Unsupported filter field here"）。RIFT-358 已合入 zoneSlice 有序 picks、链接结果
- * picks 和 effect.reveal.pick Expr 解包；正文不再需要替换参数或预置分支选择。
- * golden 通过真实 ChainEngine 的 Finalize/Resolve 执行原始正文的两个互斥分支。
+ * status = executable（复核 2026-10-21）：CombatFlow 的原子 Combat start
+ * 已同时建立 Attacker/Defender 并发布 defense-declared（466.2/323.2）；
+ * EventPattern/ObjectFilter 的 here 已由 pipeline-match 按事件
+ * details.battlefieldId 与触发来源位置求值（053.3）。RIFT-358 的 zoneSlice
+ * 有序 picks、链接结果 picks 和 effect.reveal.pick Expr 解包也已合入。
+ * production golden 通过 ProgramBinding lifecycle、TurnFlow/CombatFlow 与
+ * ChainEngine Finalize/Resolve 执行原始正文的两个互斥分支，并验证在另一
+ * 战场发生的 defense-declared 不会触发本战场。
  */
 export default {
   canonicalCardId: "card.hash-5a86b358540e9ab2512400c77f3291739c2aa6ccb7b537449298a640b02b0e82",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "两处依赖仍未合入，均不近似实现：(1) defense-declared 缺少发射方：combat/flow.ts 的 advance() 在把 staged battlefield " +
-    "转成 Combat 时抛 TurnCombatBlockedError('combat-start-transaction', \"Combat start needs an atomic simultaneous timing wave + " +
-    "roles (CR 466.2)\")，因此 Defender 身份指派（466.2/323.2、383.4.f.2）尚未接入事件管线，" +
-    "events/action-adapter.ts 的 ACTION_TIMINGS 也没有 defense-declared；" +
-    "(2) here（CR 053.3）需要「事件发生在本战场」的表达：EventPattern / ObjectFilter 无战场相对锚、Static 程序也无法知道运行期 " +
-    "details.battlefieldId，且合并后的 trigger-spec 校验把 here 判为 unknown-field、程序绑定实测抛 \"Unsupported filter field here\"。" +
-    "正文已可执行：RIFT-358 的 zoneSlice 在 Finalize 锁定牌库顶 1 张，effect.reveal 的 pick Expr 已可解包；" +
-    "回手 pick 直接绑定 reveal.revealed，compare(spell in object-property(types)) 决定回手或 effect.recycle 回收。" +
-    "golden 用未改写的正文通过 ChainEngine 验证展示、链接与两个分支，未以未知战斗事件近似触发。",
+  status: "executable",
   sourceText:
     "When you defend here, reveal the top card of your Main Deck. If it's a spell, put it in your hand. Otherwise, recycle it.",
   abilities: [
     {
       kind: "triggered",
       // 466.2 / 383.4.f：Battlefield 自身的 Defend Effect；"you" 是能力控制者
-      // （190.6.d），用封闭的 PlayerSelector "self" 表达（"controller" 不是合法
-      // PlayerSelector，会见 judgeReason）。"here" 用描述性 here 占位符保留打印语义
-      //（见 judgeReason：该字段尚无词汇，校验器会拒绝）。
+      // （190.6.d），用封闭的 PlayerSelector "self" 表达。"here" 是当前战场
+      // 相对锚；EventPipeline 将事件 details.battlefieldId 与触发来源当前位置
+      // 比较，只在本 Battlefield 防守时命中（053.3）。
       trigger: { at: "defense-declared", filter: { event: "defense-declared", here: true, player: "self" } },
       optional: false,
       body: [
