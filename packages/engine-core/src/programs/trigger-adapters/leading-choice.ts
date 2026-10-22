@@ -21,11 +21,24 @@ export const isCostPay = (instruction: unknown): instruction is Instruction & { 
  */
 export const LEADING_COST_RECEIPT_LINK = '__riftbound.leading-cost-receipt' as const;
 
+/** Authored optional nodes below a leading may are resolved by the interpreter. */
+export const LEADING_MAY_RESOLVE_OPTIONAL = '__riftbound.resolve-optional' as const;
+
+type NestedResolveOptional = Instruction & { readonly [LEADING_MAY_RESOLVE_OPTIONAL]?: true };
+
+const isNestedResolveOptional = (instruction: Instruction): boolean =>
+  (instruction as NestedResolveOptional)[LEADING_MAY_RESOLVE_OPTIONAL] === true;
+
 const hasNestedControlBody = (instruction: Instruction): boolean => {
   const body = instruction.args?.body;
   if (!isRecord(body) || !('value' in body)) return false;
   return ['constant', 'literal'].includes(String(body.kind)) && Array.isArray(body.value);
 };
+
+function markResolveOptional(instruction: Instruction): Instruction {
+  if (instruction.op !== 'choice.optional' || isNestedResolveOptional(instruction)) return instruction;
+  return { ...instruction, [LEADING_MAY_RESOLVE_OPTIONAL]: true } as NestedResolveOptional;
+}
 
 function hoistTargets(instruction: Instruction): { readonly instruction: Instruction; readonly targets: readonly TargetRequirement[] } {
   if (!instruction.targets?.length) return { instruction, targets: [] };
@@ -101,9 +114,10 @@ function removePaymentGate(instruction: Instruction, instructionId: string): Ins
  * closed because no Resolve-scope result exists.
  *
  * The adapter covers only the evaluated constant-array effect spelling. A
- * leading choice with any other nested operation is not a safe executable
- * interpretation and must fail closed instead of falling back to the scan-time
- * optional question.
+ * A later choice.optional is a Resolve decision (CR 383.3.a.3), so it remains
+ * in the body with an engine-only stage marker. Other nested control bodies
+ * are not a safe executable interpretation and fail closed instead of falling
+ * back to the scan-time optional question.
  */
 export function adaptLeadingChoice(
   source: ObjectSnapshot,
@@ -123,18 +137,30 @@ export function adaptLeadingChoice(
   const nested = constantArray(args.body);
   if (!nested?.length) return undefined;
   const [first, ...rest] = nested as readonly Instruction[];
+  const outerTargets = (choice.targets ?? []) as readonly TargetRequirement[];
+  const withOuterTargets = (entries: readonly { readonly instruction: Instruction; readonly targets: readonly TargetRequirement[] }[]) => [
+    ...outerTargets.map(requirement => ({ requirement })),
+    ...entries.flatMap(entry => entry.targets.map(requirement => ({ requirement })))
+  ];
   if (!isCostPay(first)) {
     const instructions = nested as readonly Instruction[];
-    if (instructions.some(hasNestedControlBody)) return undefined;
-    const adapted = instructions.map(instruction => hoistTargets(instruction));
+    const nestedChoices = instructions.filter(instruction => instruction.op === 'choice.optional');
+    if (nestedChoices.length > 1) return undefined;
+    const unrelatedControl = instructions.some(instruction => instruction.op !== 'choice.optional' &&
+      (['sequence', 'repeat', 'choice.mode'].includes(instruction.op) || hasNestedControlBody(instruction)));
+    if (unrelatedControl) return undefined;
+    const stageAdjusted = instructions.map(markResolveOptional);
+    const adapted = stageAdjusted.map(instruction => hoistTargets(instruction));
     return {
       mayAtFinalize: true,
       body: adapted.map(entry => entry.instruction),
-      targets: adapted.flatMap(entry => entry.targets.map(requirement => ({ requirement })))
+      targets: withOuterTargets(adapted)
     };
   }
-  if (!rest.length || rest.some(hasNestedControlBody)) return undefined;
-  const references = rest.map(instruction => instructionCostReference(instruction, first.id));
+  const nestedChoices = rest.filter(instruction => instruction.op === 'choice.optional');
+  if (!rest.length || nestedChoices.length > 0 || rest.some(hasNestedControlBody)) return undefined;
+  const markedRest = rest;
+  const references = markedRest.map(instruction => instructionCostReference(instruction, first.id));
   if (references.includes('unsupported')) return undefined;
   const needsReceipt = references.includes('receipt');
   const choiceIds = costChoiceIds(first.args);
@@ -150,7 +176,7 @@ export function adaptLeadingChoice(
   if (trigger?.at === 'buff-added' && rest.some(instruction => instruction.op === 'effect.ready')) return undefined;
   const cost = costPayArgsToCostSpec(first.args);
   if (!cost) return undefined;
-  const adapted = rest.map(instruction => {
+  const adapted = markedRest.map(instruction => {
     const ungated = removePaymentGate(instruction, first.id);
     const bridged = binding !== undefined && instructionCostReference(ungated, first.id) === 'receipt'
       ? receiptBound(ungated, binding) : ungated;
@@ -160,6 +186,6 @@ export function adaptLeadingChoice(
     mayAtFinalize: true,
     cost: { id: `cost:${source.ref.id}:${source.ref.zoneEntryId}:${choice.id}`, cost },
     body: adapted.map(entry => entry.instruction),
-    targets: adapted.flatMap(entry => entry.targets.map(requirement => ({ requirement })))
+    targets: withOuterTargets(adapted)
   };
 }
