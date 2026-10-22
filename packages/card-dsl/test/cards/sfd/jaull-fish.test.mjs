@@ -4,12 +4,10 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/sfd/jaull-fish.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
-import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
-import { createEngineStaticBinder, staticCostSources } from "../../../../engine-core/dist/programs/statics.js";
 import { productionPlay } from "../../fixtures/production-play.mjs";
+import { ProgramBindingError } from "../../../../engine-core/dist/programs/errors.js";
 
 const CARD_ID = "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732";
 
@@ -46,9 +44,12 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /mightGte/);
-  assert.match(program.judgeReason, /cost-adapters\/index\.ts/);
-  assert.match(program.judgeReason, /chain\/engine\.ts/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
+  assert.match(program.judgeReason, /programs\/play\.ts:150-153/);
+  assert.match(program.judgeReason, /chain\/engine\.ts:876/);
+  assert.match(program.judgeReason, /cost\/discounts\/values\.ts:48-92/);
+  assert.match(program.judgeReason, /ReplacementRegistration\.matches\/apply/);
+  assert.doesNotMatch(program.judgeReason, /bindProgramCost/);
+  assert.doesNotMatch(program.judgeReason, /没有调用/);
   assert.match(program.judgeReason, /Mighty/);
   assert.match(program.judgeReason, /Accelerate/);
   assert.match(program.judgeReason, /805\.2\.b/);
@@ -83,25 +84,6 @@ test("the Mighty discount keeps the full count expression and fails closed at th
     ]
   });
 
-  const kernel = world()
-    .player("A", { energy: 10 })
-    .unit("jaull", { cardId: CARD_ID, might: 3 })
-    .unit("mighty", { might: 5 })
-    .build();
-  const context = kernel.clone({
-    source: kernel.ref("jaull"),
-    sourceSnapshot: kernel.getObject("jaull"),
-    controller: "A"
-  });
-  assert.throws(
-    () => finalizeCostPlan(context, {
-      id: "jaull",
-      cost: { energy: { kind: "constant", value: 2 } }
-    }, {
-      statics: [{ id: "jaull-mighty-discount", source: kernel.ref("jaull"), ability: discount }]
-    }),
-    error => error?.reason === "judge-required" && /Unsupported cost filter field mightGte/.test(error.message)
-  );
 });
 
 test("the merged Accelerate expansion resolves the declared keyword into cost + enter-ready abilities", () => {
@@ -115,6 +97,25 @@ test("the merged Accelerate expansion resolves the declared keyword into cost + 
   assert.equal(expanded.expanded[0].effect.appliesTo, "self");
   assert.equal(expanded.expanded[1].replaces.event, "object-enters-board");
   assert.deepEqual(expanded.expanded[1].with.map((instruction) => instruction.op), ["effect.ready"]);
+});
+
+test("production: the judge-required program refuses to describe a play without charging or moving the card", () => {
+  const f = productionPlay({
+    programs: [program],
+    build: w => w.player("A", { energy: 20, power: ["Body", "Body", "Body"] })
+      .player("B")
+      .hand("jaull", { cardId: CARD_ID, types: ["unit"], energy: 7, power: ["Body"], might: 6 })
+  });
+  const source = f.kernel.getObject("jaull");
+  assert.throws(
+    () => f.binding.describePlay({ type: "play", object: source.ref, player: "A" }, source),
+    error => error instanceof ProgramBindingError && error.code === "judge-required" &&
+      /continuous\.cost-modification/.test(error.message)
+  );
+  assert.equal(source.zone, "hand");
+  assert.equal(f.kernel.player("A").energy, 20);
+  assert.deepEqual(f.kernel.player("A").power, ["Body", "Body", "Body"]);
+  assert.equal(f.engine.items.length, 0);
 });
 
 test("golden: the expanded enter-ready replacement really readies the entering unit", () => {
@@ -131,6 +132,7 @@ test("golden: the expanded enter-ready replacement really readies the entering u
 });
 
 const admitted = { ...program, status: "executable", judgeReason: undefined };
+const accelerateOnly = { ...admitted, abilities: [program.abilities[0]] };
 const printed = {
   id: "sfd-103-221",
   cardType: "Unit",
@@ -139,9 +141,9 @@ const printed = {
   power: 2
 };
 
-function accelerateScene(selected) {
+function accelerateScene(selected, { programs = [accelerateOnly] } = {}) {
   const f = productionPlay({
-    programs: [admitted],
+    programs,
     answers: { "cost:play": () => selected },
     build: w => w.player("A", { energy: 20, power: ["Body", "Body", "Body"] })
       .player("B", { energy: 0 })
@@ -176,10 +178,8 @@ function accelerateScene(selected) {
   return { f, described, draft, finalized: () => finalized };
 }
 
-test("production: declining Accelerate pays only the printed 7 Energy + 2 Body cost", () => {
+test("production: declining Accelerate pays only the printed cost and records the declined decision", () => {
   const { f, draft, finalized } = accelerateScene(false);
-  assert.equal(Object.hasOwn(draft.cost, "discounts"), false,
-    "the current cost adapter does not bridge this card's static discount");
   assert.equal(f.requests.filter(request => request.type === "optional").length, 1);
   assert.equal(f.kernel.player("A").energy, 13);
   assert.deepEqual(f.kernel.player("A").power, ["Body"]);
@@ -193,9 +193,8 @@ test("production: declining Accelerate pays only the printed 7 Energy + 2 Body c
     xp: 0,
     actions: []
   });
-  assert.deepEqual(final.plan.discounts, [],
-    "production Finalize bypasses the static discount collector at this checkpoint");
   assert.equal(f.kernel.getObject("jaull").zone, "board");
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-readied").length, 0);
 });
 
 test("production: paying Accelerate adds [1][Body] and enters ready with the two Power base intact", () => {
@@ -215,13 +214,12 @@ test("production: paying Accelerate adds [1][Body] and enters ready with the two
     { amount: 2, allowedDomains: ["Body"] },
     { amount: 1, allowedDomains: ["Body"] }
   ]);
-  assert.deepEqual(final.plan.discounts, [],
-    "even with one Mighty unit, Finalize currently does not collect the self discount");
 });
 
-test("the default production static binder exposes the self discount, then its cost filter fail-closes on mightGte", () => {
+test("production: the executable view reaches Finalize with its own discount and then blocks fail-closed", () => {
   const f = productionPlay({
     programs: [admitted],
+    answers: { "cost:play": () => false },
     build: w => w.player("A", { energy: 10 })
       .object("jaull-board", {
         cardId: CARD_ID,
@@ -239,28 +237,14 @@ test("the default production static binder exposes the self discount, then its c
       .unit("mighty", { owner: "A", controller: "A", might: 5 })
   });
   const source = f.kernel.getObject("jaull-board");
-  const handle = createEngineStaticBinder(f.engine).bindStatic(program.abilities[1], source);
-  const sources = staticCostSources(f.engine);
-  assert.ok(sources.some(entry => entry.ability.effect.kind === "continuous.cost-modification"));
-
-  const context = bindResolveContext(f.kernel, {
-    source: f.kernel.getObject("jaull-board"),
-    controller: "A",
-    timingPoint: "chain-item-finalize",
-    choose: () => false
-  });
+  const described = f.binding.describePlay({ type: "play", object: source.ref, player: "A" }, source);
+  assert.ok(described.costStatics?.some(entry =>
+    entry.ability.effect.kind === "continuous.cost-modification"));
   assert.throws(
-    () => finalizeCostPlan(
-      context,
-      { id: "jaull-producer", cost: { kind: "printed" }, domains: ["Body"] },
-      { statics: sources, originZone: "board" }
-    ),
-    error => error?.reason === "judge-required" && /Unsupported cost filter field mightGte/.test(error.message)
+    () => f.engine.execute(described),
+    error => error?.message === "Unsupported cost filter field mightGte"
   );
-  handle.unbind();
+  assert.equal(f.kernel.getObject("jaull-board").zone, "board");
+  assert.equal(f.kernel.player("A").energy, 10);
+  assert.equal(f.engine.items.length, 0);
 });
-
-test.todo(
-  "CR 805.2.b/805.6: declining Accelerate must enter exhausted; the merged keyword replacement " +
-    "currently readies the unit without a selected-paid receipt"
-);
