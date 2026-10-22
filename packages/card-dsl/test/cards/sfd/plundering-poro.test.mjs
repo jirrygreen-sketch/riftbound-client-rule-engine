@@ -12,13 +12,18 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/sfd/plundering-poro.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import resources from "../../../../engine-core/dist/effects/instructions/effect.resources.js";
+import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { runInstruction } from "../../../../engine-core/dist/effects/testing/index.js";
 import { getTokenDefinition } from "../../../../engine-core/dist/effects/tokens/definitions.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import goldProgram from "../../../dist/cards/sfd/gold.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { productionPlay } from "../../fixtures/production-play.mjs";
 
 const CARD_ID = "card.hash-569dc9079a6d404c0d850d27b510585b856ab3def5e1e0bbafa30a3bf9d48e82";
 const GOLD_ID = "card.hash-6249df4367d0a2e088c8eb1117ef59430f0d7dad4bf0fcf8a01d7f0415f4d511";
@@ -151,20 +156,144 @@ test("sfd-069-221 Plundering Poro: program validates and remains judge-required 
 
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /Universal Power/);
-  assert.match(program.judgeReason, /135\.2\.e\.5/);
+  assert.match(program.judgeReason, /135\.2\.e\.5\.b/);
   assert.match(program.judgeReason, /163\.2\.b/);
+  assert.match(program.judgeReason, /effective 2026-10-16/);
+  assert.match(program.judgeReason, /radiance-patch-notes-effective-october-16-2026/);
+  assert.match(program.judgeReason, /spiritforged-errata/);
   assert.match(program.judgeReason, /definitions\.ts:100/);
-  assert.match(program.judgeReason, /effect\.token\.ts:341/);
-  assert.match(program.judgeReason, /programs\/lifecycle\.ts:331/);
-  assert.match(program.judgeReason, /chain\/engine\.ts:1194-1200/);
+  assert.match(program.judgeReason, /effect\.resources\.ts:126-170/);
+  assert.match(program.judgeReason, /programs\/index\.ts:40-58/);
+  assert.match(program.judgeReason, /effect\.token\.ts:341-343/);
   assert.match(program.judgeReason, /exhausted entry/);
-  assert.doesNotMatch(program.judgeReason, /carrier identity|no entry override/);
+  assert.match(program.judgeReason, /Universal Power gain result/);
+  assert.match(program.judgeReason, /Gold token ability program Rebased|program rebased/i);
+  assert.doesNotMatch(program.judgeReason, /closed six-Domain contract cannot represent|carrier identity|no entry override/);
 
   const gold = getTokenDefinition("gold");
   assert.ok(gold);
   assert.equal(gold.spec.cardId, GOLD_ID);
   assert.equal(gold.abilityBinding, "blocked");
   assert.equal(gold.blockedReason, "token-definition-or-abilities-judge-required");
+});
+
+test("sfd-069-221 Plundering Poro: current Gold program and both Add admission paths stay judge-required", () => {
+  // Official evidence: CR v1.5 (dated 2026-10-09, effective 2026-10-16) at
+  // https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf.
+  // The effective Radiance patch and Spiritforged errata were reviewed for this
+  // interaction; the shared snapshots contain no matching card, Gold, 187.5,
+  // 135.2.e.5, or 163.2.b entry.
+  const kernel = world()
+    .object("gold", {
+      cardId: GOLD_ID,
+      name: "Gold",
+      types: ["gear"],
+      zone: "board",
+      location: { type: "base", player: "A" },
+      isToken: true,
+      energy: null,
+      power: null,
+      might: null
+    })
+    .build();
+  const source = kernel.getObject("gold");
+  const shipped = createProgramBinding({ cardPrograms: [goldProgram] });
+  const lifted = createProgramBinding({
+    cardPrograms: [{ ...goldProgram, status: "executable", judgeReason: undefined }]
+  });
+  const isJudgeRequired = error =>
+    error?.name === "ProgramBindingError" && error.code === "judge-required";
+
+  assert.equal(goldProgram.status, "judge-required");
+  assert.equal(shipped.inspect(source).program, goldProgram);
+  assert.throws(() => shipped.describeActivate(source, "A", 0), isJudgeRequired);
+  assert.throws(() => shipped.describeAddActivation(source, "A", 0), isJudgeRequired);
+
+  // RIFT-929 covered paying [A]; it did not add a Universal Power result. The
+  // shipped Gold body still returns negated without changing the Rune Pool.
+  const run = runInstruction(resources, goldProgram.abilities[0].body[0].args, { world: kernel });
+  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
+  assert.equal(kernel.player("A").energy, 0);
+  assert.deepEqual(kernel.player("A").power, []);
+
+  // Lifting only the program status isolates the remaining static Add shape
+  // check. Its closed Domain list must reject rainbow rather than invent Power.
+  assert.throws(() => lifted.describeActivate(source, "A", 0), error =>
+    isJudgeRequired(error) && /unverified Add shape/.test(error.message));
+  assert.throws(() => lifted.describeAddActivation(source, "A", 0), error =>
+    isJudgeRequired(error) && /unverified Add shape/.test(error.message));
+});
+
+test("sfd-069-221 Plundering Poro: Gold is refused before creation; the production Chain preserves exhausted token entry", () => {
+  const kernel = world().build();
+  const gold = runInstruction(token, playGold.args, { world: kernel });
+  assert.deepEqual(gold.result, { status: "negated", reason: "impossible", events: [] });
+  assert.deepEqual(gold.linked.token, {
+    amount: 0,
+    objects: [],
+    objectsComplete: true,
+    createdAmount: 0,
+    createdObjects: [],
+    blockedReason: "token-definition-or-abilities-judge-required"
+  });
+  assert.deepEqual(kernel.objects, []);
+  assert.deepEqual(kernel.pendingItems, []);
+
+  // This separate program is a production-path boundary witness, never a
+  // stand-in Gold: registry ProgramBinding -> ChainEngine -> Finalize -> the
+  // same authored play-plus-exhausted instruction -> Resolve.
+  const witnessProgram = {
+    canonicalCardId: "synthetic:RIFT-937:exhausted-token-entry",
+    rulesetVersion: "core-1.5",
+    status: "executable",
+    sourceText: "Play a Recruit token exhausted.",
+    abilities: [{
+      kind: "play",
+      body: [{
+        id: "witness.play-token",
+        op: "effect.token",
+        args: {
+          token: { kind: "constant", value: "recruit" },
+          amount: { kind: "constant", value: 1 },
+          mode: { kind: "constant", value: "play" },
+          location: { kind: "constant", value: { type: "base", player: "controller" } },
+          entersExhausted: { kind: "constant", value: true }
+        }
+      }]
+    }]
+  };
+  const f = productionPlay({
+    programs: [witnessProgram],
+    build: builder => builder
+      .player("A")
+      .player("B")
+      .object("witness", {
+        owner: "A",
+        controller: "A",
+        cardId: witnessProgram.canonicalCardId,
+        types: ["spell"],
+        zone: "hand",
+        energy: 0,
+        power: []
+      })
+  });
+  f.play("witness");
+  const [recruit] = f.kernel.objects.filter(object => object.isToken);
+  assert.ok(recruit);
+  assert.equal(recruit.name, "Recruit");
+  assert.equal(recruit.zone, "board");
+  assert.equal(recruit.exhausted, true);
+  assert.deepEqual(recruit.location, { type: "base", player: "A" });
+  const timeline = f.engine.pipeline.events.map(event => event.timingPoint);
+  const pendingAt = timeline.indexOf("chain-item-pending");
+  const finalizeAt = timeline.indexOf("chain-item-finalize", pendingAt);
+  const tokenAt = timeline.indexOf("object-enters-board", finalizeAt);
+  const playAt = timeline.indexOf("card-played", tokenAt);
+  const resolveAt = timeline.indexOf("chain-item-resolve", playAt);
+  assert.ok(pendingAt >= 0 && pendingAt < finalizeAt && finalizeAt < tokenAt && tokenAt < playAt && playAt < resolveAt);
+  assert.equal(f.engine.items.length, 0);
+  assert.deepEqual(f.kernel.pendingItems, []);
+  assert.equal(f.kernel.history({ action: "play", player: "A" }), 1);
 });
 
 test("sfd-069-221 Plundering Poro structure: self Conquer and exhausted play entry", () => {
