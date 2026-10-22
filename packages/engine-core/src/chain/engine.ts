@@ -327,6 +327,8 @@ export interface ChainItem extends ChainDraft {
   choicePlan?: ChoicePlan;
   finalizeLinks?: Readonly<Record<string, Readonly<Record<string, Value>>>>;
   costInput?: CostPlanInput;
+  /** Number of paid whole-body Repeat executions whose targets were locked. */
+  repeatTargetCount?: number;
 }
 export interface ChainTrace {
   readonly step: string;
@@ -355,6 +357,7 @@ export interface ChainEngineOptions {
 /** The new rules layer. Legacy duel runtimes deliberately do not call it yet. */
 export class ChainEngine {
   readonly pipeline: EventPipeline;
+  private readonly chainHost: PipelineHost;
   readonly layers: LayerEngine;
   private entries: ChainItem[] = [];
   private issued = new Set<string>();
@@ -379,11 +382,26 @@ export class ChainEngine {
   private resumingPaymentContinuation = false;
   private readonly consumedPaymentContinuations = new Set<string>();
   private readonly suspendedPaymentContinuations = new Map<string, PaymentContinuation>();
+  private readonly combatRoles = new Map<string, 'attacker' | 'defender'>();
+  private activeCombatId: string | null = null;
+  private activeCombatBattlefieldId: string | null = null;
+  private activeCombatAttackerId: PlayerId | null = null;
+  private activeCombatDefenderId: PlayerId | null = null;
+  private hostReadSnapshot: readonly ObjectSnapshot[] | undefined;
   private phase: string;
   constructor(private readonly options: ChainEngineOptions) {
     this.phase = options.phase ?? 'main';
-    this.layers = options.layers ?? new LayerEngine(options.host.objects());
-    this.pipeline = new EventPipeline({ ...options.host, objects: () => this.layerObjects(), execute: action => this.executeStateAction(action) }, options.turnOrder, options.turnPlayer);
+    this.layers = options.layers ?? new LayerEngine(this.hostObjects());
+    this.chainHost = {
+      ...options.host,
+      checkpoint: () => options.host.checkpoint(),
+      restore: checkpoint => options.host.restore(checkpoint),
+      choose: request => options.host.choose(request),
+      objects: () => this.layerObjects(),
+      context: (source, controller, at) => this.hostObjectContext(source, controller, at),
+      execute: action => this.executeStateAction(action),
+    };
+    this.pipeline = new EventPipeline(this.chainHost, options.turnOrder, options.turnPlayer);
     this.pipeline.routeAction = action => {
       if (action.type === 'play') {
         const source = options.host.objects().find(object => object.ref.id === action.object.id && object.ref.zoneEntryId === action.object.zoneEntryId);
@@ -416,13 +434,85 @@ export class ChainEngine {
     };
     this.pipeline.onTrigger = trigger => this.append({ id: `trigger:${++this.triggerSequence}`, controller: trigger.controller, source: trigger.source, kind: 'triggered', body: trigger.registration.body, cost: trigger.registration.cost, targets: trigger.registration.targets, mayAtFinalize: trigger.registration.mayAtFinalize, trigger });
     this.pipeline.onEvent = event => {
-      this.layers.setObjects(options.host.objects());
+      this.observeCombatRoleEvent(event);
+      this.layers.setObjects(this.hostObjects());
       this.layers.advance({ id: event.timingPoint, player: event.player });
       this.record({ step: 'event', timingPoint: event.timingPoint });
     };
     this.grantIdle();
   }
   get items(): readonly ChainItem[] { return structuredClone(this.entries); }
+  /** Apply only exact Unit combat roles held in this active Combat window. */
+  combatRoleSnapshot(object: ObjectSnapshot): ObjectSnapshot {
+    const role = this.combatRoles.get(`${object.ref.id}:${object.ref.zoneEntryId}`);
+    return role === undefined || object.combatRole === role ? object : Object.freeze({ ...object, combatRole: role });
+  }
+  /** Read-only chain host view; static adapters may compose roles onto it. */
+  hostObjects(): readonly ObjectSnapshot[] {
+    const objects = this.hostReadSnapshot ?? this.options.host.objects();
+    if (this.combatRoles.size === 0) return objects;
+    return Object.freeze(objects.map(object => this.combatRoleSnapshot(object)));
+  }
+  /** Give every ResolveContext object read the same read-only designation view. */
+  private hostObjectContext(source: ObjectSnapshot, controller: PlayerId, at: TimingPointId): ResolveContext {
+    const base = source.combatRole === null || source.combatRole === undefined
+      ? this.options.host.context(source, controller, at)
+      : bindResolveContext(this.options.host.context(source, controller, at), { source });
+    if (this.combatRoles.size === 0) return base;
+    return new Proxy(base, { get: (target, key) => {
+      if (key === 'object') return (ref: ObjectRef) => {
+        const object = target.object(ref);
+        if (object === null) return null;
+        return this.combatRoleSnapshot(object);
+      };
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    } });
+  }
+  /** Project only CombatFlow's complete start/designation/end event window. */
+  private observeCombatRoleEvent(event: import('../events/pipeline-types.js').PipelineEvent): void {
+    if (event.timingPoint === 'combat-start') {
+      const combatId = event.details?.combatId;
+      const battlefieldId = event.details?.battlefieldId;
+      const attackerId = event.details?.attackerId;
+      const defenderId = event.details?.defenderId;
+      if (typeof combatId !== 'string' || typeof battlefieldId !== 'string' ||
+          typeof attackerId !== 'string' || typeof defenderId !== 'string') {
+        this.combatRoles.clear();
+        this.activeCombatId = null;
+        return;
+      }
+      this.activeCombatId = combatId;
+      this.activeCombatBattlefieldId = battlefieldId;
+      this.activeCombatAttackerId = attackerId;
+      this.activeCombatDefenderId = defenderId;
+      this.combatRoles.clear();
+      return;
+    }
+    if (event.timingPoint === 'attack-declared' || event.timingPoint === 'defense-declared') {
+      if (this.activeCombatId === null || event.details?.combatId !== this.activeCombatId || event.object === undefined) return;
+      this.combatRoles.set(`${event.object.ref.id}:${event.object.ref.zoneEntryId}`,
+        event.timingPoint === 'attack-declared' ? 'attacker' : 'defender');
+      return;
+    }
+    if (event.timingPoint === 'cleanup-end' && this.activeCombatId !== null) {
+      this.combatRoles.clear();
+      for (const object of this.hostObjects()) {
+        if (object.zone !== 'board' || !object.types.includes('unit') ||
+            object.location?.type !== 'battlefield' || object.location.id !== this.activeCombatBattlefieldId) continue;
+        if (object.controller === this.activeCombatAttackerId) this.combatRoles.set(`${object.ref.id}:${object.ref.zoneEntryId}`, 'attacker');
+        else if (object.controller === this.activeCombatDefenderId) this.combatRoles.set(`${object.ref.id}:${object.ref.zoneEntryId}`, 'defender');
+      }
+      return;
+    }
+    if (event.timingPoint === 'combat-end') {
+      this.combatRoles.clear();
+      this.activeCombatId = null;
+      this.activeCombatBattlefieldId = null;
+      this.activeCombatAttackerId = null;
+      this.activeCombatDefenderId = null;
+    }
+  }
   private layerPassInFlight = false;
   private layerObjects(): readonly ObjectSnapshot[] {
     // RIFT-927: static/keyword adapters resolve live sources through the
@@ -436,9 +526,13 @@ export class ChainEngine {
     // and filters depend on, exactly as a direct nested evaluation does.
     if (this.layerPassInFlight) return this.layers.evaluateAll();
     this.layerPassInFlight = true;
+    this.hostReadSnapshot = this.options.host.objects();
     try {
-      this.layers.setObjects(this.options.host.objects()); return this.layers.evaluateAll();
-    } finally { this.layerPassInFlight = false; }
+      this.layers.setObjects(this.hostObjects()); return this.layers.evaluateAll();
+    } finally {
+      this.layerPassInFlight = false;
+      this.hostReadSnapshot = undefined;
+    }
   }
   private executeStateAction(action: GameAction) {
     const key = (object: ObjectSnapshot) => JSON.stringify(object.ref);
@@ -499,6 +593,11 @@ export class ChainEngine {
       paymentSuspended: this.paymentSuspended,
       resumingPaymentContinuation: this.resumingPaymentContinuation,
       suspendedPaymentContinuations: suspended,
+      combatRoles: new Map(this.combatRoles),
+      activeCombatId: this.activeCombatId,
+      activeCombatBattlefieldId: this.activeCombatBattlefieldId,
+      activeCombatAttackerId: this.activeCombatAttackerId,
+      activeCombatDefenderId: this.activeCombatDefenderId,
     };
     this.transactionDepth++;
     try { return run(); }
@@ -524,7 +623,7 @@ export class ChainEngine {
       if (pendingFinalizeAnswers !== undefined) this.finalizeAnswers = new Map([...saved.finalizeAnswers, ...pendingFinalizeAnswers]);
       this.layers.registry.clear();
       for (const entry of layerEntries) this.layers.registry.register(entry.effect, entry.duration, entry.timestamp);
-      this.layers.setObjects(this.options.host.objects());
+      this.layers.setObjects(this.hostObjects());
       throw error;
     } finally { this.transactionDepth--; }
   }
@@ -541,7 +640,7 @@ export class ChainEngine {
     // usable even before an extra continuous grant is registered.
     const grants = new Set<string>(speed === 'normal' ? [] : [speed]);
     if (ref !== undefined) {
-      this.layers.setObjects(this.options.host.objects());
+      this.layers.setObjects(this.hostObjects());
       const snapshot = object === undefined ? this.layers.evaluate(ref) : object;
       for (const timing of actionTimings(this.layers.registry, ref, snapshot, player)) grants.add(timing);
     }
@@ -629,6 +728,7 @@ export class ChainEngine {
     at: TimingPointId = 'chain-item-finalize',
     targetPlans: readonly TargetPlan[] = [],
     choicePlan?: ChoicePlan,
+    repeatExecution?: number,
   ): ResolveContext {
     const source = item.trigger?.source ?? item.source;
     const base = this.options.host.context(source, item.controller, at);
@@ -662,9 +762,9 @@ export class ChainEngine {
       },
       targets: id => targets.get(id) ?? [],
       picks: id => lockedOrderedPicks((item as Partial<ChainItem>).pickPlans ?? [], id) ?? base.picks(id),
-      object: ref => { this.layers.setObjects(this.options.host.objects()); return this.layers.evaluate(ref); },
+      object: ref => { this.layers.setObjects(this.hostObjects()); return this.layers.evaluate(ref); },
       query: filter => {
-        this.layers.setObjects(this.options.host.objects());
+        this.layers.setObjects(this.hostObjects());
         const normalized = { ...filter };
         for (const key of ['controller', 'owner']) if (normalized[key] === 'self') normalized[key] = item.controller;
         return this.layers.evaluateAll().filter(object => {
@@ -681,6 +781,7 @@ export class ChainEngine {
       const value = Reflect.get(target, key); return typeof value === 'function' ? value.bind(target) : value;
     } });
     for (const plan of targetPlans) {
+      if (repeatExecution !== undefined && plan.repeatIndex !== repeatExecution) continue;
       const resolution = resolveTargetPlan(context, plan, {
         isPending: ref => this.isPending(ref),
         isLegal: snapshot => this.targetIsLegal(snapshot, item.controller),
@@ -739,6 +840,7 @@ export class ChainEngine {
       const targetTaxes: CostComponentInput[] = [];
       const answerPrefix = this.finalizeAnswerPrefix(item);
       try {
+        const baseInput = item.costInput ?? item.cost ?? (['unit', 'gear', 'spell'].includes(item.kind) ? { id: `cost:${item.id}`, cost: { kind: 'printed' } } : undefined);
         if (controlPlanRequired) {
           const rememberModes = hasChoiceMemory(item.body);
           const abilityId = item.trigger?.registration.id ?? `${item.kind}:${item.body.map(instruction => instruction.id).join('/')}`;
@@ -856,9 +958,92 @@ export class ChainEngine {
           item.finalizeLinks = Object.freeze({ ...(item.finalizeLinks ?? {}), [instanceKey]: links });
           context = withFinalizePlanLinks(context, item.finalizeLinks);
         }
-        this.collectBoundTargetTaxes(item, context, targetTaxes);
         item.pickPlans = finalizeOrderedPickPlans(context, item.body);
-        const baseInput = item.costInput ?? item.cost ?? (['unit', 'gear', 'spell'].includes(item.kind) ? { id: `cost:${item.id}`, cost: { kind: 'printed' } } : undefined);
+        // Preserve the production Make Relevant Choices order: existing target
+        // locks are made before optional additional costs. Once the frozen
+        // Repeat decision is known, add one target lock per paid execution and
+        // collect all target taxes before payment (CR 355.1.a, 355.5, 820.2.a).
+        const hasRepeat = (baseInput?.optionalAdditional ?? []).some(optional => optional.kind === 'repeat');
+        if (hasRepeat && item.repeatTargetCount === undefined) {
+          const repeatAnswers = (baseInput!.optionalAdditional ?? []).filter(optional => optional.kind === 'repeat');
+          const selections = new Map<string, boolean>();
+          for (const optional of repeatAnswers) {
+            if (optional.selected !== undefined) selections.set(optional.id, optional.selected);
+          }
+          const paid = repeatAnswers.filter(optional => {
+            if (optional.selected !== undefined) return optional.selected;
+            const answer = context.choose<boolean>({
+              id: `${baseInput!.id}:optional:${optional.id}`,
+              type: 'optional',
+              chooser: item.controller,
+              visibility: 'public',
+            });
+            if (typeof answer !== 'boolean') throw new TypeError('Optional additional cost selection must be boolean');
+            selections.set(optional.id, answer);
+            return answer;
+          });
+          item.repeatTargetCount = paid.length;
+          if (item.targetPlans.length === 0) {
+            const targetSpecs = item.targets ?? item.body.flatMap(instruction =>
+              (instruction.targets ?? []).map(requirement => ({ requirement })));
+            for (const target of targetSpecs) {
+              item.targetPlans.push(finalizeTargetPlan(context, target.requirement, {
+                ...('options' in target ? target.options : {}),
+                repeatIndex: 0,
+                isPending: ref => this.isPending(ref),
+                isLegal: (snapshot, phase) => {
+                  const existing = 'options' in target ? target.options?.isLegal : undefined;
+                  return (existing?.(snapshot, phase) ?? true) && this.targetIsLegal(snapshot, item.controller);
+                },
+                taxAdapter: { appendTargetTax: tax => {
+                  if (tax.kind !== 'deflect' || tax.amount === 0) return;
+                  targetTaxes.push({
+                    id: `target-tax:${target.requirement.id}:0:${targetTaxes.length}`,
+                    cost: { energy: { kind: 'constant', value: tax.amount } },
+                  });
+                } },
+                onTargetsFinalized: () => this.record({ step: 'targets-finalized', item: item.id }),
+                onTargeted: event => this.emitBecameTarget(item, context, event.target),
+              }));
+            }
+          }
+          const optionalAdditional = (baseInput!.optionalAdditional ?? []).map(optional =>
+            selections.has(optional.id) ? { ...optional, selected: selections.get(optional.id)! } : optional);
+          item.costInput = { ...baseInput!, optionalAdditional };
+        }
+        const paidRepeatCount = item.repeatTargetCount ?? 0;
+        if (paidRepeatCount > 0) {
+          if (controlPlanRequired) {
+            throw new ChainContractBlockedError('Paid whole-body Repeat requires an instruction-and-iteration mode lifecycle');
+          }
+          const originals = item.targetPlans.map(plan => ({ ...plan, repeatIndex: plan.repeatIndex ?? 0 }));
+          item.targetPlans = [...originals];
+          for (let repeatIndex = 1; repeatIndex <= paidRepeatCount; repeatIndex++) {
+            for (const original of originals) {
+              const configured = item.targets?.find(target => target.requirement.id === original.requirement.id);
+              const selected = finalizeTargetPlan(context, original.requirement, {
+                ...(configured?.options ?? {}),
+                repeatIndex,
+                isPending: ref => this.isPending(ref),
+                isLegal: snapshot => {
+                  const existing = configured?.options?.isLegal;
+                  return (existing?.(snapshot, 'finalize') ?? true) && this.targetIsLegal(snapshot, item.controller);
+                },
+                taxAdapter: { appendTargetTax: tax => {
+                  if (tax.kind !== 'deflect' || tax.amount === 0) return;
+                  targetTaxes.push({
+                    id: `target-tax:${original.requirement.id}:${repeatIndex}:${targetTaxes.length}`,
+                    cost: { energy: { kind: 'constant', value: tax.amount } },
+                  });
+                } },
+                onTargetsFinalized: () => this.record({ step: 'targets-finalized', item: item.id }),
+                onTargeted: event => this.emitBecameTarget(item, context, event.target),
+              });
+              item.targetPlans.push(selected);
+            }
+          }
+        }
+        this.collectBoundTargetTaxes(item, context, targetTaxes);
         if (baseInput || targetTaxes.length) {
           // Leaving-source abilities retain LKI for the effect, but a leading
           // "recycle me" cost acts on the card now in Trash (CR 383.3.b).
@@ -1151,9 +1336,8 @@ export class ChainEngine {
     return receipt;
   }
   private assertFinalizedTargetsLegal(item: ChainItem, boundary: 'before Pay Costs' | 'after the Reaction Add'): void {
-    const context = this.context(item, 'chain-item-finalize', [], item.choicePlan);
     for (const plan of item.targetPlans) {
-      const resolution = resolveTargetPlan(context, plan, {
+      const resolution = resolveTargetPlan(this.context(item, 'chain-item-finalize', [], item.choicePlan, plan.repeatIndex), plan, {
         isPending: ref => this.isPending(ref), isLegal: snapshot => this.targetIsLegal(snapshot, item.controller),
       });
       if (resolution.invalid.length > 0 || resolution.status !== 'resolved' ||
@@ -1266,7 +1450,7 @@ export class ChainEngine {
             : {})
         };
       const beforeMight = this.layerObjects();
-      const result = resolveChainBody(item.body, context, conditionInputs);
+      const result = resolveChainBody(item.body, context, { ...conditionInputs, targetPlans: item.targetPlans });
       this.publishMightChanges(beforeMight, item.source, `resolve:${item.id}`);
       if (item.kind === 'spell' || item.kind === 'unit' || item.kind === 'gear') {
         const playedObject = this.options.host.objects().find(object => object.ref.id === item.source.ref.id) ?? item.source;
