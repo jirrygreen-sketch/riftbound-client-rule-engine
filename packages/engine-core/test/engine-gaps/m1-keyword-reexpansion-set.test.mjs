@@ -117,9 +117,9 @@ test('RIFT-963 Mechanized Menace grants one Shield and its real Defender damage 
   const f = scene();
   const plan = planDefenderDamage(f);
   const [shieldRule] = shieldArithmetic(f, 'defender');
-  const defender = f.flow.combat.snapshot(f.kernel.getObject('defender'));
+  const combatDefender = f.flow.combat.snapshot(f.kernel.getObject('defender'));
   assert.equal(shieldRule?.effect.effect.amount, 1, 'the Shield KeywordDef emits +1 Might');
-  assert.equal(shieldRule?.effect.effect.condition(defender), true,
+  assert.equal(shieldRule?.effect.effect.condition(combatDefender), true,
     'the published Shield condition reads the live Defender designation');
   assert.equal(plan.attacker.budget, 3, 'the opposing Attacker does not receive the grant');
   assert.equal(plan.defender.budget, 4, 'the granted friendly Mech adds one Might as Defender');
@@ -150,6 +150,7 @@ test('RIFT-963 printed Shield also contributes exactly one Defender Might', () =
   const plan = planDefenderDamage(f);
   assert.equal(plan.attacker.budget, 3);
   assert.equal(plan.defender.budget, 4, 'printed Shield adds exactly one Might in the real plan');
-  assert.equal(shieldArithmetic(f, 'defender').length, 1,
+  assert.equal(f.flow.chain.layers.registry.list().filter(entry => entry.effect.source?.id === 'defender' &&
+    entry.effect.effect.kind === 'continuous.might').length, 1,
     'printed Shield contributes one derived Might rule');
 });

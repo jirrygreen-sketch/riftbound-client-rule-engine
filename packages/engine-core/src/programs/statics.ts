@@ -151,6 +151,29 @@ function installKeywordReexpansion(engine: ChainEngine): void {
   const pipeline = engine.pipeline;
   const effectRegistry = engine.layers?.registry;
   if (effectRegistry === undefined) return;
+  // CombatFlow hands the already-layered runtime Units back to this same
+  // authorized layer engine for the damage plan. Rebase their transient Might
+  // from the preserved printed snapshot so a continuous keyword rule is
+  // evaluated once, while the registry still applies every independent source.
+  // Other base characteristics continue through their normal layer passes.
+  const setLayerObjects = engine.layers.setObjects.bind(engine.layers);
+  const rebaseLayeredMight = (object: ObjectSnapshot): ObjectSnapshot => {
+    const printed = record(object).printed;
+    if (printed === undefined) return object;
+    const printedMight = record(printed).might;
+    if (printedMight !== null && typeof printedMight !== 'number') return object;
+    return printedMight === object.might ? object : Object.freeze({ ...object, might: printedMight });
+  };
+  engine.layers.setObjects = ((objects) => {
+    if (Array.isArray(objects)) setLayerObjects(objects.map(rebaseLayeredMight));
+    else {
+      const rebased = new Map<string, ObjectSnapshot>();
+      for (const [key, object] of (objects as ReadonlyMap<string, ObjectSnapshot>)) {
+        rebased.set(key, rebaseLayeredMight(object));
+      }
+      setLayerObjects(rebased);
+    }
+  }) as typeof engine.layers.setObjects;
   const lifecycleRegistry = new Map<string, KeywordLifecycleBinding>();
   type LifecycleRuleRegistry = typeof engine.layers.registry & {
     lifecycleRuleEffects?: () => readonly import('../layers/types.js').RegisteredContinuousEffect[];
