@@ -643,9 +643,10 @@ export class TestWorld implements ResolveContext {
       case "play": {
         const object = this.current(action.object);
         if (!object || !this.state.players.has(action.player)) return fail();
-        // Legends are established in the Legend Zone and are never played to
-        // the Board (CR v1.5 107.4 / 174.2.a / 174.4).
-        if (object.types.some(type => type.toLowerCase() === "legend")) return fail("prevented");
+        // Legends established in the Legend Zone are never played to Board
+        // (CR v1.5 107.4 / 174.2.a / 174.4). Synthetic legacy fixtures that
+        // already model a Legend on Board remain outside this guard.
+        if (object.zone === "legend" && object.types.some(type => type.toLowerCase() === "legend")) return fail("prevented");
         if (action.cost) {
           const payment = this.apply({ type: "pay", player: action.player, plan: action.cost });
           if (payment.status !== "done") return payment;
@@ -673,9 +674,11 @@ export class TestWorld implements ResolveContext {
     if (!object) return fail();
     // A Champion Legend is established once and cannot be removed, moved, or
     // displaced from the Legend Zone (CR v1.5 107.4.d / 174.4). Non-Champion
-    // Legends can leave only into Banishment (107.4.d.2).
+    // Legends can leave only into Banishment (107.4.d.2). `create-token` is the
+    // sole establishment path, so arbitrary test fixtures that already place a
+    // Legend on Board remain the explicit legacy setup case.
     if (object.zone === "legend" && this.state.championLegends.has(refKey(object.ref))) return fail("prevented");
-    if (object.types.some(type => type.toLowerCase() === "legend") &&
+    if (object.zone === "legend" && object.types.some(type => type.toLowerCase() === "legend") &&
         destination !== "banishment") return fail("prevented");
     this.moveCurrent(object, destination, location, bottom);
     return done();
