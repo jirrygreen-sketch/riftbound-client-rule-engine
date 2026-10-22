@@ -12,7 +12,8 @@ import { LayerEngine } from '../layers/engine.js';
 import { matchesObjectFilter } from '../layers/filter.js';
 import { actionTimings, canAct as canActByRules, playLocations, restrictions as ruleRestrictions } from '../layers/rules/query.js';
 import { EventPipeline } from '../events/pipeline.js';
-import { triggerEventObjectBinding, type PipelineHost, type TimingEmission, type TriggerSnapshot } from '../events/pipeline-types.js';
+import { evaluateAcceleratePayment } from '../effects/keywords/Accelerate.js';
+import { triggerEventObjectBinding, type PipelineHost, type ReplacementCostEvidence, type TimingEmission, type TriggerSnapshot } from '../events/pipeline-types.js';
 import type { TimingPointId } from '../events/timing-points.js';
 import { bindResolveContext } from '../events/action-adapter.js';
 import { deriveMightChangedEmissions } from '../events/producers/might-change.js';
@@ -1232,11 +1233,27 @@ export class ChainEngine {
       const initializedContext = this.context(item, 'chain-item-resolve', item.targetPlans, item.choicePlan);
       const context = item.finalizeLinks === undefined ? initializedContext : withFinalizePlanLinks(initializedContext, item.finalizeLinks);
       if (item.kind === 'unit' || item.kind === 'gear') {
-        const ready = item.kind === 'gear' || item.costPlan?.selectedAdditional.some(cost => cost.kind === 'accelerate');
+        const location = item.location ?? { type: 'base' as const, player: item.controller };
+        const move: Extract<GameAction, { type: 'move-zone' }> = {
+          type: 'move-zone', object: item.object, to: location.type === 'base' ? 'base' : 'battlefield', location,
+        };
+        // Program-bound Accelerate units enter exhausted and let the real
+        // replacement apply. Harnesses without a program lifecycle retain the
+        // selected-plan fallback used by the published chain scenario.
+        const acceleratePaid = item.costPlan !== undefined && item.payment !== undefined &&
+          evaluateAcceleratePayment({
+            plan: item.costPlan, receipt: item.payment, source: item.source.ref, action: move,
+          });
+        const hasEntryReplacement = this.pipeline.hasReplacementRegistration(
+          `replacement:${item.object.id}:${item.object.zoneEntryId}`,
+        );
+        const ready = item.kind === 'gear' || acceleratePaid && !hasEntryReplacement;
         const state = this.pipeline.commit({ type: ready ? 'ready' : 'exhaust', object: item.object });
         if (state.status !== 'done') throw new Error('Permanent entry state could not be applied');
-        const location = item.location ?? { type: 'base' as const, player: item.controller };
-        const outcome = this.pipeline.commit({ type: 'move-zone', object: item.object, to: location.type === 'base' ? 'base' : 'battlefield', location });
+        const evidence = this.playCostEvidence(item, move);
+        const outcome = evidence === undefined
+          ? this.pipeline.commit(move)
+          : this.withPlayCostEvidence(evidence, () => this.pipeline.commit(move));
         if (outcome.status !== 'done' && outcome.status !== 'replaced') throw new Error('Permanent could not enter Board');
         if (this.options.host.objects().find(object => object.ref.id === item.object.id)?.zone === 'chain') throw new Error('Replacement left a resolving permanent on the Chain');
       }
@@ -1269,6 +1286,34 @@ export class ChainEngine {
       this.pipeline.emit({ timingPoint: 'chain-item-resolve', object: item.source, player: item.controller, details: { item: item.id } });
       this.record({ step: 'resolved', item: item.id }); this.remove(item, 'resolved'); this.busy = 'idle'; return result;
     });
+  }
+  /** Frozen Finalize evidence is scoped to this resolution's one Board-entry move. */
+  private playCostEvidence(item: ChainItem, action: Extract<GameAction, { type: 'move-zone' }>): ReplacementCostEvidence | undefined {
+    if (item.costPlan === undefined || item.payment === undefined) return undefined;
+    return {
+      plan: item.costPlan,
+      receipt: item.payment,
+      source: item.source.ref,
+      action: structuredClone(action),
+    };
+  }
+  /** Idempotent for an existing adapter that supplies the exact same evidence. */
+  private withPlayCostEvidence<T>(evidence: ReplacementCostEvidence, run: () => T): T {
+    const pipeline = this.pipeline;
+    const original = pipeline.withPlayCostEvidence;
+    const sameEvidence = (candidate: ReplacementCostEvidence) =>
+      candidate.plan.id === evidence.plan.id &&
+      candidate.receipt.planId === evidence.receipt.planId &&
+      candidate.source.id === evidence.source.id &&
+      candidate.source.zoneEntryId === evidence.source.zoneEntryId &&
+      candidate.action.object.id === evidence.action.object.id &&
+      candidate.action.object.zoneEntryId === evidence.action.object.zoneEntryId &&
+      candidate.action.to === evidence.action.to;
+    pipeline.withPlayCostEvidence = (<U>(candidate: ReplacementCostEvidence, task: () => U): U =>
+      sameEvidence(candidate) ? task() : original.call(pipeline, candidate, task) as U
+    ) as typeof pipeline.withPlayCostEvidence;
+    try { return original.call(pipeline, evidence, run) as T; }
+    finally { pipeline.withPlayCostEvidence = original; }
   }
   private remove(item: ChainItem, reason: string): void { this.entries = this.entries.filter(entry => entry.id !== item.id); this.priorityPasses = 0; this.record({ step: 'removed', item: item.id, reason }); this.requestCleanup('item-removed'); }
   private closeChain(): void {
