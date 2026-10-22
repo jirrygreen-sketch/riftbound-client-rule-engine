@@ -91,17 +91,32 @@ function scoreFixture({ setups = [], programs = [], fields = [
   return { kernel, flow, binding, requests, errors, settle, activated };
 }
 
-function enterUnitsAt(f, ids, battlefieldId) {
+function enterUnitsAt(f, ids, battlefieldId, filter = { type: 'unit', zone: 'board', controller: 'A' }) {
   f.flow.start();
   const refs = ids.map(id => f.kernel.ref(id));
   f.flow.execute(f.activated('score-wave', [{
     id: 'move-wave', op: 'effect.move',
     args: {
-      objects: constants({ kind: 'choose', id: 'participants', filter: { type: 'unit', zone: 'board', controller: 'A' } }),
+      objects: constants({ kind: 'choose', id: 'participants', filter }),
       amount: constants(ids.length), to: constants(field(battlefieldId)),
     },
   }], ids[0]));
   return refs;
+}
+
+function passUntilIdle(f, budget = 80) {
+  for (let passes = 0; passes < budget; passes++) {
+    if (f.flow.chain.items.length) {
+      if (f.flow.chain.priority !== null) f.flow.pass(f.flow.chain.priority);
+      continue;
+    }
+    if (f.flow.chain.focus !== null) {
+      f.flow.pass(f.flow.chain.focus);
+      continue;
+    }
+    return;
+  }
+  throw new Error('Chain did not settle');
 }
 
 test('CR 472/473.2.c: one Score wave collects one battlefield conquer trigger for all participating Units', () => {
@@ -119,6 +134,7 @@ test('CR 472/473.2.c: one Score wave collects one battlefield conquer trigger fo
   const canonical = minefield.canonicalCardId;
   assert.equal(canonical, minefield.canonicalCardId);
   assert.deepEqual(setup, { now: 'setup', action: 'register existing Board battlefield', rule: '170.2.a/b' });
+  assert.deepEqual(evidence.timeline, ['Score action', 'control-established', 'conquer timings', 'score timing', 'Pending', 'Finalize', 'Resolve']);
 
   // The concrete lifecycle bootstrap remains RIFT-891's write scope. Register
   // the exact program through the production adapter after attaching lifecycle.
@@ -139,44 +155,54 @@ test('CR 472/473.2.c: one Score wave collects one battlefield conquer trigger fo
 
 test('CR 190.6.a/d: conquest by B synchronizes the Battlefield snapshot and binds B as ability controller', () => {
   const f = scoreFixture({
-    programs: [scoreWaveProgram(minefield)],
+    programs: [],
+    fields: [{ id: 'bf1', controller: 'A' }, { id: 'bf2', controller: null }],
     setups: [w => w.battlefield('mine', {
       cardId: minefield.canonicalCardId, types: ['battlefield'], zone: 'board', location: field('bf1'),
       controller: 'A', energy: null, power: null, might: null,
-    }).base('b-unit', { owner: 'B', controller: 'B', might: 4 })],
-    choose: request => request.type === 'mode' && request.id.includes(':order:') ? request.options[0] : undefined,
+    }).unit('attacker', { owner: 'B', controller: 'B', might: 4, location: field('bf1') })
+      .unit('defender', { owner: 'A', controller: 'A', might: 2, location: field('bf1') })],
   });
-  const source = f.kernel.getObject('mine');
-  f.binding.registerProgramTriggers(f.flow.chain, source);
   f.flow.start();
-  if (f.flow.turnPlayer !== 'B') f.flow.pass(f.flow.turnPlayer);
-  assert.equal(f.flow.turnPlayer, 'B');
-  f.flow.execute(f.activated('b-conquers', [{
-    id: 'move-b', op: 'effect.move', args: { to: constants(field('bf1')) },
-  }], 'b-unit', 'B'));
-  f.settle();
-
+  assert.equal(f.flow.chain.focus, 'B');
+  f.flow.pass('B');
+  f.flow.pass('A');
+  assert.equal(f.flow.chain.turnState, 'neutral-open');
+  f.flow.combat.prepareDamage();
+  f.flow.combat.submitAttackerDamage('B', [{ uid: 'defender', amount: 4 }]);
+  f.flow.combat.submitDefenderDamage('A', [{ uid: 'attacker', amount: 2 }]);
+  f.flow.advance();
+  f.flow.advance();
   assert.equal(f.flow.battlefields.find(battlefield => battlefield.id === 'bf1').controller, 'B');
-  assert.equal(f.kernel.getObject('mine').controller, 'B', 'Battlefield ObjectSnapshot follows CR 190.5/.6');
-  const pending = f.flow.chain.trace.filter(event => event.step === 'pending' && event.item.startsWith('trigger:'));
-  assert.equal(pending.length, 1, 'the trigger controller is the new battlefield controller');
-  assert.equal(f.flow.chain.items[0].controller, 'B');
+  const authoritative = f.kernel.getObject('mine');
+  assert.equal(authoritative.controller, 'B', 'Battlefield ObjectSnapshot follows CR 190.5/.6');
+  const timing = f.flow.chain.pipeline.events.map(event => event.timingPoint);
+  assert.ok(timing.includes('control-established'));
+  assert.ok(timing.includes('conquer'));
+  assert.equal(f.kernel.player('B').score, 1);
 });
 
 test('CR 383.4.c.2/708/710: Sunken Temple evaluates a frozen 4-Might participant at layered Might 5', () => {
   const f = scoreFixture({
     programs: [scoreWaveProgram(sunkenTemple)],
-    setups: [w => w.battlefield('temple', {
-      cardId: sunkenTemple.canonicalCardId, types: ['battlefield'], zone: 'board', location: field('bf1'),
-      controller: 'A', energy: null, power: null, might: null,
-    }).unit('buffable', { might: 4, buffs: 1 })],
+    setups: [w => {
+      w.battlefield('temple', {
+        cardId: sunkenTemple.canonicalCardId, types: ['battlefield'], zone: 'board', location: field('bf1'),
+        controller: 'A', energy: null, power: null, might: null,
+      });
+      w.base('buffable', { might: 4, buffs: 1, tags: ['participant'] });
+      w.base('spectator', { might: 7 });
+    }],
   });
   const source = f.kernel.getObject('temple');
   f.binding.registerProgramTriggers(f.flow.chain, source);
-  enterUnitsAt(f, ['buffable'], 'bf1');
+  enterUnitsAt(f, ['buffable'], 'bf1', {
+    type: 'unit', zone: 'board', controller: 'A', tags: ['participant'],
+  });
   f.settle();
   assert.equal(f.flow.chain.trace.filter(event => event.step === 'pending' && event.item.startsWith('trigger:')).length, 1);
   assert.equal(f.flow.layers.evaluate(f.kernel.ref('buffable')).might, 5);
+  assert.equal(f.flow.layers.evaluate(f.kernel.ref('spectator')).might, 7);
   assert.equal(f.kernel.getObject('buffable').might, 4, 'raw host Might is not rewritten');
   assert.ok(f.requests.some(request => request.id === 'finalize:trigger:1:optional'));
 });

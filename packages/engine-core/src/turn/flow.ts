@@ -107,16 +107,16 @@ export class TurnFlow {
         const saved = checkpoint as { host: unknown; rules: ReturnType<TurnFlow['checkpoint']> };
         options.host.restore(saved.host); this.restore(saved.rules);
       },
-      objects: () => options.host.objects(),
+      objects: () => this.objectsWithBattlefieldControllers(),
       context: (source, controller, at) => {
         const base = options.host.context(source, controller, at);
         const context = new Proxy(base, { get: (target, key) => {
           if (key === 'object') return (ref: ObjectRef) => {
-            this.layers.setObjects(options.host.objects());
+            this.layers.setObjects(this.objectsWithBattlefieldControllers());
             return this.layers.evaluate(ref);
           };
           if (key === 'query') return (filter: import('@riftbound/card-dsl').ObjectFilter) => {
-            this.layers.setObjects(options.host.objects());
+            this.layers.setObjects(this.objectsWithBattlefieldControllers());
             return this.layers.evaluateAll().filter(object => matchesObjectFilter(filter, object, {
               anchor: source, controller,
             }));
@@ -178,7 +178,7 @@ export class TurnFlow {
             const object = options.host.objects().find(candidate => candidate.ref.id === unit.id &&
               candidate.ref.zoneEntryId === unit.zoneEntryId);
             emissions.push({ timingPoint: score.method, object, source: object, it: object, player: score.player,
-              details: { ...details, objectId: unit.id, playerId: score.player, participatingUnits } });
+              details: { ...details, objectId: unit.id, playerId: score.player } });
           }
           const battlefieldObject = this.battlefieldObject(score.field);
           emissions.push({ timingPoint: 'score', player: score.player, details: { ...details, participatingUnits },
@@ -224,7 +224,7 @@ export class TurnFlow {
     this.phaseValue = saved.phase; this.turnValue = saved.turn; this.winnerValue = saved.winner; this.special = saved.special;
     this.turns = saved.turns; this.scoreLedger.restore(saved.ledger); this.turnQueue.restore(saved.turnQueue);
     this.tasks = saved.tasks; this.burnOutSequence = saved.burnOutSequence;
-    this.scoreWaveSequence = saved.scoreWaveSequence;
+    this.scoreWaveSequence = saved.scoreWaveSequence ?? 0;
     this.emptyingRunePool = saved.emptyingRunePool; this.hiddenState = restoreHiddenState(saved.hidden);
     this.hiddenControllers = saved.hiddenControllers;
     if (saved.combat) this.combat.restore(saved.combat);
@@ -554,15 +554,27 @@ export class TurnFlow {
     this.winnerValue = winner;
   }
   private battlefieldObject(id: string): ObjectSnapshot | null {
-    return this.options.host.objects().find(object => object.zone === 'board' &&
+    return this.objectsWithBattlefieldControllers().find(object => object.zone === 'board' &&
       object.types.some(type => type.toLowerCase() === 'battlefield') &&
       (object.ref.id === id || object.location?.type === 'battlefield' && object.location.id === id)) ?? null;
   }
   private battlefieldUnits(field: string, player: PlayerId): readonly ObjectSnapshot[] {
-    this.layers.setObjects(this.options.host.objects());
+    this.layers.setObjects(this.objectsWithBattlefieldControllers());
     return this.layers.evaluateAll().filter(object => object.zone === 'board' &&
       object.types.includes('unit') && object.controller === player &&
       object.location?.type === 'battlefield' && object.location.id === field);
+  }
+  /** Project non-null Battlefield control into the trigger/query host view. */
+  private objectsWithBattlefieldControllers(): readonly ObjectSnapshot[] {
+    const controllers = new Map(this.combat.battlefields.map(field => [field.id, field.controller] as const));
+    return this.options.host.objects().map(object => {
+      if (object.zone !== 'board' || !object.types.some(type => type.toLowerCase() === 'battlefield')) return object;
+      const battlefieldId = object.location?.type === 'battlefield' ? object.location.id : object.ref.id;
+      if (!controllers.has(battlefieldId)) return object;
+      const controller = controllers.get(battlefieldId);
+      if (controller === null || controller === undefined) return object;
+      return controller === object.controller ? object : Object.freeze({ ...object, controller });
+    });
   }
   private refKey(object: ObjectRef): string { return `${object.id}:${object.zoneEntryId}`; }
   private cleanupRecallAndHidden(): boolean {

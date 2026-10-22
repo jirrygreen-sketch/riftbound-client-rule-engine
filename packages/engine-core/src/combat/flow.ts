@@ -195,9 +195,9 @@ export class CombatFlow {
     if (battlefield !== undefined) {
       if (controller !== null && battlefield.controller !== controller) {
         const outcome = this.host.execute({ type: 'take-control', object: battlefield.ref, player: controller });
-        if (outcome.status !== 'done') {
+        if (outcome.outcome.status !== 'done') {
           throw new TurnCombatBlockedError('battlefield-controller-sync',
-            `Battlefield ${field.id} controller synchronization was ${outcome.status}`);
+            `Battlefield ${field.id} controller synchronization was ${outcome.outcome.status}`);
         }
       }
     }
