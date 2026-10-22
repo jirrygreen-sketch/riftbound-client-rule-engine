@@ -70,8 +70,29 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   const originalDeferTriggerScan = pipeline.deferTriggerScan.bind(pipeline);
   const originalOnEvent = pipeline.onEvent;
   const originalRouteAction = pipeline.routeAction;
+  const originalHostObjects = pipeline.host.objects.bind(pipeline.host);
+  let completedObjectView: readonly ObjectSnapshot[] = engine.layers.objectsView();
+  let objectViewDepth = 0;
   let depth = 0;
   let detached = false;
+
+  // Static filters/conditions resolve their live binding source through the
+  // pipeline host while the layer engine is already deriving that same host.
+  // Re-entering the complete pass from each source lookup creates a recursive
+  // board-wide evaluation. Nested source lookups use the last completed host
+  // view; the outermost read still refreshes from authoritative state, and the
+  // layer engine derives current characteristics from that view.
+  pipeline.host.objects = () => {
+    if (objectViewDepth > 0) return completedObjectView;
+    objectViewDepth++;
+    try {
+      const current = originalHostObjects();
+      completedObjectView = current;
+      return current;
+    } finally {
+      objectViewDepth--;
+    }
+  };
 
   const refKey = (source: ObjectSnapshot) => `${source.ref.id}:${source.ref.zoneEntryId}`;
   // A same-incarnation Move changes only its location. Static filters bind a
@@ -503,6 +524,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       pipeline.onEvent = originalOnEvent;
       pipeline.deferTriggerScan = originalDeferTriggerScan;
       pipeline.routeAction = originalRouteAction;
+      pipeline.host.objects = originalHostObjects;
       pendingExits.clear();
       playFollowers.clear();
       for (const binding of [...bindings.values()]) detach(binding.source);

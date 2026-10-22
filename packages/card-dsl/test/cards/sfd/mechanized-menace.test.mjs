@@ -83,6 +83,7 @@ function legendInZone() {
   binding.attachLifecycle(engine, error => { throw error; });
   const created = engine.commit({ type: "create-token", player: "A", to: "legend", token: {
     cardId: mechanizedMenace.canonicalCardId, name: "Mechanized Menace", types: ["legend"], tags: ["Rumble"],
+    championLegend: true,
     keywords: [], might: null, energy: null, power: null,
   } });
   assert.equal(created.status, "done");
@@ -106,11 +107,12 @@ test("sfd-181-221 Mechanized Menace reaches the CR 187.4 Mech token's real tag",
   assert.ok(mechToken.spec.tags.includes(mechanizedMenace.abilities[0].effect.filter.tag));
 });
 
-test("sfd-181-221 Mechanized Menace stops granting Shield once the Legend leaves", () => {
+test("sfd-181-221 Mechanized Menace keeps a Champion Legend and its Shield grant in Legend", () => {
   const f = legendInZone();
   assert.equal(f.shield("mech").length, 1);
-  assert.equal(f.engine.commit({ type: "move-zone", object: f.kernel.ref(f.legend.id), to: "banishment" }).status, "done");
-  assert.deepEqual(f.shield("mech"), []);
+  assert.equal(f.engine.commit({ type: "move-zone", object: f.kernel.ref(f.legend.id), to: "banishment" }).status, "prevented");
+  assert.equal(f.shield("mech").length, 1);
+  assert.equal(f.kernel.getObject(f.legend.id).zone, "legend");
 });
 
 test.todo("sfd-181-221 Mechanized Menace: a granted Shield gives +1 Might while the Mech is a defender in real combat (CR 814.1.c)");

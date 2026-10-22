@@ -327,7 +327,6 @@ test('RIFT-891 a non-Champion Legend may enter Banishment and unbinds its static
   } finally { lifecycle.detach(); }
 });
 
-
 const constant = value => ({ kind: 'constant', value });
 const ACTIVATING_LEGEND = 'trained:activating-legend';
 const ACTIVATING_UNIT = 'trained:activating-unit';

@@ -92,6 +92,11 @@ const cloneRef = (ref: ObjectRef): ObjectRef => ({ id: ref.id, zoneEntryId: ref.
 const refKey = (ref: ObjectRef): string => `${ref.id}:${ref.zoneEntryId}`;
 const copySnapshot = (snapshot: ObjectSnapshot): ObjectSnapshot => structuredClone(snapshot);
 const asValue = (value: unknown): Value => value as Value;
+function destinationZone(destination: ZoneDestination | "board"): ZoneId {
+  if (destination === "deck-top" || destination === "deck-bottom") return "deck";
+  if (destination === "base" || destination === "battlefield") return "board";
+  return destination;
+}
 
 function makeEvent(state: WorldState, action: ContractGameAction["type"], timingPoint: TimingPointId, details: Record<string, unknown> = {}): TestEvent {
   const event = {
@@ -682,7 +687,7 @@ export class TestWorld implements ResolveContext {
     object.ref = { id: object.ref.id, zoneEntryId: object.ref.zoneEntryId + 1 };
     object.combatRole = null;
     object.location = location ?? (destination === "base" ? { type: "base", player: object.controller } : destination === "battlefield" ? { type: "battlefield", id: "battlefield-1" } : null);
-    object.zone = destination === "deck-top" || destination === "deck-bottom" ? "deck" : destination === "rune-deck" ? "rune-deck" : destination === "rune-zone" ? "rune-zone" : destination === "banishment" ? "banishment" : destination === "hand" ? "hand" : destination === "trash" ? "trash" : destination === "chain" ? "chain" : destination === "legend" ? "legend" : "board";
+    object.zone = destinationZone(destination);
     this.putInZone(object, object.zone, bottom);
   }
   private putInZone(object: MutableObject, zone: ZoneId, bottom = false): void {
