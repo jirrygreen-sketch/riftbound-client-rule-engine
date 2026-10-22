@@ -805,7 +805,9 @@ function bindStatic(engine: ChainEngine, ability: StaticAbility, source: ObjectS
 /** Build the production adapter used by attachProgramLifecycle. */
 export function createEngineStaticBinder(engine: ChainEngine): ProgramStaticBinder {
   bridgeLifecycleOnEvent(engine);
-  if (!KEYWORD_LIFECYCLE_BINDINGS.has(engine)) installKeywordReexpansion(engine);
+  if (!(engine.layers instanceof KeywordGrantLayerEngine) && !KEYWORD_LIFECYCLE_BINDINGS.has(engine)) {
+    installKeywordReexpansion(engine);
+  }
   const keywordLifecycle = KEYWORD_LIFECYCLE_BINDINGS.get(engine);
   // The engine layer can insert entries between refreshes. Recompute ahead of
   // every material collection before the ordinary program binder runs.
