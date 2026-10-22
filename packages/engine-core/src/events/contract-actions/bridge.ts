@@ -108,7 +108,17 @@ function recallPreservedState(before: readonly ObjectSnapshot[], after: readonly
 export function contractActionReachedDestination(
   action: ContractGameAction,
   after: readonly ObjectSnapshot[],
+  before: readonly ObjectSnapshot[] = [],
 ): boolean {
+  if (action.type === 'hide') {
+    const previous = before.find(candidate => candidate.ref.id === action.object.id &&
+      candidate.ref.zoneEntryId === action.object.zoneEntryId);
+    if (previous === undefined) return false;
+    const object = after.find(candidate => candidate.ref.id === previous.ref.id && candidate.ref.zoneEntryId >= previous.ref.zoneEntryId);
+    return object?.zone === 'board' && sameLocation(object.location, action.location) &&
+      (object as ObjectSnapshot & { readonly faceDown?: unknown }).faceDown === true &&
+      object.owner === previous.owner && object.controller === previous.controller;
+  }
   if (action.type === 'move-location') {
     const object = currentObject(after, action);
     return object?.zone === 'board' && sameLocation(object.location, action.to);
@@ -128,7 +138,7 @@ export function contractActionCompleted(
   before: readonly ObjectSnapshot[],
   after: readonly ObjectSnapshot[],
 ): boolean {
-  return contractActionReachedDestination(action, after) &&
+  return contractActionReachedDestination(action, after, before) &&
     (action.type !== 'kill' || killedInTrash(before, after, action));
 }
 
@@ -209,7 +219,8 @@ export function isKnownContractAction(action: unknown): action is ContractGameAc
   if (action.type === 'hide') return record(action.object) &&
     typeof action.object.id === 'string' && typeof action.object.zoneEntryId === 'number' &&
     Number.isSafeInteger(action.object.zoneEntryId) &&
-    typeof action.player === 'string';
+    typeof action.player === 'string' && record(action.location) && action.location.type === 'battlefield' &&
+    typeof action.location.id === 'string' && action.location.id.length > 0;
   if (action.type === 'kill') return record(action.object) && isObjectIdentity(action.object as { id: string; zoneEntryId: number });
   return GAME_ACTION_TYPES.has(action.type as GameAction['type']);
 }
@@ -225,7 +236,9 @@ export function executeContractAction(
   options: ExecuteContractActionOptions = {},
 ): ContractActionExecution {
   if (!isKnownContractAction(action)) return { outcome: rejected(action), steps: [] };
-  if (action.type === 'hide') return { outcome: rejected(action), steps: [] };
+  if (action.type === 'hide' && port.performContract === undefined) {
+    return { outcome: rejected(action), steps: [] };
+  }
 
   const transactionId = action.type === 'batch'
     ? action.transactionId ?? options.transactionId
@@ -258,7 +271,7 @@ export function executeContractAction(
   try {
     if (action.type === 'batch') {
       for (const leaf of leaves) {
-        if (leaf.type === 'hide') {
+        if (leaf.type === 'hide' && port.performContract === undefined) {
           port.restore(checkpoint);
           return rollbackResult(
             rolledBack(transactionId, types, [], 'impossible'),
@@ -269,7 +282,7 @@ export function executeContractAction(
     }
     for (const leaf of leaves) {
       const before = structuredClone(port.objects());
-      const outcome = leaf.type === 'recall' && port.performContract !== undefined
+      const outcome = (leaf.type === 'recall' || leaf.type === 'hide') && port.performContract !== undefined
         ? port.performContract(leaf)
         : leaf.type === 'kill' && killBatchAction && port.performBatchLeaf !== undefined
           ? port.performBatchLeaf(leaf, transactionId ?? options.transactionId ?? 'batch')
