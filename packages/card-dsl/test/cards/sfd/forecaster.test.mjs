@@ -38,10 +38,7 @@ function playForecaster({
     programs: [program],
     turnPlayer,
     answers: {
-      "trigger:": (_kernel, request) => {
-        if (request.type !== "mode") return undefined;
-        return [...request.options].sort((left, right) => Number(String(right).includes("keyword")) - Number(String(left).includes("keyword")))[0];
-      },
+      "trigger:": (_kernel, request) => request.type === "mode" ? request.options[0] : undefined,
       "vision-look": answerRecycle
     },
     build: (w) => {
@@ -127,7 +124,6 @@ function enterBoard(f, id) {
     to: "base",
     location: { type: "base", player: onChain.controller }
   }).status, "done");
-  f.engine.advance();
   f.engine.advance();
   f.settle();
 }
