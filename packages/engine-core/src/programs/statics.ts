@@ -183,8 +183,10 @@ function installKeywordReexpansion(engine: ChainEngine): void {
     });
     const unchanged = generated.length === normalized.length && generated.every((effect, index) =>
       JSON.stringify(effect) === JSON.stringify(normalized[index]));
+    for (const effect of generated) if (engine.layers.registry.get(effect.id) !== undefined) {
+      engine.layers.removeContinuous(effect.id);
+    }
     if (unchanged) return;
-    for (const effect of generated) if (engine.layers.registry.get(effect.id) !== undefined) engine.layers.removeContinuous(effect.id);
     for (const effect of normalized) {
       const existing = engine.layers.registry.get(effect.id);
       if (existing !== undefined) {
