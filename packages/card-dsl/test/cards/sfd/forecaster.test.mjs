@@ -1,11 +1,6 @@
-// Forecaster (sfd-065-221), checked against the current production lifecycle.
-//
-// CR v1.5 817.1.b/c expands each Vision instance to a Board-entry Predict;
-// 817.2 requires multiple instances to trigger separately. The production
-// lifecycle now supplies the real controller and ordered deck-top pick, but
-// currently expands one static grant twice. That observable trigger-count
-// defect keeps the card judge-required and is reproduced below without
-// manually settling or synthesizing events.
+// Forecaster (sfd-065-221), checked through ProgramBinding, ChainEngine and the
+// attached production lifecycle. CR v1.5 817.1.b/c expands each Vision instance
+// to a Board-entry Predict, while 817.2 keeps separate instances separate.
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -27,33 +22,79 @@ const SOURCE_TEXT =
 
 const [grant] = program.abilities;
 
-function playForecaster({ controller = "A", recycle = false } = {}) {
-  const f = productionPlay({
-    programs: [{ ...program, status: "executable", judgeReason: undefined }],
-    turnPlayer: controller,
-    answers: {
-      "trigger:": (_kernel, request) => request.type === "mode" ? request.options[0] : undefined,
-      "vision-look": (_kernel, request) => {
-        if (!recycle) return [];
+function playForecaster({
+  controller = "A",
+  recycle = false,
+  includeBoundaryObjects = false
+} = {}) {
+  const turnPlayer = controller;
+  const answerRecycle = recycle
+    ? (_kernel, request) => {
         const top = request.options[0];
         return top?.id === `${controller.toLowerCase()}-top` ? [top] : [];
       }
+    : () => [];
+  const f = productionPlay({
+    programs: [program],
+    turnPlayer,
+    answers: {
+      "trigger:": (_kernel, request) => {
+        if (request.type !== "mode") return undefined;
+        return [...request.options].sort((left, right) => Number(String(right).includes("keyword")) - Number(String(left).includes("keyword")))[0];
+      },
+      "vision-look": answerRecycle
     },
-    build: (w) => w
-      .player("A", { energy: 10, power: [] })
-      .player("B", { energy: 10, power: [] })
-      .deck(["a-top", "a-second"], { owner: "A" })
-      .deck(["b-top", "b-second"], { owner: "B" })
-      .hand("forecaster", {
-        owner: controller,
-        controller,
-        cardId: CANONICAL,
-        types: ["unit"],
-        tags: ["Mech"],
-        energy: 2,
-        power: null,
-        might: 2
-      })
+    build: (w) => {
+      let builder = w
+        .player("A", { energy: 10, power: [] })
+        .player("B", { energy: 10, power: [] })
+        .deck(["a-top", "a-second", "a-third", "a-fourth"], { owner: "A" })
+        .deck(["b-top", "b-second", "b-third", "b-fourth"], { owner: "B" })
+        .hand("forecaster", {
+          owner: controller,
+          controller,
+          cardId: CANONICAL,
+          types: ["unit"],
+          tags: ["Mech"],
+          energy: 2,
+          power: null,
+          might: 2
+        });
+      if (includeBoundaryObjects) {
+        builder = builder
+          .hand("friendly-mech", {
+            owner: "A",
+            controller: "A",
+            cardId: "card:friendly-mech",
+            types: ["unit"],
+            tags: ["Mech"],
+            energy: null,
+            power: null,
+            might: 3
+          })
+          .hand("plain-ally", {
+            owner: "A",
+            controller: "A",
+            cardId: "card:plain-ally",
+            types: ["unit"],
+            tags: [],
+            energy: null,
+            power: null,
+            might: 3
+          })
+          .hand("enemy-mech", {
+            owner: "B",
+            controller: "B",
+            cardId: "card:enemy-mech",
+            types: ["unit"],
+            tags: ["Mech"],
+            energy: null,
+            power: null,
+            might: 3
+          });
+      }
+      return builder;
+    }
   });
   const draft = f.play("forecaster", controller);
   return { f, draft };
@@ -63,26 +104,44 @@ function inspectLinks(f) {
   return Object.entries(f.kernel.linkedSnapshot()).filter(([key]) => key.endsWith(".inspected"));
 }
 
-test("sfd-065-221 Forecaster: program is valid, registered and judge-required", () => {
+function visionAsks(f) {
+  return f.requests.filter(request =>
+    request.type === "select-objects" && request.id.startsWith("vision-look")
+  );
+}
+
+function keywordTriggerIds(f, id = "forecaster") {
+  return [...f.engine.pipeline.checkpoint().triggers.values()]
+    .filter(registration => registration.source?.ref.id === id &&
+      registration.id.startsWith("program-keyword-ability:"))
+    .map(registration => registration.id);
+}
+
+function enterBoard(f, id) {
+  const entered = f.kernel.getObject(id);
+  assert.equal(f.engine.commit({ type: "move-zone", object: entered.ref, to: "chain" }).status, "done");
+  const onChain = f.kernel.getObject(id);
+  assert.equal(f.engine.commit({
+    type: "move-zone",
+    object: onChain.ref,
+    to: "base",
+    location: { type: "base", player: onChain.controller }
+  }).status, "done");
+  f.engine.advance();
+  f.engine.advance();
+  f.settle();
+}
+
+test("sfd-065-221 Forecaster: program is valid, registered and executable", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(program.status, "judge-required");
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
-});
-
-test("sfd-065-221 Forecaster: current judgeReason names the duplicate Vision instance lifecycle gap", () => {
-  assert.match(program.judgeReason, /单个静态 Vision grant/);
-  assert.match(program.judgeReason, /keyword-grants\.ts:568/);
-  assert.match(program.judgeReason, /`expansions`/);
-  assert.match(program.judgeReason, /`this\.expansions`/);
-  assert.match(program.judgeReason, /vision:printed-0/);
-  assert.match(program.judgeReason, /vision:printed-1/);
-  assert.match(program.judgeReason, /817\.2/);
-  assert.doesNotMatch(program.judgeReason, /静默查 0 张|constant\("A"\) 占位/);
 });
 
 test("sfd-065-221 Forecaster: the static body grants Vision to the controller's Mechs", () => {
@@ -148,28 +207,32 @@ test("sfd-065-221 Forecaster production: the grant follows the controller and Me
   assert.deepEqual(keywords("enemy-mech"), []);
 });
 
-test("sfd-065-221 Forecaster production: the lifecycle uses A's own deck top and separated recycle choices", () => {
+test("sfd-065-221 Forecaster production golden: one Vision instance uses A's own deck top and pays the printed cost", () => {
   const { f } = playForecaster({ controller: "A" });
-  const asks = f.requests.filter(request => request.type === "select-objects");
-  assert.equal(asks.length, 2, "the current blocker emits two Predict choices for one Vision grant");
+  const asks = visionAsks(f);
+  assert.equal(asks.length, 1, "one static grant contributes exactly one Vision instance");
   assert.deepEqual(new Set(asks.map(request => request.chooser)), new Set(["A"]));
   assert.deepEqual(
     new Set(asks.map(request => request.options[0]?.id)),
     new Set(["a-top"]),
-    "the lifecycle viewer is the actual controller, not hard-coded from the test"
+    "the lifecycle viewer is the actual controller"
   );
-  assert.equal(
-    f.kernel.events.filter(event => event.action === "look").length,
-    2,
-    "both duplicated Vision instances really reach the production Resolve path"
+  assert.equal(f.kernel.events.filter(event => event.action === "look").length, 1);
+  assert.equal(f.kernel.events.filter(event => event.action === "recycle").length, 0);
+  assert.equal(inspectLinks(f).length, 1);
+  assert.equal(f.kernel.player("A").energy, 8, "2 Energy was paid by the real play path");
+  assert.deepEqual(f.kernel.player("A").power, []);
+  assert.equal(f.kernel.getObject("forecaster").zone, "board");
+  assert.deepEqual(
+    f.engine.layers.evaluate(f.kernel.ref("forecaster")).keywords.map(keyword => keyword.id),
+    ["Vision"]
   );
-  assert.equal(inspectLinks(f).length, 2);
 });
 
 test("sfd-065-221 Forecaster production boundary: declining recycle leaves both decks unchanged", () => {
   const { f } = playForecaster({ controller: "A" });
-  assert.deepEqual(f.kernel.zone("A", "deck").map(ref => ref.id), ["a-top", "a-second"]);
-  assert.deepEqual(f.kernel.zone("B", "deck").map(ref => ref.id), ["b-top", "b-second"]);
+  assert.deepEqual(f.kernel.zone("A", "deck").map(ref => ref.id), ["a-top", "a-second", "a-third", "a-fourth"]);
+  assert.deepEqual(f.kernel.zone("B", "deck").map(ref => ref.id), ["b-top", "b-second", "b-third", "b-fourth"]);
   assert.equal(f.kernel.events.filter(event => event.action === "recycle").length, 0);
   for (const [key, value] of inspectLinks(f)) {
     assert.equal(value, 1, `${key} looked at exactly the real top card`);
@@ -178,58 +241,70 @@ test("sfd-065-221 Forecaster production boundary: declining recycle leaves both 
 
 test("sfd-065-221 Forecaster production: B's controlled Vision reads B's own top before the recycle boundary", () => {
   const { f } = playForecaster({ controller: "B" });
-  const asks = f.requests.filter(request => request.type === "select-objects");
-  assert.equal(asks.length, 2);
+  const asks = visionAsks(f);
+  assert.equal(asks.length, 1);
   assert.deepEqual(
     new Set(asks.map(request => request.options[0]?.id)),
     new Set(["b-top"]),
     "the lifecycle viewer follows the controller rather than assuming player A"
   );
-  assert.deepEqual(f.kernel.zone("A", "deck").map(ref => ref.id), ["a-top", "a-second"]);
-  assert.deepEqual(f.kernel.zone("B", "deck").map(ref => ref.id), ["b-top", "b-second"]);
-  const recycledLinks = Object.entries(f.kernel.linkedSnapshot()).filter(([key]) =>
-    key.includes("vision-recycle") && key.endsWith(".recycled")
-  );
-  assert.equal(recycledLinks.length, 2);
-  assert.deepEqual(recycledLinks.flatMap(([, value]) => value), []);
+  assert.deepEqual(f.kernel.zone("A", "deck").map(ref => ref.id), ["a-top", "a-second", "a-third", "a-fourth"]);
+  assert.deepEqual(f.kernel.zone("B", "deck").map(ref => ref.id), ["b-top", "b-second", "b-third", "b-fourth"]);
+  assert.equal(f.kernel.linkedSnapshot()["vision-recycle.recycledCount"], 0);
+  assert.equal(f.kernel.events.filter(event => event.action === "recycle").length, 0);
 });
 
 test("sfd-065-221 Forecaster production boundary: accepting an A-controlled recycle recycles A's top card", () => {
   const { f } = playForecaster({ controller: "A", recycle: true });
-  assert.deepEqual(f.kernel.zone("A", "deck").map(ref => ref.id), ["a-second", "a-top"]);
-  assert.deepEqual(f.kernel.zone("B", "deck").map(ref => ref.id), ["b-top", "b-second"]);
-  const recycled = f.kernel.events.filter(event => event.action === "recycle");
-  assert.equal(recycled.length, 1, "the duplicated second instance sees the same kept top and declines it");
-  const recycledLinks = Object.entries(f.kernel.linkedSnapshot()).filter(([key]) =>
-    key.includes("vision-recycle") && key.endsWith(".recycled")
-  );
-  assert.equal(recycledLinks.length, 2);
   assert.deepEqual(
-    recycledLinks.flatMap(([, value]) => value).map(ref => ref.id),
+    f.kernel.zone("A", "deck").map(ref => ref.id),
+    ["a-second", "a-third", "a-fourth", "a-top"]
+  );
+  assert.deepEqual(f.kernel.zone("B", "deck").map(ref => ref.id), ["b-top", "b-second", "b-third", "b-fourth"]);
+  const recycled = f.kernel.events.filter(event => event.action === "recycle");
+  assert.equal(recycled.length, 1, "one Vision instance performs one real recycle");
+  assert.equal(f.kernel.linkedSnapshot()["vision-recycle.recycledCount"], 1);
+  assert.deepEqual(
+    f.kernel.linkedSnapshot()["vision-recycle.recycled"].map(ref => ref.id),
     ["a-top"]
   );
 });
 
-test("sfd-065-221 Forecaster production gap: one static Vision grant registers two independent trigger instances", () => {
+test("sfd-065-221 Forecaster production boundary: one static grant registers exactly one Vision trigger", () => {
   const { f } = playForecaster({ controller: "A" });
   const source = f.kernel.getObject("forecaster");
-  const keywordTriggers = [...f.engine.pipeline.checkpoint().triggers.values()].filter(registration =>
-    registration.source?.ref.id === "forecaster" && registration.id.startsWith("program-keyword-ability:")
-  );
-  assert.equal(keywordTriggers.length, 2);
+  const keywordTriggers = keywordTriggerIds(f);
+  assert.equal(keywordTriggers.length, 1);
   assert.deepEqual(
-    keywordTriggers.map(registration => registration.id).sort(),
-    [
-      `program-keyword-ability:forecaster:${source.ref.zoneEntryId}:vision:printed-0:0`,
-      `program-keyword-ability:forecaster:${source.ref.zoneEntryId}:vision:printed-1:0`
-    ]
+    keywordTriggers,
+    [`program-keyword-ability:forecaster:${source.ref.zoneEntryId}:vision:printed-0:0`]
   );
-  assert.equal(
-    f.requests.filter(request => request.type === "mode" && request.id.startsWith("trigger:")).length,
-    1,
-    "the two same-controller triggers also require a real ordering choice"
+  assert.equal(visionAsks(f).length, 1);
+  assert.equal(inspectLinks(f).length, 1);
+});
+
+test("sfd-065-221 Forecaster production boundary: only this controller's Mechs receive the grant", () => {
+  const { f } = playForecaster({ includeBoundaryObjects: true });
+  const before = visionAsks(f).length;
+
+  enterBoard(f, "friendly-mech");
+  const friendlyAsks = visionAsks(f).slice(before);
+  assert.equal(friendlyAsks.length, 1, "one Forecaster grant creates one Vision instance");
+  assert.deepEqual(friendlyAsks.map(request => request.chooser), ["A"]);
+  assert.deepEqual(friendlyAsks.map(request => request.options[0]?.id), ["a-top"]);
+  assert.deepEqual(
+    f.engine.layers.evaluate(f.kernel.ref("friendly-mech")).keywords.map(keyword => keyword.id),
+    ["Vision"]
   );
-  assert.equal(inspectLinks(f).length, 2);
+  assert.equal(keywordTriggerIds(f, "friendly-mech").length, 1);
+
+  enterBoard(f, "plain-ally");
+  assert.equal(visionAsks(f).length, before + 1, "a non-Mech receives no Vision trigger");
+  assert.deepEqual(f.engine.layers.evaluate(f.kernel.ref("plain-ally")).keywords, []);
+
+  enterBoard(f, "enemy-mech");
+  assert.equal(visionAsks(f).length, before + 1, "an opposing Mech receives no grant from Forecaster");
+  assert.deepEqual(f.engine.layers.evaluate(f.kernel.ref("enemy-mech")).keywords, []);
 });
 
 test("sfd-065-221 Forecaster reference: one Vision instance has one Board-entry Predict body", () => {
