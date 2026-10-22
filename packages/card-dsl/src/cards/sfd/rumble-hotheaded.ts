@@ -74,7 +74,7 @@ export const RUMBLE_OFFICIAL_EFFECT_ORDER_EVIDENCE = {
       responseWindow: "After Finalize, the Closed-State window permits legally timed Reactions before Resolve. The production golden verifies the A-to-B Priority order and subsequent Resolve without inventing a Reaction card.",
       productionAssertions: [
         "Rumble, Hotheaded production component: Finalize recycles, preserves pre-move Might, and reaches the nested Play",
-        "Rumble, Hotheaded production golden: trusted Breakneck metadata yields and pays 5 Energy plus 2 Mind Power",
+        "Rumble, Hotheaded production golden: Breakneck Mech pays 5 Energy plus 2 Mind Power from trusted metadata",
         "Rumble, Hotheaded cost-plan boundary: missing numeric Power provenance fails closed"
       ]
     }
