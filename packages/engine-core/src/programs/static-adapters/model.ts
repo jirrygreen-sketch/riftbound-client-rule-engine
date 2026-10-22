@@ -41,7 +41,7 @@ export function literal(value: unknown): unknown {
 }
 
 export function liveSource(engine: ChainEngine, ref: ObjectRef): ObjectSnapshot | null {
-  return engine.pipeline.host.objects().find(object => sameRef(object.ref, ref)) ?? null;
+  return engine.pipeline?.host?.objects().find(object => sameRef(object.ref, ref)) ?? null;
 }
 
 /** Resolve only the exact registered incarnation. */

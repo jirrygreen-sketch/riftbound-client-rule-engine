@@ -804,19 +804,22 @@ function bindStatic(engine: ChainEngine, ability: StaticAbility, source: ObjectS
 /** Build the production adapter used by attachProgramLifecycle. */
 export function createEngineStaticBinder(engine: ChainEngine): ProgramStaticBinder {
   bridgeLifecycleOnEvent(engine);
-  if (!KEYWORD_LIFECYCLE_BINDINGS.has(engine)) installKeywordReexpansion(engine);
+  // Minimal test/inspection engines may expose a layer registry without a
+  // complete pipeline. The ordinary static binder still works there; keyword
+  // re-expansion is additive and requires the production pipeline surface.
+  if (!KEYWORD_LIFECYCLE_BINDINGS.has(engine) && engine.pipeline !== undefined) installKeywordReexpansion(engine);
   const keywordLifecycle = KEYWORD_LIFECYCLE_BINDINGS.get(engine);
   // The engine layer can insert entries between refreshes. Recompute ahead of
   // every material collection before the ordinary program binder runs.
   keywordLifecycle?.sync(undefined);
   const staticOrdinals = new Map<string, Set<number>>();
   return {
-    authorizeTrigger: registration => keywordLifecycle!.authorizeTrigger(registration),
+    authorizeTrigger: registration => keywordLifecycle?.authorizeTrigger(registration) ?? registration,
     /** Expose dynamic-host rebinding for lifecycle owners without editing their files. */
     sourceFor: source => bindingSource(engine, source),
     bindStatic: (ability, source) => {
       KEYWORD_LIFECYCLE_BINDINGS.get(engine)?.sync(source.ref);
-      if (!engine.layers || typeof (engine.layers as { registry?: unknown }).registry !== 'object') {
+      if (!engine.layers) {
         throw new ProgramBindingError('judge-required', `Static ability kind ${String(record(ability.effect).kind ?? '<missing>')} has no layer mapping`);
       }
       const current = source;
