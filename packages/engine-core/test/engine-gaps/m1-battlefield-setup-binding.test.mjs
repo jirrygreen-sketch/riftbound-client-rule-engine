@@ -93,18 +93,15 @@ function makeHost(builder) {
   return { kernel, host: pipeline, requests };
 }
 
-// RIFT-954 requested setup-time Battlefield binding. The shared createMatch
-// lifecycle currently records the selected token but leaves it Pending on the
-// Chain; this explicit public transition is the only fixture-only placement
-// needed below. It does not install a program registration or alter control.
+// RIFT-971: the shared createMatch setup places each selected Battlefield on
+// the Board at its own location. This helper only asserts that placement; it
+// performs no transition, registration or control change of its own.
 function establishSelectedBattlefields(match, kernel) {
   for (const selected of match.setup.battlefields) {
     const object = kernel.getObject(selected.id);
-    assert.equal(object.zone, 'chain');
+    assert.equal(object.zone, 'board');
     assert.equal(object.types.includes('battlefield'), true);
-    assert.equal(match.flow.chain.commit({
-      type: 'move-zone', object: object.ref, to: 'board', location: field(selected.id),
-    }).status, 'done');
+    assert.deepEqual(object.location, field(selected.id));
   }
 }
 
