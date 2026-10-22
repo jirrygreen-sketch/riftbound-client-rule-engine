@@ -357,6 +357,7 @@ export interface ChainEngineOptions {
 /** The new rules layer. Legacy duel runtimes deliberately do not call it yet. */
 export class ChainEngine {
   readonly pipeline: EventPipeline;
+  private readonly chainHost: PipelineHost;
   readonly layers: LayerEngine;
   private entries: ChainItem[] = [];
   private issued = new Set<string>();
@@ -381,11 +382,26 @@ export class ChainEngine {
   private resumingPaymentContinuation = false;
   private readonly consumedPaymentContinuations = new Set<string>();
   private readonly suspendedPaymentContinuations = new Map<string, PaymentContinuation>();
+  private readonly combatRoles = new Map<string, 'attacker' | 'defender'>();
+  private activeCombatId: string | null = null;
+  private activeCombatBattlefieldId: string | null = null;
+  private activeCombatAttackerId: PlayerId | null = null;
+  private activeCombatDefenderId: PlayerId | null = null;
+  private hostReadSnapshot: readonly ObjectSnapshot[] | undefined;
   private phase: string;
   constructor(private readonly options: ChainEngineOptions) {
     this.phase = options.phase ?? 'main';
-    this.layers = options.layers ?? new LayerEngine(options.host.objects());
-    this.pipeline = new EventPipeline({ ...options.host, objects: () => this.layerObjects(), execute: action => this.executeStateAction(action) }, options.turnOrder, options.turnPlayer);
+    this.layers = options.layers ?? new LayerEngine(this.hostObjects());
+    this.chainHost = {
+      ...options.host,
+      checkpoint: () => options.host.checkpoint(),
+      restore: checkpoint => options.host.restore(checkpoint),
+      choose: request => options.host.choose(request),
+      objects: () => this.layerObjects(),
+      context: (source, controller, at) => this.hostObjectContext(source, controller, at),
+      execute: action => this.executeStateAction(action),
+    };
+    this.pipeline = new EventPipeline(this.chainHost, options.turnOrder, options.turnPlayer);
     this.pipeline.routeAction = action => {
       if (action.type === 'play') {
         const source = options.host.objects().find(object => object.ref.id === action.object.id && object.ref.zoneEntryId === action.object.zoneEntryId);
@@ -418,13 +434,85 @@ export class ChainEngine {
     };
     this.pipeline.onTrigger = trigger => this.append({ id: `trigger:${++this.triggerSequence}`, controller: trigger.controller, source: trigger.source, kind: 'triggered', body: trigger.registration.body, cost: trigger.registration.cost, targets: trigger.registration.targets, mayAtFinalize: trigger.registration.mayAtFinalize, trigger });
     this.pipeline.onEvent = event => {
-      this.layers.setObjects(options.host.objects());
+      this.observeCombatRoleEvent(event);
+      this.layers.setObjects(this.hostObjects());
       this.layers.advance({ id: event.timingPoint, player: event.player });
       this.record({ step: 'event', timingPoint: event.timingPoint });
     };
     this.grantIdle();
   }
   get items(): readonly ChainItem[] { return structuredClone(this.entries); }
+  /** Apply only exact Unit combat roles held in this active Combat window. */
+  combatRoleSnapshot(object: ObjectSnapshot): ObjectSnapshot {
+    const role = this.combatRoles.get(`${object.ref.id}:${object.ref.zoneEntryId}`);
+    return role === undefined || object.combatRole === role ? object : Object.freeze({ ...object, combatRole: role });
+  }
+  /** Read-only chain host view; static adapters may compose roles onto it. */
+  hostObjects(): readonly ObjectSnapshot[] {
+    const objects = this.hostReadSnapshot ?? this.options.host.objects();
+    if (this.combatRoles.size === 0) return objects;
+    return Object.freeze(objects.map(object => this.combatRoleSnapshot(object)));
+  }
+  /** Give every ResolveContext object read the same read-only designation view. */
+  private hostObjectContext(source: ObjectSnapshot, controller: PlayerId, at: TimingPointId): ResolveContext {
+    const base = source.combatRole === null || source.combatRole === undefined
+      ? this.options.host.context(source, controller, at)
+      : bindResolveContext(this.options.host.context(source, controller, at), { source });
+    if (this.combatRoles.size === 0) return base;
+    return new Proxy(base, { get: (target, key) => {
+      if (key === 'object') return (ref: ObjectRef) => {
+        const object = target.object(ref);
+        if (object === null) return null;
+        return this.combatRoleSnapshot(object);
+      };
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    } });
+  }
+  /** Project only CombatFlow's complete start/designation/end event window. */
+  private observeCombatRoleEvent(event: import('../events/pipeline-types.js').PipelineEvent): void {
+    if (event.timingPoint === 'combat-start') {
+      const combatId = event.details?.combatId;
+      const battlefieldId = event.details?.battlefieldId;
+      const attackerId = event.details?.attackerId;
+      const defenderId = event.details?.defenderId;
+      if (typeof combatId !== 'string' || typeof battlefieldId !== 'string' ||
+          typeof attackerId !== 'string' || typeof defenderId !== 'string') {
+        this.combatRoles.clear();
+        this.activeCombatId = null;
+        return;
+      }
+      this.activeCombatId = combatId;
+      this.activeCombatBattlefieldId = battlefieldId;
+      this.activeCombatAttackerId = attackerId;
+      this.activeCombatDefenderId = defenderId;
+      this.combatRoles.clear();
+      return;
+    }
+    if (event.timingPoint === 'attack-declared' || event.timingPoint === 'defense-declared') {
+      if (this.activeCombatId === null || event.details?.combatId !== this.activeCombatId || event.object === undefined) return;
+      this.combatRoles.set(`${event.object.ref.id}:${event.object.ref.zoneEntryId}`,
+        event.timingPoint === 'attack-declared' ? 'attacker' : 'defender');
+      return;
+    }
+    if (event.timingPoint === 'cleanup-end' && this.activeCombatId !== null) {
+      this.combatRoles.clear();
+      for (const object of this.hostObjects()) {
+        if (object.zone !== 'board' || !object.types.includes('unit') ||
+            object.location?.type !== 'battlefield' || object.location.id !== this.activeCombatBattlefieldId) continue;
+        if (object.controller === this.activeCombatAttackerId) this.combatRoles.set(`${object.ref.id}:${object.ref.zoneEntryId}`, 'attacker');
+        else if (object.controller === this.activeCombatDefenderId) this.combatRoles.set(`${object.ref.id}:${object.ref.zoneEntryId}`, 'defender');
+      }
+      return;
+    }
+    if (event.timingPoint === 'combat-end') {
+      this.combatRoles.clear();
+      this.activeCombatId = null;
+      this.activeCombatBattlefieldId = null;
+      this.activeCombatAttackerId = null;
+      this.activeCombatDefenderId = null;
+    }
+  }
   private layerPassInFlight = false;
   private layerObjects(): readonly ObjectSnapshot[] {
     // RIFT-927: static/keyword adapters resolve live sources through the
@@ -438,9 +526,13 @@ export class ChainEngine {
     // and filters depend on, exactly as a direct nested evaluation does.
     if (this.layerPassInFlight) return this.layers.evaluateAll();
     this.layerPassInFlight = true;
+    this.hostReadSnapshot = this.options.host.objects();
     try {
-      this.layers.setObjects(this.options.host.objects()); return this.layers.evaluateAll();
-    } finally { this.layerPassInFlight = false; }
+      this.layers.setObjects(this.hostObjects()); return this.layers.evaluateAll();
+    } finally {
+      this.layerPassInFlight = false;
+      this.hostReadSnapshot = undefined;
+    }
   }
   private executeStateAction(action: GameAction) {
     const key = (object: ObjectSnapshot) => JSON.stringify(object.ref);
@@ -501,6 +593,11 @@ export class ChainEngine {
       paymentSuspended: this.paymentSuspended,
       resumingPaymentContinuation: this.resumingPaymentContinuation,
       suspendedPaymentContinuations: suspended,
+      combatRoles: new Map(this.combatRoles),
+      activeCombatId: this.activeCombatId,
+      activeCombatBattlefieldId: this.activeCombatBattlefieldId,
+      activeCombatAttackerId: this.activeCombatAttackerId,
+      activeCombatDefenderId: this.activeCombatDefenderId,
     };
     this.transactionDepth++;
     try { return run(); }
@@ -526,7 +623,7 @@ export class ChainEngine {
       if (pendingFinalizeAnswers !== undefined) this.finalizeAnswers = new Map([...saved.finalizeAnswers, ...pendingFinalizeAnswers]);
       this.layers.registry.clear();
       for (const entry of layerEntries) this.layers.registry.register(entry.effect, entry.duration, entry.timestamp);
-      this.layers.setObjects(this.options.host.objects());
+      this.layers.setObjects(this.hostObjects());
       throw error;
     } finally { this.transactionDepth--; }
   }
@@ -543,7 +640,7 @@ export class ChainEngine {
     // usable even before an extra continuous grant is registered.
     const grants = new Set<string>(speed === 'normal' ? [] : [speed]);
     if (ref !== undefined) {
-      this.layers.setObjects(this.options.host.objects());
+      this.layers.setObjects(this.hostObjects());
       const snapshot = object === undefined ? this.layers.evaluate(ref) : object;
       for (const timing of actionTimings(this.layers.registry, ref, snapshot, player)) grants.add(timing);
     }
@@ -665,9 +762,9 @@ export class ChainEngine {
       },
       targets: id => targets.get(id) ?? [],
       picks: id => lockedOrderedPicks((item as Partial<ChainItem>).pickPlans ?? [], id) ?? base.picks(id),
-      object: ref => { this.layers.setObjects(this.options.host.objects()); return this.layers.evaluate(ref); },
+      object: ref => { this.layers.setObjects(this.hostObjects()); return this.layers.evaluate(ref); },
       query: filter => {
-        this.layers.setObjects(this.options.host.objects());
+        this.layers.setObjects(this.hostObjects());
         const normalized = { ...filter };
         for (const key of ['controller', 'owner']) if (normalized[key] === 'self') normalized[key] = item.controller;
         return this.layers.evaluateAll().filter(object => {
