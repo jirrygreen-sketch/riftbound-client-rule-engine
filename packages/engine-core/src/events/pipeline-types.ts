@@ -3,6 +3,7 @@ import type { TimingPointId } from './timing-points.js';
 import type { ObjectFilterType, PlayerSelector, TriggerSpec } from './trigger-spec.js';
 import type { CostPlanInput } from '../cost/plan-types.js';
 import type { TargetFinalizeOptions, TargetRequirement } from '../target/target-plan.js';
+import type { CostPlan, CostPaymentReceipt } from '../cost/plan-types.js';
 
 /** Internal events carry authoritative snapshots, not client supplied DTOs. */
 export interface TimingEmission {
@@ -195,11 +196,32 @@ export type ReplacementResult =
   | { readonly status: 'rewrite'; readonly action: GameAction }
   | { readonly status: 'replace'; readonly actions: readonly GameAction[] }
   | { readonly status: 'prevent' };
+/**
+ * Immutable Finalize evidence made available to replacement effects. Both
+ * halves come from the Chain item; neither is a mutable player-supplied DTO.
+ * The action and source fields scope every use to one exact play event.
+ */
+export interface ReplacementCostEvidence {
+  readonly plan: CostPlan;
+  readonly receipt: CostPaymentReceipt;
+  /** Public durable play-action identity, when the source producer has one. */
+  readonly actionId?: string;
+  /** Exact played-card incarnation to which the frozen plan belongs. */
+  readonly source: ObjectSnapshot['ref'];
+  /** Frozen move action this evidence may authorize. */
+  readonly action: Extract<GameAction, { type: 'move-zone' }>;
+}
+export interface ReplacementMatchContext {
+  /** Evidence is present only inside the matching resolving play's commit. */
+  readonly cost?: ReplacementCostEvidence;
+  /** The exact source incarnation currently owning the Chain item. */
+  readonly source?: ObjectSnapshot['ref'];
+}
 export interface ReplacementRegistration {
   readonly id: string;
   readonly source?: ObjectSnapshot;
   readonly activeZones?: readonly string[];
-  readonly matches: (action: GameAction, original: GameAction) => boolean;
+  readonly matches: (action: GameAction, original: GameAction, context?: ReplacementMatchContext) => boolean;
   readonly apply: (action: GameAction, original: GameAction) => ReplacementResult;
   readonly optional?: boolean;
   readonly oncePerTurn?: boolean;

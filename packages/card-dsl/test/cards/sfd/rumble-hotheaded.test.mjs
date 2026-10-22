@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/index.js";
-import program from "../../../dist/cards/sfd/rumble-hotheaded.js";
+import program, { RUMBLE_OFFICIAL_EFFECT_ORDER_EVIDENCE } from "../../../dist/cards/sfd/rumble-hotheaded.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
@@ -107,8 +107,47 @@ test("Rumble, Hotheaded: validates, is registered, and records the Finalize rece
   assert.match(program.judgeReason, /mistargeted/);
   assert.match(program.judgeReason, /linked-ignored/);
   assert.match(program.judgeReason, /支付前 Might/);
+  assert.doesNotMatch(program.judgeReason, /CostPlan.*没有顶层|conquer.*恒不匹配|Unsupported filter field role/);
   assert.doesNotMatch(program.judgeReason, /cost\/payment\.ts:92-94/);
   assert.doesNotMatch(program.judgeReason, /Unknown or forward instruction link/);
+});
+
+test("Rumble, Hotheaded: official effect-order evidence records sources, timing, Priority/Focus, and response windows", () => {
+  const evidence = RUMBLE_OFFICIAL_EFFECT_ORDER_EVIDENCE;
+  assert.equal(evidence.canonicalCardId, CANONICAL);
+  assert.deepEqual(evidence.sources.coreRules, {
+    version: "1.5",
+    published: "2026-10-09",
+    effective: "2026-10-16",
+    url: "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+    patchNotesUrl: "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+    sha256: "94d41fee86f88b61c4157c0389c0595d990b98e5b42555c99d9f649ee64d1fec"
+  });
+  assert.equal(evidence.sources.radianceRulings.published, "2026-10-09");
+  assert.equal(evidence.sources.radianceRulings.effective, "2026-10-16");
+  assert.match(evidence.sources.radianceRulings.url, /^https:\/\/playriftbound\.com\//);
+  assert.equal(evidence.sources.spiritforgedErrata.published, "2026-01-14");
+  assert.equal(evidence.sources.spiritforgedErrata.effective, null);
+  assert.equal(evidence.sources.spiritforgedErrata.url,
+    "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/");
+  assert.equal(evidence.rulingStatus, "no-card-specific-ruling",
+    "neither official rulings source contains a Rumble-specific entry");
+  assert.deepEqual(evidence.interactions.map(entry => entry.id), [
+    "assault-grant",
+    "conquer-leading-recycle-play"
+  ]);
+  for (const interaction of evidence.interactions) {
+    assert.equal(interaction.canonicalCardId, CANONICAL);
+    assert.ok(interaction.ruleRefs.length > 0);
+    assert.ok(interaction.timeline.length >= 3);
+    assert.match(interaction.priorityFocus, /Priority/);
+    assert.match(interaction.responseWindow, /response|window|discretionary|continuous effect|deterministic/i);
+  }
+  const conquer = evidence.interactions[1];
+  assert.ok(conquer.ruleRefs.includes("312.1.b.1"));
+  assert.ok(conquer.ruleRefs.includes("359.3.e.13"));
+  assert.ok(conquer.timeline.some(line => line.includes("A then B receive Priority")));
+  assert.ok(conquer.productionAssertions.some(name => name.includes("mistargeted") || name.includes("cannot bind")));
 });
 
 test("Rumble, Hotheaded: the permanent ability is a friendly-Mech Assault 1 grant", () => {
@@ -232,6 +271,25 @@ test("Rumble, Hotheaded production golden: accepting Conquer Finalize recycles t
   assert.ok(flow.chain.trace.some((entry) => entry.step === "finalized" && entry.item === "trigger:1"));
   assert.equal(flow.chain.trace.some(entry =>
     entry.step === "removed" && entry.item === "trigger:1" && entry.reason === "unperformable-trigger"), false);
+
+  const trace = flow.chain.trace;
+  const showdownOpen = trace.findIndex(entry => entry.timingPoint === "showdown-open");
+  const firstFocus = trace.findIndex(entry => entry.step === "focus-granted" && entry.player === "A");
+  const firstFocusPass = trace.findIndex(entry => entry.step === "focus-pass" && entry.player === "A");
+  const secondFocus = trace.findIndex(entry => entry.step === "focus-granted" && entry.player === "B");
+  const secondFocusPass = trace.findIndex(entry => entry.step === "focus-pass" && entry.player === "B");
+  const showdownClose = trace.findIndex(entry => entry.timingPoint === "showdown-close");
+  const conquerEvent = trace.findIndex(entry => entry.timingPoint === "conquer");
+  const pending = trace.findIndex(entry => entry.item === "trigger:1" && entry.step === "pending");
+  const finalized = trace.findIndex(entry => entry.item === "trigger:1" && entry.step === "finalized");
+  const priorityA = trace.findIndex((entry, index) => index > finalized && entry.step === "pass" && entry.player === "A");
+  const priorityB = trace.findIndex((entry, index) => index > priorityA && entry.step === "pass" && entry.player === "B");
+  const resolve = trace.findIndex(entry => entry.item === "trigger:1" && entry.step === "resolve-start");
+  assert.ok(showdownOpen >= 0 && showdownOpen < firstFocus && firstFocus < firstFocusPass);
+  assert.ok(firstFocusPass < secondFocus && secondFocus < secondFocusPass && secondFocusPass < showdownClose);
+  assert.ok(showdownClose < conquerEvent && conquerEvent < pending && pending < finalized);
+  assert.ok(finalized < priorityA && priorityA < priorityB && priorityB < resolve,
+    "A then B must pass after Finalize and before Resolve; Focus is not a bypass");
   assert.equal(kernel.getObject("fodder").zone, "deck");
   assert.deepEqual(kernel.zone("A", "deck").at(-1), kernel.ref("fodder"));
   assert.equal(kernel.getObject("trash-mech").zone, "trash");

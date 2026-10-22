@@ -1,5 +1,6 @@
 import type { Ability } from "@riftbound/card-dsl";
 import type { CardContextRef, KeywordDef } from "../keyword-contract.js";
+import type { ReplacementCostEvidence } from "../../events/pipeline-types.js";
 
 /**
  * Accelerate —— CR v1.5 §805（可选附加费用关键词，出现在单位上）。
@@ -35,21 +36,32 @@ import type { CardContextRef, KeywordDef } from "../keyword-contract.js";
  *    以 effect.ready 原语把它替换为就绪进场。withoutReadyTrigger 标记
  *    落实 805.6.a（不触发 “becomes ready”）。该替代只在费用已付时生效——
  *    支付与否的判定属打出流程（805.2.b 的延迟替代效果），实现方是
- *    Finalize + replacement 管线，不是本关键词文件。
+ *    Finalize + replacement 管线。本文件只声明条件入口；实际匹配要求冻结
+ *    CostPlan 选择的是 accelerate，且 receipt 精确绑定同一 plan/source、已支付
+ *    并含有 accelerate 附加项。
+ *    The condition reads `accelerate.accelerate-cost-paid`; the pipeline
+ *    exposes that boolean only inside the matching frozen Finalize evidence.
  *
- * 依赖尚未合入的部分（本文件只按契约写出展开结构，不近似实现）：
- * - cost.additional / cost.pay（打出时附加费用的声明与收取，
- *   RIFT-89~91 实现中）与 replacement.enter（入场替代管线，按能力模板
- *   规划）尚未作为指令原语合入；accelerate.cost ContinuousEffect 的消费
- *   方（Finalize 费用管线）也在该批。
- * - 本文件 with 体内的 effect.ready 指令原语已合入（已验证），测试里
- *   用解释器 + 参考测试内核实际执行该指令。
- * - 付费后才挂上替代（805.2.b 的“延迟”部分）属于打出流程；本关键词按
- *   契约输出完整替代形状，条件接线待 cost/replacement 管线合入后完成。
- *
- * 契约缺口：无；805.1.b.1/.b.2 的域匹配约束以 CostSpec.payment 的
- * domain-match kind 表达，未超出现有 IR。
+ * 805.1.b.1/.b.2 的域匹配约束以 CostSpec.payment 的 domain-match kind
+ * 表达，未超出现有 IR。
  */
+
+/** Read-only proof that this exact play selected and settled Accelerate. */
+export function evaluateAcceleratePayment(evidence: ReplacementCostEvidence): boolean {
+  const selected = evidence.plan.selectedAdditional.find(cost => cost.kind === 'accelerate');
+  const powerEqual = JSON.stringify(evidence.receipt.total?.power ?? []) === JSON.stringify(evidence.plan.total.power);
+  return selected !== undefined &&
+    !evidence.plan.declinedAdditional.some(id => evidence.plan.components.some(component =>
+      component.id === id && component.kind === 'accelerate')) &&
+    evidence.plan.source.id === evidence.source.id &&
+    evidence.plan.source.zoneEntryId === evidence.source.zoneEntryId &&
+    evidence.receipt.paid === true && evidence.receipt.player === evidence.plan.player &&
+    evidence.receipt.planId === evidence.plan.id &&
+    evidence.receipt.total?.energy === evidence.plan.total.energy && powerEqual &&
+    evidence.receipt.additional.some(cost => cost.id === selected.id && cost.kind === 'accelerate' && cost.paid === true) &&
+    evidence.receipt.actions.some(action => action.id === `${evidence.plan.id}:resources` &&
+      action.action.type === 'pay' && action.status === 'done');
+}
 
 const ACCELERATE_RULE_REFS = [
   "805.1",
@@ -74,6 +86,27 @@ const accelerate = {
   // 805.4：多个 Accelerate 实例冗余，只算一次。
   stacking: "single",
   expand(input: { readonly value?: number; readonly host: CardContextRef }): readonly Ability[] {
+    const entryReady: Ability = {
+      kind: "replacement",
+      condition: {
+        kind: 'result',
+        result: 'accelerate.accelerate-cost-paid',
+      },
+      replaces: {
+        event: "object-enters-board",
+        filter: { self: true, cardId: input.host.canonicalCardId, exhausted: true }
+      },
+      // 805.6: the source selector is the unit entering the Board itself. The
+      // replacement carries that orientation into the move, without a later
+      // Ready action or object-readied timing.
+      with: [
+        {
+          id: "accelerate.enter-ready",
+          op: "effect.ready",
+          args: { objects: { kind: "constant", value: { kind: "source" } } }
+        }
+      ]
+    };
     return [
       {
         kind: "static",
@@ -94,23 +127,7 @@ const accelerate = {
           }
         }
       },
-      {
-        kind: "replacement",
-        replaces: {
-          event: "object-enters-board",
-          filter: { self: true, cardId: input.host.canonicalCardId, exhausted: true }
-        },
-        // 805.6：替代管线的 “source” 选择符指被替代事件中即将进场的
-        // 单位本身（即本来源）。该选择符由 effect.ready 原语支持，替换
-        // 后单位直接以就绪状态进场，不经过先横置再就绪的中间状态。
-        with: [
-          {
-            id: "accelerate.enter-ready",
-            op: "effect.ready",
-            args: { objects: { kind: "constant", value: { kind: "source" } } }
-          }
-        ]
-      }
+      entryReady
     ];
   },
   ruleRefs: ACCELERATE_RULE_REFS

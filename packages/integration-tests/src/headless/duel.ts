@@ -9,6 +9,7 @@ import type { CardProgram } from "../../../card-dsl/dist/ir/types.js";
 import { ChainContractBlockedError, type ChainDraft } from "../../../engine-core/dist/chain/engine.js";
 import type { LocationRef, ObjectRef, ObjectSnapshot, PlayerId } from "../../../engine-core/dist/effects/contract.js";
 import type { PipelineEvent, PipelineHost } from "../../../engine-core/dist/events/pipeline-types.js";
+import type { DuelBaseCombatPlan } from "../../../engine-core/dist/combat/base-combat-allocation.js";
 import type { M1PreconId } from "./decks.js";
 
 import { TurnCombatBlockedError } from "../../../engine-core/dist/turn/flow.js";
@@ -63,6 +64,12 @@ interface HeadlessNoProgressCache {
   readonly peek: (context: HeadlessContext) => string;
   readonly refresh: (context: HeadlessContext) => string;
   readonly invalidate: () => void;
+}
+
+export interface HeadlessMatrixGameCase {
+  readonly A: M1PreconId;
+  readonly B: M1PreconId;
+  readonly seed: string;
 }
 
 export interface HeadlessGamesOptions extends HeadlessGameOptions {}
@@ -142,6 +149,7 @@ export interface HeadlessCommandTraceObject {
   readonly exhausted: boolean;
   readonly canMove: boolean;
   readonly canGank: boolean;
+  readonly might: number | null;
   readonly movementRestrictions: readonly string[];
 }
 
@@ -165,6 +173,7 @@ export interface HeadlessCommandTrace {
   readonly boardUnits: readonly HeadlessCommandTraceObject[];
   readonly basicRunes: readonly HeadlessBasicRuneTrace[];
   readonly runePool: Readonly<Record<PlayerId, { readonly energy: number; readonly power: readonly string[] }>>;
+  readonly battlefields: Match["flow"]["battlefields"];
   readonly candidates: readonly {
     readonly type: HeadlessCommandType;
     readonly id: string | null;
@@ -178,6 +187,22 @@ export interface HeadlessCommandTrace {
   /** The public flow predicate that decides whether this Command may end Main. */
   readonly canEndTurn: boolean;
   readonly emptyRunePoolBlocked: boolean;
+}
+
+export type HeadlessBotCommandPriority =
+  | "rune-energy"
+  | "affordable-unit-play"
+  | "winning-enemy-move"
+  | "enemy-move"
+  | "open-field-move"
+  | "controlled-field-move"
+  | "affordable-other-play"
+  | "other"
+  | "base-move";
+
+export interface HeadlessBotCommandTier {
+  readonly priority: HeadlessBotCommandPriority;
+  readonly commands: readonly HeadlessCommand[];
 }
 
 export interface HeadlessObservedActionCoverage extends HeadlessActionCoverage {
@@ -818,6 +843,27 @@ function setupMatch(
   });
 }
 
+/**
+ * LayerEngine asks for the identical attachment signature once per dependent
+ * evaluation. The headless state owner replaces the layer object map only via
+ * setObjects, so one signature per authoritative object-map installation is
+ * sufficient. The wrapped method still delegates to the engine implementation.
+ */
+function cacheLayerAttachmentSignature(layers: Match["flow"]["chain"]["layers"]): void {
+  const target = layers as unknown as {
+    setObjects: (objects: readonly ObjectSnapshot[] | ReadonlyMap<string, ObjectSnapshot>) => void;
+    attachmentSignature: () => string;
+  };
+  const setObjects = target.setObjects.bind(target);
+  const attachmentSignature = target.attachmentSignature.bind(target);
+  let cached: string | undefined;
+  target.setObjects = objects => {
+    setObjects(objects);
+    cached = undefined;
+  };
+  target.attachmentSignature = () => cached ??= attachmentSignature();
+}
+
 function chooseMulligans(seed: string, openingHands: readonly [readonly string[], readonly string[]]): readonly [readonly string[], readonly string[]] {
   const random = new BotRandom(`${seed}:mulligan`);
   const choose = (hand: readonly string[]): readonly string[] => {
@@ -844,6 +890,7 @@ function createHeadlessContext(
   const mulligans = requestedMulligans ?? chooseMulligans(seed, openingHandsFor(seed, decks));
   const state = makeWorld(seed);
   const match = setupMatch(seed, state, programs, decks, mulligans);
+  cacheLayerAttachmentSignature(match.flow.chain.layers);
   const runeDomains = new Map<string, string>();
   const runeIdentities = new Map<string, BasicRuneIdentity>();
   for (const card of [...decks[0].runeDeck, ...decks[1].runeDeck]) {
@@ -905,6 +952,42 @@ function isLegalRejection(error: unknown): boolean {
     "Play destination is not legally allowed", "Finalize legality failed", "Illegal Standard Move"].includes(error.message);
 }
 
+/** Choose one legal basic allocation from the engine's frozen Combat plan. */
+function combatAllocations(
+  side: DuelBaseCombatPlan["attacker"],
+): readonly { readonly uid: string; readonly amount: number }[] {
+  const rank = { first: 0, normal: 1, choice: 1, last: 2 } as const;
+  const targets = [...side.targets].filter(target => target.canReceiveDamage)
+    .sort((left, right) => rank[left.assignmentPriority] - rank[right.assignmentPriority]);
+  const assignments: { readonly uid: string; readonly amount: number }[] = [];
+  let remaining = side.budget;
+  for (const [index, target] of targets.entries()) {
+    if (remaining <= 0) break;
+    const lethal = Math.max(target.lethalNeed, target.minAssignable);
+    const hasAnotherTarget = index < targets.length - 1;
+    const amount = hasAnotherTarget ? Math.min(remaining, lethal) : remaining;
+    const bounded = target.maxAssignable === null ? amount : Math.min(amount, target.maxAssignable);
+    if (bounded < target.minAssignable) continue;
+    assignments.push({ uid: target.uid, amount: bounded });
+    remaining -= bounded;
+    if (bounded < lethal) break;
+  }
+  return assignments;
+}
+
+function executeCombatDamage(combat: Match["flow"]["combat"]): void {
+  const active = combat.current;
+  if (active?.step === "showdown") {
+    const plan: DuelBaseCombatPlan = combat.prepareDamage();
+    combat.submitAttackerDamage(plan.attacker.playerId as PlayerId, combatAllocations(plan.attacker));
+    combat.submitDefenderDamage(plan.defender.playerId as PlayerId, combatAllocations(plan.defender));
+    return;
+  }
+  // This legacy entry deliberately remains a legal-timing probe/blocker for
+  // every other Combat phase; the bot never force-advances the engine.
+  combat.dealDamage();
+}
+
 function executeCommand(context: HeadlessContext, command: HeadlessCommand): void {
   const { match, state, programs } = context;
   try {
@@ -912,7 +995,7 @@ function executeCommand(context: HeadlessContext, command: HeadlessCommand): voi
       case "idle": match.flow.endTurn(command.player); return;
       case "pass": match.flow.pass(command.player); return;
       case "advance": match.flow.advance(); return;
-      case "combat-damage": match.flow.combat.dealDamage(); return;
+      case "combat-damage": executeCombatDamage(match.flow.combat); return;
       case "move":
         if (command.to.type === "base") {
           // Battlefield -> own Base (CR 144.4.b) goes through the public atomic
@@ -968,14 +1051,23 @@ function executeGuardedCommand(
 }
 
 /** Candidates are timing/permission filtered; the public command still owns final legality and cost checks. */
-function enumerateCandidates(context: HeadlessContext, sequence: number): readonly HeadlessCommand[] {
+interface HeadlessCandidateEnumeration {
+  readonly commands: readonly HeadlessCommand[];
+  readonly objects: readonly ObjectSnapshot[] | null;
+}
+
+function enumerateCandidates(context: HeadlessContext, sequence: number): HeadlessCandidateEnumeration {
   const { match, state, programs } = context;
   const flow = match.flow;
   const chain = flow.chain;
   const player = chain.priority;
-  if (!player || flow.phase !== "main") return [];
+  if (!player || flow.phase !== "main") return { commands: [], objects: null };
   const commands: HeadlessCommand[] = [];
-  chain.layers.setObjects(state.kernel.objects);
+  // Reuse the host identity cache and this layer evaluation for the journal
+  // trace. Reading TestWorld.objects directly copies every snapshot, and a
+  // second evaluateAll repeats the dominant layer pass for the same state.
+  const kernelObjects = state.host.objects();
+  chain.layers.setObjects(kernelObjects);
   const objects = chain.layers.evaluateAll();
   if (!flow.combat.active && chain.turnState === "neutral-open" && chain.canAct(player, "normal")) {
     for (const object of objects) {
@@ -1037,7 +1129,7 @@ function enumerateCandidates(context: HeadlessContext, sequence: number): readon
       }
     }
   }
-  return commands;
+  return { commands, objects };
 }
 
 function finalState(
@@ -1077,26 +1169,35 @@ function traceObject(context: HeadlessContext, object: ObjectSnapshot): Headless
   const permission = movement(context.match.flow.chain.layers.registry, object.ref, object, object.controller);
   return { id: object.ref.id, cardId: object.cardId, name: object.name, controller: object.controller,
     zone: object.zone, location: object.location, exhausted: object.exhausted,
-    canMove: permission.canMove, canGank: permission.canGank,
+    canMove: permission.canMove, canGank: permission.canGank, might: object.might,
     movementRestrictions: restrictions(context.match.flow.chain.layers.registry, "move",
       object.ref, object, object.controller).flatMap(rule => rule.name === undefined ? [] : [rule.name]) };
 }
 
-function boardUnitTrace(context: HeadlessContext, player?: PlayerId): readonly HeadlessCommandTraceObject[] {
-  const { match, state } = context;
-  match.flow.chain.layers.setObjects(state.kernel.objects);
-  return match.flow.chain.layers.evaluateAll()
-    .filter(object => object.zone === "board" && object.types.includes("unit") &&
-      (player === undefined || object.controller === player))
+function boardUnitTrace(
+  context: HeadlessContext,
+  objects: readonly ObjectSnapshot[],
+  player?: PlayerId,
+): readonly HeadlessCommandTraceObject[] {
+  return objects.filter(object => object.zone === "board" && object.types.includes("unit") &&
+    (player === undefined || object.controller === player))
     .map(object => traceObject(context, object));
 }
 
-function commandTrace(context: HeadlessContext, candidates: readonly HeadlessCommand[]): HeadlessCommandTrace {
+function commandTrace(
+  context: HeadlessContext,
+  candidates: readonly HeadlessCommand[],
+  evaluatedObjects?: readonly ObjectSnapshot[],
+): HeadlessCommandTrace {
   const { match, state } = context;
   const counts: Record<HeadlessCommandType, number> = { play: 0, idle: 0, pass: 0, advance: 0, move: 0,
     "rune-energy": 0, "combat-damage": 0, concede: 0 };
   for (const command of candidates) counts[command.type] += 1;
-  const objects = new Map(state.kernel.objects.map(object => [
+  const layeredObjects = evaluatedObjects ?? (() => {
+    match.flow.chain.layers.setObjects(state.host.objects());
+    return match.flow.chain.layers.evaluateAll();
+  })();
+  const objects = new Map(layeredObjects.map(object => [
     `${object.ref.id}:${object.ref.zoneEntryId}`, object]));
   return { turn: match.flow.turn, turnPlayer: match.flow.turnPlayer, phase: match.flow.phase,
     priority: match.flow.chain.priority, focus: match.flow.chain.focus,
@@ -1109,8 +1210,8 @@ function commandTrace(context: HeadlessContext, candidates: readonly HeadlessCom
       const player = state.kernel.player(id);
       return player.energy !== 0 || player.power.length !== 0;
     }),
-    candidateCounts: counts, boardUnits: boardUnitTrace(context),
-    basicRunes: state.kernel.objects.filter(object => object.zone === "rune-zone" &&
+    candidateCounts: counts, battlefields: match.flow.battlefields, boardUnits: boardUnitTrace(context, layeredObjects),
+    basicRunes: layeredObjects.filter(object => object.zone === "rune-zone" &&
       object.types.some(type => type.toLowerCase() === "rune")).map(object => ({ id: object.ref.id,
         name: object.name, cardId: object.cardId, domain: context.basicRuneDomain(object.cardId),
         exhausted: object.exhausted })),
@@ -1131,6 +1232,117 @@ function observedActionCoverage(commands: readonly HeadlessJournalEntry[], actio
     committedPlays: commands.filter(entry => entry.command.type === "play" && entry.failure === null).length,
     rejectedPlays: commands.filter(entry => entry.command.type === "play" &&
       entry.failure?.code === "cannot-pay-cost").length };
+}
+
+/**
+ * Rank only commands already admitted by the active Player's timing and layer
+ * predicates. The caller still executes the selected Command through the same
+ * authoritative Match/Flow entry, so this function cannot make an illegal play
+ * or movement legal.
+ */
+export function rankHeadlessBotCommands(
+  candidates: readonly HeadlessCommand[],
+  trace: HeadlessCommandTrace,
+): readonly HeadlessBotCommandTier[] {
+  const tracedByID = new Map(trace.candidates.flatMap(candidate =>
+    candidate.id === null ? [] : [[candidate.id, candidate] as const]));
+  const affordable = (command: Extract<HeadlessCommand, { type: "play" }>): boolean => {
+    const candidate = tracedByID.get(command.id);
+    if (candidate === undefined) return false;
+    const pool = trace.runePool[command.player]!;
+    if (candidate.energy !== null && candidate.energy > pool.energy) return false;
+    if (candidate.power === null) return true;
+    const available = [...pool.power];
+    for (const domain of candidate.power) {
+      const index = available.indexOf(domain);
+      if (index < 0) return false;
+      available.splice(index, 1);
+    }
+    return true;
+  };
+  const affordablePlays = candidates.filter((command): command is Extract<HeadlessCommand, { type: "play" }> =>
+    command.type === "play" && affordable(command));
+  const candidatePlays = candidates.filter((command): command is Extract<HeadlessCommand, { type: "play" }> =>
+    command.type === "play");
+  const unitPlays = candidatePlays.filter(command =>
+    tracedByID.get(command.id)?.types.includes("unit") === true);
+  const affordableUnitPlays = affordablePlays.filter(command =>
+    tracedByID.get(command.id)?.types.includes("unit") === true);
+  const affordableOtherPlays = affordablePlays.filter(command =>
+    tracedByID.get(command.id)?.types.includes("unit") !== true);
+
+  const runeFundedUnits = unitPlays.filter(command => {
+    const candidate = tracedByID.get(command.id)!;
+    const pool = trace.runePool[command.player]!.energy;
+    return candidate.energy !== null && candidate.energy > pool &&
+      candidate.energy <= pool + trace.candidateCounts["rune-energy"];
+  }).sort((left, right) =>
+    (tracedByID.get(left.id)?.energy ?? Infinity) - (tracedByID.get(right.id)?.energy ?? Infinity));
+  const runeAdds = runeFundedUnits.length > 0
+    ? candidates.filter(command => command.type === "rune-energy")
+    : [];
+  const moves = candidates.filter((command): command is Extract<HeadlessCommand, { type: "move" }> =>
+    command.type === "move");
+  const unitsAt = (field: string, player: PlayerId) => trace.boardUnits.filter(unit =>
+    unit.controller === player && unit.location?.type === "battlefield" && unit.location.id === field);
+  const mightOf = (units: readonly HeadlessCommandTraceObject[]): number | null => {
+    if (units.some(unit => unit.might === null)) return null;
+    return units.reduce((total, unit) => total + (unit.might ?? 0), 0);
+  };
+  const moveTier = (command: Extract<HeadlessCommand, { type: "move" }>): HeadlessBotCommandPriority => {
+    if (command.to.type !== "battlefield") return "base-move";
+    const destination = command.to.id;
+    const battlefield = trace.battlefields.find(field => field.id === destination);
+    const ownAtField = unitsAt(destination, command.player);
+    const enemyAtField = unitsAt(destination, command.player === "A" ? "B" : "A");
+    if (enemyAtField.length === 0) {
+      return battlefield?.controller === command.player ? "controlled-field-move" : "open-field-move";
+    }
+    const mover = trace.boardUnits.find(unit => unit.controller === command.player &&
+      unit.id === command.object.id);
+    if (mover === undefined || mover.location?.type === "battlefield" &&
+        mover.location.id === destination) return "enemy-move";
+    const ownMight = mightOf([...ownAtField, mover]);
+    const enemyMight = mightOf(enemyAtField);
+    return ownMight !== null && enemyMight !== null && ownMight >= enemyMight
+      ? "winning-enemy-move" : "enemy-move";
+  };
+  const byMovePriority = (priority: HeadlessBotCommandPriority) => moves.filter(command =>
+    moveTier(command) === priority);
+  const runeCommands = new Set(runeAdds);
+  const moveCommands = new Set(moves);
+  const others = candidates.filter(command => command.type !== "play" &&
+    !runeCommands.has(command as never) && !moveCommands.has(command as never));
+  const tiers: readonly HeadlessBotCommandTier[] = [
+    { priority: "rune-energy", commands: runeAdds },
+    { priority: "affordable-unit-play", commands: affordableUnitPlays },
+    { priority: "winning-enemy-move", commands: byMovePriority("winning-enemy-move") },
+    { priority: "enemy-move", commands: byMovePriority("enemy-move") },
+    { priority: "open-field-move", commands: byMovePriority("open-field-move") },
+    { priority: "controlled-field-move", commands: byMovePriority("controlled-field-move") },
+    { priority: "affordable-other-play", commands: affordableOtherPlays },
+    { priority: "other", commands: others },
+    { priority: "base-move", commands: byMovePriority("base-move") },
+  ];
+  return tiers.filter(tier => tier.commands.length > 0);
+}
+
+/** Prefer deterministic engine progression, then ordinary legal bot choices. */
+export function prioritizedHeadlessCommands(
+  candidates: readonly HeadlessCommand[],
+  trace: HeadlessCommandTrace,
+  combat: Match["flow"]["combat"],
+): readonly HeadlessCommand[] {
+  const active = combat.current;
+  if (active === null) return rankHeadlessBotCommands(candidates, trace)
+    .flatMap(tier => tier.commands);
+  if (active.step === "showdown" && trace.turnState === "neutral-open") {
+    return [{ type: "combat-damage" }];
+  }
+  if (active.step === "cleanup" || active.step === "result" || active.step === "control" || active.step === "end") {
+    return [{ type: "advance" }];
+  }
+  return candidates;
 }
 
 export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {}): HeadlessStats {
@@ -1168,35 +1380,13 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
     if (match.flow.turn > maxTurns) { guardReason = "turn-limit"; break; }
     if (commands.length >= maxActions) { guardReason = "action-limit"; break; }
     noProgress.before = noProgress.peek(context);
-  const allCandidates = enumerateCandidates(context, commands.length);
+    const enumeration = enumerateCandidates(context, commands.length);
+    const allCandidates = enumeration.commands;
     const candidates = allCandidates.filter(command => !rejected.has(commandKey(command)));
-    const trace = commandTrace(context, allCandidates);
-    const movements = candidates.filter(command => command.type === "move" && command.to.type === "battlefield");
-    const unitPlays = candidates.filter(command => command.type === "play" && trace.boardUnits.length === 0 &&
-      trace.candidates.some(candidate => candidate.type === "play" && candidate.id === command.id &&
-        candidate.types.includes("unit") && candidate.power === null &&
-        candidate.energy !== null && candidate.energy <= state.kernel.player(command.player).energy));
-    const traceCommand = (id: string | null) => trace.candidates.find(candidate => candidate.id === id);
-    const pool = state.kernel.player(match.flow.turnPlayer).energy;
-    const availableHandUnits = trace.candidates.filter(candidate => candidate.type === "play" &&
-      candidate.types.includes("unit") && candidate.energy !== null).length;
-    const runeCount = pool > 0 || availableHandUnits > 0 ? trace.candidateCounts["rune-energy"] : 0;
-    const targetUnit = candidates.filter((command): command is Extract<HeadlessCommand, { type: "play" }> =>
-      command.type === "play" && trace.boardUnits.length === 0 &&
-      (() => {
-        const candidate = traceCommand(command.id);
-        return candidate?.types.includes("unit") === true &&
-          candidate.destination?.type === "base" && candidate.energy !== null &&
-          candidate.energy > pool && candidate.energy <= pool + runeCount;
-      })()).sort((left, right) =>
-        (traceCommand(left.id)?.energy ?? Infinity) - (traceCommand(right.id)?.energy ?? Infinity))[0];
-    const runeAdds = targetUnit ? candidates.filter(command => command.type === "rune-energy") : [];
-    const command = runeAdds.length ? runeAdds[random.next(runeAdds.length)]! :
-      targetUnit?.type === "play" && pool >= (traceCommand(targetUnit.id)?.energy ?? Infinity) ? targetUnit :
-      unitPlays.length ? unitPlays[random.next(unitPlays.length)]! :
-      movements.length ? movements[random.next(movements.length)]! : candidates.length
-      ? candidates[random.next(candidates.length)]!
-      : match.flow.chain.priority
+    const trace = commandTrace(context, allCandidates, enumeration.objects ?? undefined);
+    const preferred = prioritizedHeadlessCommands(candidates, trace, match.flow.combat);
+    const command = preferred.length ? preferred[random.next(preferred.length)]! :
+      match.flow.chain.priority
         ? match.flow.phase === "main" && !match.flow.chain.items.length && !match.flow.combat.active &&
           match.flow.chain.canAct(match.flow.turnPlayer, "normal")
           ? { type: "idle" as const, player: match.flow.turnPlayer }
@@ -1321,6 +1511,70 @@ export function runHeadlessGames(
   return aggregateHeadlessResults(games, decks, results);
 }
 
+export function headlessMatrixGameCases(
+  decks: readonly M1PreconId[] = M1_DECK_IDS,
+  seeds: readonly string[] = HEADLESS_MATRIX_SEEDS,
+): readonly HeadlessMatrixGameCase[] {
+  const unique = [...new Set(decks)];
+  if (unique.length < 2) throw new RangeError("At least two distinct decks are required");
+  if (seeds.length === 0) throw new RangeError("seeds must contain at least one seed");
+  const pairs: HeadlessDeckPair[] = [];
+  for (let left = 0; left < unique.length; left += 1) {
+    for (let right = left + 1; right < unique.length; right += 1) {
+      pairs.push({ A: unique[left]!, B: unique[right]! });
+    }
+  }
+  return pairs.flatMap(pair => seeds.map(seed => ({ A: pair.A, B: pair.B, seed })));
+}
+
+/** Product-facing grouping of identical detailed games into pairing summaries. */
+export function aggregateHeadlessPairingGames(
+  pair: HeadlessDeckPair,
+  results: readonly HeadlessStats[],
+): HeadlessMatrixPairSummary {
+  const aggregate = aggregateHeadlessResults(results.length, pair, results);
+  return {
+    ...aggregate,
+    decks: pair,
+    games: results.length,
+  };
+}
+
+/** Build the same matrix summary from games that were scheduled independently. */
+export function aggregateHeadlessMatrixGames(
+  cases: readonly HeadlessMatrixGameCase[],
+  results: readonly HeadlessStats[],
+  decks: readonly M1PreconId[] = M1_DECK_IDS,
+): HeadlessMatrixSummary {
+  if (cases.length !== results.length) throw new RangeError("Matrix cases and results must have equal length");
+  const deckIds = [...new Set(decks)];
+  const pairings = pairingsFor(deckIds).map(pair => {
+    const indexes = cases.flatMap((game, index) => game.A === pair.A && game.B === pair.B ? [index] : []);
+    return aggregateHeadlessPairingGames(pair, indexes.map(index => results[index]!));
+  });
+  const aggregate = aggregateHeadlessResults(results.length, { A: deckIds[0]!, B: deckIds[1]! }, results);
+  return {
+    games: results.length,
+    decks: deckIds,
+    pairings,
+    completed: aggregate.completed,
+    blocked: aggregate.blocked,
+    exceptions: aggregate.exceptions,
+    judgeRequiredRejections: aggregate.judgeRequiredRejections,
+    judgeRequiredCards: aggregate.judgeRequiredCards,
+    judgeRequiredCardCounts: aggregate.judgeRequiredCardCounts,
+    judgeRequiredTop: aggregate.judgeRequiredTop,
+    actionCoverage: aggregate.actionCoverage,
+    terminationReasons: aggregate.terminationReasons,
+    totalTurns: aggregate.totalTurns,
+    winners: aggregate.winners, winnerRatio: aggregate.winnerRatio, winsByPlayer: aggregate.winsByPlayer,
+    averageTurns: aggregate.averageTurns, battleStats: aggregate.battleStats, blockerReasons: aggregate.blockerReasons,
+    gamesWithReplayMismatch: aggregate.gamesWithReplayMismatch,
+    gamesWithPrivacyLeak: aggregate.gamesWithPrivacyLeak,
+    results,
+  };
+}
+
 function pairingsFor(decks: readonly M1PreconId[]): readonly HeadlessDeckPair[] {
   const unique = [...new Set(decks)];
   if (unique.length < 2) throw new RangeError("At least two distinct decks are required");
@@ -1402,19 +1656,33 @@ export function runHeadlessRegression(options: HeadlessRegressionOptions = {}): 
 
 /** Lazy, once-only access to the fixed regression cases for focused tests. */
 export function createHeadlessRegressionHarness(options: HeadlessRegressionOptions = {}): HeadlessRegressionHarness {
-  let shared: HeadlessRegressionRun | undefined;
+  const shared = {
+    maxTurns: options.maxTurns ?? DEFAULT_TURN_LIMIT,
+    maxActions: options.maxActions ?? DEFAULT_ACTION_LIMIT,
+  };
+  let matrix: HeadlessMatrixSummary | undefined;
   let determinism: readonly [HeadlessStats, HeadlessStats] | undefined;
-  const once = (): HeadlessRegressionRun => shared ??= runHeadlessRegression(options);
+  let blocked: HeadlessStats | undefined;
+  let targets: HeadlessStats | undefined;
+  let sourceTrigger: HeadlessStats | undefined;
+  let tamper: HeadlessRegressionRun["tamper"] | undefined;
+  let aggregate: HeadlessRunSummary | undefined;
   return {
-    matrix: () => once().matrix,
+    matrix: () => matrix ??= runHeadlessMatrix({ games: 5, decks: M1_DECK_IDS, seeds: HEADLESS_MATRIX_SEEDS, ...shared }),
     determinism: () => determinism ??= (() => {
-      const run = once();
-      return run.determinism;
+      const first = runHeadlessGame(HEADLESS_SEEDS[0]!, { decks: ["vex-unl", "vi-unl"], ...shared });
+      const second = runHeadlessGame(HEADLESS_SEEDS[0]!, { decks: ["vex-unl", "vi-unl"], ...shared });
+      return [first, second] as const;
     })(),
-    blocked: () => once().blocked,
-    targets: () => once().targets,
-    sourceTrigger: () => once().sourceTrigger,
-    tamper: () => once().tamper,
-    aggregate: () => once().aggregate,
+    blocked: () => blocked ??= runHeadlessGame(HEADLESS_SEEDS[0]!, shared),
+    targets: () => targets ??= runHeadlessGame("RIFT-739-natural-1", shared),
+    sourceTrigger: () => sourceTrigger ??= runHeadlessGame(HEADLESS_SEEDS[2]!, { decks: ["fiora-sfd", "vex-unl"], ...shared }),
+    tamper: () => tamper ??= (() => {
+      let journal: HeadlessJournal | undefined;
+      const result = runHeadlessGame(HEADLESS_SEEDS[0]!, { ...shared, onJournal: value => { journal = value; } });
+      if (!journal) throw new Error("Headless journal callback was not invoked");
+      return { journal, result };
+    })(),
+    aggregate: () => aggregate ??= runHeadlessGames(2, HEADLESS_SEEDS.slice(0, 2), shared),
   };
 }
