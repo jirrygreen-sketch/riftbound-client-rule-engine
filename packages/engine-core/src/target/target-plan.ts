@@ -247,7 +247,8 @@ function isRelativePlayer(selector: string, context: ResolveContext, snapshot: O
 function matchesCandidateFilter(
   context: ResolveContext,
   snapshot: ObjectSnapshot,
-  filter: ObjectFilter
+  filter: ObjectFilter,
+  objects: readonly ObjectSnapshot[]
 ): boolean {
   // Finalize matches symbolic target references against the plans locked so
   // far. Resolve rechecks the same relation against the frozen plans supplied
@@ -255,7 +256,8 @@ function matchesCandidateFilter(
   return matchesObjectPredicates(filter, snapshot, {
     controller: context.controller,
     anchor: context.source,
-    references: selector => referenceSnapshots(context, selector)
+    references: selector => referenceSnapshots(context, selector),
+    objects
   });
 }
 
@@ -331,9 +333,10 @@ function matchesRequirement(
   context: ResolveContext,
   snapshot: ObjectSnapshot,
   requirement: TargetRequirement,
-  phase: TargetPlanPhase
+  phase: TargetPlanPhase,
+  objects: readonly ObjectSnapshot[]
 ): boolean {
-  if (!matchesCandidateFilter(context, snapshot, requirement.filter)) return false;
+  if (!matchesCandidateFilter(context, snapshot, requirement.filter, objects)) return false;
   if (phase === "finalize" && !matchesTargetRelations(context, snapshot, requirement.filter)) return false;
   if (requirement.location === undefined) return true;
   const location = requirement.location;
@@ -366,7 +369,8 @@ function legalCandidates(
   // selector check below because different hosts implement only partial filter
   // vocabularies; passing relation or sparse selectors through them can either
   // fail open or erase every candidate.
-  for (const candidate of context.query({})) {
+  const objects = context.query({});
+  for (const candidate of objects) {
     const ref = candidate.ref;
     const key = refKey(ref);
     if (seen.has(key)) continue;
@@ -376,7 +380,7 @@ function legalCandidates(
     if (current === null ||
       (typeof controller === "string" && !isRelativePlayer(controller, context, current, "controller")) ||
       (typeof owner === "string" && !isRelativePlayer(owner, context, current, "owner")) ||
-      !matchesRequirement(context, current, requirement, phase)) continue;
+      !matchesRequirement(context, current, requirement, phase, objects)) continue;
     if (pending(ref, current, phase)) continue;
     if (options.isLegal && !options.isLegal(current, phase)) continue;
     if (options.ruleRegistry !== undefined && (
