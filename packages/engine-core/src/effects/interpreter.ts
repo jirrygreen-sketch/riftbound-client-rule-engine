@@ -4,6 +4,7 @@ import type {
 } from "./contract.js";
 import type { LocationRef, PlayerId } from "./contract.js";
 import type { LocationFilter, LocationSelector } from "@riftbound/card-dsl";
+import type { LeadingCostReceiptBinding } from "../cost/plan-types.js";
 import { instructionDefinitionsById } from "./instructions/registry.generated.js";
 import { choiceMetadata, modeBodies, modeChoices, optionalChoice, orderedObjects } from "./interpreter/choice.js";
 import { evaluateCondition } from "./interpreter/condition.js";
@@ -50,6 +51,103 @@ interface Scope {
   readonly ignoredTargets: Map<string, ReadonlySet<string>>;
   readonly targets: Map<string, ObjectRef[]>;
   readonly locations: Map<string, LocationRef[]>;
+}
+
+type ReceiptInstruction = Instruction & { readonly leadingCostReceipt?: LeadingCostReceiptBinding };
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value !== "undefined" && value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function referencesBinding(value: unknown, binding: LeadingCostReceiptBinding): boolean {
+  if (Array.isArray(value)) return value.some(item => referencesBinding(item, binding));
+  if (!isRecord(value)) return false;
+  if ((value.kind === "linked" || value.kind === "linked-value") && value.instructionId === binding.instructionId) {
+    return value.key === binding.link;
+  }
+  if (value.linked === binding.instructionId) return true;
+  return Object.values(value).some(item => referencesBinding(item, binding));
+}
+
+function bindingInstruction(instruction: Instruction): readonly LeadingCostReceiptBinding[] {
+  const binding = (instruction as ReceiptInstruction).leadingCostReceipt;
+  return binding === undefined ? [] : [binding];
+}
+
+function refValue(value: unknown): ObjectRef | null {
+  if (!isRecord(value) || typeof value.id !== "string" || !value.id.length ||
+      typeof value.zoneEntryId !== "number" || !Number.isSafeInteger(value.zoneEntryId) || value.zoneEntryId < 0) return null;
+  return { id: value.id, zoneEntryId: value.zoneEntryId };
+}
+
+/** Restore only the exact object bound to one paid leading cost. */
+function leadingCostReceiptValue(cost: unknown, binding: LeadingCostReceiptBinding): ObjectRef | null | undefined {
+  if (cost === undefined) return undefined;
+  if (!isRecord(cost) || cost.receipt === undefined || cost.receipt === null) return undefined;
+  const receipt = cost.receipt as Record<string, unknown>;
+  if (receipt.paid !== true || !Array.isArray(receipt.choices)) return undefined;
+  const plan = cost.plan;
+  if (!isRecord(plan) || plan.finalized !== true || plan.id !== receipt.planId) {
+    throw new Error("Leading-cost plan and receipt are not the same Finalize transaction");
+  }
+  if (!binding.instructionId.length || !binding.link.length || new Set(binding.choiceIds).size !== binding.choiceIds.length ||
+      binding.choiceIds.some(id => typeof id !== "string" || !id.length)) {
+    throw new Error("Malformed leading-cost receipt binding");
+  }
+  const values: ObjectRef[] = [];
+  for (const choiceId of binding.choiceIds) {
+    const matches = receipt.choices.filter(choice => isRecord(choice) && choice.id === choiceId);
+    if (matches.length !== 1) throw new Error(`Leading-cost receipt choice ${choiceId} is missing or duplicated`);
+    const choice = matches[0]!;
+    if (!Array.isArray(choice.objects) || (typeof choice.count === "number" && choice.count !== choice.objects.length)) {
+      throw new Error(`Leading-cost receipt choice ${choiceId} has invalid objects`);
+    }
+    const refs = choice.objects.map(refValue);
+    if (refs.some((ref: ObjectRef | null) => ref === null)) throw new Error(`Leading-cost receipt choice ${choiceId} has an invalid object reference`);
+    values.push(...refs as ObjectRef[]);
+  }
+  const unique = [...new Map(values.map(ref => [refKey(ref), ref])).values()];
+  if (unique.length > 1) throw new Error("Leading-cost receipt link is ambiguous");
+  return unique[0] ?? null;
+}
+
+function effectPlayCostValue(value: Value): Value {
+  if (!isRecord(value) || value.finalized !== true || !isRecord(value.total)) return value;
+  const total = value.total;
+  const energy = total.energy;
+  const power = total.power;
+  const xp = total.xp;
+  const actions = total.actions;
+  if (typeof energy !== "number" || !Array.isArray(power) || typeof xp !== "number" || !Array.isArray(actions) ||
+      power.some(requirement => !isRecord(requirement) || !Number.isSafeInteger(requirement.amount) || !Array.isArray(requirement.allowedDomains))) {
+    return value;
+  }
+  const domains = [...new Set(power.flatMap(requirement => requirement.allowedDomains))];
+  const concretePower = power.length === 0 ? [] :
+    domains.length === 1 && power.every(requirement => requirement.allowedDomains.length === 1)
+      ? power.flatMap(requirement => Array.from({ length: Number(requirement.amount) }, () => String(requirement.allowedDomains[0])))
+      : undefined;
+  if (concretePower === undefined) return value;
+  const exhaust: ObjectRef[] = [];
+  const recycle: ObjectRef[] = [];
+  for (const action of actions) {
+    if (!isRecord(action) || !isRecord(action.action) || !isRecord(action.action.object)) return value;
+    const ref = refValue(action.action.object);
+    if (ref === null) return value;
+    if (action.action.type === "exhaust") exhaust.push(ref);
+    else if (action.action.type === "recycle") recycle.push(ref);
+    else return value;
+  }
+  return {
+    finalized: true,
+    ...(typeof value.id === "string" ? { planId: value.id } : {}),
+    energy,
+    power: concretePower,
+    ...(xp === 0 ? {} : { xp }),
+    ...(exhaust.length === 0 ? {} : { exhaust }),
+    ...(recycle.length === 0 ? {} : { recycle }),
+    parameters: { costPlan: value },
+  } as unknown as Value;
 }
 
 function scope(parent?: Scope): Scope {
@@ -161,8 +259,10 @@ class AbilityExecution {
     current: Scope,
     ignoredTargets: ReadonlySet<string>,
     context = this.context,
-    localLocations?: ReadonlyMap<string, LocationRef[]>
+    localLocations?: ReadonlyMap<string, LocationRef[]>,
+    leadingCostBinding?: LeadingCostReceiptBinding
   ): ExpressionContext {
+    const paid = leadingCostBinding === undefined ? undefined : leadingCostReceiptValue(this.options.cost, leadingCostBinding);
     return {
       context,
       ...this.options,
@@ -177,9 +277,13 @@ class AbilityExecution {
           const values = owner.values.get(id);
           return key === undefined ? values && asValue(values) : values && Object.hasOwn(values, key) ? values[key] : undefined;
         }
+        if (leadingCostBinding !== undefined && (key === undefined || key === leadingCostBinding.link) && id === leadingCostBinding.instructionId && paid !== undefined) {
+          return paid as unknown as Value;
+        }
         return this.context.linked(key === undefined ? id : `${id}.${key}`);
       },
-      canLookBack: ref => this.lookBack.has(refKey(ref)),
+      canLookBack: ref => this.lookBack.has(refKey(ref)) ||
+        (paid !== undefined && paid !== null && refKey(paid) === refKey(ref)),
       isIgnored: ref => ignoredTargets.has(refKey(ref)),
       locations: id => {
         const local = localLocations?.get(id);
@@ -201,7 +305,8 @@ class AbilityExecution {
     const targets = new Map<string, ObjectRef[]>();
     const locations = new Map<string, LocationRef[]>();
     const ignoredTargets = new Set(inheritedIgnoredTargets);
-    const context = this.instructionContext(path, current, writes, targets, locations, ignoredTargets);
+    const receiptBindings = bindingInstruction(instruction);
+    const context = this.instructionContext(path, current, writes, targets, locations, ignoredTargets, receiptBindings[0], instruction.op === "effect.play");
     let result: InstructionResult;
     try {
       const previous = instruction.linkedTo === undefined ? undefined : findScope(current, instruction.linkedTo);
@@ -220,7 +325,10 @@ class AbilityExecution {
       } else if (instruction.condition && !context.test(instruction.condition)) {
         result = skipped();
       } else {
-        const args = Object.fromEntries(Object.entries(instruction.args).map(([key, expression]) => [key, context.evaluate(expression)]));
+        const args = Object.fromEntries(Object.entries(instruction.args).map(([key, expression]) => {
+          const value = context.evaluate(expression);
+          return [key, instruction.op === "effect.play" && key === "cost" ? effectPlayCostValue(value) : value];
+        }));
         result = this.dispatch(instruction, args, context, path, current, locations, reselect, ignoredTargets);
       }
     } catch (error) {
@@ -229,6 +337,15 @@ class AbilityExecution {
     }
     if (result.status === "executed") {
       for (const [key, value] of Object.entries(result.linkedValues ?? {})) context.link(key, value);
+      for (const binding of receiptBindings) {
+        if (!referencesBinding(instruction.args, binding)) throw new Error(`Leading-cost receipt link ${binding.link} is unused`);
+        const paid = leadingCostReceiptValue(this.options.cost, binding);
+        if (paid === undefined) throw new Error(`Leading-cost receipt ${binding.instructionId} is unavailable`);
+        const value = paid ?? null;
+        context.link(binding.instructionId, value as unknown as Value);
+        context.link(`${binding.instructionId}.${binding.link}`, value as unknown as Value);
+        if (paid !== null) this.lookBack.add(refKey(paid));
+      }
     } else {
       this.partial = true;
     }
@@ -244,9 +361,11 @@ class AbilityExecution {
   private instructionContext(
     path: readonly string[], current: Scope,
     writes: Record<string, Value>, targets: Map<string, ObjectRef[]>, locations: Map<string, LocationRef[]>,
-    ignoredTargets: ReadonlySet<string>
+    ignoredTargets: ReadonlySet<string>, leadingCostBinding?: LeadingCostReceiptBinding,
+    projectPlayCost = false
   ): ResolveContext {
     const base = this.context;
+    const paid = leadingCostBinding === undefined ? undefined : leadingCostReceiptValue(this.options.cost, leadingCostBinding);
     const context: ResolveContext = {
       source: base.source,
       controller: base.controller,
@@ -257,9 +376,10 @@ class AbilityExecution {
       ...(base.contractActions === undefined ? {} : { contractActions: base.contractActions }),
       ...(base.eventObject === undefined ? {} : { eventObject: role => base.eventObject!(role) }),
       ...(base.transaction === undefined ? {} : { transaction: run => base.transaction!(run) }),
-      object: ref => base.object(ref),
+      object: ref => base.object(ref) ??
+        (paid !== undefined && paid !== null && refKey(paid) === refKey(ref) ? base.lastKnown(ref) : null),
       lastKnown: ref => base.lastKnown(ref),
-      query: filter => queryObjects(filter, this.expressionContext(current, ignoredTargets, context, locations)),
+      query: filter => queryObjects(filter, this.expressionContext(current, ignoredTargets, context, locations, leadingCostBinding)),
       zoneSlice: (player, zone, from, count) => base.zoneSlice(player, zone, from, count),
       targets: id => {
         let refs = targets.get(id);
@@ -270,8 +390,14 @@ class AbilityExecution {
       // contract remains object-target based.
       picks: id => this.options.picks?.(id, context, instructionId => findScope(current, instructionId) !== undefined) ?? base.picks(id),
       player: id => base.player(id),
-      evaluate: expr => evaluateExpression(expr, this.expressionContext(current, ignoredTargets, context, locations)),
-      test: condition => evaluateCondition(condition, this.expressionContext(current, ignoredTargets, context, locations)),
+      evaluate: expr => {
+        const value = evaluateExpression(expr, this.expressionContext(current, ignoredTargets, context, locations, leadingCostBinding));
+        const raw = expr as unknown as Readonly<Record<string, unknown>>;
+        return projectPlayCost && (raw.kind === "linked" || raw.kind === "linked-value") && raw.key === "cost"
+          ? effectPlayCostValue(value)
+          : value;
+      },
+      test: condition => evaluateCondition(condition, this.expressionContext(current, ignoredTargets, context, locations, leadingCostBinding)),
       linked: key => {
         if (Object.hasOwn(writes, key)) return writes[key];
         for (let owner: Scope | undefined = current; owner; owner = owner.parent) {
