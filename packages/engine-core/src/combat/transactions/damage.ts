@@ -21,6 +21,7 @@ export interface CombatDamageFieldFact {
 }
 
 export interface CombatDamageUnitFact {
+  /** CombatFlow's current projection after one layer pass in the live combat role. */
   readonly object: ObjectSnapshot;
   readonly combatRole: 'attacker' | 'defender' | null;
 }
@@ -103,8 +104,7 @@ function assignmentRules(runtime: CombatDamageRuntime): DuelBaseCombatAssignment
   const lethalMight = new Map<string, number>();
   for (const unit of units) {
     if (!runtime.fullMightLethalTargetIds.includes(unit.object.ref.id)) continue;
-    runtime.layers.setObjects(runtime.units.map(candidate => candidate.object));
-    const snapshot = runtime.layers.evaluate(unit.object.ref);
+    const snapshot = unit.object;
     if (snapshot === null || snapshot.might === null || !Number.isSafeInteger(snapshot.might) || snapshot.might < 0) {
       throw new TypeError(`Stunned Combat Unit ${unit.object.ref.id} has no authoritative Might`);
     }
@@ -163,8 +163,7 @@ export function createCombatDamagePlan(runtime: CombatDamageRuntime): DuelBaseCo
       const unit = runtime.units.find(candidate => candidate.object.ref.id === input.uid);
       if (unit === undefined) throw new TypeError(`Unknown combat Unit ${input.uid}`);
       if (runtime.zeroDamageSourceIds.includes(input.uid)) return 0;
-      runtime.layers.setObjects(runtime.units.map(candidate => candidate.object));
-      const snapshot = runtime.layers.evaluate(unit.object.ref);
+      const snapshot = unit.object;
       if (snapshot === null || snapshot.might === null || !Number.isSafeInteger(snapshot.might) || snapshot.might < 0) {
         throw new TypeError(`Combat Unit ${input.uid} has no authoritative Might`);
       }
