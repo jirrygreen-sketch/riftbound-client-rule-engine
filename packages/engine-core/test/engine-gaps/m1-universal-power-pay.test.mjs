@@ -16,6 +16,28 @@ const constant = value => ({ kind: 'constant', value });
 const executable = program => ({ ...program, status: 'executable', judgeReason: undefined });
 const cannotPay = error => error instanceof CostPlanError && error.reason === 'cannot-pay-cost';
 
+// Official evidence captured from docs/rule-source-manifest.json and the
+// shared official-order snapshots. CR v1.5 is dated 2026-10-09 and effective
+// 2026-10-16. The SFD errata snapshot was checked for the three cards below
+// and contains no applicable replacement text.
+const RULES_URL = 'https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf';
+const PATCH_NOTES_URL = 'https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/';
+const SFD_ERRATA_URL = 'https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/';
+const evidence = {
+  rules: { version: '1.5', dated: '2026-10-09', effective: '2026-10-16', url: RULES_URL },
+  patchNotes: { dated: '2026-10-09', effective: '2026-10-16', url: PATCH_NOTES_URL },
+  sfdErrata: { checked: true, url: SFD_ERRATA_URL, applicableToTestedCards: false },
+};
+
+function assertEvidence(canonicalCardId, rules, timeline) {
+  assert.deepEqual(evidence.rules, { version: '1.5', dated: '2026-10-09', effective: '2026-10-16', url: RULES_URL });
+  assert.equal(evidence.sfdErrata.url, SFD_ERRATA_URL);
+  assert.equal(evidence.sfdErrata.applicableToTestedCards, false);
+  assert.match(canonicalCardId, /^card\.hash-[0-9a-f]{64}$|^synthetic:/);
+  assert.ok(rules.length > 0);
+  assert.ok(timeline.length > 1);
+}
+
 function runtime(builder, programs) {
   const kernel = builder.build();
   const requests = [];
@@ -62,6 +84,9 @@ function play(f, id, player = 'A') {
 }
 
 test('Danger Zone accepts printed [A] Repeat and pays actual named Power through the Chain', () => {
+  assertEvidence(dangerZone.canonicalCardId, ['135.2.e.5.a', '135.2.e.6.c', '163.2.b', '820.1.c.1', '820.1.d.1'], [
+    'Play', 'Finalize', 'Pay Costs', 'Resolve x2', 'Move to Trash',
+  ]);
   const f = runtime(world()
     .player('A', { energy: 3, power: ['Mind', 'Order'] }).player('B')
     .hand('danger-zone', {
@@ -116,6 +141,7 @@ test('a multi-Domain base [C] is one any-of-Domains requirement through the real
   const f = runtime(world().player('A', { energy: 0, power: ['Mind'] }).player('B')
     .hand('spell', { cardId: program.canonicalCardId, types: ['spell'], energy: 0, power: null }), [program]);
   const source = f.kernel.getObject('spell');
+  assertEvidence(program.canonicalCardId, ['135.2.e.6.c'], ['Play', 'Finalize', 'Pay Costs']);
   const draft = f.binding.describePlay({ type: 'play', player: 'A', object: source.ref }, source);
   f.engine.execute(draft);
   assert.deepEqual(f.engine.items[0].costPlan.total.power, [{ amount: 1, allowedDomains: ['Fury', 'Mind'] }]);
@@ -152,6 +178,7 @@ test('a domainless any Power source prepares a named Order requirement without b
   const context = f.kernel.clone({
     sourceSnapshot: f.kernel.getObject('spell'), controller: 'A', timingPoint: 'chain-item-finalize',
   });
+  assertEvidence(program.canonicalCardId, ['135.2.e.5.a', '163.2.b'], ['Plan', 'Prepare Pay Costs', 'Host Commit']);
   const plan = buildCostPlan(context, {
     id: 'cost:universal-source',
     cost: { payments: [{ kind: 'power', amount: constant(1), allowedDomains: ['Order'] }] },
@@ -188,6 +215,9 @@ test('a host that ignores domainless Power fails closed and rolls back even name
 });
 
 test('Rumble recycle accepts another friendly Board unit and rejects enemy or non-controlled alternatives atomically', () => {
+  assertEvidence(rumbleHotheaded.canonicalCardId, ['203.3', '355.10.c.1', '383.3.b.1', '417.1', '417.2.a', '417.3'], [
+    'Trigger Pending', 'Finalize', 'Choose recycle object', 'Pay recycle', 'Resolve',
+  ]);
   const sourceProgram = executable(rumbleHotheaded);
   for (const [name, values, payable] of [
     ['friendly', { owner: 'A', controller: 'A' }, true],
