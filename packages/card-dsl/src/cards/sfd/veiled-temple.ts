@@ -28,28 +28,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "object-property", object: { target: "veiled-temple.gear" }, property:
  *   "tags" } }` — the same shape the layer-anchored conditions already use. The
  *   golden executes both branches through the real interpreter.
- * - "you may detach it" is a non-target pick (436.3) over that same selected
- *   gear and submits the merged detach action (436.1). The merged ready
- *   primitive yields only objects that actually changed state; when the
- *   selected gear was already ready, 416.1.c yields an empty receipt. PickSpec
- *   cannot yet consume the locked TargetSpec directly, so the current IR keeps
- *   the executable receipt neighborhood without claiming that boundary.
+ * - "you may detach it" is a non-target action whose named object is the exact
+ *   gear selected for the first may action (436.3 / 355.12), so the pick reads
+ *   the locked TargetPlan instead of the ready receipt. This preserves "it"
+ *   when effect.ready produces an empty receipt because the gear was already
+ *   Ready (416.1.c). effect.detach performs the real detach action (436.1) and
+ *   does nothing when the selected Equipment was not attached (436.1.a.1).
  *
- * Status: judge-required. The `here` trigger and the individual in-body
- * primitives are executable, but production trigger registration still fails
- * closed on this two-decision ability. The leading may must be decided during Finalize
- * (383.3.a), while the later may is decided during Resolve (383.3.a.3).
- * programs/trigger-adapters/leading-choice.ts:123-136 rejects the nested
- * choice.optional, programs/triggers.ts:22-31 then reports "unsupported leading
- * may shape", and its adapted-target extraction at 129-133 only scans targets
- * on nested instructions, not the TargetSpec printed on the outer choice. Even
- * if the control node were merely admitted, chain/finalize/choices.ts:207-218 asks every nested
- * choice.optional during Finalize, so it would wrongly ask "you may detach it"
- * at Finalize instead of Resolve. Even after separating the timings, the detach
- * pick cannot consume the locked TargetSpec: target/picks/plan.ts:220-236
- * accepts linked receipts, queries, and static options, not a symbolic target
- * source. The card is not approximated by moving either decision or dropping
- * the conditional detach clause.
+ * Status: executable. The production leading-choice adapter moves only the
+ * outer may to Finalize (383.3.a), keeps the target on that decision (355.12),
+ * marks the later may for Resolve (383.3.a.3), and exports the outer target to
+ * the ChainEngine. There is no printed or optional additional cost.
  */
 const abilities: Ability[] = [
   {
@@ -115,14 +104,20 @@ const abilities: Ability[] = [
                       {
                         id: "veiled-temple.detach",
                         op: "effect.detach",
-                        // 436.3: detaching a named card is a non-target pick.
+                        // 436.3: detaching a named card is not inherently a target.
+                        // "it" is nevertheless the exact gear selected by the
+                        // first may action (355.12), so bind it to the locked
+                        // TargetPlan rather than the state-change receipt.
                         args: { pick: { kind: "constant", value: "veiled-temple.detached-gear" } },
                         picks: [
                           {
                             id: "veiled-temple.detached-gear",
                             options: [
-                              { kind: "linked-value", instructionId: "veiled-temple.ready-gear", key: "readied" }
+                              { kind: "target", id: "veiled-temple.gear" }
                             ],
+                            // Retest the same locked incarnation at Resolve
+                            // without widening the source to every Board gear.
+                            filter: { type: "gear", zone: "board" },
                             min: 1,
                             max: 1,
                             selection: "one"
@@ -144,22 +139,7 @@ const abilities: Ability[] = [
 const program = {
   canonicalCardId: "card.hash-9daf60cdf4c82e4fba1f685af1c9b0d748003f7e9ad9c68f02f429bdd0cf85e5",
   rulesetVersion: "core-1.5" as const,
-  status: "judge-required" as const,
-  judgeReason:
-    "整卡仍不能注册（2026-10-22 生产复核）。「here」与触发体已接通：turn/flow.ts 的真实 conquer 波携带 details.battlefieldId，" +
-    "events/trigger-spec.ts:207-216、programs/filters.ts:201-281 与 events/pipeline-match.ts:89-94 已能绑定并比较战场位置；" +
-    "effect.ready（416.1）、Equipment 条件（355.7/355.12）与 effect.detach（436.1/436.3）原语单独执行可用，" +
-    "a friendly gear 不必横置；gear 本来已 ready 时，416.1.c 使 ready 的 readied 回执为空，" +
-    "但原文的 it 仍是已锁定的 gear，不能退化成「没有 detach 选项」。" +
-    "target/picks/plan.ts:220-236 只接 linked receipt、query 与 static options，没有 symbolic target source，" +
-    "因此现有 IR 只能在没有发生 ready 状态变化时 fail-closed。" +
-    "整卡仍不能注册：程序首段是应当于 Finalize 决定的 may（383.3.a），但其 body 内还有应在 Resolve 决定的第二个 may（383.3.a.3）。" +
-    "programs/trigger-adapters/leading-choice.ts:123-136 把嵌套 choice.optional 当作不可提升的控制体，程序绑定实测抛 " +
-    "ProgramBindingError(judge-required)「unsupported leading may shape」（programs/triggers.ts:22-31）；" +
-    "且 leading-choice.ts:129-133 只搬运被提升 body 指令上的 TargetSpec，不能保留挂在外层 may 上、须按 355.12 随该动作锁定的 friendly gear。" +
-    "此外，chain/finalize/choices.ts:207-218 会把任何嵌套 choice.optional 在 Finalize 询问；若只放行控制体而不区分阶段，" +
-    "「If it's an Equipment, you may detach it」会在错误时点被询问。" +
-    "不移动、删除或近似任何一句，待引擎提供外层 Finalize may + 内层 Resolve may 的精确提升、外层 TargetSpec 搬运与 target-backed pick。",
+  status: "executable" as const,
   abilities,
   sourceText: "When you conquer here, you may ready a friendly gear. If it's an Equipment, you may detach it."
 } satisfies CardProgram;
