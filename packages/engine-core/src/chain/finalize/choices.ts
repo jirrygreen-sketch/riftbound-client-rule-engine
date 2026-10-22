@@ -99,6 +99,9 @@ function targetRequirements(instruction: Instruction): readonly TargetRequiremen
   return (instruction.targets ?? []) as readonly TargetRequirement[];
 }
 
+const isResolveOptional = (instruction: Instruction): boolean =>
+  (instruction as Instruction & { readonly '__riftbound.resolve-optional'?: unknown })['__riftbound.resolve-optional'] === true;
+
 function readCount(context: ResolveContext, instruction: Instruction): number {
   const value = evaluate(context, instruction.args.count ?? { kind: 'constant', value: 1 });
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
@@ -204,6 +207,9 @@ function walk(
       }
       continue;
     }
+    // The leading adapter marks only optionals below an outer Finalize may.
+    // Their controller answers those may clauses during Resolve (CR 383.3.a.3).
+    if (instruction.op === 'choice.optional' && isResolveOptional(instruction)) continue;
     if (instruction.op === 'choice.optional') {
       const requestId = `${currentPath.map(segment => encodeURIComponent(segment)).join('/')}/optional`;
       const accepted = context.choose<boolean>({
