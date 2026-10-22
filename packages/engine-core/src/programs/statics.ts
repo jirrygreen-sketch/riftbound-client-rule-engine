@@ -181,15 +181,19 @@ function installKeywordReexpansion(engine: ChainEngine): void {
             ...(effectBody.staticCondition === undefined ? {} : { staticCondition: effectBody.staticCondition }) } as never }
         : effect;
     });
-    const unchanged = generated.length === normalized.length && generated.every((effect, index) =>
-      JSON.stringify(effect) === JSON.stringify(normalized[index]));
-    if (unchanged) return;
-    for (const effect of generated) if (engine.layers.registry.get(effect.id) !== undefined) engine.layers.removeContinuous(effect.id);
+    const nextIds = new Set(normalized.map(effect => effect.id));
+    const previousById = new Map(generated.map(effect => [effect.id, effect]));
+    for (const effect of generated) if (!nextIds.has(effect.id) && engine.layers.registry.get(effect.id) !== undefined) {
+      engine.layers.removeContinuous(effect.id);
+    }
     for (const effect of normalized) {
+      const previous = previousById.get(effect.id);
+      if (previous !== undefined && JSON.stringify(previous) === JSON.stringify(effect) &&
+          engine.layers.registry.get(effect.id) !== undefined) continue;
       const existing = engine.layers.registry.get(effect.id);
       if (existing !== undefined) {
         if (JSON.stringify(existing.effect) === JSON.stringify(effect)) continue;
-        throw new ProgramBindingError('invalid-program', `Duplicate keyword lifecycle effect ${effect.id}`);
+        engine.layers.removeContinuous(effect.id);
       }
       engine.layers.addContinuous(effect, { type: 'permanent' });
     }
@@ -295,6 +299,18 @@ function installKeywordReexpansion(engine: ChainEngine): void {
     if (!id.startsWith('program-keyword:') && !id.startsWith('program-keyword-capability:')) syncView();
     return removed;
   }) as typeof engine.layers.removeContinuous;
+  // TurnPhaseLayers.expireTurn() calls LayerEngine's parent implementation
+  // directly, bypassing any wrapper on layers.advance(). The shared registry
+  // is nevertheless reached by both Ending Step and Expiration paths, so sync
+  // after the actual expiry operation rather than after a particular subclass
+  // dispatch. This keeps "this turn" grants alive through the Ending Step and
+  // revokes their derived movement rules only when expireTurn() removes them.
+  const expireAt = effectRegistry.expireAt.bind(effectRegistry);
+  effectRegistry.expireAt = ((event, object) => {
+    const expired = expireAt(event, object);
+    if (expired.some(id => !id.startsWith('program-keyword:'))) syncView();
+    return expired;
+  }) as typeof effectRegistry.expireAt;
   const detach = () => {
     for (const binding of lifecycleRegistry.values()) unregister(binding.ids);
     for (const id of installedIds) if (pipeline.hasTriggerRegistration(id)) pipeline.unregisterTrigger(id);
