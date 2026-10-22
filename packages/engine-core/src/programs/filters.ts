@@ -23,7 +23,8 @@ const scalarFields = new Set([
   'keyword', 'keywords', 'hasKeyword', 'damaged', 'buffed', 'empowered',
   'mightLt', 'mightLessThan', 'mightLessThanTarget', 'mightLte', 'mightAtMost',
   'mightGte', 'mightAtLeast', 'mightGt', 'mightGreaterThan', 'mightEq',
-  'energyMax', 'printedEnergyMax', 'energyAtMost', 'powerMax', 'printedPowerMax', 'powerAtMost',
+  'energyMax', 'printedEnergyMax', 'energyAtMost',
+  'powerMax', 'printedPowerMax', 'powerAtMost',
   'printedCostNoMoreThanKilledUnit', 'killedUnit', 'killed', 'costReference'
 ]);
 const relations = new Set(['same-location', 'different-location', 'same-controller', 'different-controller', 'same-owner', 'different-owner', 'another', 'other']);
@@ -84,6 +85,16 @@ export function translateObjectFilter(input: ObjectFilter | Record<string, unkno
     else if (key === 'types') put(output, 'type', value);
     else if (key === 'tag' || key === 'tags') append(output, 'tags', value);
     else if (key === 'state' || key === 'states') append(output, 'states', value);
+    else if (key === 'costEnergyLte') {
+      if (!Number.isSafeInteger(value) || (value as number) < 0) {
+        throw new ProgramBindingError('invalid-program', 'Invalid costEnergyLte filter');
+      }
+      put(output, key, value);
+    }
+    else if (key === 'equipped') {
+      if (value !== true) throw new ProgramBindingError('judge-required', `Unsupported filter equipped: ${String(value)}`);
+      put(output, key, true);
+    }
     else if (key === 'controller' || key === 'owner') put(output, key, normalizePlayer(value));
     else if (key === 'zoneEntryId') {
       if (!Number.isSafeInteger(value) || (value as number) < 0) throw new ProgramBindingError('invalid-program', 'Invalid zoneEntryId filter');

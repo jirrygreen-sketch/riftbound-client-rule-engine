@@ -13,6 +13,8 @@ export interface FilterMatchContext {
   readonly references?: (selector: unknown) => readonly ObjectSnapshot[];
   /** Explicit comparison object for printedCostNoMoreThanKilledUnit. */
   readonly costReference?: ObjectSnapshot | null;
+  /** Visible objects used to evaluate inverse attachment predicates. */
+  readonly objects?: readonly ObjectSnapshot[];
 }
 
 export function refKey(ref: ObjectRef | null | undefined): string | null {
@@ -160,6 +162,22 @@ function stateMatches(expected: unknown, object: SnapshotLike): boolean {
   });
 }
 
+/** CR v1.5 818.3.b: a Top-Most card is Equipped while at least one of its
+ * Attached cards is Equipment. Attachment facts live on the attached object,
+ * so this predicate must inspect the visible object set rather than the
+ * candidate's own `attachedTo` pointer. */
+function equippedMatches(expected: unknown, object: SnapshotLike, context: FilterMatchContext): boolean {
+  if (expected === undefined) return true;
+  if (typeof expected !== "boolean" || context.objects === undefined) return false;
+  const equipped = context.objects.some(candidate =>
+    candidate.ref.id !== object.ref.id &&
+    candidate.zone === "board" &&
+    candidate.types.includes("gear") &&
+    candidate.tags.includes("Equipment") &&
+    sameRef(candidate.attachedTo, object.ref));
+  return equipped === expected;
+}
+
 function typeMatches(expected: unknown, object: SnapshotLike): boolean {
   if (expected === undefined) return true;
   const values = list(expected) ?? [expected];
@@ -284,7 +302,10 @@ function numericPredicates(filter: AnyRecord, object: SnapshotLike, context: Fil
     if (filter[key] !== undefined && !compareNumber(currentMight, referenceMight(filter[key], context), operator)) return false;
   }
   const printed = printedSnapshot(object);
-  for (const [key, property] of [["energyMax", "energy"], ["printedEnergyMax", "energy"], ["energyAtMost", "energy"], ["powerMax", "power"], ["printedPowerMax", "power"], ["powerAtMost", "power"]] as const) {
+  for (const [key, property] of [
+    ["energyMax", "energy"], ["printedEnergyMax", "energy"], ["energyAtMost", "energy"], ["costEnergyLte", "energy"],
+    ["powerMax", "power"], ["printedPowerMax", "power"], ["powerAtMost", "power"],
+  ] as const) {
     if (filter[key] === undefined) continue;
     const actual = property === "energy" ? printed.energy : powerCost(printed.power);
     if (!compareNumber(actual, filter[key], "lte")) return false;
@@ -333,6 +354,7 @@ export function matchesObjectPredicates(filter: ObjectFilter | Record<string, un
   if (!playerMatches(value.controller, object.controller, context)) return false;
   if (!playerMatches(value.owner, object.owner, context)) return false;
   if (!stateMatches(value.states ?? value.state, objectLike)) return false;
+  if (!equippedMatches(value.equipped, objectLike, context)) return false;
   if (!tagsMatch(value.tags ?? value.tag, objectLike)) return false;
   if (!keywordMatches(value.keyword ?? value.keywords ?? value.hasKeyword, objectLike)) return false;
   if (value.damaged !== undefined && !booleanPredicate(value.damaged, object.damage > 0)) return false;
