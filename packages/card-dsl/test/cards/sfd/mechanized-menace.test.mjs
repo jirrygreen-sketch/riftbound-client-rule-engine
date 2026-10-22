@@ -17,9 +17,9 @@ test("sfd-181-221 Mechanized Menace: identity and status", () => {
   );
   assert.equal(mechanizedMenace.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(mechanizedMenace.status, "judge-required");
-  assert.match(mechanizedMenace.judgeReason, /CR 111/);
-  assert.match(mechanizedMenace.judgeReason, /create-token to chain/);
-  assert.match(mechanizedMenace.judgeReason, /RIFT-891/);
+  assert.match(mechanizedMenace.judgeReason, /Legend 区/);
+  assert.match(mechanizedMenace.judgeReason, /createMatch/);
+  assert.match(mechanizedMenace.judgeReason, /CR 814\.1\.c/);
 });
 
 test("sfd-181-221 Mechanized Menace: single static keyword-grant ability", () => {
@@ -47,10 +47,9 @@ test("sfd-181-221 Mechanized Menace: sourceText is the printed ability text", ()
 });
 
 // --- Production component goldens. The original registry program is bound by
-// createProgramBinding and the Legend enters through real move-zone actions so
-// the lifecycle binds its static. The Legend is parked on the Board only
-// because the engine has no Legend zone yet (RIFT-891); this proves the grant
-// itself, not the in-match Legend placement.
+// createProgramBinding and the Legend enters its public Legend Zone through a
+// real create-token action so the lifecycle binds its static. The engine-core
+// RIFT-891 suite also proves createMatch placement and live activation.
 //
 // The card is judge-required, so the binding receives a component view that
 // admits only the status metadata; abilities, filter and tag are the unchanged
@@ -62,9 +61,8 @@ import { createProgramBinding } from "../../../../engine-core/dist/programs/inde
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { getTokenDefinition } from "../../../../engine-core/dist/effects/tokens/definitions.js";
 
-function legendOnBoard() {
+function legendInZone() {
   const kernel = world().player("A").player("B")
-    .object("legend", { owner: "A", controller: "A", cardId: mechanizedMenace.canonicalCardId, types: ["legend"], tags: ["Rumble"], zone: "hand", might: null, energy: null, power: null })
     .base("mech", { might: 3, tags: ["Mech", "Yordle"] })
     .base("plain", { might: 3, tags: ["Yordle"] })
     .unit("enemy-mech", { owner: "B", controller: "B", might: 3, tags: ["Mech"], location: { type: "base", player: "B" } })
@@ -83,17 +81,20 @@ function legendOnBoard() {
   const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
   const binding = createProgramBinding({ cardPrograms: [admitted] });
   binding.attachLifecycle(engine, error => { throw error; });
-  engine.commit({ type: "move-zone", object: kernel.ref("legend"), to: "chain" });
-  engine.commit({ type: "move-zone", object: kernel.ref("legend"), to: "base", location: { type: "base", player: "A" } });
+  const created = engine.commit({ type: "create-token", player: "A", to: "legend", token: {
+    cardId: mechanizedMenace.canonicalCardId, name: "Mechanized Menace", types: ["legend"], tags: ["Rumble"],
+    keywords: [], might: null, energy: null, power: null,
+  } });
+  assert.equal(created.status, "done");
   const shield = id => {
     engine.layers.setObjects(kernel.objects);
     return engine.layers.evaluate(kernel.ref(id)).keywords.filter(keyword => keyword.id.toLowerCase() === "shield");
   };
-  return { kernel, engine, shield };
+  return { kernel, engine, shield, legend: created.result };
 }
 
 test("sfd-181-221 Mechanized Menace grants Shield 1 only to its controller's Mechs", () => {
-  const f = legendOnBoard();
+  const f = legendInZone();
   assert.deepEqual(f.shield("mech").map(keyword => keyword.value), [1]);
   assert.deepEqual(f.shield("plain"), [], "a friendly non-Mech is unaffected");
   assert.deepEqual(f.shield("enemy-mech"), [], "an opposing Mech is unaffected");
@@ -106,11 +107,10 @@ test("sfd-181-221 Mechanized Menace reaches the CR 187.4 Mech token's real tag",
 });
 
 test("sfd-181-221 Mechanized Menace stops granting Shield once the Legend leaves", () => {
-  const f = legendOnBoard();
+  const f = legendInZone();
   assert.equal(f.shield("mech").length, 1);
-  f.engine.commit({ type: "move-zone", object: f.kernel.ref("legend"), to: "trash" });
+  assert.equal(f.engine.commit({ type: "move-zone", object: f.kernel.ref(f.legend.id), to: "banishment" }).status, "done");
   assert.deepEqual(f.shield("mech"), []);
 });
 
-test.todo("sfd-181-221 Mechanized Menace: the Champion Legend in its Legend zone grants Shield during a real createMatch game (RIFT-891)");
 test.todo("sfd-181-221 Mechanized Menace: a granted Shield gives +1 Might while the Mech is a defender in real combat (CR 814.1.c)");

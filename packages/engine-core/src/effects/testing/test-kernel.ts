@@ -386,7 +386,7 @@ export class TestWorld implements ResolveContext {
         events.push(makeEvent(this.state, 'kill', this.timingPoint, { batchId }));
         this.state.history.push({ action: structuredClone(actions[index]!), object: confirmed[index]!, timingPoint: this.timingPoint, turn: 1, combat: 0 });
       }
-      return {
+      const result: ContractActionExecution = {
         outcome: {
           status: 'done',
           events,
@@ -398,6 +398,7 @@ export class TestWorld implements ResolveContext {
         },
         steps,
       };
+      return result;
     } catch (error) {
       this.restore(checkpoint);
       throw error;
@@ -681,7 +682,7 @@ export class TestWorld implements ResolveContext {
     object.ref = { id: object.ref.id, zoneEntryId: object.ref.zoneEntryId + 1 };
     object.combatRole = null;
     object.location = location ?? (destination === "base" ? { type: "base", player: object.controller } : destination === "battlefield" ? { type: "battlefield", id: "battlefield-1" } : null);
-    object.zone = destination === "deck-top" || destination === "deck-bottom" ? "deck" : destination === "rune-deck" ? "rune-deck" : destination === "rune-zone" ? "rune-zone" : destination === "banishment" ? "banishment" : destination === "hand" ? "hand" : destination === "trash" ? "trash" : destination === "chain" ? "chain" : "board";
+    object.zone = destination === "deck-top" || destination === "deck-bottom" ? "deck" : destination === "rune-deck" ? "rune-deck" : destination === "rune-zone" ? "rune-zone" : destination === "banishment" ? "banishment" : destination === "hand" ? "hand" : destination === "trash" ? "trash" : destination === "chain" ? "chain" : destination === "legend" ? "legend" : "board";
     this.putInZone(object, object.zone, bottom);
   }
   private putInZone(object: MutableObject, zone: ZoneId, bottom = false): void {

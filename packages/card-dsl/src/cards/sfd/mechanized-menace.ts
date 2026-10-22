@@ -16,19 +16,17 @@ const mechanizedMenace = {
   // - Tags match case-sensitively and the catalog / CR 187.4 Mech token spell
   //   the tag "Mech"; the earlier lowercase "mech" matched no real card
   //   (RIFT-889 probe).
-  // - status = judge-required (RIFT-889 review): the grant executes through a
-  //   real binding, but createMatch keeps every Champion Legend in the chain
-  //   zone because the engine has no Legend zone (CR 111), so this static never
-  //   binds in a real game. Restore executable once RIFT-891 binds Legends in
-  //   their zone and a createMatch golden proves it.
+  // - status = judge-required: RIFT-891 now establishes the Champion Legend in
+  //   its Legend Zone and proves the static grant through createMatch. The
+  //   remaining blocker is the Shield defender's +1 Might in real combat
+  //   (CR 814.1.c), which still lacks production evidence.
   canonicalCardId:
     "card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "对局中不生效：engine-core 无 Legend 区（CR 111），game/lifecycle.ts createMatch 以 create-token to chain 安置 championLegend，" +
-    "实测本静态在 chain 区不绑定、己方 Mech 不获得 Shield；同一程序作为真实绑定的场上对象时只授予己方 Mech。依赖 RIFT-891，不近似实现。" +
-    "Shield 防守者 +1 Might（CR 814.1.c）尚需真实战斗验证。",
+    "createMatch 已将 Champion Legend 安置在公开 Legend 区，静态“Your Mechs have [Shield]”在真实对局中只向控制者自己的 Mech 授予 Shield 1。" +
+    "剩余阻塞是 Shield 防守者 +1 Might（CR 814.1.c）尚缺真实战斗验证，因此整卡暂不标记 executable；不近似实现战斗收益。",
   abilities: [
     {
       kind: "static",

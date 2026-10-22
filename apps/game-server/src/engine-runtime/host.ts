@@ -41,7 +41,7 @@ export interface RuntimeCard {
 
 type MutableObject = {
   -readonly [K in keyof ObjectSnapshot]: ObjectSnapshot[K];
-} & { counters: Record<string, number>; empowered: number };
+} & { counters: Record<string, number>; empowered: number; championLegend?: true };
 
 type RuntimeZone = ZoneId | "base" | "battlefield" | "champion" | "legend";
 
@@ -65,6 +65,7 @@ export interface RuntimeHostCheckpoint {
   readonly visibility: readonly RuntimeVisibilityGrant[];
   readonly runeDomains?: readonly [string, readonly Domain[]][];
   readonly hidden?: HiddenRuntimeCheckpoint;
+  readonly championLegends?: readonly string[];
 }
 
 interface HiddenRuntimeCard {
@@ -148,6 +149,7 @@ export class EngineRuntimeHost {
   private readonly grants: RuntimeVisibilityGrant[] = [];
   private readonly runeDomainsByObject = new Map<string, readonly Domain[]>();
   private readonly catalogDomainsByCardId = new Map<string, readonly Domain[]>();
+  private readonly championLegends = new Set<string>();
   private hidden: HiddenRuntimeState = { turn: 1, zones: new Map(), played: new Map() };
 
   constructor(
@@ -201,12 +203,13 @@ export class EngineRuntimeHost {
       lastKnown: clone([...this.lastKnown.entries()]), nextToken: this.nextToken, visibility: clone(this.grants),
       runeDomains: clone([...this.runeDomainsByObject.entries()]),
       hidden: clone({ turn: this.hidden.turn, zones: [...this.hidden.zones.entries()], played: [...this.hidden.played.entries()] }),
+      championLegends: [...this.championLegends],
     };
   }
 
   restore(checkpoint: unknown): void {
     const saved = checkpoint as RuntimeHostCheckpoint;
-    this.objectMap.clear(); this.players.clear(); this.lastKnown.clear(); this.grants.splice(0); this.runeDomainsByObject.clear();
+    this.objectMap.clear(); this.players.clear(); this.lastKnown.clear(); this.grants.splice(0); this.runeDomainsByObject.clear(); this.championLegends.clear();
     for (const object of clone(saved.objects)) this.objectMap.set(object.ref.id, object);
     for (const player of clone(saved.players)) this.players.set(player.id, player);
     for (const [key, object] of clone(saved.lastKnown)) this.lastKnown.set(key, object);
@@ -214,6 +217,7 @@ export class EngineRuntimeHost {
     this.grants.push(...clone(saved.visibility));
     const savedDomains = clone(saved.runeDomains ?? []);
     for (const [key, value] of savedDomains) this.runeDomainsByObject.set(key, value);
+    for (const key of saved.championLegends ?? []) this.championLegends.add(key);
     if (saved.runeDomains === undefined) {
       for (const object of this.objectMap.values()) {
         const value = object.cardId === null ? undefined : this.catalogDomainsByCardId.get(object.cardId);
@@ -527,6 +531,16 @@ export class EngineRuntimeHost {
 
   private move(ref: ObjectRef, destination: ZoneDestination, location?: LocationRef): ActionOutcome {
     const object = this.requireObject(ref), player = this.requirePlayer(object.owner), target = asZone(destination);
+    // A Champion Legend is established once in its public Legend Zone and
+    // cannot be removed, moved, or displaced (CR v1.5 107.4.d / 174.4). The
+    // token identity is exactly the setup-created Champion Legend here.
+    if (object.zone === "legend" && this.championLegends.has(refKey(object.ref))) {
+      return this.prevented();
+    }
+    // Non-Champion Legends may leave only into Banishment (107.4.d.2).
+    if (object.types.some(type => type.toLowerCase() === "legend") && target.zone !== "banishment") {
+      return this.prevented();
+    }
     const hiddenSource = object.faceDown ? this.hiddenEntry(object) : null;
     this.removeFromZone(object); this.lastKnown.set(refKey(object.ref), clone(object));
     object.zone = target.zone; object.location = location ?? null; object.ref = { id: object.ref.id, zoneEntryId: (object.ref.zoneEntryId ?? 0) + 1 };
@@ -709,10 +723,16 @@ export class EngineRuntimeHost {
   private moveLocation(ref: ObjectRef, location: LocationRef): ActionOutcome { const object = this.requireObject(ref); object.location = location; return this.done(objectRef(object)); }
   private setExhausted(ref: ObjectRef, exhausted: boolean): ActionOutcome { const object = this.requireObject(ref); object.exhausted = exhausted; return this.done(); }
 
-  private createToken(player: PlayerId, token: TokenSpec, to: "board" | "chain", location?: LocationRef): ActionOutcome {
+  private createToken(player: PlayerId, token: TokenSpec, to: "board" | "chain" | "legend", location?: LocationRef): ActionOutcome {
+    if (to !== "legend" && token.championLegend === true) return this.prevented();
+    if ((to === "legend") !== token.types.some(type => type.toLowerCase() === "legend")) return this.prevented();
     const id = `token:${this.nextToken++}`;
-    const ref = this.addCard(player, { id, cardId: token.cardId, name: token.name, types: token.types, tags: token.tags, keywords: token.keywords, might: token.might, energy: token.energy, power: token.power }, to === "chain" ? "chain" : "board");
-    const object = this.objectMap.get(id)!; object.isToken = true; object.faceDown = false; object.location = location ?? null;
+    const ref = this.addCard(player, { id, cardId: token.cardId, name: token.name, types: token.types, tags: token.tags, keywords: token.keywords, might: token.might, energy: token.energy, power: token.power }, to);
+    const object = this.objectMap.get(id)!; object.isToken = true; object.faceDown = false; object.location = to === "legend" || to === "chain" ? null : location ?? null;
+    if (to === "legend" && token.championLegend === true) {
+      object.championLegend = true;
+      this.championLegends.add(refKey(ref));
+    }
     return this.done(ref);
   }
 
