@@ -22,27 +22,19 @@ import type { CardProgram } from "../../ir/index.js";
  *   arithmetic layer and end-of-turn duration. The body can therefore be
  *   repeated directly without translating -2 Might into Buff counters.
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，唯一剩余缺口是
- * CR 820.2.a 的额外执行重选。Payment collection and paid-instance execution
- * now work in production, but chain/interpreter-adapter.ts:228 wraps a paid
- * whole body in `repeat` with `reselectTargets: false`; chain/engine.ts:724
- * finalizes the original TargetSpec only once and chain/engine.ts:661 merges
- * those selections by specification id. The paid execution therefore cannot
- * choose a different legal unit, although 820.2.a explicitly permits it.
- * Card IR cannot manufacture that second Finalize choice, so the card remains
- * judge-required until the engine freezes one target choice per paid instance.
+ * status 判定（cards/README.md 第 2 节）：executable。RIFT-952 / a4712989
+ * landed the paid-instance lifecycle removed by the earlier RIFT-364 gap: each
+ * execution owns an independent Finalize target lock (repeatIndex 0..N), Resolve
+ * binds the body to its own lock, and revalidates that lock independently. The
+ * production goldens cover decline, a different target for each execution, the
+ * same target twice, Reaction timing, and a target that becomes stale after
+ * Finalize. The card therefore keeps one faithful body and adds no fabricated
+ * target choice or Buff-based Might substitute.
  */
 const frigidTouch = {
   canonicalCardId: "card.hash-153eb4df721b70662a63652ba1602985ceed08d81a0b23fc0d6b10349ee15ca9",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "当前唯一缺口是 CR 820.2. / 820.2.a 的 Repeat 额外执行重选：付费费用收集与 paid-instance 次数接线已合入，" +
-    "但 packages/engine-core/src/chain/interpreter-adapter.ts:228-239 把整个正文包装成 repeat 时固定 " +
-    "reselectTargets: false；packages/engine-core/src/chain/engine.ts:724-766 只为原始 TargetSpec finalize 一次，" +
-    "engine.ts:661-671 又按 spec id 合并目标计划。因此额外执行只能复用第一次选择的单位，不能按 820.2.a 另选另一个“unit”。" +
-    "卡牌 IR 不伪造第二个 Finalize choice，也不使用 buff 代替 Might。已由生产 golden 验证：拒绝 Repeat 时只支付 2 能量并执行一次，" +
-    "支付后总计 4 能量且真实重复 continuous.might；目标在结算前失效时 ignored，均不产生 Buff counter；整卡因缺少额外执行重选仍保持 judge-required。",
+  status: "executable",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     { kind: "keyword", keyword: "repeat" },
