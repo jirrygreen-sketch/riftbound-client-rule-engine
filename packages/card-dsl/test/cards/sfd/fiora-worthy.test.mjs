@@ -20,6 +20,7 @@ import { adaptLeadingChoice } from "../../../../engine-core/dist/programs/trigge
 import { costPayArgsToCostSpec } from "../../../../engine-core/dist/programs/trigger-adapters/finalize-cost.js";
 import { planDuelRunePayment } from "../../../../engine-core/dist/cost/resources.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { productionPlay } from "../../fixtures/production-play.mjs";
 
 const CANONICAL_ID =
   "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f";
@@ -241,10 +242,16 @@ test("sfd-180-221 Fiora, Worthy: program validates and has expected shape", () =
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /typed Mighty transition/);
   assert.match(program.judgeReason, /event:it/);
-  assert.match(program.judgeReason, /Finalize Order payment/);
-  assert.match(program.judgeReason, /cost\/payment\.ts:120/);
-  assert.match(program.judgeReason, /cost\/payment\.ts:132/);
-  assert.match(program.judgeReason, /Universal Power/);
+  assert.match(program.judgeReason, /RIFT-929 now plans a domainless `any` lot/);
+  assert.match(program.judgeReason, /cost\/payment\.ts:184-190/);
+  assert.match(program.judgeReason, /effects\/contract\.ts:91/);
+  assert.match(program.judgeReason, /UniversalPowerSource/);
+  assert.match(program.judgeReason, /testing\/test-kernel\.ts:572-590/);
+  assert.match(program.judgeReason, /engine-runtime\/host\.ts:771/);
+  assert.match(program.judgeReason, /universalPower/);
+  assert.match(program.judgeReason, /135\.2\.e\.5\.a \/ 163\.2\.b/);
+  assert.doesNotMatch(program.judgeReason, /cost\/payment\.ts:120/);
+  assert.doesNotMatch(program.judgeReason, /cost\/payment\.ts:132/);
   assert.doesNotMatch(program.judgeReason, /authoritative-host proof/);
   assert.doesNotMatch(program.judgeReason, /programs\/filters\.ts rejects/);
   assert.doesNotMatch(program.judgeReason, /does not publish/);
@@ -870,18 +877,78 @@ test("sfd-180-221 Fiora, Worthy: wrong-domain or absent Power leaves the trigger
   }
 });
 
-test("sfd-180-221 Fiora, Worthy: Universal Power fails closed at the authoritative payment contract", () => {
-  const f = fullLifecycleFixture({ power: ["any"] });
-  assert.throws(
-    () => f.enterAccessories(),
-    error => error?.reason === "invalid-cost-plan" &&
-      error.message === "Invalid Power domain in player snapshot"
+test("sfd-180-221 Fiora, Worthy: production ports plan Universal Power but fail Finalize closed", () => {
+  const f = productionPlay({
+    programs: [admitted, pitRookie],
+    answers: { "target:other-unit": ["target"], "finalize:trigger:": () => true },
+    build: builder => builder
+      .player("A", { energy: 10, power: ["any"] })
+      .player("B")
+      .hand("fiora", {
+        cardId: CANONICAL_ID,
+        types: ["unit"],
+        might: 3,
+        energy: 3,
+        power: null,
+        exhausted: true
+      })
+      .hand("pit", {
+        cardId: pitRookie.canonicalCardId,
+        types: ["unit"],
+        might: 2,
+        energy: 1,
+        power: []
+      })
+      .unit("target", {
+        might: 4,
+        exhausted: true,
+        location: { type: "battlefield", id: "battlefield-1" }
+      })
+  });
+
+  const actions = [];
+  const perform = f.kernel.perform.bind(f.kernel);
+  f.kernel.perform = action => {
+    actions.push(structuredClone(action));
+    return perform(action);
+  };
+
+  f.play("fiora");
+  // Chain Finalize converts the payment-owner rejection into an unperformable
+  // Pending item rather than leaking a half-finalized trigger to Resolve.
+  f.play("pit");
+
+  const universalPayment = actions.find(action =>
+    action.type === "pay" &&
+    action.player === "A" &&
+    action.plan.universalPower === 1
   );
+  assert.deepEqual(universalPayment?.plan, {
+    finalized: true,
+    energy: 0,
+    power: [],
+    universalPower: 1,
+    powerSources: [{ source: "any", amount: 1 }]
+  });
   assert.deepEqual(f.kernel.player("A").power, ["any"]);
+  assert.equal(f.kernel.player("A").energy, 6);
   assert.equal(f.kernel.getObject("target").exhausted, true);
-  assert.equal(f.kernel.getObject("pit").zone, "hand");
-  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "might-changed").length, 0);
-  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-readied").length, 0);
+  assert.equal(f.kernel.getObject("fiora").exhausted, true);
+  assert.equal(f.engine.items.length, 0);
+  const transition = f.engine.pipeline.events.filter(event => event.timingPoint === "might-changed");
+  assert.deepEqual(transition.map(event => event.it.ref), [f.kernel.ref("target")]);
+  const ready = f.engine.pipeline.events.filter(event => event.timingPoint === "object-readied");
+  assert.deepEqual(ready, []);
+  assert.ok(f.requests.some(request =>
+    request.type === "optional" &&
+    request.id.startsWith("finalize:trigger:") &&
+    request.chooser === "A"
+  ));
+  assert.ok(f.engine.trace.some(entry =>
+    entry.step === "removed" &&
+    entry.item === "trigger:2" &&
+    entry.reason === "unperformable-trigger"
+  ));
 });
 
 test("sfd-180-221 Fiora, Worthy: 3-to-4 and 5-to-6 Might changes do not trigger", () => {

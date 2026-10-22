@@ -1,7 +1,6 @@
-// RIFT-921 focused evidence for Ornn's Forge. The card remains judge-required
-// until Chain Finalize consumes its registered static cost source. The tests
-// distinguish the merged production binder/collector from an actual card play
-// and assert that a real gear still pays its printed Energy in the latter.
+// RIFT-939 focused evidence for Ornn's Forge. The card remains judge-required
+// until production Finalize supplies authoritative current-turn card Finalize
+// history to its per-turn-first-play cost window.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -15,6 +14,7 @@ import { staticCostSources } from "../../../../engine-core/dist/programs/static-
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { ChainContractBlockedError } from "../../../../engine-core/dist/chain/engine.js";
 import { createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { productionPlay } from "../../fixtures/production-play.mjs";
 import orbOfRegret from "../../../dist/cards/ogn/orb-of-regret.js";
@@ -32,10 +32,13 @@ test("sfd-213-221 Ornn's Forge: program validates and keeps identity", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /staticCostSources/);
-  assert.match(program.judgeReason, /chain\/engine\.ts:843-854/);
-  assert.match(program.judgeReason, /purpose \"play\"/);
-  assert.match(program.judgeReason, /finalized-play history/);
+  assert.match(program.judgeReason, /chain\/engine\.ts:876/);
+  assert.match(program.judgeReason, /finalizedPlaysThisTurn/);
+  assert.match(program.judgeReason, /cost\/discounts\/values\.ts:98-100/);
+  assert.match(program.judgeReason, /fails closed/);
+  assert.match(program.judgeReason, /CR 356\.4|CR 420\.4\.b/);
+  assert.doesNotMatch(program.judgeReason, /staticCostSources\(engine\) has no caller/);
+  assert.doesNotMatch(program.judgeReason, /still pays its printed cost/);
   assert.doesNotMatch(program.judgeReason, /Unsupported static appliesTo/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -173,12 +176,13 @@ test("sfd-213-221 Ornn's Forge: production binding registers its cost source", (
   assert.deepEqual(source.ability.effect.filter, { type: "gear", controller: "controller", isToken: false });
 });
 
-test("sfd-213-221 Ornn's Forge productionPlay: the first qualifying Gear still pays its printed Energy before the Finalize bridge exists", () => {
+test("sfd-213-221 Ornn's Forge productionPlay: missing current-turn Finalize history blocks the first Gear without payment", () => {
   const executable = { ...program, status: "executable" };
   delete executable.judgeReason;
   const f = productionPlay({
-    // Lifecycle still refuses the published judge-required status. A metadata-only
-    // executable view isolates the independently missing Finalize consumer.
+    // Lifecycle refuses the published judge-required status before program
+    // binding. A metadata-only executable view isolates the independent gap in
+    // the production Finalize cost-history input.
     programs: [executable, orbOfRegret],
     build: w => w.player("A", { energy: 10 }).player("B", { energy: 10 })
       // The entry transition below establishes the real Board lifecycle binding.
@@ -193,15 +197,14 @@ test("sfd-213-221 Ornn's Forge productionPlay: the first qualifying Gear still p
 
   const before = f.kernel.player("A").energy;
   const draft = f.describe("first");
-  f.engine.execute(draft);
-  f.settle();
-  assert.equal(f.kernel.getObject("first").zone, "board");
-  assert.equal(f.kernel.player("A").energy, before - 1,
-    "CR 356.4: the first qualifying Gear should pay 0, but the absent Chain Finalize bridge charges 1");
+  const beforeSnapshot = f.kernel.snapshot();
+  assert.throws(
+    () => f.engine.execute(draft),
+    error => error instanceof ChainContractBlockedError &&
+      /Cost history requires authoritative card Finalize records for the current turn \(420\.4\.b\)/.test(error.message)
+  );
+  assert.equal(f.kernel.getObject("first").zone, "hand");
+  assert.equal(f.kernel.player("A").energy, before);
+  assert.deepEqual(f.kernel.snapshot(), beforeSnapshot);
+  assert.equal(f.engine.items.length, 0);
 });
-
-test.todo(
-  "sfd-213-221 Ornn's Forge: the first friendly non-token gear played each turn must cost 1 Energy less " +
-    "(CR 356.4 / 356.4.f) - staticCostSources(engine) is registered, but Chain Finalize still builds only " +
-    "the caller-owned draft cost and supplies neither static sources, purpose play, nor finalized-play history"
-);

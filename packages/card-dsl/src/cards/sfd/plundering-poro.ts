@@ -15,18 +15,14 @@ import type { CardProgram } from "../../ir/index.js";
  * stipulation (CR 143.4 / 185.2.d), not a later Exhaust action. The token
  * primitive now accepts entersExhausted and verifies the post-play state.
  *
- * Status remains judge-required for two current production gaps. First, the CR
- * 187.5 Gold definition carries its own "[Reaction][>] Kill this, [E]: [Add]
- * [A]" ability and is intentionally fail-closed at
- * effects/tokens/definitions.ts:100 (abilityBinding = "blocked");
- * effect.token.ts:341 refuses it before any token enters the Chain because
- * Gold's canonical program still needs a Universal Power [A] contract (CR
- * 135.2.e.5 / 163.2.b). Second, after the definition is admitted,
- * programs/lifecycle.ts:331 routes a token with a registered program through
- * the ordinary card describePlay path, while chain/engine.ts:1194-1200 always
- * writes gear entry as ready; that path would discard this card's exhausted
- * entry stipulation. Creating a generic or later-exhausted token instead would
- * be an approximation, so the card stays non-executable.
+ * Status remains judge-required for the CR 187.5 Gold definition's intrinsic
+ * ability. RIFT-929 made Universal Power available as a cost source, but it did
+ * not add Universal Power as an effect result: effect.resources still accepts
+ * only the six named Domains (135.2.e.5.b / 163.2.b), and the Add binder still
+ * rejects the authored ``power: ["rainbow"]`` shape. The Gold token definition
+ * therefore remains blocked before a copy can be created. This card's own
+ * trigger and its play-plus-exhausted entry instruction are independently
+ * production-bound; a generic or ready Gold substitute would still be wrong.
  *
  * Official CR v1.5 source (effective 2026-10-16):
  * https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
@@ -36,17 +32,21 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Current gaps: (1) the CR 187.5 Gold gear token has its own Universal Power [A] ability and remains fail-closed. " +
-    "effects/tokens/definitions.ts:100 defines gold with abilityBinding = \"blocked\", and effect.token.ts:341 returns " +
-    "token-definition-or-abilities-judge-required before create-token/play. Gold's canonical program is judge-required because the " +
-    "closed six-Domain contract cannot represent [A] (CR 135.2.e.5 / 163.2.b). (2) after that definition is executable, a registered " +
-    "token program is routed through ordinary describePlay by programs/lifecycle.ts:331, whose gear Resolve at " +
-    "chain/engine.ts:1194-1200 unconditionally makes gear ready; this loses the CR 143.4 / 185.2.d exhausted entry needed by the " +
-    "card. A token-play adapter must carry the entry state through Resolve while preserving the token's intrinsic program. " +
-    "This card's Conquer trigger is already production-bound: " +
-    "turn/flow.ts emits the conquering Unit as object/source/it and the binder matches it by exact Unit identity (CR 383.4.c.2.a), while " +
-    "effect.token supports play plus entersExhausted (CR 185.2.a / 440.2.c / 143.4 / 185.2.d). Dependency: a source-backed Universal " +
-    "Power contract, the Gold token ability program that uses it, and token-play entry-state preservation; otherwise no Gold token may be materialized.",
+    "Official evidence: CR v1.5 (2026-10-09, effective 2026-10-16; " +
+    "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf), " +
+    "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/, and " +
+    "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/; those reviewed snapshots contain no matching " +
+    "Plundering Poro, Gold, 187.5, 135.2.e.5, or 163.2.b entry. " +
+    "Current gap: the CR 187.5 Gold gear token carries its own Reaction Add ability, but obtaining Universal Power [A] is still not " +
+    "executable even though RIFT-929 added [A] as a cost source. effects/instructions/effect.resources.ts:126-170 accepts only the " +
+    "six named Domains, so the canonical Gold body's rainbow Power returns negated(impossible) without gaining Power " +
+    "(CR 135.2.e.5.b / 163.2.b). programs/index.ts:40-58 rejects that same body as an unverified Add shape, and " +
+    "effects/tokens/definitions.ts:100 still marks the Gold token abilityBinding blocked; effect.token.ts:341-343 therefore " +
+    "returns token-definition-or-abilities-judge-required before create-token/play can materialize it. This card's Conquer trigger " +
+    "is production-bound: turn/flow.ts emits the conquering Unit as object/source/it and the binder matches it by exact Unit identity " +
+    "(CR 383.4.c.2.a). Its effect.token instruction also supports play plus the exhausted entry stipulation " +
+    "(CR 185.2.a / 440.2.c / 184.1 / 185.2.d). Dependency: a source-backed Universal Power gain result, the Gold token ability " +
+    "program rebased onto it, and admission of that token program; until then no Gold token may be materialized.",
   abilities: [
     {
       kind: "triggered",
