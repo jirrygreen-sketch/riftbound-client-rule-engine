@@ -50,6 +50,7 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.match(program.judgeReason, /ReplacementRegistration\.matches\/apply/);
   assert.doesNotMatch(program.judgeReason, /bindProgramCost/);
   assert.doesNotMatch(program.judgeReason, /没有调用/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.match(program.judgeReason, /Mighty/);
   assert.match(program.judgeReason, /Accelerate/);
   assert.match(program.judgeReason, /805\.2\.b/);
@@ -180,6 +181,8 @@ function accelerateScene(selected, { programs = [accelerateOnly] } = {}) {
 
 test("production: declining Accelerate pays only the printed cost and records the declined decision", () => {
   const { f, draft, finalized } = accelerateScene(false);
+  assert.equal(Object.hasOwn(draft.cost, "discounts"), false,
+    "the Accelerate-only view has no static cost modification");
   assert.equal(f.requests.filter(request => request.type === "optional").length, 1);
   assert.equal(f.kernel.player("A").energy, 13);
   assert.deepEqual(f.kernel.player("A").power, ["Body"]);
@@ -193,6 +196,8 @@ test("production: declining Accelerate pays only the printed cost and records th
     xp: 0,
     actions: []
   });
+  assert.deepEqual(final.plan.discounts, [],
+    "the Accelerate-only view records no static discount");
   assert.equal(f.kernel.getObject("jaull").zone, "board");
   assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-readied").length, 0);
 });
@@ -214,6 +219,8 @@ test("production: paying Accelerate adds [1][Body] and enters ready with the two
     { amount: 2, allowedDomains: ["Body"] },
     { amount: 1, allowedDomains: ["Body"] }
   ]);
+  assert.deepEqual(final.plan.discounts, [],
+    "the Accelerate-only view records no static discount");
 });
 
 test("production: the executable view reaches Finalize with its own discount and then blocks fail-closed", () => {
