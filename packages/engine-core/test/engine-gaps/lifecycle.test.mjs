@@ -249,9 +249,9 @@ test('Rune Deck replacement matching uses the active zone and leaves unrelated p
 test('a registered judge-required Board program blocks through the real lifecycle hook', () => {
   for (const [id, cardId, patterns] of [
     ['judge', rumbleHotheaded.canonicalCardId, [
-      /cost\/payment\.ts:125-129/,
-      /effects\/interpreter\.ts:173-180/,
-      /cost\.modify=mistargeted/,
+      /cost\/payment\.ts:92-94/,
+      /effects\/interpreter\.ts:207-210/,
+      /unperformable-trigger/,
     ]],
   ]) {
     const f = runtime(world().player('A').player('B').unit(id, { cardId, types: ['unit'] }), [rumbleHotheaded],

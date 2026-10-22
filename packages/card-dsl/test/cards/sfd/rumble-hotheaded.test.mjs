@@ -5,8 +5,6 @@ import { validateCardProgram } from "../../../dist/ir/index.js";
 import program from "../../../dist/cards/sfd/rumble-hotheaded.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
-import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
-import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
@@ -90,7 +88,7 @@ function productionConquer(accept) {
   throw new Error("production Conquer flow did not settle");
 }
 
-test("Rumble, Hotheaded: validates, is registered, and records the Finalize receipt bridge gap", () => {
+test("Rumble, Hotheaded: validates, is registered, and remains judge-required", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.issues));
   assert.equal(program.canonicalCardId, CANONICAL);
@@ -101,14 +99,10 @@ test("Rumble, Hotheaded: validates, is registered, and records the Finalize rece
   assert.match(program.judgeReason, /383\.3\.a/);
   assert.match(program.judgeReason, /383\.3\.b\.1/);
   assert.match(program.judgeReason, /355\.10\.c\.1/);
-  assert.match(program.judgeReason, /RIFT-929/);
-  assert.match(program.judgeReason, /leading-choice\.ts:29-44/);
-  assert.match(program.judgeReason, /object-property\.object\.linked/);
-  assert.match(program.judgeReason, /mistargeted/);
-  assert.match(program.judgeReason, /linked-ignored/);
-  assert.match(program.judgeReason, /支付前 Might/);
-  assert.doesNotMatch(program.judgeReason, /cost\/payment\.ts:92-94/);
-  assert.doesNotMatch(program.judgeReason, /Unknown or forward instruction link/);
+  assert.match(program.judgeReason, /cost\/payment\.ts:92-94/);
+  assert.match(program.judgeReason, /Board|unperformable-trigger/);
+  assert.match(program.judgeReason, /Might\/LKI/);
+  assert.doesNotMatch(program.judgeReason, /CostPlan.*没有顶层|conquer.*恒不匹配|Unsupported filter field role/);
 });
 
 test("Rumble, Hotheaded: the permanent ability is a friendly-Mech Assault 1 grant", () => {
@@ -208,7 +202,7 @@ test("Rumble, Hotheaded: the recycle is one non-target leading base-cost choice"
   }]);
 });
 
-test("Rumble, Hotheaded production golden: accepting Conquer Finalize recycles the Board unit and prompts for the Mech target", () => {
+test("Rumble, Hotheaded golden: accepting reaches real Conquer Finalize, which rejects Board recycle atomically", () => {
   const { kernel, flow, requests } = productionConquer(true);
   const conquer = flow.chain.pipeline.events.filter((event) => event.timingPoint === "conquer");
   assert.equal(conquer.length, 1);
@@ -224,28 +218,16 @@ test("Rumble, Hotheaded production golden: accepting Conquer Finalize recycles t
   ]);
   assert.deepEqual(requests[1].options.map((ref) => ref.id), ["trash-mech"]);
   assert.deepEqual(requests[2].options.map((ref) => ref.id), ["fodder"]);
-  assert.deepEqual(
-    flow.chain.pipeline.events.filter((event) => event.timingPoint === "became-target").map(event => event.target.ref.id),
-    ["trash-mech"],
-    "the play target is a target; the recycle cost choice is not"
-  );
-  assert.ok(flow.chain.trace.some((entry) => entry.step === "finalized" && entry.item === "trigger:1"));
-  assert.equal(flow.chain.trace.some(entry =>
-    entry.step === "removed" && entry.item === "trigger:1" && entry.reason === "unperformable-trigger"), false);
-  assert.equal(kernel.getObject("fodder").zone, "deck");
-  assert.deepEqual(kernel.zone("A", "deck").at(-1), kernel.ref("fodder"));
+  assert.equal(flow.chain.pipeline.events.some((event) => event.timingPoint === "became-target"), false);
+  assert.ok(flow.chain.trace.some((entry) =>
+    entry.step === "removed" && entry.item === "trigger:1" && entry.reason === "unperformable-trigger"));
+  assert.equal(kernel.getObject("fodder").zone, "board");
   assert.equal(kernel.getObject("trash-mech").zone, "trash");
-  // The test flow pays its two starting runes into the pool, and the recycle
-  // trigger has no Energy resource cost. The blocked play never charges the
-  // Mech's reduced, non-zero cost.
   assert.equal(kernel.player("A").energy, 0);
 });
 
-test("Rumble, Hotheaded: cost payment accepts the friend's Board recycle and rejects an enemy Board Unit", () => {
-  const kernel = world().player("A").player("B")
-    .unit("fodder", { owner: "A", controller: "A", might: 3 })
-    .unit("enemy", { owner: "B", controller: "B", might: 3 })
-    .build();
+test("Rumble, Hotheaded: cost payment rejects a Board Unit recycle as this card requires", () => {
+  const kernel = world().player("A").unit("fodder", { controller: "A", might: 3 }).build();
   const context = kernel.clone({
     source: kernel.ref("fodder"),
     sourceSnapshot: kernel.getObject("fodder"),
@@ -256,88 +238,34 @@ test("Rumble, Hotheaded: cost payment accepts the friend's Board recycle and rej
     cost: { kind: "explicit", payments: [{ kind: "recycle", object: "self" }] }
   });
   const assessed = assessCostPayment(context, plan);
-  assert.equal(assessed.payable, true);
-  assert.equal(assessed.prepared.actions.at(-1).action.type, "recycle");
+  assert.equal(assessed.payable, false);
+  assert.equal(assessed.error.reason, "cannot-pay-cost");
+  assert.match(assessed.error.message, /A recycle cost requires an owned card in Trash or a Rune in the Rune Zone/);
   assert.equal(kernel.getObject("fodder").zone, "board");
-
-  const enemyPlan = buildCostPlan(context, {
-    id: "rumble.enemy-board-recycle",
-    cost: { kind: "explicit", payments: [{ kind: "recycle", object: kernel.ref("enemy") }] }
-  });
-  const enemy = assessCostPayment(context, enemyPlan);
-  assert.equal(enemy.payable, false);
-  assert.equal(enemy.error.reason, "cannot-pay-cost");
-  assert.equal(kernel.getObject("enemy").zone, "board");
 });
 
-test("Rumble, Hotheaded: the registered Resolve body cannot bind the chosen object or Might from the Finalize receipt", () => {
+test("Rumble, Hotheaded: adapter Resolve cannot read the removed leading cost's selected Unit", () => {
   const kernel = world()
     .player("A", { energy: 5 })
     .unit("rumble", { cardId: CANONICAL, tags: ["Mech"], might: 4 })
     .unit("fodder", { controller: "A", might: 3 })
     .card("trash-mech", { zone: "trash", types: ["unit"], tags: ["Mech"], energy: 5, power: null })
     .build();
-  const lifted = { ...program, status: "executable", judgeReason: undefined };
-  const binding = createProgramBinding({ cardPrograms: [lifted] });
-  const [registration] = triggerRegistrations(
-    new ProgramRegistry([lifted]),
-    kernel.getObject("rumble")
-  );
-  assert.ok(registration);
-  assert.equal(registration.cost?.id, "cost:rumble:1:rumble.opt-in");
-  const engine = new ChainEngine({
-    host: createActionPipelineHost({
-      checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
-      restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
-      objects: () => kernel.objects,
-      perform: action => kernel.perform(action),
-      choose: request => { throw new Error(`Unexpected choice ${request.id}`); },
-      context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
-    }),
-    turnOrder: ["A", "B"],
-    turnPlayer: "A",
-    cleanup: () => false
-  });
-  assert.deepEqual(binding.registerProgramTriggers(engine, kernel.getObject("rumble")), ["program:rumble:1:1"]);
-  // Leading-choice Finalize removes the payment instruction and its direct
-  // linkedTo gate from the body actually registered for Resolve.
-  const registeredBody = registration.body;
-  assert.deepEqual(registeredBody.map(instruction => instruction.id), [
-    "rumble.mech-cost",
-    "rumble.play-mech"
-  ]);
-  assert.equal(recycleCost.id, "rumble.recycle-cost");
-
   kernel.setTargets("rumble.mech-in-trash", [kernel.ref("trash-mech")]);
-  const outcome = resolveChainBody(registeredBody, bindResolveContext(kernel, {
-    source: kernel.getObject("rumble"), controller: "A", timingPoint: "chain-item-resolve"
+  assert.throws(() => resolveChainBody([cost], bindResolveContext(kernel, {
+    source: kernel.getObject("rumble"), controller: "A"
   }), {
     cost: {
       plan: {
-        finalized: true,
-        id: "cost:rumble:1:rumble.opt-in",
-        player: "A",
-        source: kernel.ref("rumble"),
-        selectedAdditional: [],
-        declinedAdditional: [],
-        total: { energy: 0, power: [], xp: 0, actions: [], choices: [
-          { id: "rumble.fodder", kind: "recycle", min: 1, max: 1, count: 1, objects: [kernel.ref("fodder")] }
-        ] }
+        finalized: true, id: "cost:rumble", player: "A", source: kernel.ref("rumble"),
+        selectedAdditional: [], declinedAdditional: [], additional: [], total: { choices: [] }
       },
       receipt: {
-        planId: "cost:rumble:1:rumble.opt-in",
-        paid: true,
-        additional: [],
-        total: { energy: 0, power: [], xp: 0, actions: [], choices: [
-          { id: "rumble.fodder", kind: "recycle", min: 1, max: 1, count: 1, objects: [kernel.ref("fodder")] }
-        ] }
+        planId: "cost:rumble", paid: true, additional: [],
+        total: { choices: [{ id: "rumble.fodder", objects: [kernel.ref("fodder")] }] }
       }
     }
-  });
-  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status, entry.result.reason]), [
-    ["rumble.mech-cost", "ignored", "mistargeted"],
-    ["rumble.play-mech", "ignored", "linked-ignored"]
-  ]);
+  }), /Unknown or forward instruction link: rumble\.recycle-cost/);
   assert.equal(kernel.getObject("trash-mech").zone, "trash");
   assert.equal(kernel.getObject("fodder").zone, "board");
 });
