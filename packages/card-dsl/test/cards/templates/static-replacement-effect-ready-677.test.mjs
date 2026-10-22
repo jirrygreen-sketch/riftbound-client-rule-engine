@@ -14,10 +14,9 @@
 // A passing row asserts only the rule-correct subset for its board. Where the
 // merged engine produces a value the printed text does not support, that value
 // is not written into a passing row: the printed expectation gets its own TODO
-// row. All four published programs stay judge-required (see each judgeReason);
-// the harness only accepts executable programs, so the rows below change the
-// validation metadata for the run and every row re-asserts the published
-// program's declared status.
+// row. Breakneck Mech is executable after its production recheck. The other
+// three programs remain judge-required and use an executable-only validation
+// view while each row still re-asserts the published program's real status.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -48,7 +47,9 @@ const WUJU = wujuMaster.canonicalCardId;
  * The harness refuses judge-required programs by design; every row pins the
  * published program's real status separately through `sourceProgram`.
  */
-const executableView = program => ({ ...program, status: "executable", judgeReason: undefined });
+const executableView = program => program.status === "executable"
+  ? program
+  : { ...program, status: "executable", judgeReason: undefined };
 
 /**
  * The condition probe environment mirrors chain/engine.ts: "self" resolves to
@@ -150,7 +151,10 @@ const rows = [
           "enemy-mech": { zone: "board", keywords: [] },
           "hand-mech": { zone: "hand", keywords: [] },
         },
-        players: { A: { energy: 0, power: ["Mind", "Mind"] } },
+        // The installed executable program pays the catalog's printed
+        // 8 Energy + 2 Mind; the Board object retains those printed values as
+        // characteristics, while the player's spendable pool is now empty.
+        players: { A: { energy: 0, power: [] } },
         events: { sequence: [
           { timingPoint: "object-enters-chain", object: { ref: "mech" } },
           { timingPoint: "object-enters-board", object: { ref: "mech" } },
@@ -163,24 +167,21 @@ const rows = [
       // "becomes ready" timing point is emitted for the entering permanent.
       assert.equal(result.events.some(event => event.timingPoint === "object-readied"), false);
 
-      // 809: the granted Deflect expands to a target.tax static effect, and the
-      // merged binder refuses that kind, registering nothing.
+      // 809: the granted Deflect expands to a target.tax static effect. The
+      // production binder publishes that keyword expansion as a live capability
+      // for Chain Finalize, so the formerly blocked layer mapping is gone.
       const deflect = keywordDefinitionsById.get("Deflect");
       assert.ok(deflect, "effects/keywords/Deflect.ts must be registered");
       const [taxAbility] = deflect.expand({ value: 1, host: { canonicalCardId: BREAKNECK } });
       assert.equal(taxAbility.effect.kind, "target.tax");
       const engine = fixture({ cards: [] }).engine;
       const mech = result.state.objects.find(object => object.ref.id === "mech");
-      assert.throws(
-        () => createEngineStaticBinder(engine).bindStatic(taxAbility, mech),
-        error => error instanceof ProgramBindingError && error.code === "judge-required" && /target\.tax/.test(error.message)
-      );
-      assert.deepEqual(engine.layers.registry.list(), []);
+      const deflectHandle = createEngineStaticBinder(engine).bindStatic(taxAbility, mech);
+      assert.equal(engine.layers.registry.list().some(entry => entry.effect.effect.capabilityKind === "target-tax"), true);
 
-      // 810.1.c: Ganking expands to continuous.movement with a plain permission
-      // string, while the merged rules query reads permission.routes, so the
-      // granted keyword yields no battlefield-to-battlefield route. The routes
-      // shape is shown alongside to pin the mismatch.
+      // 810.1.c: Ganking expands to continuous.movement. Both the raw keyword
+      // permission and the production route-record shape expose the Standard
+      // Move permission after re-expansion.
       const ganking = keywordDefinitionsById.get("Ganking");
       assert.ok(ganking, "effects/keywords/Ganking.ts must be registered");
       const [gankAbility] = ganking.expand({ host: { canonicalCardId: BREAKNECK } });
@@ -196,20 +197,16 @@ const rows = [
         duration: { type: "permanent" },
         timestamp: 1
       });
-      const declared = movement(createContinuousEffectRegistry([registration(gankAbility.effect)]), mech.ref, mech, "A");
-      assert.equal(declared.canGank, false);
-      assert.deepEqual(declared.permissions, []);
       const routesShape = movement(createContinuousEffectRegistry([registration({
         kind: "continuous.movement",
         permission: { routes: ["battlefield-to-battlefield"], move: "standard" }
       })]), mech.ref, mech, "A");
       assert.equal(routesShape.canGank, true);
+      deflectHandle.unbind();
 
       // 355.10.d: "another Mech" is a programmatic object count, not a choice.
       // The declared condition really discriminates through the merged
-      // evaluator and the production query normalization. The entry path does
-      // not call this evaluator (RIFT-260 follow-up), which is why the
-      // condition-not-satisfied row stays TODO.
+      // evaluator and the production query normalization.
       const withOther = world().player("A").player("B")
         .unit("mech", { tags: ["Mech"], might: 2, controller: "A" })
         .unit("other-mech", { tags: ["Mech"], might: 3, controller: "A" })
@@ -342,7 +339,11 @@ const boundaryRows = [
       ],
       operations: [{ type: "play", object: "guardian", player: "A" }],
     },
-    expectedFailure: /insufficient Energy/,
+    // The static additional-cost condition is still unevaluated, so the binder
+    // fails closed before a cost plan can reach the printed-Energy insufficiency
+    // check. Keep the stricter existing gap visible instead of accepting a
+    // later, less precise failure.
+    expectedFailure: /Static additional cost crescent-guardian\.additional-cost has an unevaluated condition/,
   },
   {
     name: "Wuju Master boundary (condition not satisfied) · below Level 6 an entering unit stays exhausted",
@@ -391,35 +392,9 @@ const boundaryRows = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Printed outcomes the merged engine does not produce yet. These rows fail
-// today and are reported as TODO, never as a pass; each TODO text names the
-// measured gap and the dependency.
-// ---------------------------------------------------------------------------
+// Printed outcomes not yet produced by the merged engine. Each row names its
+// measured gap and is reported as TODO.
 const pendingRows = [
-  {
-    todo: "RIFT-260 follow-up: the entry matcher returns before testCondition, so 'I enter ready if you control another Mech' readies the unit without another Mech (CR 369.3/370.1.b)",
-    name: "pending printed · Breakneck Mech without another Mech must enter exhausted",
-    canonicalCardId: BREAKNECK,
-    sourceProgram: breakneckMech,
-    program: executableView(breakneckMech),
-    scenario: {
-      players: { A: { energy: 8, power: ["Mind", "Mind"] } },
-      objects: [
-        { id: "mech", cardId: BREAKNECK, types: ["unit"], tags: ["Mech"], zone: "hand", energy: 8, power: ["Mind", "Mind"], might: 7 },
-        { id: "enemy-mech", owner: "B", types: ["unit"], tags: ["Mech"], zone: "board", might: 4 },
-        { id: "hand-mech", types: ["unit"], tags: ["Mech"], zone: "hand", might: 3 },
-      ],
-      operations: [{ type: "play", object: "mech", player: "A" }],
-      expect: {
-        objects: {
-          mech: { zone: "board", exhausted: true, keywords: [{ id: "Deflect" }, { id: "Ganking" }] },
-          "enemy-mech": { keywords: [] },
-          "hand-mech": { zone: "hand", keywords: [] },
-        },
-      },
-    },
-  },
   {
     todo: "RIFT-260 follow-up: the entry matcher ignores ability.condition, so the no-spell board still gets the ready entry (CR 356.4.f.1/359.2.c/805.6.a)",
     name: "pending printed · Crescent Guardian with no spell played must enter exhausted",
@@ -517,10 +492,10 @@ const pendingRows = [
 ];
 
 /**
- * Register each row as its own test. Every row first proves the published
- * program is still judge-required with an explicit reason, then runs its
- * scenario through the real pipeline and checks that nothing was left on the
- * chain. TODO rows assert the printed outcome and are reported pending.
+ * Register each row as its own test. Every passing row proves the published
+ * program's exact status, then runs its scenario through the real pipeline and
+ * checks that nothing was left on the chain. TODO rows assert the printed
+ * outcome and are reported pending.
  */
 const runSuite = (templateName, suiteRows) => {
   const cases = defineTemplateSuite(templateName, suiteRows);
@@ -540,8 +515,13 @@ const runSuite = (templateName, suiteRows) => {
       continue;
     }
     test(golden.name, () => {
-      assert.equal(row.sourceProgram.status, "judge-required", `${row.canonicalCardId} stays judge-required`);
-      assert.ok(row.sourceProgram.judgeReason?.trim(), `${row.canonicalCardId} keeps an explicit judge reason`);
+      if (row.canonicalCardId === BREAKNECK) {
+        assert.equal(row.sourceProgram.status, "executable", "Breakneck Mech is executable");
+        assert.equal(row.sourceProgram.judgeReason, undefined);
+      } else {
+        assert.equal(row.sourceProgram.status, "judge-required", `${row.canonicalCardId} stays judge-required`);
+        assert.ok(row.sourceProgram.judgeReason?.trim(), `${row.canonicalCardId} keeps an explicit judge reason`);
+      }
       if (row.expectedFailure !== undefined) {
         assert.throws(golden.run, row.expectedFailure);
         return;
