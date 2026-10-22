@@ -363,7 +363,7 @@ describe("RIFT-861 real MatchRuntime Basic Rune resources", () => {
         objectId: hand!.objectId, to,
       });
       expect(result.receipt.status).toBe("rejected");
-      expect(result.receipt.error).toMatch(/Standard Move|Unknown Battlefield|Movement transaction/);
+      expect(result.receipt.error).toMatch(/Standard Move|Unknown Battlefield|Illegal Standard Move/);
       expect(result.projection.objects.find(object => object.objectId === hand!.objectId)?.zone).toBe("hand");
       expect(result.projection.players).toEqual(before.players);
     }

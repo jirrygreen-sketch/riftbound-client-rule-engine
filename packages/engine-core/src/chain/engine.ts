@@ -21,7 +21,8 @@ import { choicePlanAnswers, ChoicePlanError, type ChoicePlan } from './finalize/
 import { ChoiceMemory } from './finalize/choice-memory.js';
 import { controlNodeTargetRequirements, finalizeCostPlanInput, finalizeInstructionChoices, finalizeInstructionInstances, hasChoiceMemory, hasFinalizeChoices, instancePathKey, withFinalizePlanLinks } from './finalize/index.js';
 import { collectTargetTaxes } from '../target/tax/index.js';
-import { boundTargetTaxes, ignoresTargetTax } from '../programs/static-adapters/capabilities.js';
+import { boundTargetTaxes, ignoresTargetTax, staticCostSources } from '../programs/static-adapters/capabilities.js';
+import { finalizeCostPlan, type CostDiscountSources, type StaticCostAbility } from '../cost/discounts/index.js';
 
 function chainDraftPrefix(item: ChainDraft, turn: number): string {
   const source = item.trigger?.source.ref ?? item.source.ref;
@@ -38,6 +39,8 @@ export interface ChainDraft {
   readonly speed?: ChainSpeed;
   readonly body: readonly Instruction[];
   readonly cost?: CostPlanInput;
+  /** The played card's own "this costs" statics, collected at Finalize (CR 356). */
+  readonly costStatics?: readonly StaticCostAbility[];
   readonly targets?: readonly { readonly requirement: TargetRequirement; readonly options?: Omit<TargetFinalizeOptions, 'isPending' | 'onTargetsFinalized' | 'onTargeted' | 'taxAdapter'> }[];
   readonly requirements?: readonly Condition[];
   readonly restrictions?: readonly Condition[];
@@ -419,8 +422,22 @@ export class ChainEngine {
     this.grantIdle();
   }
   get items(): readonly ChainItem[] { return structuredClone(this.entries); }
+  private layerPassInFlight = false;
   private layerObjects(): readonly ObjectSnapshot[] {
-    this.layers.setObjects(this.options.host.objects()); return this.layers.evaluateAll();
+    // RIFT-927: static/keyword adapters resolve live sources through the
+    // pipeline host, which is this layered view. Re-entering it while a layered
+    // pass is in flight used to re-set the layer engine objects (dropping
+    // every cached group) and start another full pass at each nesting level,
+    // which grew exponentially with the number of bound statics. A nested read
+    // sees the same host state, so it evaluates on the in-flight engine without
+    // resetting it: the layer engine dependency path (partial and group views,
+    // cycle restart) then supplies the layered characteristics that conditions
+    // and filters depend on, exactly as a direct nested evaluation does.
+    if (this.layerPassInFlight) return this.layers.evaluateAll();
+    this.layerPassInFlight = true;
+    try {
+      this.layers.setObjects(this.options.host.objects()); return this.layers.evaluateAll();
+    } finally { this.layerPassInFlight = false; }
   }
   private executeStateAction(action: GameAction) {
     const key = (object: ObjectSnapshot) => JSON.stringify(object.ref);
@@ -851,7 +868,12 @@ export class ChainEngine {
           const mandatoryAdditional = [...(finalized.input.mandatoryAdditional ?? []), ...targetTaxes.filter(tax => tax.id !== '' && !('stage' in tax))];
           const finalizedInput: CostPlanInput = { ...finalized.input, ...(mandatoryAdditional.length === 0 ? {} : { mandatoryAdditional }) };
           item.costInput = finalizedInput;
-          item.costPlan = buildCostPlan(paymentContext, finalizedInput);
+          // CR 356 / contract 5.1: Finalize applies every active cost
+          // modification (bound Board statics, the played card's own "this
+          // costs" statics, and resolved continuous effects) before payment.
+          item.costPlan = finalizedInput.ignoreAllCosts === true
+            ? buildCostPlan(paymentContext, finalizedInput)
+            : finalizeCostPlan(paymentContext, finalizedInput, this.costDiscountSources(item));
           if (this.options.paymentContinuation !== undefined && !this.resumingPaymentContinuation) {
             item.status = 'finalized';
             this.record({ step: 'finalized', item: item.id });
@@ -892,6 +914,24 @@ export class ChainEngine {
       ignoreDeflect: ignoresTargetTax(this, context.controller),
     });
     return taxes.every(tax => tax.cost.kind === undefined || tax.cost.kind === 'explicit' || tax.cost.kind === 'activated');
+  }
+  /**
+   * Cost modification sources visible at this item's Finalize. Bound Board
+   * statics arrive through their cost capability; the matching layer mirror
+   * (marked costModification) is excluded so no static is counted twice.
+   */
+  private costDiscountSources(item: ChainItem): CostDiscountSources {
+    return {
+      statics: [...staticCostSources(this), ...(item.costStatics ?? [])],
+      continuous: this.layers.registry.list().filter(entry =>
+        (entry.effect.effect as { costModification?: unknown }).costModification !== true),
+      // An activated Add is re-tagged kind add for its immediate resolution
+      // (CR 430.2) but is still an activated ability for cost purposes
+      // (CR 399-401); only a triggered Add carries a trigger snapshot.
+      purpose: item.kind === 'activated' || (item.kind === 'add' && item.trigger === undefined) ? 'activate' : 'play',
+      targets: (item.targetPlans ?? []).flatMap(plan => plan.selected),
+      originZone: item.source.zone,
+    };
   }
   private collectBoundTargetTaxes(item: ChainItem, context: ResolveContext, into: CostComponentInput[]): void {
     const effects = boundTargetTaxes(this);

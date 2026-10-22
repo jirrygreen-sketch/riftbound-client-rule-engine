@@ -1,41 +1,47 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * Wages of Pain — sfd-070-221 (CR v1.5 811.1, 187.5, 184.1).
+ * Wages of Pain — sfd-070-221 (CR v1.5 811.1, 187.5, 184.1/185.2.d).
  *
- * Status: judge-required (cards/README.md §2), re-verified 2026-10-18 against the
- * merged engine sources. The measured current gaps are unchanged in kind:
- * - CR 187.5 Gold is still absent from effect.token's frozen DEFINITIONS table,
- *   which documents that definitions carrying their own abilities (including
- *   Gold) stay blocked. The merged primitive returns negated with
- *   blockedReason "token-definition-or-abilities-judge-required", and the
- *   intrinsic "[Reaction][>] Kill this, [E]: [Add] [A]" ability has no contract
- *   representation either: [A] is universal Power while the six-domain closed
- *   Domain set cannot express a domainless resource (sfd/gold.ts records the
- *   same gap). A plain ability-less Gear is not a substitute.
- * - CR 184.1 / 185.2.d: the "exhausted" entry stipulation is still unsupported.
- *   effect.token's ARGUMENTS set has no `entersExhausted`, so the authored
- *   argument throws "Invalid effect.token argument: entersExhausted"; the
- *   create-token action documents "Entry overrides are not supported", and a
- *   later exhaust is not equivalent (143.4).
- * - Hidden (811.1.b/.d.2) still has no play path: the keyword expands to a
- *   static cost.hidden that the default binder rejects ("Static ability kind
- *   cost.hidden has no layer mapping"), and there is no Hide action, facedown
- *   zone, next-turn free Reaction play, or original-battlefield target
- *   restriction consumer.
- * The damage half really executes (effect.damage), including the ignored
- * mistargeted boundary; that evidence stays in the golden.
+ * Status: judge-required (cards/README.md §2), re-verified 2026-10-22 against
+ * the merged production path. The earlier "entersExhausted is not an argument"
+ * and "cost.hidden has no layer mapping" diagnoses are obsolete: effect.token
+ * carries both entry overrides, and the static binder registers cost.hidden.
+ *
+ * The remaining whole-card gaps are narrower but still material:
+ * - Gold exists in effects/tokens/definitions.ts, but its abilityBinding is
+ *   deliberately "blocked"; effect.token therefore returns negated before it
+ *   creates anything. Gold's intrinsic 187.5 activated ability also cannot be
+ *   discarded: [A] still has no production Add path. Gold's sfd/gold.ts
+ *   program remains judge-required, effect.resources accepts only the six named
+ *   Domains, and the gain-power action still has no Universal Power variant.
+ *   The acyclic PaymentSource additions do not mint Universal Power.
+ * - Hidden's permission now binds, but the canonical Hide action is still
+ *   rejected by events/contract-actions/bridge.ts, and TurnFlow exposes only
+ *   Hidden cleanup/getter state. There is no live Hide transition or
+ *   next-turn from-facedown Play entry. programs/play.ts also has no facedown
+ *   source-battlefield scope for this spell's target. Consequently
+ *   811.1.b/.c/.d.2/.6 are not executable.
+ *
+ * effect.damage, Finalize target locking, resolve-time target revalidation and
+ * the printed Energy cost do execute through ProgramBinding + ChainEngine. The
+ * golden also proves that Gold fails closed with a structured receipt instead
+ * of creating an ability-less substitute.
  */
 const wagesOfPain = {
   canonicalCardId: "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处当前缺口（2026-10-18 复核实测；不近似实现）：(1) CR 187.5 的 Gold 仍不在 effect.token 的 frozen DEFINITIONS 表，实测 \"gold\" 走原语返回 negated 且 blockedReason \"token-definition-or-abilities-judge-required\"；" +
-    "内建 [Reaction][>] Kill this, [E]: [Add] [A] 也没有契约表示——[A] 是 Universal Power（135.2.e.5/163.2.b），六域封闭 Domain 无法表示任意域资源，sfd/gold.ts 记录同一缺口；不能用普通无能力 Gear 代替。(2) 184.1/185.2.d 的 exhausted 入场状态覆盖仍缺：" +
-    "effect.token 的 ARGUMENTS 集没有 entersExhausted，实测该参数抛 \"Invalid effect.token argument: entersExhausted\"，create-token 动作明确记录 \"Entry overrides are not supported\"，事后横置不等价（143.4）。(3) Hidden（811.1.b）仍无打出路径：" +
-    "关键词展开为 static cost.hidden，默认 binder 以 \"Static ability kind cost.hidden has no layer mapping\" 拒绝；Hide 行动、面朝下区域、下回合 Reaction 免费打出与 811.1.d.2 的原战场目标限制都没有消费方。" +
-    "已真实执行并可继续作为证据的部分：effect.damage 的 3 点伤害与 stale target 的 ignored(mistargeted) 边界。",
+    "当前剩余缺口（2026-10-22 生产路径复核实测；不近似实现）：(1) CR 187.5 Gold：effects/tokens/definitions.ts:83-101 已定义 Gold，但 abilityBinding=\"blocked\"，" +
+    "effect.token.ts:341-342 会在创建前返回 negated，blockedReason=\"token-definition-or-abilities-judge-required\"；187.5 的内建 [Reaction][>] Kill this, [E]: [Add] [A] 仍不能丢失，" +
+    "sfd/gold.ts 仍为 judge-required；RIFT-929 的 UniversalPowerSource 已进入支付/来源表示，但 effect.resources.ts:35-37 仍明确不支持 [A] 产生，" +
+    "effect.resources.ts:54 的 gain-power 仍只接受六域；programs/index.ts:40-58 的已验证 Add 形状也只接受六域，" +
+    "故生产 binding 在 programs/index.ts:73-77 以 unverified Add shape 拒绝该能力，没有 [A] Add 的生产路径。" +
+    "(2) Hidden：statics.ts:393,772 已接受 cost.hidden，effect.token.ts:50-75,345 已支持 184.1/185.2.d 的 entersExhausted，故这两项已解除；" +
+    "但 events/contract-actions/bridge.ts:228 仍无条件拒绝 HideAction；TurnFlow.hidden():194 与 :546-570 只有 sidecar/cleanup/getter，没有 Hide 行动或次回合从 facedown 打出的生产入口；" +
+    "programs/play.ts:129-165 也未绑定 811.1.d.2 的 facedown 来源战场目标范围，因此 811.1.b/.c/.d.2/.6 尚未闭合。" +
+    "已由 ProgramBinding + ChainEngine 生产执行：3 能量、3 点伤害、Finalize 目标锁定与 Resolve 重验；Gold 保持 fail-closed 并返回结构化 blocked receipt。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "action" },
@@ -60,10 +66,10 @@ const wagesOfPain = {
           ]
         },
         {
-          // "Play a Gold gear token exhausted." — authored with the token args
-          // the merged primitive consumes, plus the entry-stipulation argument
-          // the primitive's schema rejects. The Gold definition itself is absent
-          // from the frozen table (see judgeReason).
+          // "Play a Gold gear token exhausted." — the merged primitive accepts
+          // mode, location and entersExhausted. Its real blocker is the Gold
+          // definition's intrinsic [Add] [A] ability, which keeps the definition
+          // fail-closed (see judgeReason).
           id: "play-gold-token",
           op: "effect.token",
           args: {

@@ -1,30 +1,24 @@
-// Golden test for Forecaster (sfd-065-221).
+// Forecaster (sfd-065-221), checked against the current production lifecycle.
 //
-// Scenario execution evidence: ../templates/static-642.test.mjs.
-// This file keeps the validation/identity checks and the key structural
-// assertions; the real execution path for this card lives in that template row.
-//
-// The static Vision grant executes through the production static binder and
-// continuous.grant-keyword primitive. The remaining gap is the semantic
-// expansion of a runtime-gained Vision.
+// CR v1.5 817.1.b/c expands each Vision instance to a Board-entry Predict;
+// 817.2 requires multiple instances to trigger separately. The production
+// lifecycle now supplies the real controller and ordered deck-top pick, but
+// currently expands one static grant twice. That observable trigger-count
+// defect keeps the card judge-required and is reproduced below without
+// manually settling or synthesizing events.
 import test from "node:test";
 import assert from "node:assert/strict";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/forecaster.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { KeywordGrantLayerEngine, expandEffectiveKeywords } from "../../../../engine-core/dist/programs/keyword-grants.js";
-import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
-import { createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
-import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
-import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { productionPlay } from "../../fixtures/production-play.mjs";
 
 const CANONICAL = "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40";
 const SOURCE_TEXT =
@@ -33,10 +27,43 @@ const SOURCE_TEXT =
 
 const [grant] = program.abilities;
 
-const registrations = (kernel) =>
-  kernel.continuousEffects.map((entry) => ({ effect: entry.effect, duration: entry.duration, timestamp: 1 }));
+function playForecaster({ controller = "A", recycle = false } = {}) {
+  const f = productionPlay({
+    programs: [{ ...program, status: "executable", judgeReason: undefined }],
+    turnPlayer: controller,
+    answers: {
+      "trigger:": (_kernel, request) => request.type === "mode" ? request.options[0] : undefined,
+      "vision-look": (_kernel, request) => {
+        if (!recycle) return [];
+        const top = request.options[0];
+        return top?.id === `${controller.toLowerCase()}-top` ? [top] : [];
+      }
+    },
+    build: (w) => w
+      .player("A", { energy: 10, power: [] })
+      .player("B", { energy: 10, power: [] })
+      .deck(["a-top", "a-second"], { owner: "A" })
+      .deck(["b-top", "b-second"], { owner: "B" })
+      .hand("forecaster", {
+        owner: controller,
+        controller,
+        cardId: CANONICAL,
+        types: ["unit"],
+        tags: ["Mech"],
+        energy: 2,
+        power: null,
+        might: 2
+      })
+  });
+  const draft = f.play("forecaster", controller);
+  return { f, draft };
+}
 
-test("sfd-065-221 Forecaster: program passes validateCardProgram and is judge-required", () => {
+function inspectLinks(f) {
+  return Object.entries(f.kernel.linkedSnapshot()).filter(([key]) => key.endsWith(".inspected"));
+}
+
+test("sfd-065-221 Forecaster: program is valid, registered and judge-required", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
@@ -47,19 +74,18 @@ test("sfd-065-221 Forecaster: program passes validateCardProgram and is judge-re
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("sfd-065-221 Forecaster: judgeReason names the current dynamic Vision gap", () => {
-  assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /817\.1\.b/);
-  assert.match(program.judgeReason, /运行时获得的 Vision/);
-  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
-  assert.match(program.judgeReason, /triggered Predict/);
-  assert.match(program.judgeReason, /production lifecycle/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-257|RIFT-258|RIFT-83/);
-  assert.equal(keywordDefinitionsById.has("Vision"), true);
-  assert.equal(keywordDefinitionsById.get("Vision").stacking, "separate");
+test("sfd-065-221 Forecaster: current judgeReason names the duplicate Vision instance lifecycle gap", () => {
+  assert.match(program.judgeReason, /单个静态 Vision grant/);
+  assert.match(program.judgeReason, /keyword-grants\.ts:568/);
+  assert.match(program.judgeReason, /`expansions`/);
+  assert.match(program.judgeReason, /`this\.expansions`/);
+  assert.match(program.judgeReason, /vision:printed-0/);
+  assert.match(program.judgeReason, /vision:printed-1/);
+  assert.match(program.judgeReason, /817\.2/);
+  assert.doesNotMatch(program.judgeReason, /静默查 0 张|constant\("A"\) 占位/);
 });
 
-test("sfd-065-221 Forecaster: static ability grants Vision to friendly Mech units", () => {
+test("sfd-065-221 Forecaster: the static body grants Vision to the controller's Mechs", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(grant.kind, "static");
   assert.equal(grant.effect.kind, "continuous.grant-keyword");
@@ -67,243 +93,158 @@ test("sfd-065-221 Forecaster: static ability grants Vision to friendly Mech unit
   assert.deepEqual(grant.effect.filter, {
     zone: "board",
     controller: "controller",
-    tag: "Mech",
-    type: "unit"
+    tag: "Mech"
   });
   assert.equal(grant.condition, undefined);
-});
-
-test("sfd-065-221 Forecaster golden: the grant registers Vision only on friendly Mech units", () => {
-  const base = world()
-    .unit("host", { types: ["gear"], zone: "board", owner: "A", controller: "A", might: null })
-    .unit("mech-ally", { owner: "A", controller: "A", tags: ["Mech"] })
-    .unit("plain-ally", { owner: "A", controller: "A" })
-    .unit("enemy-mech", { owner: "B", controller: "B", tags: ["Mech"] })
-    .build();
-  // The production binder translates the card's filter vocabulary (tag → tags,
-  // controller normalization); the chain query then resolves self/opponent
-  // against the ability controller. Bind the production matcher and that
-  // normalization so the card's own filter shape executes unchanged.
-  const declaredFilter = translateObjectFilter(grant.effect.filter);
-  assert.deepEqual(declaredFilter, {
+  assert.deepEqual(translateObjectFilter(grant.effect.filter), {
     zone: "board",
     controller: "self",
-    tags: ["Mech"],
-    type: "unit"
+    tags: ["Mech"]
   });
-  const query = (filter) =>
-    base.objects.filter((object) =>
-      matchesObjectFilter(
-        Object.fromEntries(
-          Object.entries(filter).map(([key, value]) => [
-            key,
-            (key === "controller" || key === "owner") && value === "self" ? "A" : value
-          ])
-        ),
-        object
-      )
-    );
-  const kernel = bindResolveContext(base, {
-    source: base.getObject("host"),
-    sourceSnapshot: base.getObject("host"),
-    query
-  });
-
-  const body = [
-    {
-      id: "forecaster.grant-vision",
-      op: "continuous.grant-keyword",
-      args: {
-        keyword: { kind: "constant", value: grant.effect.keyword },
-        objects: {
-          kind: "constant",
-          value: { kind: "query", filter: declaredFilter }
-        }
-      }
-    }
-  ];
-  const outcome = resolveChainBody(body, kernel);
-  assert.equal(outcome.status, "executed");
-  assert.equal(base.continuousEffects.length, 1);
-  const [registration] = base.continuousEffects;
-  assert.equal(registration.effect.layer, "ability");
-  assert.equal(registration.effect.effect.keyword, "Vision");
-  assert.deepEqual(registration.duration, { type: "permanent" });
-
-  const layers = createLayerEngine(base.objects, registrations(base));
-  assert.deepEqual(layers.evaluate(base.ref("mech-ally")).keywords.map((keyword) => keyword.id), ["Vision"]);
-  assert.deepEqual(layers.evaluate(base.ref("plain-ally")).keywords, []);
-  assert.deepEqual(layers.evaluate(base.ref("enemy-mech")).keywords, []);
+  assert.equal(keywordDefinitionsById.get("Vision")?.stacking, "separate");
 });
 
-test("sfd-065-221 Forecaster golden: no friendly Mech makes the grant a skipped negation", () => {
-  const base = world()
-    .unit("host", { types: ["gear"], zone: "board", owner: "A", controller: "A", might: null })
-    .unit("plain-ally", { owner: "A", controller: "A" })
+test("sfd-065-221 Forecaster production: the grant follows the controller and Mech tag without an extra card-type assumption", () => {
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .unit("forecaster", { owner: "A", controller: "A", cardId: CANONICAL, tags: ["Mech"] })
+    .unit("friendly-mech", { owner: "A", controller: "A", tags: ["Mech"] })
+    .object("friendly-mech-gear", {
+      owner: "A",
+      controller: "A",
+      types: ["gear"],
+      tags: ["Mech"],
+      zone: "board",
+      location: { type: "base", player: "A" },
+      might: null
+    })
+    .unit("friendly-plain", { owner: "A", controller: "A", tags: [] })
+    .object("enemy-mech", {
+      owner: "B",
+      controller: "B",
+      types: ["unit"],
+      tags: ["Mech"],
+      zone: "hand"
+    })
     .build();
-  const query = (filter) =>
-    base.objects.filter((object) =>
-      matchesObjectFilter(
-        Object.fromEntries(
-          Object.entries(filter).map(([key, value]) => [
-            key,
-            (key === "controller" || key === "owner") && value === "self" ? "A" : value
-          ])
-        ),
-        object
-      )
-    );
-  const kernel = bindResolveContext(base, {
-    source: base.getObject("host"),
-    sourceSnapshot: base.getObject("host"),
-    query
-  });
-  const outcome = resolveChainBody(
-    [
-      {
-        id: "forecaster.grant-vision",
-        op: "continuous.grant-keyword",
-        args: {
-          keyword: { kind: "constant", value: "Vision" },
-          objects: {
-            kind: "constant",
-            value: { kind: "query", filter: translateObjectFilter(grant.effect.filter) }
-          }
-        }
-      }
-    ],
-    kernel
-  );
-  assert.equal(outcome.status, "partial");
-  assert.equal(outcome.results[0].result.status, "negated");
-  assert.equal(outcome.results[0].result.reason, "skipped");
-  assert.equal(base.continuousEffects.length, 0);
-});
-
-test("sfd-065-221 Forecaster golden: the production static binder installs the friendly-Mech Vision aura", () => {
-  const f = fixture({
-    cards: [
-      { id: "forecaster", cardId: CANONICAL, types: ["unit"], tags: ["Mech"] },
-      { id: "friendly-mech", types: ["unit"], tags: ["Mech"] },
-      { id: "enemy-mech", types: ["unit"], tags: ["Mech"], owner: "B", controller: "B" }
-    ]
-  });
-  for (const id of ["forecaster", "friendly-mech", "enemy-mech"]) {
-    f.engine.commit({
-      type: "move-zone",
-      object: f.kernel.ref(id),
-      to: "battlefield",
-      location: { type: "battlefield", id: "battlefield-1" }
-    });
-  }
-  f.engine.advance();
-  const source = f.kernel.getObject("forecaster");
-  const handle = createEngineStaticBinder(f.engine).bindStatic(grant, source);
-  f.engine.layers.setObjects(f.kernel.objects);
-  assert.deepEqual(f.engine.layers.evaluate(f.kernel.ref("friendly-mech")).keywords, [
-    { id: "Vision", value: undefined }
-  ]);
-  assert.deepEqual(f.engine.layers.evaluate(f.kernel.ref("enemy-mech")).keywords, []);
-  handle.unbind();
-  assert.deepEqual(f.engine.layers.evaluate(f.kernel.ref("friendly-mech")).keywords, []);
-});
-
-test("sfd-065-221 Forecaster: the merged Vision KeywordDef expands to the full 817.1.b triggered Predict body", () => {
-  assert.equal(keywordDefinitionsById.has("Vision"), true);
-  const [ability] = keywordDefinitionsById.get("Vision").expand({ host: { canonicalCardId: "sfd-065-221" } });
-  assert.equal(ability.kind, "triggered");
-  assert.equal(ability.trigger.at, "object-enters-board");
-  assert.deepEqual(ability.body.map((instruction) => instruction.op), ["effect.inspect", "effect.recycle"]);
-  // The expansion leaves the ordered deck-top pick declaration to the
-  // assembly layer: without it the production ChainEngine collects no
-  // orderedPickSpecs and the inspect silently looks at zero cards.
-  assert.equal(ability.body[0].picks, undefined);
-});
-
-test("sfd-065-221 Forecaster: the expanded Vision body really executes its Predict look and recycle on the reference kernel", () => {
-  const built = world()
-    .deck(["z-top", "a-rest"])
-    .unit("forecaster", { types: ["unit"], tags: ["Mech"], keywords: [{ id: "Vision" }] })
-    .build();
-  const kernel = built.clone({ controller: "A", sourceSnapshot: built.getObject("forecaster") });
-  const [ability] = keywordDefinitionsById.get("Vision").expand({ host: { canonicalCardId: "sfd-065-221" } });
-  const [inspect] = ability.body;
-  const picksId = inspect.args.picksSpecId.value;
-  const amount = inspect.args.amount.value;
-  kernel.setPicks(picksId, kernel.zoneSlice("A", "deck", "top", amount).map((object) => object.ref));
-  kernel.setAnswers({
-    ["vision-look/" + encodeURIComponent("effect.inspect:select:A:A:deck")]: [kernel.ref("z-top")]
-  });
-
-  const outcome = resolveChainBody(ability.body, kernel);
-  assert.equal(outcome.status, "executed");
-  assert.deepEqual(kernel.events.map((event) => event.action), ["look", "recycle"]);
-  assert.deepEqual(kernel.zone("A", "deck").map((ref) => ref.id), ["a-rest", "z-top"]);
-  assert.equal(outcome.linkedValues["vision-look.inspected"], 1);
-  assert.deepEqual(outcome.linkedValues["vision-look.vision-picked"], [{ id: "z-top", zoneEntryId: 1 }]);
-});
-
-test("sfd-065-221 Forecaster: the merged re-expander refuses a runtime Vision trigger and the production chain looks at nothing", () => {
-  const built = world()
-    .deck(["z-top", "a-rest"])
-    .unit("mech", { owner: "A", controller: "A", tags: ["Mech"], keywords: [{ id: "Vision" }] })
-    .build();
-  const kernel = built.clone({ controller: "A", sourceSnapshot: built.getObject("mech") });
-  const layers = new KeywordGrantLayerEngine(kernel.objects, {
-    context: (source) => bindResolveContext(kernel, { source, controller: source.controller })
-  });
-  const expansion = expandEffectiveKeywords(kernel.getObject("mech"));
-  assert.deepEqual(expansion.keywords, [{ id: "Vision" }]);
-  assert.deepEqual(expansion.abilities.map((ability) => ability.kind), ["triggered"]);
-  assert.throws(
-    () => layers.keywordAbilities(kernel.ref("mech")),
-    (error) => error.code === "judge-required" && /Dynamic triggered keyword abilities need a lifecycle binder/.test(error.message)
-  );
-
-  // The same silent zero-look is measured on the production chain when the
-  // expanded body (without a zoneSlice pick declaration) is appended directly:
-  // pickPlans stay empty, the deck keeps its order, and no look event fires.
-  const choose = (request) => {
-    if (request.type === "optional") return true;
-    if (request.type === "select-objects") return request.options.slice(0, 1);
-    throw new Error("unexpected choice " + request.id);
-  };
-  let engine;
+  const choose = () => { throw new Error("static layer evaluation must not prompt"); };
   const host = createActionPipelineHost({
-    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone(), triggers: engine ? engine.pipeline.checkpoint() : undefined }),
-    restore: (saved) => {
-      kernel.restore(saved.state);
-      kernel.copyLinkedFrom(saved.links);
-      if (saved.triggers && engine) engine.pipeline.restore(saved.triggers);
-    },
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (saved) => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
     objects: () => kernel.objects,
     perform: (action) => kernel.perform(action),
     choose,
-    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
-    testTrigger: (registration) => kernel.test(registration.spec.condition)
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose })
   });
-  engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
-  const [ability] = keywordDefinitionsById.get("Vision").expand({ host: { canonicalCardId: "sfd-065-221" } });
-  engine.append({
-    id: "vision-trigger",
-    controller: "A",
-    source: kernel.getObject("mech"),
-    kind: "triggered",
-    optional: false,
-    trigger: { at: "object-enters-board", filter: {} },
-    body: ability.body
-  });
-  let steps = 0;
-  while (engine.entries.some((item) => item.status === "pending")) {
-    engine.advance();
-    if (++steps > 30) throw new Error("finalize did not settle");
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  createEngineStaticBinder(engine).bindStatic(grant, kernel.getObject("forecaster"));
+  engine.layers.setObjects(kernel.objects);
+  const keywords = (id) => engine.layers.evaluate(kernel.ref(id)).keywords.map(keyword => keyword.id);
+  assert.deepEqual(keywords("forecaster"), ["Vision"]);
+  assert.deepEqual(keywords("friendly-mech"), ["Vision"]);
+  assert.deepEqual(keywords("friendly-mech-gear"), ["Vision"], "CR 133.8 tags can apply across game-object types");
+  assert.deepEqual(keywords("friendly-plain"), []);
+  assert.deepEqual(keywords("enemy-mech"), []);
+});
+
+test("sfd-065-221 Forecaster production: the lifecycle uses A's own deck top and separated recycle choices", () => {
+  const { f } = playForecaster({ controller: "A" });
+  const asks = f.requests.filter(request => request.type === "select-objects");
+  assert.equal(asks.length, 2, "the current blocker emits two Predict choices for one Vision grant");
+  assert.deepEqual(new Set(asks.map(request => request.chooser)), new Set(["A"]));
+  assert.deepEqual(
+    new Set(asks.map(request => request.options[0]?.id)),
+    new Set(["a-top"]),
+    "the lifecycle viewer is the actual controller, not hard-coded from the test"
+  );
+  assert.equal(
+    f.kernel.events.filter(event => event.action === "look").length,
+    2,
+    "both duplicated Vision instances really reach the production Resolve path"
+  );
+  assert.equal(inspectLinks(f).length, 2);
+});
+
+test("sfd-065-221 Forecaster production boundary: declining recycle leaves both decks unchanged", () => {
+  const { f } = playForecaster({ controller: "A" });
+  assert.deepEqual(f.kernel.zone("A", "deck").map(ref => ref.id), ["a-top", "a-second"]);
+  assert.deepEqual(f.kernel.zone("B", "deck").map(ref => ref.id), ["b-top", "b-second"]);
+  assert.equal(f.kernel.events.filter(event => event.action === "recycle").length, 0);
+  for (const [key, value] of inspectLinks(f)) {
+    assert.equal(value, 1, `${key} looked at exactly the real top card`);
   }
-  assert.deepEqual(engine.items[0].pickPlans, []);
-  steps = 0;
-  while (engine.entries.length) {
-    engine.pass(engine.priority);
-    if (++steps > 30) throw new Error("resolve did not settle");
-  }
-  assert.deepEqual(kernel.events, []);
-  assert.deepEqual(kernel.zone("A", "deck").map((ref) => ref.id), ["z-top", "a-rest"]);
+});
+
+test("sfd-065-221 Forecaster production: B's controlled Vision reads B's own top before the recycle boundary", () => {
+  const { f } = playForecaster({ controller: "B" });
+  const asks = f.requests.filter(request => request.type === "select-objects");
+  assert.equal(asks.length, 2);
+  assert.deepEqual(
+    new Set(asks.map(request => request.options[0]?.id)),
+    new Set(["b-top"]),
+    "the lifecycle viewer follows the controller rather than assuming player A"
+  );
+  assert.deepEqual(f.kernel.zone("A", "deck").map(ref => ref.id), ["a-top", "a-second"]);
+  assert.deepEqual(f.kernel.zone("B", "deck").map(ref => ref.id), ["b-top", "b-second"]);
+  const recycledLinks = Object.entries(f.kernel.linkedSnapshot()).filter(([key]) =>
+    key.includes("vision-recycle") && key.endsWith(".recycled")
+  );
+  assert.equal(recycledLinks.length, 2);
+  assert.deepEqual(recycledLinks.flatMap(([, value]) => value), []);
+});
+
+test("sfd-065-221 Forecaster production boundary: accepting an A-controlled recycle recycles A's top card", () => {
+  const { f } = playForecaster({ controller: "A", recycle: true });
+  assert.deepEqual(f.kernel.zone("A", "deck").map(ref => ref.id), ["a-second", "a-top"]);
+  assert.deepEqual(f.kernel.zone("B", "deck").map(ref => ref.id), ["b-top", "b-second"]);
+  const recycled = f.kernel.events.filter(event => event.action === "recycle");
+  assert.equal(recycled.length, 1, "the duplicated second instance sees the same kept top and declines it");
+  const recycledLinks = Object.entries(f.kernel.linkedSnapshot()).filter(([key]) =>
+    key.includes("vision-recycle") && key.endsWith(".recycled")
+  );
+  assert.equal(recycledLinks.length, 2);
+  assert.deepEqual(
+    recycledLinks.flatMap(([, value]) => value).map(ref => ref.id),
+    ["a-top"]
+  );
+});
+
+test("sfd-065-221 Forecaster production gap: one static Vision grant registers two independent trigger instances", () => {
+  const { f } = playForecaster({ controller: "A" });
+  const source = f.kernel.getObject("forecaster");
+  const keywordTriggers = [...f.engine.pipeline.checkpoint().triggers.values()].filter(registration =>
+    registration.source?.ref.id === "forecaster" && registration.id.startsWith("program-keyword-ability:")
+  );
+  assert.equal(keywordTriggers.length, 2);
+  assert.deepEqual(
+    keywordTriggers.map(registration => registration.id).sort(),
+    [
+      `program-keyword-ability:forecaster:${source.ref.zoneEntryId}:vision:printed-0:0`,
+      `program-keyword-ability:forecaster:${source.ref.zoneEntryId}:vision:printed-1:0`
+    ]
+  );
+  assert.equal(
+    f.requests.filter(request => request.type === "mode" && request.id.startsWith("trigger:")).length,
+    1,
+    "the two same-controller triggers also require a real ordering choice"
+  );
+  assert.equal(inspectLinks(f).length, 2);
+});
+
+test("sfd-065-221 Forecaster reference: one Vision instance has one Board-entry Predict body", () => {
+  assert.equal(keywordDefinitionsById.has("Vision"), true);
+  const expanded = keywordDefinitionsById.get("Vision").expand({ host: { canonicalCardId: "sfd-065-221" } });
+  assert.equal(expanded.length, 1);
+  assert.equal(expanded[0].kind, "triggered");
+  assert.equal(expanded[0].trigger.at, "object-enters-board");
+  assert.deepEqual(expanded[0].body.map(instruction => instruction.op), ["effect.inspect", "effect.recycle"]);
+
+  const source = world()
+    .player("A")
+    .deck(["top", "rest"], { owner: "A" })
+    .unit("mech", { owner: "A", controller: "A", tags: ["Mech"], keywords: [{ id: "Vision" }] })
+    .build()
+    .getObject("mech");
+  assert.equal(source.keywords.filter(keyword => keyword.id === "Vision").length, 1);
 });

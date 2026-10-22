@@ -10,37 +10,31 @@ import type { CardProgram } from "../../ir/index.js";
  * Vision 展开为进场触发 + Predict（effect.inspect → 可选回收）。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
- * 卡牌 static → layers 的绑定、controller: "controller" 的相对玩家归一化、以及
- * continuous.grant-keyword 本体都已经可执行并有 golden 证据。
  *
- * 实测状态（re-checked 2026-10-18）：
- * - keywordDefinitionsById.get("Vision").expand({host}) 产出完整 817.1.b triggered 体
- *   （effect.inspect + effect.recycle），且该展开体在参考内核上真实执行成功：
- *   设置有序 deck-top picks 与可选回答后，look + recycle 事件真实发生、牌库重排。
- * - 但生产消费路径仍然 fail-closed：KeywordGrantLayerEngine.staticEffects 对运行时
- *   Vision 实例抛 judge-required "Dynamic triggered keyword abilities need a lifecycle
- *   binder"（keyword-grants.ts:236），production attachProgramLifecycle 也不消费
- *   keywordAbilities()，所以动态 triggered 能力仍未注册到真实链上。
- * - 展开体没有 zoneSlice picks 声明（body[0].picks === undefined，设计上留给装配层），
- *   因此放进生产 ChainEngine 时 orderedPickSpecs 收集不到、pickPlans 为空、inspect
- *   静默查 0 张；手工补 picks 后生产 ChainEngine 全链真实执行。player 仍是 constant("A")
- *   占位。zoneSlice 锁定机制本身已合入并有他卡执行证据；这里缺的是装配层把展开体按
- *   真实控制者与牌库顶绑定，以及 lifecycle binder。
+ * 2026-10-21 对当前 integration 的生产复测：
+ * - static binder 把 Vision 只授予来源控制者的 board 上 Mech（CR 133.3.a/133.8）；
+ * - production lifecycle 已把 817.1.b 展开体补上 zoneSlice，并把 inspect 玩家绑定到
+ *   实际控制者；A/B 双方读取各自牌库顶，拒绝回收时牌序不变，接受时真实 recycle；
+ * - 但同一份静态 grant 会被 lifecycle 注册成两个 Vision 实例。当前
+ *   KeywordGrantLayerEngine.refresh 在 granted-only 模式已算出仅含 grant 的 `granted`，
+ *   最终却在 keyword-grants.ts:568 把包含宿主有效关键词的 `expansions` 写入
+ *   `this.expansions`，所以 `keywordEntries()` 同时返回宿主已有的授予实例与本次 grant，
+ *   产生 `vision:printed-0` / `vision:printed-1`。这违反 CR 817.2：一个 Vision 实例必须
+ *   只触发一次，多个实例才分别触发。测试把两个触发登记和两次真实 prompt 保留为当前
+ *   blocker 的无手工结算复现；引擎修复后才可重新评估 executable。
  */
 export default {
   canonicalCardId: "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口是运行时获得的 Vision 的生产消费路径：KeywordGrantLayerEngine.staticEffects 对运行时 Vision 实例" +
-    "抛 judge-required（原文 \"Dynamic triggered keyword abilities need a lifecycle binder\"，keyword-grants.ts:236），" +
-    "production lifecycle（attachProgramLifecycle）也不消费 keywordAbilities()，所以 Vision 展开的 817.1.b triggered Predict 能力" +
-    "没有被注册到真实链上。展开体本身有参考内核真实执行证据（补上有序 deck-top picks 与可选回答后 " +
-    "look+recycle 真实发生、牌库重排），但展开体没有 zoneSlice picks 声明，放进生产 ChainEngine 时 " +
-    "orderedPickSpecs 收集不到、inspect 静默查 0 张；player 仍是 constant(\"A\") 占位。装配层需要按真实控制者与" +
-    "牌库顶绑定展开体并提供 lifecycle binder；zoneSlice 锁定机制本身已合入并有他卡执行证据，此处不列为机制缺口。" +
-    "static binder、controller: \"controller\" 的相对玩家归一化和 continuous.grant-keyword 本体已有真实执行证据，" +
-    "但这些证据不等价于 Predict 已在生产链执行，不近似实现。",
+    "当前唯一阻塞是单个静态 Vision grant 在生产 lifecycle 中重复展开：" +
+    "KeywordGrantLayerEngine.refresh 已计算 granted-only 的 `granted`，但 keyword-grants.ts:568 " +
+    "把含宿主既有关键词的 `expansions` 写入 `this.expansions`；生产宿主已经带有本次授予的 Vision，" +
+    "于是 keywordEntries() 对同一实例返回 vision:printed-0 与 vision:printed-1，真实链触发两次。" +
+    "这违反 CR 817.2 的实例计数。生产路径的其余部分已实测可执行：static binder 按来源控制者与 Mech tag 授予；" +
+    "lifecycle 为 817.1.b 绑定有序 zoneSlice 和实际控制者；A/B 各自读取自己的牌库顶，拒绝回收不移动牌，" +
+    "接受回收真实执行。需先修复 granted-only lifecycle 的实例来源，才可按 executable 交付。",
   abilities: [
     {
       kind: "static",
@@ -51,7 +45,6 @@ export default {
           zone: "board",
           controller: "controller",
           tag: "Mech",
-          type: "unit"
         }
       }
     }

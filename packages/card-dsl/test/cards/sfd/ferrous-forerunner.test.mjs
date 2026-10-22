@@ -1,42 +1,71 @@
 // Golden test for Ferrous Forerunner (sfd-021-221).
-// Deathknell body is expressed as an explicit object-killed trigger; the
-// merged effect.token play path really creates and plays the Mech tokens, while
-// the relative base destination and keyword-body hookup remain blocked.
+// The explicit printed body is one self-death trigger. A real kill passes
+// through ProgramBinding + ChainEngine + lifecycle, and effect.token creates
+// and plays the 3 Might Mechs to the controller's Base.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validateCardProgram } from "../../../../../packages/card-dsl/dist/ir/index.js";
 import program from "../../../../../packages/card-dsl/dist/cards/sfd/ferrous-forerunner.js";
-import { keywordDefinitionsById } from "../../../../../packages/engine-core/dist/effects/keywords/registry.generated.js";
-import { resolveChainBody } from "../../../../../packages/engine-core/dist/chain/interpreter-adapter.js";
-import tokenDef from "../../../../../packages/engine-core/dist/effects/instructions/effect.token.js";
-import { world, runInstruction } from "../../../../../packages/engine-core/dist/effects/testing/index.js";
+import { productionPlay } from "../../fixtures/production-play.mjs";
 
 const CANONICAL = "card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3";
+const BATTLEFIELD = { type: "battlefield", id: "bf-ferrous" };
+const base = player => ({ type: "base", player });
 
-test("program passes validateCardProgram and is judge-required", () => {
+function ferrousTable(controller = "A") {
+  return productionPlay({
+    programs: [program],
+    build: w => w.player("A").player("B").unit("forerunner", {
+      cardId: CANONICAL,
+      name: "Ferrous Forerunner",
+      types: ["unit"],
+      owner: controller,
+      controller,
+      might: 6,
+      energy: 6,
+      power: ["Fury"],
+      location: BATTLEFIELD
+    })
+  });
+}
+
+function killAndSettle(controller) {
+  const f = ferrousTable(controller);
+  const outcome = f.engine.commit({ type: "kill", object: f.kernel.ref("forerunner") });
+  assert.equal(outcome.status, "done");
+  assert.equal(f.engine.items.length, 1, "one printed Deathknell text creates one Pending Item");
+  assert.deepEqual(f.engine.items[0].body.map(instruction => instruction.op), ["effect.token"]);
+  assert.equal(f.engine.items[0].trigger.source.ref.id, "forerunner");
+  assert.equal(f.engine.items[0].trigger.source.zone, "board");
+  assert.deepEqual(f.engine.items[0].trigger.source.location, BATTLEFIELD);
+  f.engine.advance();
+  f.settle();
+  return f;
+}
+
+test("program passes validateCardProgram and is executable", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason ?? "", /LocationRef/);
-  assert.match(program.judgeReason ?? "", /trigger\.leave/);
-  assert.match(program.judgeReason ?? "", /TriggerRegistration/);
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.match(program.sourceText, /\[Deathknell\]/);
 });
 
 test("Deathknell is modeled as a mandatory object-killed trigger on self", () => {
   assert.equal(program.abilities.length, 1);
-  const ability = program.abilities[0];
+  const [ability] = program.abilities;
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.optional, false);
   assert.equal(ability.trigger.at, "object-killed");
-  assert.deepEqual(ability.trigger.filter, { event: "object-killed", filter: { role: "self" } });
+  assert.deepEqual(ability.trigger.filter, { self: true });
   assert.equal(ability.body.length, 1);
 });
 
 test("body instruction plays two 3-might Mech tokens to the controller base", () => {
-  const [instruction] = program.abilities[0].body;
+  const [ability] = program.abilities;
+  const [instruction] = ability.body;
   assert.equal(instruction.id, "ferrous-forerunner.play-tokens");
   assert.equal(instruction.op, "effect.token");
   assert.deepEqual(instruction.args.token, { kind: "constant", value: "mech" });
@@ -48,59 +77,54 @@ test("body instruction plays two 3-might Mech tokens to the controller base", ()
   });
 });
 
-test("golden: the printed play mode really creates and plays both 3-Might Mech tokens (440.2.c / 185.2.a)", () => {
-  const testWorld = world().player("A").build();
-  const [instruction] = program.abilities[0].body;
-  // "to your base" has no controller-relative spelling for a literal
-  // effect.token location (see judgeReason), so the acting seat substitutes the
-  // printed placeholder; everything else is the card's own argument set.
-  const run = runInstruction(
-    tokenDef,
-    { ...instruction.args, location: { kind: "constant", value: { type: "base", player: "A" } } },
-    { world: testWorld }
-  );
+for (const controller of ["A", "B"]) {
+  test(`production golden: ${controller}'s Forerunner death plays two real Mechs to ${controller}'s Base`, () => {
+    const f = killAndSettle(controller);
+    const tokens = f.kernel.objects.filter(object => object.isToken);
+    assert.equal(tokens.length, 2);
+    for (const token of tokens) {
+      assert.equal(token.name, "Mech");
+      assert.equal(token.might, 3);
+      assert.deepEqual(token.tags, ["Mech"]);
+      assert.equal(token.controller, controller);
+      assert.deepEqual(token.location, base(controller));
+      assert.equal(token.exhausted, true, "CR 143.4/185.2.d: Unit tokens enter exhausted");
+      assert.equal(token.energy, null, "CR 185.3.a: tokens do not have printed costs");
+      assert.equal(token.power, null, "CR 185.3.a: tokens do not have printed costs");
+    }
+    assert.equal(f.kernel.getObject("forerunner").zone, "trash");
+    assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-killed").length, 1);
+    assert.equal(f.engine.trace.filter(entry => entry.step === "finalized").length > 0, true);
+  });
+}
 
-  assert.equal(run.result?.status, "executed");
-  assert.equal(run.linked["mechTokens.amount"], 2);
-  // The chain-creation receipts survive the play hand-off.
-  assert.equal(run.linked["mechTokens.createdAmount"], 2);
-  assert.equal(run.linked.mechTokens.objectsComplete, true);
-  const tokens = testWorld.objects.filter(object => object.isToken);
-  assert.equal(tokens.length, 2);
-  for (const token of tokens) {
-    assert.equal(token.name, "Mech");
-    assert.equal(token.might, 3);
-    assert.deepEqual(token.location, { type: "base", player: "A" });
-  }
-  assert.equal(run.events.filter(event => event.action === "play").length, 2);
+test("production boundary: replacing the kill with a move to Base creates no death trigger or token", () => {
+  const f = ferrousTable("A");
+  const source = f.kernel.ref("forerunner");
+  f.engine.pipeline.registerReplacement({
+    id: "replace-kill-with-base-move",
+    matches: action => action.type === "kill" && action.object.id === "forerunner",
+    apply: action => ({
+      status: "replace",
+      actions: [{ type: "move-location", object: action.object, to: base("A") }]
+    })
+  });
+  const outcome = f.engine.commit({ type: "kill", object: source });
+  assert.equal(outcome.status, "replaced");
+  assert.equal(f.kernel.getObject("forerunner").zone, "board");
+  assert.deepEqual(f.kernel.getObject("forerunner").location, base("A"));
+  assert.equal(f.engine.items.length, 0);
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-killed").length, 0);
+  assert.equal(f.kernel.objects.filter(object => object.isToken).length, 0);
 });
 
-test("sfd-021-221 Ferrous Forerunner: the authored controller-relative base is rejected by effect.token", () => {
-  const testWorld = world().player("A").build();
-  const [instruction] = program.abilities[0].body;
-  const run = runInstruction(tokenDef, instruction.args, { world: testWorld });
-  assert.equal(run.result?.status, "negated");
-  assert.equal(testWorld.objects.filter(object => object.isToken).length, 0);
+test("production boundary: leaving the Board without a kill does not invoke Deathknell", () => {
+  const f = ferrousTable("A");
+  const source = f.kernel.ref("forerunner");
+  const outcome = f.engine.commit({ type: "move-zone", object: source, to: "hand" });
+  assert.equal(outcome.status, "done");
+  assert.equal(f.kernel.getObject("forerunner").zone, "hand");
+  assert.equal(f.engine.items.length, 0);
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-killed").length, 0);
+  assert.equal(f.kernel.objects.filter(object => object.isToken).length, 0);
 });
-
-test("sfd-021-221 Ferrous Forerunner: the merged Deathknell skeleton still references an unregistered body opcode", () => {
-  const definition = keywordDefinitionsById.get("Deathknell");
-  assert.ok(definition);
-  const [expanded] = definition.expand({ host: { canonicalCardId: CANONICAL } });
-  assert.equal(expanded.kind, "triggered");
-  assert.equal(expanded.body[0].op, "trigger.leave");
-  assert.throws(
-    () => resolveChainBody(expanded.body, world().unit("forerunner").build()),
-    /Unregistered instruction opcode: trigger\.leave/
-  );
-});
-
-test.todo(
-  "sfd-021-221 Ferrous Forerunner: hook the printed Deathknell body into the keyword skeleton's " +
-    "trigger.leave entry point (808.1.c); generic TriggerRegistration binding already exists"
-);
-
-test.todo(
-  "sfd-021-221 Ferrous Forerunner: execute the unmodified card destination once effect.token accepts " +
-    "controller-base independent of the source's location (LocationRef contract change request)"
-);

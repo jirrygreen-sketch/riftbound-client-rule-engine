@@ -40,6 +40,12 @@ import { DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT, DUEL_RUNTIME_PROFILE_P4_OPTIONAL
   DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN, DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY } from "./duel/authoritative-runtime-p4.js";
 import { FileRoomStore } from "./file-room-store.js";
 import { InMemoryRoomStore, type RoomStore } from "./room-store.js";
+import {
+  loadM1PresetCatalog,
+  matchingM1Preset,
+  m1DeckDigest,
+  type M1PresetCatalog
+} from "./presets/index.js";
 
 export interface GameServerOptions {
   host?: string;
@@ -60,6 +66,8 @@ export interface GameServerOptions {
   duelRuntimeMode?: DuelRuntimeMode;
   /** Trusted server entropy adapter for deterministic integration runs. Never read from wire. */
   duelRandomIndex?: (exclusiveUpperBound: number) => number;
+  /** Beta safety gate. When true, engine-v2 Duel rooms accept only an M1 preset deck. */
+  m1PresetsOnly?: boolean;
 }
 
 export interface GameServer {
@@ -107,6 +115,7 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
     throw new TypeError("Invalid duel runtime mode");
   }
   const duelRuntimeMode = options.duelRuntimeMode ?? "engine-v2";
+  const m1PresetsOnly = options.m1PresetsOnly ?? process.env.RIFTBOUND_M1_PRESETS_ONLY === "1";
   const rooms = new Map<string, GameRoom>();
   const contexts = new Set<SocketContext>();
   let roomMutationQueue: Promise<unknown> = Promise.resolve();
@@ -126,6 +135,7 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
     runtime: null as CardCatalogRuntime | null,
     ready: null as Promise<void> | null
   };
+  let presetCatalogPromise: Promise<M1PresetCatalog> | undefined;
 
   const loadCatalog = (): Promise<void> => {
     serverWithCatalog.ready ??= loadCardCatalogRuntime({
@@ -149,6 +159,14 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
       throw new Error("The card catalog has not finished loading.");
     }
     return runtime;
+  };
+
+  const loadPresets = (): Promise<M1PresetCatalog> => {
+    presetCatalogPromise ??= loadM1PresetCatalog(requireCatalog()).catch(error => {
+      presetCatalogPromise = undefined;
+      throw error;
+    });
+    return presetCatalogPromise;
   };
 
   const roomStore: RoomStore = options.roomStore ??
@@ -208,10 +226,30 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
 
     if (request.method === "OPTIONS" &&
         (pathname === "/api/cards" ||
+          pathname === "/api/presets" ||
           pathname === "/api/decks/validate" ||
           pathname.startsWith("/api/card-images/"))) {
       response.writeHead(204, PUBLIC_CORS_HEADERS);
       response.end();
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/api/presets") {
+      loadCatalog().then(loadPresets).then(catalog => {
+        response.writeHead(200, {
+          "content-type": "application/json; charset=utf-8",
+          "cache-control": "no-store",
+          ...PUBLIC_CORS_HEADERS
+        });
+        response.end(JSON.stringify(catalog));
+      }).catch(error => {
+        sendJson(response, 503, {
+          error: "m1-preset-catalog-unavailable",
+          message: error instanceof Error
+            ? error.message
+            : "The M1 preset catalog is unavailable."
+        });
+      });
       return;
     }
 
@@ -410,6 +448,8 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
           makeRoomId,
           loadCatalog,
           requireCatalog,
+          loadPresets,
+          m1PresetsOnly,
           options.duelRandomIndex,
           options.storageDirectory,
           duelRuntimeMode
@@ -542,6 +582,8 @@ async function handleInbound(
   makeRoomId: () => string,
   loadCatalog: () => Promise<void>,
   requireCatalog: () => CardCatalogRuntime,
+  loadPresets: () => Promise<M1PresetCatalog>,
+  m1PresetsOnly: boolean,
   duelRandomIndex?: (exclusiveUpperBound: number) => number,
   storageDirectory?: string,
   duelRuntimeMode?: DuelRuntimeMode
@@ -852,6 +894,17 @@ async function handleInbound(
         }
 
         const room = await requireRoom(roomStore, rooms, session.roomId);
+        if (m1PresetsOnly && room.rulesetId === DUEL_RULESET_ID && room.runtimeMode === "engine-v2") {
+          await loadCatalog();
+          const presets = await loadPresets();
+          if (matchingM1Preset(parsed.deck, presets) === null) {
+            throw new RoomError(
+              `M1 beta rooms only accept the rumble-sfd or fiora-sfd preset. ` +
+                `Deck digest ${m1DeckDigest(parsed.deck)} did not match an available preset.`,
+              "invalid-deck"
+            );
+          }
+        }
         await runRoomTransaction(
           room,
           context,

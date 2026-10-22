@@ -49,6 +49,7 @@ import {
   OFFICIAL_RULESET_ID,
   DUEL_RULESET_ID,
   type CardInstance,
+  type ClientSession,
   type DuelProjectionTransport
 } from "@riftbound/protocol";
 import { createUiBootstrap, type UiBootstrap } from "./ui-bootstrap";
@@ -56,6 +57,7 @@ import { DECK_ZONE_LABELS, DECK_ZONE_ORDER, DEFAULT_DRAFT_NAME, allowedZonesFor,
 import { mergeEvents } from "./events";
 import { useV2Match } from "../hooks/useV2Match";
 import { readV2UiEnabled, writeV2UiEnabled } from "../full-product/v2-ui-switch";
+import { readV2Session, writeV2Session } from "../full-product/v2/session-storage";
 
 type AppTab = AppPage;
 
@@ -201,12 +203,30 @@ export function useAppState() {
   } = useCardCatalog({ serverUrl: catalogServerUrl, retryToken,
     constructedRegion: roomView?.constructedRegion ? {regionCode:roomView.constructedRegion.regionCode,eventDate:roomView.constructedRegion.eventDate} : null });
 
+  const [storedV2Session, setStoredV2Session] = useState<ClientSession | null>(
+    () => readV2Session(bootstrap.storage)
+  );
+  const [v2ServerUrl, setV2ServerUrl] = useState<string | null>(null);
   const v2Match = useV2Match({
-    enabled: v2UiEnabled && activeTab === "game-table",
-    serverUrl: activeServerUrl,
-    roomId,
-    session: session ? { playerId: session.playerId, resumeToken: session.resumeToken } : null
+    // Keep the independent V2 session mounted while the V2 profile is enabled;
+    // route changes inside the client must not create another room/session.
+    enabled: v2UiEnabled,
+    // The V2 channel establishes its own protocol v2 session. The legacy WS
+    // connection is only an optional resume hint and is never a prerequisite.
+    serverUrl: v2ServerUrl ?? activeServerUrl ?? catalogServerUrl,
+    // The v2 channel owns its own authenticated room/session. Legacy room
+    // values are never reused or overwritten by this independent channel.
+    roomId: storedV2Session?.roomId ?? null,
+    session: storedV2Session,
+    playerName: profile.name
   });
+  useEffect(() => {
+    if (!writeV2Session(bootstrap.storage, v2Match.session)) return;
+    setStoredV2Session((current: ClientSession | null) => current !== null &&
+      current.roomId === v2Match.session?.roomId &&
+      current.playerId === v2Match.session?.playerId &&
+      current.resumeToken === v2Match.session?.resumeToken ? current : v2Match.session);
+  }, [bootstrap.storage, v2Match.session]);
 
   const libraryStorage: DeckLibraryStorage | null = bootstrap.storage;
   const [library, setLibrary] = useState<DeckLibrary>(bootstrap.library);
@@ -626,6 +646,8 @@ export function useAppState() {
     setActiveTab,
     catalogServerUrl,
     setCatalogServerUrl,
+    v2ServerUrl,
+    setV2ServerUrl,
     activeDeckZone,
     setActiveDeckZone,
     setRetryToken,

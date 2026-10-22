@@ -9,6 +9,7 @@ import {
   type V2Zone
 } from "./constants.js";
 import type { V2Event } from "./events.js";
+import type { V2Location } from "./commands.js";
 
 export type V2ProjectionVisibility =
   | { readonly visibility: "public" }
@@ -31,10 +32,6 @@ export interface V2ProjectedObject {
   readonly might?: number;
   readonly counters?: Readonly<Record<string, number>>;
 }
-
-export type V2Location =
-  | { readonly kind: "base"; readonly playerId: string }
-  | { readonly kind: "battlefield"; readonly battlefieldId: string };
 
 export interface V2ZoneSnapshot {
   readonly zone: V2Zone;
@@ -93,6 +90,48 @@ export interface V2ScoringSnapshot {
   }[];
 }
 
+export interface V2BattlefieldSnapshot {
+  readonly battlefieldId: string;
+  readonly controllerPlayerId: string | null;
+  readonly contestedByPlayerId: string | null;
+  readonly staged: "none" | "showdown" | "combat";
+  readonly occupantObjectIds: readonly string[];
+}
+
+export interface V2CombatSnapshot {
+  readonly status: "none" | "active";
+  readonly battlefieldId?: string;
+  readonly step?: "showdown" | "damage" | "cleanup" | "result" | "control" | "end";
+  readonly combatId?: string;
+  readonly attackerPlayerId?: string;
+  readonly defenderPlayerId?: string;
+  readonly damage?: {
+    readonly attackerMight: number;
+    readonly defenderMight: number;
+    readonly attackerSubmitted: boolean;
+    readonly expectedPlayerId: string;
+  };
+}
+
+export interface V2PlayOption {
+  readonly cardObjectId: string;
+  readonly destination: V2Location;
+}
+
+export interface V2MoveOption {
+  readonly objectId: string;
+  readonly destination: V2Location;
+}
+
+export interface V2ActionOptions {
+  readonly canEndTurn: boolean;
+  /** Present on current servers; older projections omit this extension. */
+  readonly canAdvance?: boolean;
+  readonly moves: readonly V2MoveOption[];
+  /** The viewer can play a hand card without target/payment selections. */
+  readonly plays: readonly V2PlayOption[];
+}
+
 export interface V2ChoiceOption {
   readonly id: string;
   readonly label: string;
@@ -129,6 +168,9 @@ export interface V2Projection {
   readonly chain: V2ChainSnapshot;
   readonly priority: V2PrioritySnapshot;
   readonly scoring: V2ScoringSnapshot;
+  readonly battlefields: readonly V2BattlefieldSnapshot[];
+  readonly combat: V2CombatSnapshot;
+  readonly actionOptions: V2ActionOptions;
   readonly pendingChoice: V2PendingChoice;
   readonly winnerPlayerId: string | null;
   readonly events: readonly V2Event[];
@@ -238,6 +280,46 @@ function scoring(value: unknown): boolean {
   return value.players.every(item => data(item) && exact(item, ["playerId", "points", "controlledBattlefieldIds", "scoredBattlefieldLocationIds"]) &&
     text(item.playerId) && count(item.points) && ids(item.controlledBattlefieldIds) && ids(item.scoredBattlefieldLocationIds));
 }
+function battlefield(value: unknown): boolean {
+  return data(value) && exact(value, ["battlefieldId", "controllerPlayerId", "contestedByPlayerId", "staged", "occupantObjectIds"]) &&
+    text(value.battlefieldId) && (value.controllerPlayerId === null || text(value.controllerPlayerId)) &&
+    (value.contestedByPlayerId === null || text(value.contestedByPlayerId)) &&
+    ["none", "showdown", "combat"].includes(value.staged as string) && ids(value.occupantObjectIds);
+}
+function combat(value: unknown): boolean {
+  if (!data(value) || typeof value.status !== "string") return false;
+  if (value.status === "none") return exact(value, ["status"]);
+  if (value.status !== "active" || !text(value.battlefieldId) || !text(value.step)) return false;
+  if (!exact(value, ["status", "battlefieldId", "step"], ["combatId", "attackerPlayerId", "defenderPlayerId", "damage"]) ||
+      !["showdown", "damage", "cleanup", "result", "control", "end"].includes(value.step)) return false;
+  const identityPresent = value.combatId !== undefined || value.attackerPlayerId !== undefined || value.defenderPlayerId !== undefined;
+  if (!identityPresent) return value.step === "showdown" && value.damage === undefined;
+  if (!text(value.combatId) || !text(value.attackerPlayerId) || !text(value.defenderPlayerId)) return false;
+  if (value.damage === undefined) return true;
+  return data(value.damage) && exact(value.damage,
+    ["attackerMight", "defenderMight", "attackerSubmitted", "expectedPlayerId"]) &&
+    count(value.damage.attackerMight) && count(value.damage.defenderMight) &&
+    typeof value.damage.attackerSubmitted === "boolean" && text(value.damage.expectedPlayerId);
+}
+function commandLocation(value: unknown): value is V2Location {
+  if (!data(value) || typeof value.kind !== "string") return false;
+  if (value.kind === "base") return exact(value, ["kind", "playerId"]) && text(value.playerId);
+  return value.kind === "battlefield" && exact(value, ["kind", "battlefieldId"]) && text(value.battlefieldId);
+}
+function playOption(value: unknown): boolean {
+  return data(value) && exact(value, ["cardObjectId", "destination"]) &&
+    text(value.cardObjectId) && commandLocation(value.destination);
+}
+function moveOption(value: unknown): boolean {
+  return data(value) && exact(value, ["objectId", "destination"]) &&
+    text(value.objectId) && commandLocation(value.destination);
+}
+function actionOptions(value: unknown): boolean {
+  return data(value) && exact(value, ["canEndTurn", "moves", "plays"], ["canAdvance"]) &&
+    typeof value.canEndTurn === "boolean" && (value.canAdvance === undefined || typeof value.canAdvance === "boolean") &&
+    Array.isArray(value.moves) && value.moves.every(moveOption) &&
+    Array.isArray(value.plays) && value.plays.every(playOption);
+}
 function pendingChoice(value: unknown, viewer: string | null): boolean {
   if (!data(value) || !text(value.status, 32)) return false;
   if (value.status === "none") return exact(value, ["status"]);
@@ -258,8 +340,9 @@ export function isV2Projection(value: unknown): value is V2Projection {
   if (!data(value) || !exact(value, [
     "projectionContract", "protocolVersion", "rulesetVersion", "matchId", "viewerPlayerId",
     "stateVersion", "eventSeq", "phase", "turnNumber", "activePlayerId", "players", "zones",
-    "objects", "chain", "priority", "scoring", "pendingChoice", "winnerPlayerId", "events"
-  ]) || value.projectionContract !== PROTOCOL_V2_PROJECTION_CONTRACT || value.protocolVersion !== PROTOCOL_V2_VERSION ||
+    "objects", "chain", "priority", "scoring",
+    "pendingChoice", "winnerPlayerId", "events"
+  ], ["battlefields", "combat", "actionOptions"]) || value.projectionContract !== PROTOCOL_V2_PROJECTION_CONTRACT || value.protocolVersion !== PROTOCOL_V2_VERSION ||
       value.rulesetVersion !== "core-1.5" || !text(value.matchId) ||
       (value.viewerPlayerId !== null && !text(value.viewerPlayerId)) || !count(value.stateVersion) || !count(value.eventSeq) ||
       !isV2Phase(value.phase) || !count(value.turnNumber) || value.turnNumber < 1 || !text(value.activePlayerId) ||
@@ -270,7 +353,11 @@ export function isV2Projection(value: unknown): value is V2Projection {
   const playerIds = value.players.map(item => (item as Data).playerId as string);
   if (!playerIds.includes(value.activePlayerId as string) || new Set(playerIds).size !== playerIds.length) return false;
   if (!value.zones.every(item => zone(item, viewer)) || !value.objects.every(item => object(item, viewer))) return false;
-  if (!chain(value.chain, viewer) || !priority(value.priority) || !scoring(value.scoring) || !pendingChoice(value.pendingChoice, viewer)) return false;
+  if (!chain(value.chain, viewer) || !priority(value.priority) || !scoring(value.scoring) ||
+      (value.battlefields !== undefined && (!Array.isArray(value.battlefields) || !value.battlefields.every(battlefield))) ||
+      (value.combat !== undefined && !combat(value.combat)) ||
+      (value.actionOptions !== undefined && !actionOptions(value.actionOptions)) ||
+      !pendingChoice(value.pendingChoice, viewer)) return false;
   return value.events.every(item => {
     // Importing the event guard here would introduce a runtime cycle; validate the stable envelope fields.
     if (!data(item) || item.contract !== "riftbound.protocol.v2.event" || !count(item.seq) || !count(item.eventSeq) ||

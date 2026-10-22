@@ -2,57 +2,51 @@ import type { CardProgram } from "../../ir/index.js";
 
 
 /**
- * Danger Zone (sfd-182-221) — Spell, 1 energy + 1 rainbow power, Rumble
- * signature (Fury/Mind).
+ * Danger Zone (sfd-182-221) — Spell, 1 Energy + 1 Power, Rumble signature
+ * (Fury/Mind).
  *
- * Printed text:
+ * Official catalog text:
  *   [Reaction] (Play any time, even before spells and abilities resolve.)
  *   [Repeat] :rb_energy_1::rb_rune_rainbow: (You may pay the additional cost
  *   to repeat this spell's effect.)
  *   Give your Mechs +1 :rb_might: this turn.
  *
- * Status: judge-required — one gap, not approximated:
- * - the [Repeat] KeywordDef landed, but its additional cost cannot enter the
- *   play flow: programs/play.ts translateCost throws judgeRequired for
- *   optional/keyword cost fields and kind "additional"/"additional-cost";
- *   KeywordAbility cannot pass the printed cost to Repeat.expand, repeat.cost has no
- *   layer/Finalize consumer, and the paid-repeat count is not wired to the
- *   interpreter's repeat node. The additional cost (1 energy + 1 rainbow
- *   rune) stays declared on the play ability as an optional additional CostSpec
- *   so the intent is reviewable.
- * - The team buff itself is now executable: the merged continuous.might
- *   primitive registers the arithmetic-layer modification over the
- *   programmatic "your Mechs" set through ctx.addContinuous with the
- *   end-of-turn duration (317.2.c / 468.7.c), and the golden test drives the
- *   card's own body through the production interpreter adapter.
+ * Evidence: Core Rules v1.5 (2026-10-09, effective 2026-10-16),
+ * https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf.
+ * - 813.1 lets the Reaction card enter a Closed State at Priority. The Chain
+ *   Engine owns the response window; the card IR only preserves the keyword.
+ * - The printed 1 Power base cost on this multi-domain card is one any-of-
+ *   Domains requirement (135.2.e.6.c). The optional Repeat cost is one Energy
+ *   and one universal Power (135.2.e.5.a), which the production binder expands
+ *   to the six legal Domains. Finalize locks and pays both requirements; the
+ *   paid instance causes one additional whole-body execution (820.1.a-d,
+ *   820.3.a) without a second card play.
+ * - "Give your Mechs +1 Might this turn" programmatically selects each friendly
+ *   Mech (355.10.d), so it has no TargetSpec. continuous.might registers
+ *   an arithmetic-layer bonus for each selected object, and all "this turn"
+ *   effects expire together during the ending cleanup (317.2.c).
  *
- * "Your Mechs" is an each-set, not a target (v1.5 355.7: "each" is not
- * targeted), so the body instruction carries no TargetSpec.
+ * Status is executable: production bound-play tests cover both cost choices,
+ * the legal Reaction window, two real Resolve executions when Repeat is paid,
+ * one when declined, end-of-turn expiry, and atomic failure on missing costs.
  */
 const dangerZone = {
   canonicalCardId: "card.hash-3c1c01b405853556e3e1c12bbd758e94d73f5ed474a5643bb068eaa7cb549c6e",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "[Repeat] 追加费用仍无可执行收取路径：programs/play.ts 的 translateCost 拒绝 optional/keyword 字段及 kind additional-cost；" +
-    "KeywordAbility / expandProgram 也不能将印刷费用传给 Repeat.expand。effects/keywords/Repeat.ts 输出的 repeat.cost 静态能力没有图层映射与 Finalize 消费方，" +
-    "已付费 Repeat 实例数与解释器 repeat 节点也无接线（820.1.c.1/820.1.d.1/820.2）。追加费用（1 能量 + 1 彩虹符文）已按契约 3.1 声明为 play 的可选 CostSpec，" +
-    "属待接线声明，不写死第二次结算、不近似实现。" +
-    "「Give your Mechs +1 :rb_might: this turn」半段已可执行：continuous.might 原语对 355.10.d 的程序化集合注册 arithmetic 层修正并在回合末到期，golden 已用生产解释器适配器真实执行正文；不代表整卡经测试台打出。",
+  status: "executable",
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
     "[Repeat] :rb_energy_1::rb_rune_rainbow: (You may pay the additional cost to repeat this spell's effect.)\n" +
     "Give your Mechs +1 :rb_might: this turn.",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
-    // Declare the printed keyword even while its cost parameter and consumer
-    // remain blocked; the play CostSpec below retains that printed cost.
+    // Keep the printed keyword identity. The play CostSpec carries its
+    // parameter because KeywordAbility has no second, cost-bearing syntax.
     { kind: "keyword", keyword: "repeat" },
     {
       kind: "play",
-    // [Repeat] 1 energy + 1 rainbow rune: declared as an additional cost
-    // (contract 3.1 CostSpec); the play flow's translateCost and the cost
-    // plan do not consume this additional-cost kind yet.
+      // [Repeat] 1 Energy + 1 universal Power (135.2.e.5.a). Keep the printed
+      // rainbow identity for the binder to translate into any legal Domain.
       cost: {
         kind: "additional-cost",
         keyword: "repeat",
@@ -62,10 +56,9 @@ const dangerZone = {
       },
       body: [
         {
-          // "Give your Mechs +1 Might this turn" — each-set (no TargetSpec);
-          // a duration-bounded Might modification over the programmatic set of
-          // the controller's Mech units, registered by the merged
-          // continuous.might primitive and expiring at cleanup.
+          // "Give your Mechs +1 Might this turn" — each-set (no TargetSpec),
+          // registered for each selected friendly Mech and expiring at ending
+          // cleanup.
           id: "buff-mechs",
           op: "continuous.might",
           args: {

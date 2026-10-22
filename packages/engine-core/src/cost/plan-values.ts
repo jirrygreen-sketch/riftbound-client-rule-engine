@@ -61,16 +61,16 @@ function powerValue(value: Value, input: CostPlanInput): DuelPowerRequirement[] 
   if (!Array.isArray(value)) return invalid('Power must evaluate to an amount or a domain list');
   const universal = value.some(item => item === 'any' || item === 'universal' || item === 'universal-power' || item === 'rainbow');
   if (universal) {
-    if (value.some(item => !DUEL_DOMAINS.includes(item))) return invalid('Expected unique cost domains');
-    return blocked('Universal Power requires a domainless resource contract');
+    if (value.some(item => item !== 'any' && item !== 'universal' && item !== 'universal-power' && item !== 'rainbow')) return invalid('Expected unique cost domains');
+    return value.map(() => ({ amount: 1, allowedDomains: [...DUEL_DOMAINS] }));
   }
   return value.map(item => ({ amount: 1, allowedDomains: domains([item]) }));
 }
 
 function paymentDomains(value: unknown): Domain[] {
   if (Array.isArray(value) && value.some(item => item === 'any' || item === 'universal' || item === 'universal-power' || item === 'rainbow')) {
-    if (value.some(item => !DUEL_DOMAINS.includes(item))) return invalid('Expected unique cost domains');
-    return blocked('Universal Power requires a domainless resource contract');
+    if (value.some(item => item !== 'any' && item !== 'universal' && item !== 'universal-power' && item !== 'rainbow')) return invalid('Expected unique cost domains');
+    return [...DUEL_DOMAINS];
   }
   return domains(value);
 }
@@ -125,7 +125,10 @@ export function readCost(ctx: ResolveContext, spec: CostSpec, input: CostPlanInp
       return { ...emptyCost(), energy: binding.cost.energy, power: binding.cost.power };
     }
     if (ctx.source.energy === null) return null;
-    return { ...emptyCost(), energy: count(ctx.source.energy, 'Printed Energy'), power: ctx.source.power === null ? [] : powerValue(ctx.source.power, input) };
+    const power = ctx.source.power === null || ctx.source.power.length === 0
+      ? []
+      : [{ amount: 1, allowedDomains: domains(ctx.source.power) }];
+    return { ...emptyCost(), energy: count(ctx.source.energy, 'Printed Energy'), power };
   }
   if (spec.kind !== undefined && !['activated', 'explicit'].includes(spec.kind)) blocked(`Unsupported cost kind: ${spec.kind}`);
   let energy = spec.energy === undefined ? 0 : count(ctx.evaluate(spec.energy), 'Energy');

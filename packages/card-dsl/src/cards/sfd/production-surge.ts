@@ -58,7 +58,7 @@ const productionSurge = {
           args: {
             token: { kind: "constant", value: "mech" },
             mode: { kind: "constant", value: "play" },
-            location: { kind: "constant", value: { type: "base", player: "you" } }
+            location: { kind: "constant", value: { type: "base", player: "controller" } }
           }
         },
         {

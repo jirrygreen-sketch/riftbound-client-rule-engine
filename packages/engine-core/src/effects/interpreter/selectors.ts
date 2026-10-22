@@ -154,6 +154,7 @@ export function queryObjects(filter: ObjectFilter, environment: ExpressionContex
     controller: environment.context.controller,
     anchor: environment.context.source,
     references: anchorSnapshots,
+    objects: candidates,
   };
 
   const filtered = candidates.filter(object => {
