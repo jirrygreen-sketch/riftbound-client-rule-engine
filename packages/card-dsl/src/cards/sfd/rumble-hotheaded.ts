@@ -1,6 +1,94 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
+ * Official effect-order evidence target: Core Rules v1.5 (Radiance), effective
+ * 2026-10-16. The official Radiance notes and Spiritforged errata contain no
+ * Rumble-specific entry, so this card follows the general rules below. The
+ * current production result is recorded explicitly; a blocked Resolve stage is
+ * evidence for judge-required status, not a proposed ordering rule.
+ */
+export const RUMBLE_OFFICIAL_EFFECT_ORDER_EVIDENCE = {
+  contract: "riftbound.official-effect-order-evidence.v1",
+  canonicalCardId: "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+  rulingStatus: "no-card-specific-ruling",
+  sources: {
+    coreRules: {
+      version: "1.5",
+      published: "2026-10-09",
+      effective: "2026-10-16",
+      url: "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+      patchNotesUrl: "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+      sha256: "94d41fee86f88b61c4157c0389c0595d990b98e5b42555c99d9f649ee64d1fec"
+    },
+    radianceRulings: {
+      published: "2026-10-09",
+      effective: "2026-10-16",
+      url: "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+    },
+    spiritforgedErrata: {
+      published: "2026-01-14",
+      // The article states no separate effective date. Core Rules v1.5 is the
+      // target version and takes precedence over conflicting older material.
+      effective: null,
+      url: "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/"
+    },
+    spiritforgedRules: {
+      published: "2025-12-05",
+      effective: "2025-12-12",
+      url: "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-core-rules-spiritforged-patch-notes/"
+    }
+  },
+  interactions: [
+    {
+      id: "assault-grant",
+      canonicalCardId: "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+      clauses: ["Your Mechs each have [Assault].", "(+1 [M] while we're attackers.)"],
+      ruleRefs: ["801.3.a", "807.1", "807.1.c", "807.1.d", "807.1.d.1", "807.2"],
+      timeline: [
+        "Rumble is on the Board and its static ability registers the Assault grant.",
+        "A friendly Mech gains the Attacker designation and re-expansion applies +1 Effective Might.",
+        "When it no longer has the Attacker designation, the Assault Might contribution stops."
+      ],
+      priorityFocus: "Passive continuous effect: it creates no Chain item and does not consume or transfer Priority or Focus.",
+      responseWindow: "No discretionary action or response window is created by Assault itself; layer evaluation is deterministic.",
+      productionAssertion: "Rumble, Hotheaded golden: lifecycle grants Assault and attacker Might only to friendly Mechs"
+    },
+    {
+      id: "conquer-leading-recycle-play",
+      canonicalCardId: "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+      clauses: [
+        "When I conquer, you may recycle another friendly unit to play a Mech from your trash.",
+        "Reduce its Energy cost by the Might of the unit you recycled."
+      ],
+      ruleRefs: [
+        "143.2.a", "204.1.c", "204.3.a", "303.2.a", "309.1", "309.1.a",
+        "312.1", "312.1.b.1", "313.2", "337.1.a", "338", "339", "340.1",
+        "355.10.c.1", "356.4.g", "359.3.e.13", "383.3.a", "383.3.b",
+        "383.3.b.1", "383.3.c", "404.1.b.1", "405", "406", "407", "417.1.c"
+      ],
+      timeline: [
+        "The non-combat Showdown opens for the player who applied Contested; that player gains Focus and Priority.",
+        "Both players pass Focus in turn order and the Showdown closes; control and Conquer are established.",
+        "The Conquer event carries this exact Rumble incarnation; the controller mandatorily adds its triggered ability as a Pending item.",
+        "Finalize asks controller A whether to perform the leading may (383.3.a); unlike a later may, this decision is made before the trigger is Finalized.",
+        "While deciding the relevant choices, A selects the Trash Mech target and a non-target cost choice for another controlled Board Unit.",
+        "Finalize locks and atomically pays recycle; the chosen Unit moves to its owner's Main Deck bottom.  The Unit's pre-move Effective Might must be frozen for the discount.",
+        "Current production path: with the Chain present the turn is Closed, A then B receive Priority in turn order, and both passes precede Resolve; Focus remains held by the Showdown player and grants no independent right to act.",
+        "Required rulings (closed window): before either pass, A and then B each receive the opportunity to take a legally timed Reaction. A successful Finalize guarantees the payment itself cannot be responded to; the response opportunity follows it.",
+        "After both players pass in sequence, the trigger Resolves from top to bottom; it may play the Trash Mech using the finalized reduced cost.",
+        "Current production boundary: Finalize succeeds, but Resolve reports cost.modify=mistargeted and effect.play=linked-ignored, so the Mech remains in Trash."
+      ],
+      priorityFocus: "A controls the trigger and receives its Finalize decision. Priority is exclusive and sequential after Finalize; Focus belongs only to the preceding Showdown and does not by itself permit discretionary actions.",
+      responseWindow: "A legal Closed-State response window exists after the trigger is finalized and before Resolve. Only Reaction-speed cards or abilities are legal. The production trace verifies the required ordering A Priority, B Priority, then Resolve; it does not invent a particular Reaction card.",
+      productionAssertions: [
+        "Rumble, Hotheaded production golden: accepting Conquer Finalize recycles the Board unit and prompts for the Mech target",
+        "Rumble, Hotheaded: the registered Resolve body cannot bind the chosen object or Might from the Finalize receipt"
+      ]
+    }
+  ]
+} as const;
+
+/**
  * Rumble, Hotheaded (sfd-026-221) — Rumble SFD precon unit (chosen champion).
  *
  * Your Mechs each have [Assault]. (+1 [M] while we're attackers.)
