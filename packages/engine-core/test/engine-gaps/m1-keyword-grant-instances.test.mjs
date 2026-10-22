@@ -177,7 +177,7 @@ test('Gem Jammer Ganking expires with its derived Standard Move permission and p
   });
   assert.equal(moved.board.units.find(unit => unit.objectId === 'target').locationId, given.bf2);
 
-  f.engine.emit({ timingPoint: 'turn-end', player: 'A' });
+  f.engine.pipeline.emit({ timingPoint: 'turn-end', player: 'A' });
   const ending = f.snapshot('target');
   assert.deepEqual(ending.keywords.map(keyword => keyword.id), ['Ganking'],
     'CR 317.1.a keeps the this-turn grant through the Ending Step');
