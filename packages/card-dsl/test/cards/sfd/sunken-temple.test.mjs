@@ -416,6 +416,21 @@ test(PRODUCTION_TEST_NAMES.golden, () => {
   const postMoveDraw = events.findIndex((event, index) => index > score && event.timingPoint === "card-drawn");
   assert.ok(conquer >= 0 && score > conquer && finalized > score && postMoveDraw > finalized);
   assert.equal(events.filter(event => event.timingPoint === "score").length, 1);
+  assert.deepEqual(
+    f.match.flow.chain.trace
+      .filter(entry => entry.item === "trigger:1" || entry.step === "pass")
+      .map(entry => [entry.step, entry.player ?? entry.item]),
+    [
+      ["pending", "trigger:1"],
+      ["finalize-start", "trigger:1"],
+      ["finalized", "trigger:1"],
+      ["pass", "A"],
+      ["pass", "B"],
+      ["resolve-start", "trigger:1"],
+      ["resolved", "trigger:1"],
+      ["removed", "trigger:1"]
+    ]
+  );
 });
 
 test(PRODUCTION_TEST_NAMES.onePerScore, () => {
