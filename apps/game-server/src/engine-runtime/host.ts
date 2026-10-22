@@ -49,7 +49,7 @@ type MutablePlayer = {
   id: PlayerId;
   name: string;
   energy: number;
-  power: Domain[];
+  power: PowerPaymentSource[];
   xp: number;
   score: number;
   /** The engine primitive contract names a subset of zones; the runtime also
@@ -775,25 +775,32 @@ export class EngineRuntimeHost {
 
     const power = plan.power ?? [];
     if (!Array.isArray(power) || power.some(domain => !KNOWN_DOMAINS.has(domain))) return this.prevented();
+    const universalPower = plan.universalPower ?? 0;
+    if (!validCount(universalPower)) return this.prevented();
     const powerRequired = new Map<Domain, number>();
     for (const domain of power) powerRequired.set(domain, (powerRequired.get(domain) ?? 0) + 1);
     const powerSources = plan.powerSources ?? [];
     if (!Array.isArray(powerSources)) return this.prevented();
     const assigned = new Map<PowerPaymentSource, number>();
     for (const entry of powerSources) {
-      if (entry === null || typeof entry !== "object" || !KNOWN_DOMAINS.has(entry.source as Domain) ||
+      if (entry === null || typeof entry !== "object" ||
+          !KNOWN_DOMAINS.has(entry.source as Domain) && !["universal", "any", "universal-power"].includes(entry.source) ||
           !validCount(entry.amount) || entry.amount === 0) return this.prevented();
       assigned.set(entry.source, (assigned.get(entry.source) ?? 0) + entry.amount);
     }
-    // The legacy Domain[] pool can prove only named-domain Power. Universal
-    // lots cannot be represented here; fail closed rather than treating them
-    // as an unrestricted or free payment.
-    if (plan.universalPower !== undefined) return this.prevented();
+    if (powerSources.length > 0 && (assigned.get("universal") ?? 0) + (assigned.get("any") ?? 0) +
+        (assigned.get("universal-power") ?? 0) !== universalPower) return this.prevented();
     for (const [domain, amount] of powerRequired) {
       if (powerSources.length > 0 && (assigned.get(domain) ?? 0) !== amount) return this.prevented();
       if (player.power.filter(value => value === domain).length < amount) return this.prevented();
     }
-    if (powerSources.length > 0 && [...assigned].some(([domain, amount]) => (powerRequired.get(domain as Domain) ?? 0) !== amount)) return this.prevented();
+    const universalAvailable = player.power.filter(value =>
+      value === "universal" || value === "any" || value === "universal-power").length;
+    if (universalAvailable < universalPower) return this.prevented();
+    if (powerSources.length > 0 && [...assigned].some(([source, amount]) =>
+      source === "universal" || source === "any" || source === "universal-power"
+        ? false
+        : (powerRequired.get(source as Domain) ?? 0) !== amount)) return this.prevented();
 
     const exhaust = plan.exhaust ?? [];
     const recycle = plan.recycle ?? [];
@@ -823,6 +830,14 @@ export class EngineRuntimeHost {
         }
         if (remaining !== 0) throw new Error(`Power payment lost ${domain} during commit`);
       }
+      let remainingUniversal = universalPower;
+      for (let index = player.power.length - 1; index >= 0 && remainingUniversal > 0; index--) {
+        const source = player.power[index];
+        if (source !== "universal" && source !== "any" && source !== "universal-power") continue;
+        player.power.splice(index, 1);
+        remainingUniversal--;
+      }
+      if (remainingUniversal !== 0) throw new Error("Universal Power payment lost during commit");
       for (const ref of exhaust) this.setExhausted(ref, true);
       for (const ref of recycle) this.move(ref, "deck-bottom");
       return this.done();
