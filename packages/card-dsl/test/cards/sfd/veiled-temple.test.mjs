@@ -18,6 +18,139 @@ import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
 const CARD_ID = "card.hash-9daf60cdf4c82e4fba1f685af1c9b0d748003f7e9ad9c68f02f429bdd0cf85e5";
 const SOURCE_TEXT =
   "When you conquer here, you may ready a friendly gear. If it's an Equipment, you may detach it.";
+const CORE_RULES_URL =
+  "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf";
+const RADIANCE_RULINGS_URL =
+  "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/";
+const SFD_ERRATA_URL =
+  "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/";
+
+// This evidence block is pinned to the repository's reviewed official-source
+// snapshots. Neither official rulings source names this card or changes its
+// text. CR v1.5 therefore supplies the procedure, while the catalog supplies
+// the card-specific instruction. No numeric or global effect priority exists.
+const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
+  contract: "riftbound.official-effect-order-evidence.v1",
+  canonicalCardId: CARD_ID,
+  sources: Object.freeze({
+    coreRules: Object.freeze({
+      version: "1.5",
+      published: "2026-10-09",
+      effective: "2026-10-16",
+      url: CORE_RULES_URL,
+      sha256: "94d41fee86f88b61c4157c0389c0595d990b98e5b42555c99d9f649ee64d1fec"
+    }),
+    radianceRulings: Object.freeze({
+      published: "2026-10-09",
+      effective: "2026-10-16",
+      url: RADIANCE_RULINGS_URL,
+      appliesToThisCard: false,
+      result: "reviewed: no Veiled Temple-specific ruling"
+    }),
+    spiritforgedErrata: Object.freeze({
+      published: "2026-01-14",
+      effective: null,
+      url: SFD_ERRATA_URL,
+      appliesToThisCard: false,
+      result: "reviewed: no Veiled Temple correction"
+    })
+  }),
+  interactions: Object.freeze([
+    Object.freeze({
+      id: "conquer-here-trigger",
+      canonicalCardId: CARD_ID,
+      sourceIds: Object.freeze(["coreRules", "radianceRulings", "spiritforgedErrata"]),
+      clauses: Object.freeze(["When you conquer here"]),
+      ruleRefs: Object.freeze([
+        "053.3", "190.6", "303.2.a", "312.2.c", "337.1.a", "337.4",
+        "338.1", "338.1.b", "339.1", "340.1", "383.3.c", "383.3.d", "407.4",
+        "383.3.d.1", "468.5.d", "471.1", "473.2.a", "473.2.c"
+      ]),
+      timeline: Object.freeze([
+        "A real TurnFlow control-establishment wave at this Battlefield creates the Conquer event with details.battlefieldId.",
+        "The source-location anchor plus the event Battlefield must match; a Conquer at another Battlefield creates no Pending ability.",
+        "The ability becomes Pending; its controller then receives the Finalize decision. Finalizing does not pass Priority.",
+        "After Finalize, the Closed State permits legally timed Reactions. Both players pass in Turn Order before Resolve.",
+        "If multiple such triggers are simultaneous, 303.2.a plus 383.3.d-.1 require controller selection and Turn Order rather than array order."
+      ]),
+      priorityFocus: "Finalize itself grants no new Priority; the next controller gains Priority only after Pending items are finalized.",
+      responseWindow: "Closed-State Reaction window after Finalize and before Resolve; the card creates no replacement or resource-Add timing exception.",
+      lki: "No look-back is needed for the trigger condition: the live Battlefield incarnation remains on the Board.",
+      productionTestNames: Object.freeze([
+        "real TurnFlow conquer matches only the Veiled Temple battlefield",
+        "the production lifecycle initial scan surfaces the mixed timing gap"
+      ])
+    }),
+    Object.freeze({
+      id: "leading-finalize-may-and-target",
+      canonicalCardId: CARD_ID,
+      sourceIds: Object.freeze(["coreRules", "radianceRulings", "spiritforgedErrata"]),
+      clauses: Object.freeze(["you may ready a friendly gear"]),
+      ruleRefs: Object.freeze([
+        "204.1.c", "355.7", "355.8", "355.12", "383.3.a", "383.3.a.1",
+        "383.3.a.2", "403.4", "403.4.b", "405.2", "406.1"
+      ]),
+      timeline: Object.freeze([
+        "The first 'may' is the decision to perform the triggered ability and is made during Finalize.",
+        "The friendly Board gear is a target selected independently of that action decision under 355.12 and locked with the ability.",
+        "No printed or optional additional cost exists, so this interaction has no resource payment stage.",
+        "Declining removes the Pending ability as not performed; accepting proceeds through legality and the Reaction window to Resolve.",
+        "Current engine boundary: production binding stops before a Pending item exists because the nested Resolve-time optional is rejected."
+      ]),
+      priorityFocus: "The Battlefield ability's controller chooses during Finalize; Priority remains with the applicable player after all Pending items are finalized.",
+      responseWindow: "No response exists before Finalize completes. A legally timed Reaction may be played in the Closed State after it.",
+      lki: "The selected gear must retain its exact incarnation into Resolve; no left-Board look-back applies while it remains on the Board.",
+      productionTestNames: Object.freeze([
+        "optional conquer structure with ready, Equipment gate and detach",
+        "declining the ready skips the detach prompt entirely",
+        "the real program binding fails closed on the mixed Finalize/Resolve may timing"
+      ])
+    }),
+    Object.freeze({
+      id: "ready-on-resolve",
+      canonicalCardId: CARD_ID,
+      sourceIds: Object.freeze(["coreRules", "radianceRulings", "spiritforgedErrata"]),
+      clauses: Object.freeze(["ready a friendly gear"]),
+      ruleRefs: Object.freeze(["416.1", "416.1.b", "416.1.c"]),
+      timeline: Object.freeze([
+        "Resolve executes the ready action only after the accepted ability has passed the Reaction window.",
+        "An exhausted friendly gear becomes ready and the action emits its real readied event.",
+        "A gear that is already ready changes no state under 416.1.c and contributes no object to the ready receipt."
+      ]),
+      priorityFocus: "Ready is a Limited Action instructed by the resolving ability; it neither creates nor transfers Priority.",
+      responseWindow: "No player response window occurs inside a single Resolve; opponents could only react before Resolve began.",
+      lki: "No look-back is needed for the readied gear while it remains on the Board.",
+      productionTestNames: Object.freeze([
+        "an Equipment gear is readied and then detached",
+        "a non-Equipment gear is readied but never detached",
+        "an already-ready Equipment exposes the target-backed pick gap"
+      ])
+    }),
+    Object.freeze({
+      id: "equipment-conditional-detach-may",
+      canonicalCardId: CARD_ID,
+      sourceIds: Object.freeze(["coreRules", "radianceRulings", "spiritforgedErrata"]),
+      clauses: Object.freeze(["If it's an Equipment, you may detach it."]),
+      ruleRefs: Object.freeze([
+        "355.12", "359.3.e.14", "359.3.e.14.a", "359.3.e.14.b",
+        "383.3.a.3", "436.1", "436.1.a.1", "436.2", "436.3"
+      ]),
+      timeline: Object.freeze([
+        "At Resolve, 'it' is the exact gear selected and locked by the first may action.",
+        "The Equipment tag test determines whether the second Resolve-time may is offered; it is not a Finalize question.",
+        "If accepted, detach targets that same Equipment and removes it from its host when attached; an unattached card does nothing.",
+        "Current engine boundary: a later optional is finalized at the wrong stage, and the detach pick has no symbolic target source when ready made no state change."
+      ]),
+      priorityFocus: "The controller makes the later may during its own Resolve, after the Finalize/Priority/Reaction sequence.",
+      responseWindow: "No new response window is opened between linked instructions during one Resolve.",
+      lki: "The selected object's tags and attachment state are read at Resolve; no object leaves the Board as a prerequisite of this decision.",
+      productionTestNames: Object.freeze([
+        "Finalize planning would ask the later detach may at the wrong time",
+        "an already-ready Equipment exposes the target-backed pick gap"
+      ])
+    })
+  ])
+});
 
 const [ability] = program.abilities;
 const [readyChoice] = ability.body;
@@ -69,9 +202,9 @@ test("sfd-221-221 Veiled Temple: program validates, is registered and stays judg
   // README section 2: the reason states the concrete current gap. The old
   // "here" blocker is closed by the merged EventPattern and pipeline matcher.
   assert.match(program.judgeReason, /here/);
-  assert.match(program.judgeReason, /programs\/trigger-adapters\/leading-choice\.ts:78-81/);
-  assert.match(program.judgeReason, /programs\/triggers\.ts:23-31/);
-  assert.match(program.judgeReason, /chain\/finalize\/choices\.ts:207-217/);
+  assert.match(program.judgeReason, /programs\/trigger-adapters\/leading-choice\.ts:123-136/);
+  assert.match(program.judgeReason, /programs\/triggers\.ts:22-31/);
+  assert.match(program.judgeReason, /chain\/finalize\/choices\.ts:207-218/);
   assert.match(program.judgeReason, /unsupported leading may shape/);
   assert.match(program.judgeReason, /TargetSpec/);
   assert.match(program.judgeReason, /target\/picks\/plan\.ts:220-236/);
@@ -82,9 +215,43 @@ test("sfd-221-221 Veiled Temple: program validates, is registered and stays judg
   assert.match(program.judgeReason, /355\.12/);
   assert.match(program.judgeReason, /conquer/);
   assert.match(program.judgeReason, /details\.battlefieldId/);
-  assert.match(program.judgeReason, /events\/trigger-spec\.ts:203-216/);
+  assert.match(program.judgeReason, /events\/trigger-spec\.ts:207-216/);
   assert.match(program.judgeReason, /events\/pipeline-match\.ts:89-94/);
   assert.equal(program.sourceText, SOURCE_TEXT);
+});
+
+test("sfd-221-221 Veiled Temple: official evidence records source dates, interactions and production assertions", () => {
+  assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.canonicalCardId, CARD_ID);
+  assert.deepEqual(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.coreRules, {
+    version: "1.5",
+    published: "2026-10-09",
+    effective: "2026-10-16",
+    url: CORE_RULES_URL,
+    sha256: "94d41fee86f88b61c4157c0389c0595d990b98e5b42555c99d9f649ee64d1fec"
+  });
+  assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.radianceRulings.effective, "2026-10-16");
+  assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.radianceRulings.appliesToThisCard, false);
+  assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.spiritforgedErrata.appliesToThisCard, false);
+  assert.deepEqual(
+    OFFICIAL_EFFECT_ORDER_EVIDENCE.interactions.map(interaction => interaction.id),
+    ["conquer-here-trigger", "leading-finalize-may-and-target", "ready-on-resolve", "equipment-conditional-detach-may"]
+  );
+  for (const interaction of OFFICIAL_EFFECT_ORDER_EVIDENCE.interactions) {
+    assert.equal(interaction.canonicalCardId, CARD_ID);
+    assert.deepEqual(interaction.sourceIds, ["coreRules", "radianceRulings", "spiritforgedErrata"]);
+    assert.ok(interaction.clauses.length > 0);
+    assert.ok(interaction.ruleRefs.length > 0);
+    assert.ok(interaction.timeline.length >= 3);
+    assert.match(interaction.priorityFocus, /Priority/);
+    assert.match(interaction.responseWindow, /Reaction|Resolve|response/i);
+    assert.ok(interaction.productionTestNames.length > 0);
+  }
+  const evidenceRules = new Set(
+    OFFICIAL_EFFECT_ORDER_EVIDENCE.interactions.flatMap(interaction => interaction.ruleRefs)
+  );
+  for (const rule of ["303.2.a", "337.1.a", "355.12", "383.3.a.3", "407.4", "416.1.c", "436.3"]) {
+    assert.ok(evidenceRules.has(rule), `${rule} is pinned to this card's evidence`);
+  }
 });
 
 test("sfd-221-221 Veiled Temple: optional conquer structure with ready, Equipment gate and detach", () => {
@@ -173,6 +340,7 @@ test("sfd-221-221 Veiled Temple golden: an Equipment gear is readied and then de
   assert.equal(byId.get("veiled-temple.ready-gear").status, "executed");
   assert.equal(byId.get("veiled-temple.detach").status, "executed");
   // 416.1: the gear really became ready; 436.1: the Equipment really detached.
+  assert.deepEqual(kernel.events.map(event => event.action), ["ready", "detach"]);
   assert.equal(kernel.getObject("gear-1").exhausted, false);
   assert.equal(kernel.getObject("gear-1").attachedTo, null);
 });
@@ -195,6 +363,7 @@ test("sfd-221-221 Veiled Temple golden: a non-Equipment gear is readied but neve
   assert.equal(byId.get("veiled-temple.ready-gear").status, "executed");
   assert.equal(byId.get("veiled-temple.detach-opt").status, "negated");
   assert.equal(byId.get("veiled-temple.detach-opt").reason, "skipped");
+  assert.deepEqual(kernel.events.map(event => event.action), ["ready"]);
   assert.equal(kernel.getObject("gear-1").exhausted, false);
   assert.deepEqual(kernel.getObject("gear-1").attachedTo, kernel.ref("host-unit"));
 });
@@ -236,6 +405,8 @@ function pipelineFixture(sourceLocation) {
       cardId: CARD_ID,
       types: ["battlefield"],
       controller: "A",
+      owner: "A",
+      isToken: true,
       location: { type: "battlefield", id: sourceLocation },
       energy: null,
       power: null,
@@ -310,6 +481,32 @@ test("sfd-221-221 Veiled Temple: the real program binding fails closed on the mi
   assert.equal(engine.pipeline.checkpoint().triggers.size, 0);
 });
 
+test("sfd-221-221 Veiled Temple: the production lifecycle initial scan surfaces the mixed timing gap", () => {
+  const f = pipelineFixture("bf1");
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host: f.host,
+    cleanup: () => false
+  });
+  const live = { ...program, status: "executable", judgeReason: undefined };
+  const errors = [];
+  const lifecycle = createProgramBinding({ cardPrograms: [live] }).attachLifecycle(
+    engine,
+    error => errors.push(error)
+  );
+  try {
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0] instanceof ProgramBindingError, true);
+    assert.equal(errors[0].code, "judge-required");
+    assert.match(errors[0].message, /unsupported leading may shape/);
+    assert.equal(engine.pipeline.checkpoint().triggers.size, 0);
+  } finally {
+    lifecycle.detach();
+  }
+});
+
 test("sfd-221-221 Veiled Temple: real TurnFlow conquer matches only the Veiled Temple battlefield", () => {
   const run = sourceLocation => {
     const f = pipelineFixture(sourceLocation);
@@ -328,7 +525,13 @@ test("sfd-221-221 Veiled Temple: real TurnFlow conquer matches only the Veiled T
       abilities: [{ ...ability, optional: false, body: [] }]
     };
     const binding = createProgramBinding({ cardPrograms: [triggerOnly] });
-    binding.registerProgramTriggers(flow.chain, f.world.getObject("veiled"));
+    const lifecycle = binding.attachLifecycle(flow.chain, error => { throw error; });
+    assert.deepEqual(
+      flow.chain.pipeline.registeredTriggers()
+        .filter(registration => registration.source.ref.id === "veiled")
+        .map(registration => registration.id),
+      [`program:veiled:${f.world.getObject("veiled").ref.zoneEntryId}:0`]
+    );
     flow.start();
     flow.execute({
       id: `conquer-from-${sourceLocation}`,
@@ -348,8 +551,10 @@ test("sfd-221-221 Veiled Temple: real TurnFlow conquer matches only the Veiled T
     }
     const conquer = flow.chain.pipeline.events.find(event => event.timingPoint === "conquer");
     assert.equal(conquer.details.battlefieldId, "bf1");
-    return flow.chain.trace.filter(entry =>
+    const pending = flow.chain.trace.filter(entry =>
       entry.step === "pending" && String(entry.item).startsWith("trigger:"));
+    lifecycle.detach();
+    return pending;
   };
 
   // The Battlefield says "here"; only the source whose live location is bf1
