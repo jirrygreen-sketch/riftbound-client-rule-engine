@@ -10,16 +10,16 @@
 // ability, filter, value, body or source text is rewritten for a row except
 // where a comment names the test-only placement.
 //
-// These template rows isolate their card IR. Each row uses a world where any
-// remaining card gap cannot change the asserted outcome; real production gaps
-// remain pinned by TODOs below where applicable:
+// None of the five can be promoted yet. Each row uses a world where the card's
+// documented missing semantics cannot change the asserted outcome, and every
+// gap is pinned by its own TODO below:
 //   * Kadregrin: the set query still silently ignores mightGte; the row keeps
 //     every friendly Board unit Mighty so the ignored threshold agrees with the
 //     printed count.
-//   * Lady of Luminosity: this synthetic row keeps the Legend source on Board.
-//     The production Legend-zone lifecycle is covered by the engine-core
-//     RIFT-891 suite; the printed-cost gate, "you play" gate and Draw 1 body
-//     are this row's subject.
+//   * Lady of Luminosity: effects/contract.ts has no Legend Zone, so the row
+//     places the Legend on the Board as test-only scaffolding (same approach as
+//     the card's existing golden); the printed-cost gate, "you play" gate and
+//     Draw 1 body are the card's real IR.
 //   * Titanic Shrine: "exhaust me" as a trigger cost and the "Might greater
 //     than each other unit on the board" comparison are still inexpressible;
 //     the rows execute the real unit-play filter, a world where that printed
@@ -129,9 +129,8 @@ const rows = [
     // "When you play a spell that costs 5 or more, draw 1." The played spell is
     // a synthetic effect-free vehicle, but the trigger filter, the event-printed
     // Energy condition and the Draw 1 body are the card's real IR. The Legend
-    // stays on the Board in this synthetic fixture; the production Legend-zone
-    // lifecycle is covered by the engine-core RIFT-891 suite.
-    name: "Lady of Luminosity draws 1 for your 5-Energy spell (synthetic Board fixture)",
+    // sits on the Board only because the Legend Zone is not a frozen ZoneId.
+    name: "Lady of Luminosity draws 1 for your 5-Energy spell (Legend Zone scaffolded on Board)",
     canonicalCardId: ladyOfLuminosityStarter.canonicalCardId,
     program: executableView(ladyOfLuminosityStarter),
     scenario: {
@@ -542,6 +541,10 @@ test.todo(
     "the row above is only valid because every friendly Board unit in that world is Mighty, and a 4-Might friendly unit would expose the gap"
 );
 test.todo(
+  "RIFT-656 Lady of Luminosity, Starter: register the card-played ability while the Legend is in the Legend Zone (CR 107.4.c / 174.2.b); " +
+    "effects/contract.ts ZoneId has no legend zone and programs/triggers.ts defaults permanent card-played registrations to ['board']"
+);
+test.todo(
   "RIFT-656 Titanic Shrine: express \"exhaust me\" as a TriggeredAbility cost (CR 204.1.c / 204.3 / 355.10.c.1) and bind the played unit from the " +
     "card-played payload for the \"Might greater than each other unit on the board\" comparison; the shipped IR carries neither and must not approximate them"
 );
@@ -553,3 +556,4 @@ test.todo(
   "RIFT-656 Kinkou Initiate: replace the count placeholder with a sum-over-set Effective Might expression (CR 143.2.a.1); the count and the printed total " +
     "diverge once a single other unit has Might 5 or more"
 );
+
