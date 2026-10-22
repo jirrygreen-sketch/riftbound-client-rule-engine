@@ -65,12 +65,10 @@ const EVIDENCE_TIMELINES = Object.freeze({
     "Finalize",
     "Resolve for B",
   ]),
-  simultaneousTriggers: Object.freeze([
-    "two abilities controlled by one player trigger at one Score",
-    "controller chooses Pending order",
-    "Finalize oldest-first",
-    "Resolve newest-first",
-  ]),
+  simultaneousTriggers: Object.freeze({
+    applicable: false,
+    reason: "Sunken Temple contributes one trigger to this Score; CR 383.3.d ordering is not needed to resolve the card",
+  }),
   replacedPoint: Object.freeze([
     "Conquer",
     "Score point gain replaced by Draw",
@@ -231,12 +229,10 @@ test("sunken-temple: official CR/SFD/Radiance evidence is pinned to the complete
     "Finalize",
     "Resolve for B",
   ]);
-  assert.deepEqual(EVIDENCE_TIMELINES.simultaneousTriggers, [
-    "two abilities controlled by one player trigger at one Score",
-    "controller chooses Pending order",
-    "Finalize oldest-first",
-    "Resolve newest-first",
-  ]);
+  assert.deepEqual(EVIDENCE_TIMELINES.simultaneousTriggers, {
+    applicable: false,
+    reason: "Sunken Temple contributes one trigger to this Score; CR 383.3.d ordering is not needed to resolve the card",
+  });
   assert.deepEqual(EVIDENCE_TIMELINES.replacedPoint, [
     "Conquer",
     "Score point gain replaced by Draw",
@@ -353,6 +349,17 @@ test("sunken-temple: lifecycle-bound single-Mighty golden pays then draws after 
   const finalized = events.findIndex(event => event.timingPoint === "chain-item-finalize" && event.details?.item === "trigger:1");
   const drawn = events.findIndex(event => event.timingPoint === "card-drawn");
   assert.ok(conquer < score && score < finalized && finalized < drawn);
+  const trace = f.flow.chain.trace.filter(event => event.item === "trigger:1" || event.step === "pass");
+  assert.deepEqual(trace.map(event => [event.step, event.player ?? event.item]), [
+    ["pending", "trigger:1"],
+    ["finalize-start", "trigger:1"],
+    ["finalized", "trigger:1"],
+    ["pass", "A"],
+    ["pass", "B"],
+    ["resolve-start", "trigger:1"],
+    ["resolved", "trigger:1"],
+    ["removed", "trigger:1"],
+  ]);
 });
 
 test("sunken-temple: condition boundary and optional decline pay and draw nothing", () => {
@@ -494,7 +501,7 @@ test("sunken-temple: official evidence timelines name the executable production 
   assert.equal(EVIDENCE_TIMELINES.printedResolution.length, 5);
   assert.equal(EVIDENCE_TIMELINES.effectiveMight.length, 6);
   assert.equal(EVIDENCE_TIMELINES.opponentConquer.length, 6);
-  assert.equal(EVIDENCE_TIMELINES.simultaneousTriggers.length, 4);
+  assert.equal(EVIDENCE_TIMELINES.simultaneousTriggers.applicable, false);
   assert.equal(EVIDENCE_TIMELINES.replacedPoint.length, 5);
   assert.match(CORE_RULES_URL, /5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94\.pdf$/);
   assert.match(RADIANCE_URL, /effective-october-16-2026/);
