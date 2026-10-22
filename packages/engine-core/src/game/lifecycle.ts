@@ -377,11 +377,20 @@ function pickBattlefields(
   if (!Number.isInteger(pick) || pick < 0 || pick > 2) {
     throw new RangeError('battlefieldChoice must be 0, 1 or 2');
   }
-  const issued: string[] = [];
   for (const [index, card] of deck.battlefields.entries()) {
     const id = createToken(host, player, tokenCard(card, ['battlefield']));
-    issued.push(id);
     if (index === pick) {
+      // CR 133.6.a.1 / 170.2.b / 199.1 / 440.2.b.5 / 487.5: the selected
+      // Battlefield starts on the Board at its own Location. create-token must
+      // produce the object identity first, so this is the same real token
+      // incarnation moved immediately to its self-location rather than a
+      // second registration or a synthetic object written by test code.
+      execute(host, {
+        type: 'move-zone',
+        object: requireRef(host, id),
+        to: 'battlefield',
+        location: { type: 'battlefield', id },
+      });
       report.battlefields.push({ id, cardId: card.cardId ?? null, controller: null, contestedBy: null, staged: 'none' });
     }
     else report.removedBattlefields[player]!.push(card.cardId ?? card.id);

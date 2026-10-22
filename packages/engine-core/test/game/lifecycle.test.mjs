@@ -192,8 +192,13 @@ test('setup-legend-not-shuffled-into-deck', () => {
 });
 
 test('setup-battlefield-selection-duel-random with explicit choices', () => {
-  const { match: m } = match({ battlefieldChoice: [1, 2] });
+  const { match: m, kernel } = match({ battlefieldChoice: [1, 2] });
   assert.deepEqual(m.setup.battlefields.map(field => field.cardId), ['card:bfA2', 'card:bfA3']);
+  for (const field of m.setup.battlefields) {
+    const object = kernel.getObject(field.id);
+    assert.equal(object.zone, 'board');
+    assert.deepEqual(object.location, { type: 'battlefield', id: object.ref.id });
+  }
   assert.deepEqual(m.setup.removedBattlefields.A, ['card:bfA1', 'card:bfA3']);
   assert.deepEqual(m.setup.removedBattlefields.B, ['card:bfA1', 'card:bfA2']);
 });
