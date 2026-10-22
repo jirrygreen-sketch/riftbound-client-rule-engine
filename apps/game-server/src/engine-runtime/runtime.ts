@@ -14,6 +14,7 @@ import {
 import {
   isV2Command,
   type V2ChoiceAnswer,
+  type V2ChoiceOption,
   type V2CombatDamageCommand,
   type V2Command,
   type V2Location,
@@ -21,8 +22,8 @@ import {
   type V2RuneResourceCommand,
 } from "../../../../packages/protocol/dist/v2/index.js";
 import { assertRuntimeJournal, ENGINE_RUNTIME_RULESET_VERSION, RuntimeJournalWriter, canonicalJson, type RuntimeJournal, type RuntimeJournalEntry, digest } from "./journal.js";
-import { EngineRuntimeHost, type RuntimeCard } from "./host.js";
-import { advanceResponsiblePlayer, projectRuntime, projectionDigest } from "./projection.js";
+import { EngineRuntimeHost, type RuntimeCard, type RuntimeVisibilityGrant } from "./host.js";
+import { advanceResponsiblePlayer, projectObjectForChoice, projectRuntime, projectionDigest } from "./projection.js";
 
 export interface EngineRuntimeDeck extends MatchDeck {
   readonly mainDeck: readonly RuntimeCard[];
@@ -62,6 +63,14 @@ export interface RuntimeReceipt {
 export interface RuntimeSubmitResult {
   readonly receipt: RuntimeReceipt;
   readonly projection: V2Projection;
+}
+
+interface ObjectChoiceCandidate {
+  readonly ref: ObjectRef;
+  readonly id: string;
+  readonly label: string;
+  readonly value: string;
+  readonly objectRef: { readonly objectId: string; readonly zoneEntryId: number };
 }
 
 export interface EngineRuntime {
@@ -126,14 +135,85 @@ function choiceBounds(request: ChoiceRequest<unknown>): { readonly min?: number;
   return { min: request.min, max: request.max };
 }
 
+function objectChoiceCandidates(request: ChoiceRequest<unknown>, host: EngineRuntimeHost, viewer: string | null,
+  grants = host.visibility()): readonly ObjectChoiceCandidate[] {
+  if (viewer !== request.chooser || (request.type !== "select-objects" && request.type !== "order")) return [];
+  return request.options.flatMap(ref => {
+    const object = host.object(ref);
+    if (object === null) return [];
+    const granted = grants.some(grant => grant.active && grant.object.id === ref.id &&
+      grant.object.zoneEntryId === ref.zoneEntryId && grant.viewers.includes(request.chooser));
+    const projected = projectObjectForChoice(object, viewer, grants);
+    if (!granted && projected.faceDown) return [];
+    const identity = projected.objectId;
+    // The look/reveal grant is viewer-specific and this candidate set is only
+    // emitted to the chooser, so an authorized card name remains readable
+    // while the stable wire identity is still the redacted projected objectId.
+    const readable = granted || !projected.faceDown;
+    const inspectionLabel = readable && object.cardId !== null
+      ? object.name || object.cardId || identity
+      : "Hidden card";
+    return [{
+      ref: { id: ref.id, zoneEntryId: ref.zoneEntryId },
+      id: identity,
+      label: inspectionLabel,
+      value: identity,
+      objectRef: { objectId: identity, zoneEntryId: ref.zoneEntryId },
+    }];
+  });
+}
+
+function choiceOptions(request: ChoiceRequest<unknown>, host: EngineRuntimeHost, viewer: string | null,
+  grants?: readonly RuntimeVisibilityGrant[]): readonly V2ChoiceOption[] | undefined {
+  if (viewer !== request.chooser) return undefined;
+  if (request.type === "optional" || request.type === "number") return undefined;
+  if (request.type === "mode") return request.options.map(option => {
+    const value = typeof option === "string" || typeof option === "number" || typeof option === "boolean" ? option : undefined;
+    return { id: String(option), label: String(option), ...(value === undefined ? {} : { value }) };
+  });
+  const candidates = objectChoiceCandidates(request, host, viewer, grants);
+  // An order answer must be a permutation of the engine's complete candidate
+  // set. If any identity is invisible, withhold the whole prompt rather than
+  // offer a partial order that can never be valid or leak the omitted refs.
+  if (request.type === "order" && candidates.length !== request.options.length) return [];
+  return candidates.map(({ id, label, value, objectRef }) => ({ id, label, value, objectRef }));
+}
+
+function orderedChoiceAnswer(request: ChoiceRequest<unknown>, answer: V2ChoiceAnswer,
+  candidates: readonly ObjectChoiceCandidate[], mode: "select-objects" | "order"): readonly ObjectRef[] | null {
+  if (request.type !== "select-objects" && request.type !== "order") return null;
+  if (!Array.isArray(answer)) return null;
+  const min = request.type === "select-objects" ? request.min : request.options.length;
+  const max = request.type === "select-objects" ? request.max : request.options.length;
+  if (answer.length < min || answer.length > max) return null;
+  const options = new Map<string, ObjectRef>(candidates.map(candidate => [
+    `${candidate.objectRef.objectId}:${candidate.objectRef.zoneEntryId}`, candidate.ref,
+  ] as const));
+  const picked = new Set<string>();
+  const refs: ObjectRef[] = [];
+  for (const value of answer) {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+    const ref = value as { readonly objectId?: unknown; readonly zoneEntryId?: unknown };
+    if (typeof ref.objectId !== "string" || !Number.isSafeInteger(ref.zoneEntryId) || Number(ref.zoneEntryId) < 0) return null;
+    const key = `${ref.objectId}:${String(ref.zoneEntryId)}`;
+    const option = options.get(key);
+    if (option === undefined || picked.has(key)) return null;
+    picked.add(key);
+    refs.push(option);
+  }
+  if (mode === "order" && picked.size !== candidates.length) return null;
+  return refs;
+}
+
 class MatchRuntime implements EngineRuntime {
   private match: Match | null = null;
   private host: EngineRuntimeHost | null = null;
   private binding: ProgramBinding | null = null;
   private journalWriter: RuntimeJournalWriter | null = null;
   private stateVersion = 0;
-  private pending: { readonly request: ChoiceRequest<unknown>; readonly command: V2Command; readonly playerId: string } | null = null;
+  private pending: { readonly request: ChoiceRequest<unknown>; readonly command: V2Command; readonly playerId: string; readonly visibilityGrants: readonly RuntimeVisibilityGrant[] } | null = null;
   private decision: unknown = undefined;
+  private choiceVisibilityGrants: readonly RuntimeVisibilityGrant[] = [];
   private readonly seen = new Map<string, SeenCommand>();
   private runtimeOptions: EngineRuntimeOptions;
 
@@ -149,8 +229,13 @@ class MatchRuntime implements EngineRuntime {
     const normalizedDecks = this.normalizeDecks(this.runtimeOptions.decks);
     const catalogDomains = this.catalogDomains(normalizedDecks);
     const hostState = new RuntimeBoardHost(Object.fromEntries(seats.map(seat => [seat.playerId, seat.name])), request => {
-      if (this.decision !== undefined) { const answer = this.decision; this.decision = undefined; return answer as never; }
+      if (this.decision !== undefined) {
+        const answered = this.decision;
+        this.decision = undefined;
+        return answered as never;
+      }
       choice = request as ChoiceRequest<unknown>;
+      this.choiceVisibilityGrants = hostState.visibility();
       throw new PendingChoiceError(request as ChoiceRequest<unknown>);
     }, catalogDomains);
     this.host = hostState;
@@ -247,7 +332,8 @@ class MatchRuntime implements EngineRuntime {
       return { receipt, projection: this.projectFor(playerId) };
     } catch (error) {
       if (error instanceof PendingChoiceError) {
-        this.pending = { request: error.request, command: structuredClone(command), playerId };
+        this.pending = { request: error.request, command: structuredClone(command), playerId,
+          visibilityGrants: this.choiceVisibilityGrants };
         const receipt: RuntimeReceipt = { commandId: command.commandId, status: "pending", stateVersion: this.stateVersion, eventSeq: this.match!.events().length, choice: { choiceId: error.request.id, ownerPlayerId: error.request.chooser, stateVersion: this.stateVersion } };
         this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
         this.appendJournal(playerId, command, receipt, { pending: true, choice: receipt.choice! }, false, {
@@ -267,22 +353,8 @@ class MatchRuntime implements EngineRuntime {
 
   projectFor(playerId: PlayerId | null): V2Projection {
     this.requireStarted();
-    const pendingProjection = this.pending ? {
-      choiceId: this.pending.request.id,
-      ownerPlayerId: this.pending.request.chooser,
-      stateVersion: this.stateVersion,
-      kind: this.pending.request.type,
-      ...(this.pending.request.type === "mode" ? {
-        options: this.pending.request.options.map(option => {
-          const value = typeof option === "string" || typeof option === "number" || typeof option === "boolean" ? option : undefined;
-          return { id: String(option), label: String(option), ...(value === undefined ? {} : { value }) };
-        }),
-      } : {}),
-      ...choiceBounds(this.pending.request),
-    } : null;
-    return projectRuntime(this.match!, this.host!, this.runtimeOptions.matchId, playerId, this.stateVersion, this.pending ? {
-      ...pendingProjection!,
-    } : null);
+    return projectRuntime(this.match!, this.host!, this.runtimeOptions.matchId, playerId, this.stateVersion,
+      this.pendingChoiceFor(playerId));
   }
 
   journal(): RuntimeJournal {
@@ -294,7 +366,8 @@ class MatchRuntime implements EngineRuntime {
     assertRuntimeJournal(journal);
     if (journal.header.matchId !== this.runtimeOptions.matchId) throw new Error("Journal matchId does not match runtime");
     const options = this.runtimeOptions;
-    this.match = null; this.host = null; this.binding = null; this.journalWriter = null; this.stateVersion = 0; this.pending = null; this.seen.clear();
+    this.match = null; this.host = null; this.binding = null; this.journalWriter = null; this.stateVersion = 0;
+    this.pending = null; this.decision = undefined; this.choiceVisibilityGrants = []; this.seen.clear();
     const setup = journal.header.setup;
     this.runtimeOptions = {
       ...options,
@@ -336,16 +409,37 @@ class MatchRuntime implements EngineRuntime {
           command.answer < original.request.min || command.answer > original.request.max))
       return this.rejected(command, playerId,
         `Number choice must be an integer between ${original.request.min} and ${original.request.max}`);
-    this.pending = null; this.decision = command.answer;
+    let decision: unknown = command.answer;
+    if (original.request.type === "select-objects" || original.request.type === "order") {
+      const candidates = objectChoiceCandidates(original.request, this.host!, playerId, original.visibilityGrants);
+      const refs = orderedChoiceAnswer(original.request, command.answer, candidates, original.request.type);
+      if (refs === null) return this.rejected(command, playerId, original.request.type === "order"
+        ? "Order choice must be a permutation of the projected object references"
+        : "Object choice must contain unique projected references within its bounds");
+      decision = refs;
+    }
+    this.pending = null; this.decision = decision;
     try {
       const result = this.execute(original.playerId, original.command);
       this.stateVersion += 1;
       const receipt: RuntimeReceipt = { commandId: command.commandId, status: "accepted", stateVersion: this.stateVersion, eventSeq: this.match!.events().length, result: { resumedCommandId: original.command.commandId, accepted: true } };
       this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
       this.appendJournal(playerId, command, receipt, receipt.result!);
+      this.choiceVisibilityGrants = [];
       return { receipt, projection: this.projectFor(playerId) };
     } catch (error) {
-      this.decision = undefined; this.pending = original;
+      if (error instanceof PendingChoiceError) {
+        this.pending = { request: error.request, command: original.command, playerId: original.playerId,
+          visibilityGrants: this.choiceVisibilityGrants };
+        const receipt: RuntimeReceipt = { commandId: command.commandId, status: "pending", stateVersion: this.stateVersion,
+          eventSeq: this.match!.events().length, choice: { choiceId: error.request.id, ownerPlayerId: error.request.chooser, stateVersion: this.stateVersion } };
+        this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
+        this.appendJournal(playerId, command, receipt, { pending: true, choice: receipt.choice! }, false, {
+          choiceId: error.request.id, ownerPlayerId: error.request.chooser, kind: error.request.type,
+        });
+        return { receipt, projection: this.projectFor(playerId) };
+      }
+      this.decision = undefined; this.pending = original; this.choiceVisibilityGrants = original.visibilityGrants;
       return this.rejected(command, playerId, error instanceof Error ? error.message : String(error));
     }
   }
@@ -691,16 +785,13 @@ class MatchRuntime implements EngineRuntime {
   private pendingChoiceFor(viewer: string | null): Parameters<typeof projectRuntime>[5] {
     if (!this.pending) return null;
     const request = this.pending.request;
-    const options = request.type === "mode" ? request.options.map(option => {
-      const value = typeof option === "string" || typeof option === "number" || typeof option === "boolean" ? option : undefined;
-      return { id: String(option), label: String(option), ...(value === undefined ? {} : { value }) };
-    }) : undefined;
+    const options = this.host ? choiceOptions(request, this.host, viewer, this.pending.visibilityGrants) : undefined;
     return {
       choiceId: request.id,
       ownerPlayerId: request.chooser,
       stateVersion: this.stateVersion,
       kind: request.type,
-      ...(viewer === request.chooser && options ? { options } : {}),
+      ...(options === undefined || options.length === 0 ? {} : { options }),
       ...choiceBounds(request),
     };
   }

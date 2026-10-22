@@ -169,6 +169,56 @@ test("projections preserve owner privacy and never expose hidden zone order", ()
   assert.equal(isV2Projection(malformedActions), false);
 });
 
+test("object choice candidates require complete object refs and remain chooser-only", () => {
+  const objectChoice = projection("alice");
+  objectChoice.objects[0].zoneEntryId = 1;
+  objectChoice.pendingChoice = {
+    status: "pending",
+    choiceId: "objects-1",
+    ownerPlayerId: "alice",
+    stateVersion: 7,
+    kind: "select-objects",
+    options: [{ id: "a-unit-1", label: "Unit", value: "a-unit-1",
+      objectRef: { objectId: "a-unit-1", zoneEntryId: 1 } }],
+    min: 1,
+    max: 1
+  };
+  assert.equal(isV2Projection(objectChoice), true);
+  assert.equal(isV2Projection({ ...objectChoice, pendingChoice: {
+    ...objectChoice.pendingChoice, kind: "order"
+  } }), true);
+  assert.equal(isV2Projection({ ...objectChoice, pendingChoice: {
+    ...objectChoice.pendingChoice,
+    options: [{ id: "a-unit-1", label: "Unit", objectRef: { objectId: "a-unit-1" } }]
+  } }), false);
+  assert.equal(isV2Projection({ ...objectChoice, pendingChoice: {
+    ...objectChoice.pendingChoice,
+    options: [{ id: "a-unit-1", label: "Unit", objectRef: { objectId: "a-unit-2", zoneEntryId: 1 } }]
+  } }), false);
+  for (const [kind, objectRef] of [
+    ["mode", { objectId: "a-unit-1", zoneEntryId: 1 }],
+    ["select-objects", { objectId: "a-unit-1", zoneEntryId: -1 }],
+    ["select-objects", { objectId: "a-unit-1", zoneEntryId: 1, extra: true }]
+  ]) {
+    assert.equal(isV2Projection({ ...objectChoice, pendingChoice: {
+      ...objectChoice.pendingChoice, kind, options: [{ id: "a-unit-1", label: "Unit", objectRef }]
+    } }), false);
+  }
+  const opponent = projection("bob");
+  opponent.pendingChoice.options = objectChoice.pendingChoice.options;
+  assert.equal(isV2Projection(opponent), false);
+});
+
+test("choose command arrays retain legacy object-ref acceptance", () => {
+  const choose = answer => ({ ...base, type: "choose", choiceId: "choice-1", answer });
+  assert.equal(isV2Command(choose([{ objectId: "unit-1", zoneEntryId: 1 }])), true);
+  assert.equal(isV2Command(choose([{ objectId: "unit-1" }])), true);
+  assert.equal(isV2Command(choose([{ objectId: "unit-1", zoneEntryId: -1 }])), false);
+  assert.equal(isV2Command(choose([{ objectId: "unit-1", zoneEntryId: 1, extra: true }])), false);
+  assert.equal(isV2Command(choose(["legacy", true, 2])), true);
+  assert.equal(isV2Command(choose([])), true);
+});
+
 test("transport guards admit only versioned v2 packets", () => {
   const commandPacket = { type: "command", protocolVersion: PROTOCOL_V2_VERSION, command: { ...base, type: "pass" } };
   const projectionPacket = { type: "projection", protocolVersion: PROTOCOL_V2_VERSION, projection: projection("alice") };

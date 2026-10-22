@@ -129,6 +129,37 @@ describe("V2 playable action surface", () => {
       .toEqual([{ objectId: "unit-1", zoneEntryId: 17 }]);
   });
 
+  it("renders projected object candidates and preserves click order for ordering", () => {
+    const objects: V2PendingChoice = {
+      status: "pending", choiceId: "objects", ownerPlayerId: "player-1", stateVersion: 9,
+      kind: "select-objects", min: 1, max: 2,
+      options: [
+        { id: "unit-1", label: "First Unit", value: "unit-1", objectRef: { objectId: "unit-1", zoneEntryId: 11 } },
+        { id: "unit-2", label: "Second Unit", value: "unit-2", objectRef: { objectId: "unit-2", zoneEntryId: 12 } }
+      ]
+    };
+    const order: V2PendingChoice = {
+      ...objects,
+      kind: "order",
+      min: 2,
+      max: 2
+    };
+    const html = render(state(projection(order)));
+    expect(html).toContain("First Unit");
+    expect(html).toContain("Second Unit");
+    expect(html).toContain("请按期望顺序继续点击");
+    expect(buildV2ChoiceAnswer(order, ["unit-2", "unit-1"], "")).toEqual([
+      { objectId: "unit-2", zoneEntryId: 12 },
+      { objectId: "unit-1", zoneEntryId: 11 }
+    ]);
+    expect(buildV2ChoiceAnswer(objects, ["unit-1"], "")).toEqual([
+      { objectId: "unit-1", zoneEntryId: 11 }
+    ]);
+    expect(buildV2ChoiceAnswer(order, ["unit-2"], "")).toBeNull();
+    expect(buildV2ChoiceAnswer(order, ["unit-2", "unit-2"], "")).toBeNull();
+    expect(buildV2ChoiceAnswer(objects, ["not-projected"], "")).toBeNull();
+  });
+
   it("shows a server-wait state instead of deriving missing object candidates", () => {
     const pending = {
       status: "pending" as const,
