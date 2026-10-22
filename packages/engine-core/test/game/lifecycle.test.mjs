@@ -62,6 +62,11 @@ function playUnitToBattlefield(match, kernel, player, handCardId, fieldId) {
     object.controller === player && object.zone === 'hand' && object.cardId === 'card:' + handCardId);
   if (!handCard) throw new Error('playUnitToBattlefield: ' + handCardId + ' not in ' + player + ' hand');
   const snapshot = kernel.getObject(handCard.ref.id);
+  const field = match.flow.battlefields.find(value => value.id === fieldId);
+  if (!field) throw new Error('playUnitToBattlefield: battlefield ' + fieldId + ' is not established');
+  if (!match.flow.chain.controlsBattlefield(player, fieldId)) {
+    throw new Error('playUnitToBattlefield: battlefield ' + fieldId + ' is not controlled by ' + player);
+  }
   match.flow.execute({
     id: 'entry:' + handCard.ref.id,
     controller: player,
@@ -72,7 +77,6 @@ function playUnitToBattlefield(match, kernel, player, handCardId, fieldId) {
     location: { type: 'battlefield', id: fieldId },
   });
 }
-
 function firstUnitInHand(match, kernel, player) {
   const found = kernel.objects.find(object =>
     object.controller === player && object.zone === 'hand' &&
@@ -279,8 +283,12 @@ test('different seeds shuffle differently', () => {
   assert.notEqual(first.seed, second.seed);
 });
 
-test('unit entry through the chain puts a real unit on the battlefield', () => {
-  const { match: m, kernel } = match({ battlefieldChoice: [0, 0], firstPlayer: 0 });
+test('unit entry through the chain puts a real unit on a setup-controlled battlefield', () => {
+  const { match: m, kernel } = match({
+    battlefieldChoice: [0, 0],
+    battlefieldControllers: ['A', null],
+    firstPlayer: 0,
+  });
   const fieldId = m.setup.battlefields[0].id;
   playUnitToBattlefield(m, kernel, 'A', firstUnitInHand(m, kernel, 'A'), fieldId);
   const entered = kernel.objects.find(object => object.zone === 'board' && object.controller === 'A' && object.types.includes('unit'));
@@ -291,6 +299,7 @@ test('unit entry through the chain puts a real unit on the battlefield', () => {
 test('idle turns end by Hold scoring at the victory threshold', () => {
   const { match: m, kernel } = match({
     battlefieldChoice: [0, 0],
+    battlefieldControllers: ['A', null],
     firstPlayer: 0,
     mulligans: [[], []],
     victoryScore: 2,
@@ -308,6 +317,7 @@ test('idle turns end by Hold scoring at the victory threshold', () => {
 test('idle turns end by Conquer at score one', () => {
   const { match: m, kernel } = match({
     battlefieldChoice: [0, 0],
+    battlefieldControllers: ['A', null],
     firstPlayer: 0,
     mulligans: [[], []],
     victoryScore: 1,

@@ -21,6 +21,12 @@ interface Binding {
   readonly signature: string;
 }
 
+interface HandPlayLocationPermission {
+  readonly source: ObjectSnapshot;
+  readonly filter: Readonly<Record<string, unknown>>;
+  readonly scope: 'self' | 'friendly-units';
+}
+
 type Undo = () => void;
 
 type ExpandedAbility = ReturnType<typeof expandProgram>['abilities'][number];
@@ -61,6 +67,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   const bindReplacementOnChain = binder === undefined;
   const pipeline = engine.pipeline;
   const bindings = new Map<string, Binding>();
+  const handPlayLocationHandles = new Map<string, StaticBindingHandle[]>();
   const playFollowers = new Set<string>();
   const pendingExits = new Map<string, ObjectSnapshot>();
   const undoStack: Undo[][] = [];
@@ -170,6 +177,8 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
 
   const detach = (source: ObjectSnapshot) => {
     const k = refKey(source);
+    for (const handle of handPlayLocationHandles.get(k) ?? []) { try { handle.unbind(); } catch (error) { report(error, source); } }
+    handPlayLocationHandles.delete(k);
     const binding = bindings.get(k);
     if (!binding) return;
     unregisterProgramTriggers(engine, binding.triggerIds);
@@ -178,6 +187,13 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     for (const handle of binding.replacementHandles) { try { handle.unbind(); } catch (error) { report(error, binding.source); } }
     bindings.delete(k);
     playFollowers.delete(k);
+  };
+  const clearPlayLocationHandlesFor = (id: string) => {
+    for (const [key, handles] of handPlayLocationHandles) {
+      if (!key.startsWith(`${id}:`)) continue;
+      for (const handle of handles) { try { handle.unbind(); } catch { /* best effort; preserve the lifecycle transition */ } }
+      handPlayLocationHandles.delete(key);
+    }
   };
 
   const bindingIntact = (binding: Binding): boolean => {
@@ -327,6 +343,93 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     return binding;
   };
 
+  /** Freeze the typed CR 355.2.b predicate while its exact card is public context. */
+  const captureHandPlayLocationPermissions = (source: ObjectSnapshot): readonly HandPlayLocationPermission[] => {
+    const program = registry.inspect(source.cardId);
+    if (program === undefined || program.status !== 'executable') return Object.freeze([]);
+    let abilities: ReturnType<typeof expandProgram>['abilities'];
+    try { abilities = expandProgram(program, source).abilities; }
+    catch (error) { report(error, source); return Object.freeze([]); }
+    const captured: HandPlayLocationPermission[] = [];
+    for (const ability of abilities) {
+      if (ability.kind !== 'static') continue;
+      const effect = ability.effect as unknown as Readonly<Record<string, unknown>>;
+      if (effect.kind !== 'play-location-permission') continue;
+      const value = effect.value;
+      if (value === null || typeof value !== 'object' || Array.isArray(value) || !('kind' in value) || !('value' in value)) {
+        report(new ProgramBindingError('judge-required', 'A while-in-hand play-location permission needs a constant predicate'), source);
+        continue;
+      }
+      const authored = value.value;
+      if (authored === null || typeof authored !== 'object' || Array.isArray(authored)) {
+        report(new ProgramBindingError('judge-required', 'A while-in-hand play-location permission needs a predicate object'), source);
+        continue;
+      }
+      const predicate = authored as Readonly<Record<string, unknown>>;
+      const zone = predicate.zone;
+      const authoredBattlefield = predicate.battlefield;
+      const battlefield = authoredBattlefield as Readonly<Record<string, unknown>>;
+      if ((zone !== 'battlefield' && zone !== 'base') || authoredBattlefield === null || typeof authoredBattlefield !== 'object' || Array.isArray(authoredBattlefield)) {
+        report(new ProgramBindingError('judge-required', 'A while-in-hand play-location permission has an unsupported location shape'), source);
+        continue;
+      }
+      const scope = predicate.appliesTo === 'self' || predicate.appliesTo === undefined ? 'self' as const :
+        predicate.appliesTo === 'friendly-units' ? 'friendly-units' as const : undefined;
+      if (scope === undefined) {
+        report(new ProgramBindingError('judge-required', 'A while-in-hand play-location permission has an unsupported affected scope'), source);
+        continue;
+      }
+      const allowed = new Set([
+        'occupied', 'open', 'controlled', 'contested', 'controller', 'owner', 'hasUnits', 'unitController', 'id',
+      ]);
+      if (Object.keys(battlefield).some(key => !allowed.has(key))) {
+        report(new ProgramBindingError('judge-required', 'A while-in-hand play-location permission has an unsupported predicate'), source);
+        continue;
+      }
+      // Ambush's published IR names the friendly-Unit controller `controller`.
+      // CR 822.1.b scopes that permission by Units controlled there, not by the
+      // Battlefield's control state, so preserve its explicit predicate as
+      // unitController while keeping every other keyword predicate unchanged.
+      const ambushPredicate = abilities.some(candidate => {
+        if (candidate.kind !== 'static') return false;
+        const timing = candidate.effect as unknown as Readonly<Record<string, unknown>>;
+        return timing.kind === 'continuous.timing' &&
+          Array.isArray(timing.grants) && timing.grants.includes('showdown') && timing.grants.includes('closed-state') &&
+          JSON.stringify(timing.location) === JSON.stringify(predicate);
+      });
+      const normalizedBattlefield = ambushPredicate && battlefield.controller === 'controller' ?
+        Object.fromEntries(Object.entries(battlefield).filter(([key]) => key !== 'controller').concat([['unitController', 'controller']])) : battlefield;
+      captured.push({ source, scope, filter: Object.freeze({ type: zone, ...normalizedBattlefield }) });
+    }
+    return Object.freeze(captured);
+  };
+  const installHandPlayLocationPermissions = (
+    source: ObjectSnapshot,
+    object: ObjectSnapshot,
+    permissions: readonly HandPlayLocationPermission[],
+  ) => {
+    if (permissions.length === 0) return;
+    const bindStatic = effectiveBinder.bindStatic;
+    if (bindStatic === undefined) {
+      report(new ProgramBindingError('judge-required', 'The static binder cannot install a while-in-hand play-location permission'), source);
+      return;
+    }
+    for (const permission of permissions) {
+      const handle = bindStatic({
+        kind: 'static',
+        effect: Object.freeze({
+          kind: 'continuous.location', zone: Object.freeze(['hand', 'chain']), location: permission.filter,
+          objectRefs: Object.freeze([object.ref]),
+          ...(permission.scope === 'self' ? {} : { player: source.controller }),
+        }),
+      } as never, object);
+      if (handle === undefined) continue;
+      const handles = handPlayLocationHandles.get(refKey(object)) ?? [];
+      handles.push(handle);
+      handPlayLocationHandles.set(refKey(object), handles);
+    }
+  };
+
   const ensure = (source: ObjectSnapshot, useEntryHandoff = false) => {
     // Entry emissions can carry an older incarnation while the authoritative
     // host already exposes the new one. `sourceFor` exists for that hand-off; it
@@ -335,6 +438,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       ? effectiveBinder.sourceFor?.(source) ?? currentFor(source)
       : currentFor(source);
     const k = refKey(current ?? source);
+    if (current?.zone !== 'chain') clearPlayLocationHandlesFor((current ?? source).ref.id);
     const existing = bindings.get(k);
     if (!current || !active(current)) { if (existing) detach(existing.source); return; }
     // A replacement admitted while the card was in Hand follows its newest
@@ -449,6 +553,8 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   pipeline.emitBatch = ((emissions: readonly TimingEmission[], action?: GameAction, batchId?: string) =>
     observe(emissions, () => originalEmitBatch(emissions, action, batchId))) as typeof pipeline.emitBatch;
   pipeline.commit = ((action: GameAction) => transaction(() => {
+    let handPlayLocationSource: ObjectSnapshot | undefined;
+    let handPlayLocationPermissions: readonly HandPlayLocationPermission[] | undefined;
     if (bindReplacementOnChain && action.type === 'play') {
       const source = currentForRef(action.object);
       if (source?.zone === 'hand' && programExists(source)) {
@@ -461,6 +567,10 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       const followsFromHand = source !== null && handFollowers(source).length > 0;
       if (source && !followsFromHand) {
         attach(source, false, true);
+      }
+      if (source?.zone === 'hand') {
+        handPlayLocationSource = source;
+        handPlayLocationPermissions = captureHandPlayLocationPermissions(source);
       }
     }
     if (canLeaveBoard(action)) {
@@ -475,6 +585,14 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       }
     }
     const outcome = originalCommit(action);
+    if (bindReplacementOnChain && action.type === 'move-zone' && action.to === 'chain' &&
+        handPlayLocationSource !== undefined && handPlayLocationPermissions !== undefined &&
+        (outcome.status === 'done' || outcome.status === 'replaced')) {
+      const moved = pipeline.host.objects().find(object => object.ref.id === action.object.id) ?? null;
+      if (moved !== null) installHandPlayLocationPermissions(
+        handPlayLocationSource, moved, handPlayLocationPermissions,
+      );
+    }
     if (outcome.status === 'done' || outcome.status === 'replaced') syncAction(action);
     return outcome;
   })) as typeof pipeline.commit;
@@ -530,6 +648,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       pipeline.host.objects = originalHostObjects;
       pendingExits.clear();
       playFollowers.clear();
+      handPlayLocationHandles.clear();
       for (const binding of [...bindings.values()]) detach(binding.source);
     }
   };
