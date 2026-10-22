@@ -12,6 +12,7 @@ import { LayerEngine } from '../layers/engine.js';
 import { matchesObjectFilter } from '../layers/filter.js';
 import { actionTimings, canAct as canActByRules, playLocations, restrictions as ruleRestrictions } from '../layers/rules/query.js';
 import { EventPipeline } from '../events/pipeline.js';
+import { evaluateAcceleratePayment } from '../effects/keywords/Accelerate.js';
 import { triggerEventObjectBinding, type PipelineHost, type ReplacementCostEvidence, type TimingEmission, type TriggerSnapshot } from '../events/pipeline-types.js';
 import type { TimingPointId } from '../events/timing-points.js';
 import { bindResolveContext } from '../events/action-adapter.js';
@@ -1232,20 +1233,23 @@ export class ChainEngine {
       const initializedContext = this.context(item, 'chain-item-resolve', item.targetPlans, item.choicePlan);
       const context = item.finalizeLinks === undefined ? initializedContext : withFinalizePlanLinks(initializedContext, item.finalizeLinks);
       if (item.kind === 'unit' || item.kind === 'gear') {
+        const location = item.location ?? { type: 'base' as const, player: item.controller };
+        const move: Extract<GameAction, { type: 'move-zone' }> = {
+          type: 'move-zone', object: item.object, to: location.type === 'base' ? 'base' : 'battlefield', location,
+        };
         // Program-bound Accelerate units enter exhausted and let the real
         // replacement apply. Harnesses without a program lifecycle retain the
         // selected-plan fallback used by the published chain scenario.
-        const acceleratePaid = item.costPlan?.selectedAdditional.some(cost => cost.kind === 'accelerate') === true;
+        const acceleratePaid = item.costPlan !== undefined && item.payment !== undefined &&
+          evaluateAcceleratePayment({
+            plan: item.costPlan, receipt: item.payment, source: item.source.ref, action: move,
+          });
         const hasEntryReplacement = this.pipeline.hasReplacementRegistration(
           `replacement:${item.object.id}:${item.object.zoneEntryId}`,
         );
         const ready = item.kind === 'gear' || acceleratePaid && !hasEntryReplacement;
         const state = this.pipeline.commit({ type: ready ? 'ready' : 'exhaust', object: item.object });
         if (state.status !== 'done') throw new Error('Permanent entry state could not be applied');
-        const location = item.location ?? { type: 'base' as const, player: item.controller };
-        const move: Extract<GameAction, { type: 'move-zone' }> = {
-          type: 'move-zone', object: item.object, to: location.type === 'base' ? 'base' : 'battlefield', location,
-        };
         const evidence = this.playCostEvidence(item, move);
         const outcome = evidence === undefined
           ? this.pipeline.commit(move)
