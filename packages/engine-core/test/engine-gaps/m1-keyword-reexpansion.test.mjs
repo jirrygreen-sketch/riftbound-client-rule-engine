@@ -115,7 +115,11 @@ test('Forecaster: default lifecycle grants Vision to the controller Mechs and ex
   assert.ok(f.asked.some(request => request.type === 'select-objects'), 'the real Vision trigger performed Predict');
   const visionLinks = Object.entries(f.kernel.linkedSnapshot())
     .filter(([key]) => key.includes('vision-recycle') && key.endsWith('.recycledCount'));
-  assert.equal(visionLinks.length, 2, 'each Vision source performs its own Predict');
+  // The already-Board Mechs did not enter after Forecaster granted Vision;
+  // 817 enters triggers on the Board-entry event, so only Forecaster itself
+  // performs Predict in this timeline. The dedicated RIFT-931 test separately
+  // covers a printed+granted instance and a post-grant entry.
+  assert.equal(visionLinks.length, 1, 'only the source that entered with Vision performs Predict');
   assert.equal(f.kernel.zone('A', 'deck')[0].id, 'top-card');
 });
 
