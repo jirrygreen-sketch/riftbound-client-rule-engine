@@ -20,8 +20,9 @@ const SFD_ERRATA_URL =
   "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/";
 const BATTLEFIELD = { type: "battlefield", id: "bf1" };
 
-// Source snapshots are pinned under shared/rules/official-order. Neither the
-// Radiance rulings nor the Spiritforged errata contains a Laurent/Assault rule.
+// Source snapshots are pinned under shared/rules/official-order. Radiance only
+// references Assault's ordinary stacking rule in its Disarm explanation, and
+// neither source supplies a Laurent Duelist-specific correction or exception.
 const OFFICIAL_EVIDENCE = Object.freeze({
   contract: "riftbound.official-effect-order-evidence.v1",
   canonicalCardId: CARD_ID,
@@ -38,7 +39,7 @@ const OFFICIAL_EVIDENCE = Object.freeze({
       effective: "2026-10-16",
       url: RADIANCE_URL,
       applicableToThisCard: false,
-      result: "reviewed: no Laurent Duelist or Assault-specific ruling; CR v1.5 governs"
+      result: "reviewed: no Laurent Duelist ruling; the Disarm note only restates normal Assault stacking under CR 807.2"
     }),
     spiritforgedErrata: Object.freeze({
       published: "2026-01-14",
