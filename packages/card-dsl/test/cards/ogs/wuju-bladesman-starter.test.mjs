@@ -92,7 +92,6 @@ test("ogs-019-024 Wuju Bladesman, Starter: the production binder fails closed an
     isToken: false
   };
   const engine = { layers: { addContinuous: () => { throw new Error("must not register"); }, removeContinuous: () => {} } };
-  Object.assign(engine, { pipeline: { host: { objects: () => [source] } }, claimKeywords: () => ({}) });
   assert.throws(
     () => createEngineStaticBinder(engine).bindStatic(ability, source),
     /Unsupported static filter field defendsAlone/
@@ -102,12 +101,10 @@ test("ogs-019-024 Wuju Bladesman, Starter: the production binder fails closed an
   const bindable = { ...ability, effect: { ...ability.effect, filter: { ...ability.effect.filter } } };
   delete bindable.effect.filter.defendsAlone;
   const registered = [];
-  createEngineStaticBinder({
-    layers: { addContinuous: spec => registered.push(spec), removeContinuous: () => {} },
-    claimKeywords: () => ({})
-  }).bindStatic(bindable, source);
+  createEngineStaticBinder({ layers: { addContinuous: spec => registered.push(spec), removeContinuous: () => {} } })
+    .bindStatic(bindable, source);
   assert.equal(registered.length, 1);
-  assert.deepEqual(registered[0].filter, { type: "unit", controller: "self", zone: "board" });
+  assert.deepEqual(registered[0].filter, { type: "unit", controller: "A", zone: "board" });
   const ally = { ...source, ref: { id: "ally", zoneEntryId: 1 }, controller: "A", owner: "A", types: ["unit"] };
   const enemy = { ...ally, ref: { id: "enemy", zoneEntryId: 1 }, controller: "B", owner: "B" };
   assert.equal(matchesObjectFilter(registered[0].filter, ally), true);
@@ -150,7 +147,7 @@ test("ogs-019-024 Wuju Bladesman, Starter golden: the merged characteristics con
   const [entry] = engine.layers.registry.list();
   assert.deepEqual(entry.effect.filter, {
     type: "unit",
-    controller: "self",
+    controller: "A",
     zone: "board",
     characteristics: { combatRole: "defender" }
   });
@@ -224,14 +221,13 @@ test("ogs-019-024 Wuju Bladesman, Starter golden: sameLocationAs normalizes to a
   // not select the friendly neighbour. 740.2.a needs a per-object
   // same-location + friendly-only count instead.
   const { engine, kernel } = engineFixture([
-    { id: "legend", types: ["legend"], zone: "board", location: { type: "battlefield", id: "battlefield-1" }, might: null },
+    { id: "legend", types: ["legend"], might: null },
     { id: "ally", types: ["unit"], might: 2 }
   ]);
   const registered = [];
   createEngineStaticBinder({
     layers: { addContinuous: spec => registered.push(spec), removeContinuous: () => {} },
-    pipeline: { host: { objects: () => kernel.objects } },
-    claimKeywords: () => ({})
+    pipeline: { host: { objects: () => kernel.objects } }
   }).bindStatic({
     ...ability,
     effect: { ...ability.effect, filter: { type: "unit", controller: "self", zone: "board", sameLocationAs: "self" } }
@@ -243,17 +239,17 @@ test("ogs-019-024 Wuju Bladesman, Starter golden: sameLocationAs normalizes to a
   assert.equal(matchesObjectFilter(registered[0].filter, ally), false, "the location object identity is not preserved by the cloned snapshot");
 });
 
-test("ogs-019-024 Wuju Bladesman, Starter golden: the reference kernel exposes the Legend Zone for its source", () => {
+test("ogs-019-024 Wuju Bladesman, Starter golden: the reference kernel has no Legend Zone to bind a source-zone lifecycle to", () => {
   // CR 107.4.c / 174.2.b / 174.6: a Legend can have Passive Abilities, and the
-  // ability is established for the duration of regular play. The merged ZoneId
-  // vocabulary and reference kernel now expose the public Legend Zone, so this
-  // card can be placed as a source without using the Board as test scaffolding.
+  // ability is established for the duration of regular play. The merged
+  // ZoneId vocabulary (effects/contract.ts) has hand, deck, rune-deck, trash,
+  // banishment, board, rune-zone and chain only, and the reference kernel's zone
+  // table matches it, so this card cannot be placed as a Legend-Zone source.
   const kernel = world().player("A", {}).build();
   const zones = Object.keys(kernel.stateForTest().players[0].zones);
-  assert.deepEqual(zones, ["hand", "deck", "rune-deck", "trash", "banishment", "board", "rune-zone", "chain", "legend"]);
-  assert.equal(zones.includes("legend"), true);
-  const withLegend = world().player("A", {}).card("legend", { types: ["legend"], zone: "legend" }).build();
-  assert.equal(withLegend.getObject("legend").zone, "legend");
+  assert.deepEqual(zones, ["hand", "deck", "rune-deck", "trash", "banishment", "board", "rune-zone", "chain"]);
+  assert.equal(zones.includes("legend"), false);
+  assert.throws(() => world().player("A", {}).card("legend", { types: ["legend"], zone: "legend" }).build());
 });
 
 test("ogs-019-024 Wuju Bladesman, Starter: staticFilter rejects the excluded/same-location anchors the printed guard would need", () => {
@@ -263,15 +259,15 @@ test("ogs-019-024 Wuju Bladesman, Starter: staticFilter rejects the excluded/sam
   const source = kernel.getObject("legend");
   const binder = () => createEngineStaticBinder({
     layers: { addContinuous: () => { throw new Error("must not register"); }, removeContinuous: () => {} },
-    pipeline: { host: { objects: () => kernel.objects } },
-    claimKeywords: () => ({})
+    pipeline: { host: { objects: () => kernel.objects } }
   });
   for (const filter of [
     { type: "unit", controller: "self", zone: "board", defendsAlone: true },
     { type: "unit", controller: "self", zone: "board", exclude: "self" }
   ]) {
     assert.throws(() => binder().bindStatic({ ...ability, effect: { ...ability.effect, filter } }, source), error => {
-      assert.ok(error instanceof ProgramBindingError || error?.code === "judge-required");
+      assert.ok(error instanceof ProgramBindingError);
+      assert.equal(error.code, "judge-required");
       return true;
     });
   }
@@ -291,7 +287,7 @@ test.todo(
  * the layer engine and the filter consumer all run on a live pipeline. */
 function engineFixture(objects) {
   const builder = world().player("A", { energy: 0 }).player("B", { energy: 0 });
-  for (const object of objects) builder.card(object.id, { zone: "board", location: { type: "battlefield", id: "battlefield-1" }, ...object });
+  for (const object of objects) builder.unit(object.id, object);
   const kernel = builder.build();
   const host = createActionPipelineHost({
     checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),

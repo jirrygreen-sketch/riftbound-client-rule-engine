@@ -124,7 +124,7 @@ const rows = [
     program: program(IDS.purifier),
     scenario: {
       objects: [
-        { id: "purifier", cardId: IDS.purifier, types: ["legend"], zone: "legend", location: null },
+        { id: "purifier", cardId: IDS.purifier, types: ["legend"], zone: "board", location: { type: "battlefield", id: "bf-1" } },
         { id: "friendly-equipment", owner: "A", types: ["gear"], tags: ["Equipment"], zone: "board", location: { type: "battlefield", id: "bf-1" } },
         { id: "enemy-equipment", owner: "B", types: ["gear"], tags: ["Equipment"], zone: "board", location: { type: "battlefield", id: "bf-1" } },
         // Boundary: a friendly Gear without the Equipment tag is not in the

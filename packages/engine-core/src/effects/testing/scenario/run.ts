@@ -117,12 +117,7 @@ function makeWorld(scenario: CardScenario, program: CardProgram): { kernel: Test
     const owner = object.owner ?? zoneInfo?.owner ?? "A";
     const zone = zoneInfo?.zone ?? object.zone ?? "deck";
     (zoneObjects.get(zone) ?? zoneObjects.set(zone, []).get(zone)!).push(Object.assign({}, object, { owner, zone }));
-    // Setup objects predate lifecycle attachment. Board permanents and the
-    // public Legend Zone are both live program sources (CR 107.4.c,
-    // 174.2.b), so install either before scenario actions run. Entering the
-    // Chain is only legal for card zones; a Legend starts in its own zone.
-    if ((zone === "board" || zone === "legend") && object.cardId !== null &&
-        (object.program || object.cardId === program.canonicalCardId)) boardProgramIds.push(object.id);
+    if (zone === "board" && object.cardId !== null && (object.program || object.cardId === program.canonicalCardId)) boardProgramIds.push(object.id);
   }
   for (const [zone, entries] of zoneObjects) {
     const ordered = zone === "deck" || zone === "rune-deck" ? [...entries].reverse() : entries;
@@ -293,7 +288,6 @@ function performOperation(operation: ScenarioOperation, kernel: TestWorld, engin
 function addInitialProgramObjects(kernel: TestWorld, engine: ChainEngine, ids: readonly string[]): void {
   for (const id of ids) {
     const object = kernel.getObject(id);
-    if (object?.zone === "legend") continue;
     if (!object || object.zone !== "board") continue;
     const to = object.location?.type === "base" ? "base" : "battlefield";
     const location = object.location ?? DEFAULT_LOCATION;

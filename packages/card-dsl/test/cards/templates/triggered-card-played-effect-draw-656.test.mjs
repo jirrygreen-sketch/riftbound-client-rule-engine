@@ -129,8 +129,8 @@ const rows = [
     // "When you play a spell that costs 5 or more, draw 1." The played spell is
     // a synthetic effect-free vehicle, but the trigger filter, the event-printed
     // Energy condition and the Draw 1 body are the card's real IR. The Legend
-    // source must remain in its public Legend Zone; it is not a Board object.
-    name: "Lady of Luminosity draws 1 for your 5-Energy spell (Legend Zone source)",
+    // sits on the Board only because the Legend Zone is not a frozen ZoneId.
+    name: "Lady of Luminosity draws 1 for your 5-Energy spell (Legend Zone scaffolded on Board)",
     canonicalCardId: ladyOfLuminosityStarter.canonicalCardId,
     program: executableView(ladyOfLuminosityStarter),
     scenario: {
@@ -141,7 +141,7 @@ const rows = [
           cardId: ladyOfLuminosityStarter.canonicalCardId,
           program: executableView(ladyOfLuminosityStarter),
           types: ["legend"],
-          zone: "legend"
+          zone: "board"
         },
         {
           id: "spell",
@@ -162,7 +162,7 @@ const rows = [
         { type: "pass", player: "B" }
       ],
       expect: {
-        objects: { lady: { zone: "legend" }, spell: { zone: "trash" } },
+        objects: { lady: { zone: "board" }, spell: { zone: "trash" } },
         players: { A: { handSize: 1, deckSize: 1 } },
         links: { "lady-of-luminosity.draw-1.drawn": 1 },
         events: { includes: [cardPlayed, cardDrawn] }
@@ -181,7 +181,7 @@ const rows = [
           cardId: ladyOfLuminosityStarter.canonicalCardId,
           program: executableView(ladyOfLuminosityStarter),
           types: ["legend"],
-          zone: "legend"
+          zone: "board"
         },
         {
           id: "spell",
@@ -220,7 +220,7 @@ const rows = [
           cardId: ladyOfLuminosityStarter.canonicalCardId,
           program: executableView(ladyOfLuminosityStarter),
           types: ["legend"],
-          zone: "legend"
+          zone: "board"
         },
         {
           id: "spell",
