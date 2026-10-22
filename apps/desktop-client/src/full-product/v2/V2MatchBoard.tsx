@@ -411,14 +411,18 @@ function ZonePanel({ title, objects = [], count = objects.length, hidden = false
 function ChoicePanel({ choice, selectedIds, numberAnswer, optionalAnswer, disabled, onNumberChange, onOptionalAnswerChange, onToggle, onSubmit }: { readonly choice: V2ChoiceUiState; readonly selectedIds: readonly string[]; readonly numberAnswer: string; readonly optionalAnswer: boolean; readonly disabled: boolean; readonly onNumberChange: (value: string) => void; readonly onOptionalAnswerChange: (value: boolean) => void; readonly onToggle: (id: string) => void; readonly onSubmit: () => void }) {
   if (choice.choice.status === "none") return null;
   const pending = choice.choice;
+  const options = pending.options ?? [];
   const multiple = pending.kind === "select-objects" || pending.kind === "order" || (pending.max ?? 1) > 1;
-  const missingCandidates = (pending.kind === "select-objects" || pending.kind === "order") &&
-    (pending.options ?? []).length === 0;
+  const objectChoice = pending.kind === "select-objects" || pending.kind === "order";
+  const missingCandidates = objectChoice && (options.length === 0 || options.some(option => option.objectRef === undefined));
+  const selectionComplete = pending.kind === "order" ? selectedIds.length === options.length :
+    !objectChoice || (selectedIds.length >= (pending.min ?? 0) && selectedIds.length <= (pending.max ?? Number.POSITIVE_INFINITY));
   return <section className="v2-choice" aria-label="选择请求"><div className="v2-section-heading"><h3>选择请求 · {choiceKindLabel(pending.kind)}</h3><span>{choice.status === "expired" ? "已过期" : choice.answerable ? "请作出选择" : "等待对手回应"}</span></div>
     {pending.kind === "number" ? <input aria-label="选择数值" type="number" min={pending.min} max={pending.max} value={numberAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onChange={event => onNumberChange(event.currentTarget.value)} /> :
-      <div className="v2-choice-options">{(pending.options ?? []).length === 0 && pending.kind === "optional" ? <><button type="button" aria-pressed={optionalAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onOptionalAnswerChange(true)}>接受</button><button type="button" aria-pressed={!optionalAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onOptionalAnswerChange(false)}>拒绝</button></> : missingCandidates ? <p className="v2-waiting" role="status">等待服务端投影选择候选；客户端不会从手牌或其他对象自行推导。</p> : (pending.options ?? []).map(option => <button key={option.id} type="button" aria-pressed={selectedIds.includes(option.id)} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onToggle(option.id)}>{option.label}</button>)}</div>}
+      <div className="v2-choice-options">{options.length === 0 && pending.kind === "optional" ? <><button type="button" aria-pressed={optionalAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onOptionalAnswerChange(true)}>接受</button><button type="button" aria-pressed={!optionalAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onOptionalAnswerChange(false)}>拒绝</button></> : missingCandidates ? <p className="v2-waiting" role="status">等待服务端投影选择候选；客户端不会从手牌或其他对象自行推导。</p> : options.map(option => <button key={`${option.id}:${String(option.objectRef?.zoneEntryId ?? option.value ?? option.id)}`} type="button" aria-pressed={selectedIds.includes(option.id)} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onToggle(option.id)}>{option.label}{pending.kind === "order" && selectedIds.includes(option.id) ? ` · 第 ${selectedIds.indexOf(option.id) + 1} 位` : ""}</button>)}</div>}
     {pending.min !== undefined || pending.max !== undefined ? <p className="v2-muted">可选数量：{pending.min ?? 0}–{pending.max ?? "不限"}{multiple ? "（可多选）" : ""}</p> : null}
-    <button type="button" className="v2-primary-action" disabled={disabled || !choice.answerable || choice.status === "expired" || missingCandidates} onClick={onSubmit}>提交选择</button>
+    {pending.kind === "order" && !missingCandidates && !selectionComplete ? <p className="v2-muted" role="status">请按期望顺序继续点击：第 {selectedIds.length + 1} 张</p> : null}
+    <button type="button" className="v2-primary-action" disabled={disabled || !choice.answerable || choice.status === "expired" || missingCandidates || !selectionComplete} onClick={onSubmit}>提交选择</button>
   </section>;
 }
 
@@ -453,21 +457,29 @@ export function buildV2ChoiceAnswer(choice: V2PendingChoice, selectedIds: readon
   }
   const options = choice.options ?? [];
   if (choice.kind === "optional" && options.length === 0) return optionalAnswer;
-  const selected = selectedIds.map(id => options.find(option => option.id === id)).filter((option): option is V2ChoiceOption => option !== undefined).map(option => choiceOptionAnswer(choice, option));
+  if (new Set(selectedIds).size !== selectedIds.length) return null;
+  const selectedOptions = selectedIds.map(id => options.find(option => option.id === id));
+  if (selectedOptions.some(option => option === undefined)) return null;
+  const selected = selectedOptions.map(option => choiceOptionAnswer(choice, option!));
   if (choice.min !== undefined && selected.length < choice.min) return null;
   if (choice.max !== undefined && selected.length > choice.max) return null;
+  if (choice.kind === "order" && options.some(option => option.objectRef !== undefined) &&
+      selected.length !== options.length) return null;
   if (choice.kind === "select-objects" || choice.kind === "order" || (choice.max ?? 1) > 1) return selected;
   return selected[0] ?? null;
 }
 
 function choiceOptionAnswer(choice: Extract<V2PendingChoice, { status: "pending" }>, option: V2ChoiceOption): Exclude<V2ChoiceAnswer, readonly unknown[]> {
-  const value = option.value ?? option.id;
-  if (choice.kind === "select-objects" && typeof value === "string") {
+  if ((choice.kind === "select-objects" || choice.kind === "order") && option.objectRef !== undefined) {
+    return { objectId: option.objectRef.objectId, zoneEntryId: option.objectRef.zoneEntryId };
+  }
+  if (choice.kind === "select-objects" && (typeof option.value === "string" || typeof option.id === "string")) {
     const extended = option as V2ChoiceOption & { readonly zoneEntryId?: unknown };
     const zoneEntryId = typeof extended.zoneEntryId === "number" ? extended.zoneEntryId : undefined;
-    return { objectId: value, ...(zoneEntryId === undefined ? {} : { zoneEntryId }) };
+    return { objectId: typeof option.value === "string" ? option.value : option.id,
+      ...(zoneEntryId === undefined ? {} : { zoneEntryId }) };
   }
-  return value;
+  return option.value ?? option.id;
 }
 
 function formatPower(power: Readonly<Record<string, number>>): string {
