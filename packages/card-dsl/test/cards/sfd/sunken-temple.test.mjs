@@ -355,6 +355,7 @@ test("sunken-temple: optional 1 Energy is chosen at Finalize and unavailable cos
   assert.ok(pending, "the trigger reaches Pending before the Finalize decision");
   assert.equal(f.kernel.player("A").energy, 0);
   assert.deepEqual(f.kernel.zone("A", "hand").map(ref => ref.id), ["A:deck:0"]);
+  assert.ok(f.flow.chain.trace.some(event => event.step === "removed" && event.reason === "unperformable-trigger"));
   assert.equal(f.flow.chain.trace.some(event => event.step === "resolved" && String(event.item).startsWith("trigger:")), false);
 });
 
