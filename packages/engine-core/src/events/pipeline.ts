@@ -7,6 +7,8 @@ import { evaluateCondition } from '../effects/interpreter/condition.js';
 import { MissingInformation } from '../effects/interpreter/values.js';
 import { bindEventHistory } from '../effects/interpreter/expr-ext/event-history.js';
 import { matchesObjectPredicates } from '../effects/filters/predicates.js';
+import { matchesObjectFilter } from '../layers/filter.js';
+import type { LayeredObjectSnapshot } from '../layers/types.js';
 import { resolveRuleAmount } from './trigger-rules/index.js';
 import { evaluateAcceleratePayment } from '../effects/keywords/Accelerate.js';
 
@@ -49,6 +51,54 @@ function relativeQuery(context: ResolveContext, controller: PlayerId): ResolveCo
   };
 }
 
+/**
+ * CR 383.4.c.2 / 359.3.f.3 freezes the Units participating in one Conquer or
+ * Hold wave. Their identities stay fixed, while current characteristics come
+ * from the host's already-layered query view (CR 708/710). A malformed payload
+ * fails the condition closed instead of widening it to every object.
+ */
+function participatingUnitQuery(
+  pipeline: { readonly events: readonly PipelineEvent[] },
+  host: PipelineHost,
+  event: PipelineEvent,
+  controller: PlayerId,
+  triggerSource: ObjectSnapshot,
+): ResolveContext['query'] {
+  const own = (event.details as Readonly<Record<string, unknown>> | undefined)?.participatingUnits;
+  const aggregate = [...pipeline.events].reverse().find(candidate => candidate.batchId === event.batchId &&
+    candidate.timingPoint === 'score' &&
+    (candidate.details as Readonly<Record<string, unknown>> | undefined)?.participatingUnits !== undefined);
+  const raw = own ?? (aggregate?.details as Readonly<Record<string, unknown>> | undefined)?.participatingUnits;
+  const refs: { readonly id: string; readonly zoneEntryId: number }[] = [];
+  if (raw !== undefined) {
+    if (!Array.isArray(raw)) throw new TypeError('participatingUnits must be an array of ObjectRefs');
+    for (const candidate of raw) {
+      const item = candidate as { readonly id?: unknown; readonly zoneEntryId?: unknown };
+      if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate) ||
+          typeof item.id !== 'string' || item.id.length === 0 ||
+          !Number.isSafeInteger(item.zoneEntryId) || (item.zoneEntryId as number) < 0) {
+        throw new TypeError('participatingUnits must contain exact ObjectRefs');
+      }
+      refs.push({ id: item.id, zoneEntryId: item.zoneEntryId as number });
+    }
+  }
+  return filter => {
+    if (raw === undefined) {
+      return host.context(event.source ?? event.object!, controller, event.timingPoint).query(filter);
+    }
+    const source = host.objects().find(object => object.ref.id === triggerSource.ref.id &&
+      object.ref.zoneEntryId === triggerSource.ref.zoneEntryId) ?? triggerSource;
+    const candidates = refs.flatMap(ref => {
+      const object = host.context(source ?? event.object!, controller, event.timingPoint).object(ref);
+      return object === null ? [] : [object];
+    });
+    return candidates.filter(object => matchesObjectFilter(filter, object as LayeredObjectSnapshot, {
+      anchor: source,
+      controller,
+    }));
+  };
+}
+
 function evaluateTriggerCondition(
   pipeline: { readonly events: readonly PipelineEvent[] },
   host: PipelineHost,
@@ -60,8 +110,15 @@ function evaluateTriggerCondition(
   const condition = registration.spec.condition;
   if (condition === undefined) return true;
   const base = host.context(source, controller, event.timingPoint);
+  const frozenQuery = participatingUnitQuery(pipeline, host, event, controller, source);
   const context = bindEventHistory(new Proxy(base, { get(target, key) {
-    if (key === 'query') return relativeQuery(target, controller);
+    if (key === 'query') return (filter: ObjectFilter) => {
+      if ((event.details as Readonly<Record<string, unknown>> | undefined)?.participatingUnits !== undefined ||
+          event.timingPoint === 'conquer' || event.timingPoint === 'hold') {
+        return frozenQuery(filter);
+      }
+      return relativeQuery(target, controller)(filter);
+    };
     const value = Reflect.get(target, key);
     return typeof value === 'function' ? value.bind(target) : value;
   } }), pipeline);
@@ -426,9 +483,15 @@ export class EventPipeline {
       const context: TriggerRuleContext = { registration, source: captured, controller, event };
       const effect = this.triggerRuleEffect(context);
       if (effect.suppressed) continue;
+      // A Score wave is one occurrence for this exact battlefield ability and
+      // source incarnation (CR 472/473.2.c). Other per-batch events retain the
+      // established collection shape and are capped at Finalize.
+      if (this.isScoreTiming(event.timingPoint) && registration.spec.once === 'per-batch' && frequencyKey !== null &&
+          hits.some(hit => hit.frequencyKey === frequencyKey)) continue;
       // Keep every frequency-matching instance in the collection wave. The
       // controller's legal ordering chooses which instance is finalized, and
-      // consume() enforces once/maxPerScope exactly at that point.
+      // consume() enforces once/maxPerScope exactly at that point. Score waves
+      // are the narrow collection-stage exception above.
       for (let occurrence = 0; occurrence < effect.multiplicity; occurrence++) {
         hits.push({ registration, source: captured, controller, event, frequencyKey, frequencyLimit, occurrence, multiplicity: effect.multiplicity, batchId: event.batchId });
       }
@@ -464,6 +527,9 @@ export class EventPipeline {
         this.onTrigger(deepFreeze(structuredClone({ ...hit, event: deepFreeze(structuredClone(hit.event)) })));
       }
     }
+  }
+  private isScoreTiming(timingPoint: PipelineEvent['timingPoint']): boolean {
+    return timingPoint === 'conquer' || timingPoint === 'hold' || timingPoint === 'score';
   }
   private triggerRuleEffect(context: TriggerRuleContext): { readonly suppressed: boolean; readonly multiplicity: number } {
     let multiplicity = 1;

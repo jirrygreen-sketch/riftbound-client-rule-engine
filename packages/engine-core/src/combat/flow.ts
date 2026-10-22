@@ -181,6 +181,29 @@ export class CombatFlow {
       finally { this.transactionDepth = savedDepth; }
     });
   }
+  /**
+   * Battlefield control is represented in CombatFlow and, for ability
+   * ownership, in the host's Battlefield ObjectSnapshot (CR 190.5/.6). Commit
+   * the host half through the state owner while this Combat transaction still
+   * owns rollback; no caller receives a split-brain control state.
+   */
+  private setFieldController(field: MutableField, controller: PlayerId | null): boolean {
+    if (field.controller === controller) return false;
+    const battlefield = this.host.objects().find(object => object.zone === 'board' &&
+      object.types.some(type => type.toLowerCase() === 'battlefield') &&
+      (object.ref.id === field.id || object.location?.type === 'battlefield' && object.location.id === field.id));
+    if (battlefield !== undefined) {
+      if (controller !== null && battlefield.controller !== controller) {
+        const outcome = this.host.execute({ type: 'take-control', object: battlefield.ref, player: controller });
+        if (outcome.outcome.status !== 'done') {
+          throw new TurnCombatBlockedError('battlefield-controller-sync',
+            `Battlefield ${field.id} controller synchronization was ${outcome.outcome.status}`);
+        }
+      }
+    }
+    field.controller = controller;
+    return true;
+  }
   private refKey(ref: ObjectRef): string { return `${ref.id}:${ref.zoneEntryId}`; }
   private role(object: ObjectSnapshot): 'attacker' | 'defender' | null {
     return object.combatRole ?? this.combatRoles.get(this.refKey(object.ref)) ?? null;
@@ -390,7 +413,7 @@ export class CombatFlow {
       throw new Error('No pending establishment for this player and Battlefield');
     }
     const field = this.fields.find(value => value.id === fieldId)!;
-    field.controller = player; field.contestedBy = null; field.staged = 'none';
+    this.setFieldController(field, player); field.contestedBy = null; field.staged = 'none';
     this.chain.layers.setObjects(this.layerObjects());
     for (const object of this.layerObjects()) {
       if (object.combatRole === null || object.combatRole === undefined) continue;
@@ -547,7 +570,7 @@ export class CombatFlow {
       if (this.chain.turnState.endsWith('-open') && field.controller &&
           !units.some(unit => unit.controller === field.controller)) {
         const old = field.controller;
-        field.controller = null;
+        this.setFieldController(field, null);
         this.emit('control-lost', field.id, old); changed = true;
       }
       if (field.contestedBy &&
@@ -1002,7 +1025,7 @@ export class CombatFlow {
       } else {
         field.contestedBy = null;
         field.staged = 'none';
-        if (controllers.length === 0) field.controller = null;
+        if (controllers.length === 0) this.setFieldController(field, null);
         active.step = 'end';
         this.finishCombat();
         return;
@@ -1019,7 +1042,7 @@ export class CombatFlow {
       } else {
         field.contestedBy = null;
         if (controllers.length === 0) {
-          field.controller = null;
+          this.setFieldController(field, null);
         }
         field.staged = 'none';
       }
