@@ -9,6 +9,7 @@ import { runInstruction, world } from "../../../../engine-core/dist/effects/test
 import { translateInstructionTargets, translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 import strikeDown from "../../../dist/cards/sfd/strike-down.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { productionPlay } from "../../fixtures/production-play.mjs";
 
 const [play] = strikeDown.abilities;
@@ -55,23 +56,12 @@ function attachEquipment(kernel, hostId, id = "sword") {
   }, "board");
 }
 
-test("Strike Down is structurally valid and records the current production gaps", () => {
+test("Strike Down is structurally valid, executable, registered and keeps its identity", () => {
   const result = validateCardProgram(strikeDown);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
-  assert.equal(strikeDown.status, "judge-required");
-
-  assert.match(strikeDown.judgeReason, /355\.5/);
-  assert.match(strikeDown.judgeReason, /355\.7/);
-  assert.match(strikeDown.judgeReason, /355\.8/);
-  assert.match(strikeDown.judgeReason, /359\.3\.e\.12/);
-  assert.match(strikeDown.judgeReason, /targeted unit/);
-  assert.match(strikeDown.judgeReason, /programs\/filters\.ts:124/);
-  assert.match(strikeDown.judgeReason, /effects\/interpreter\/selectors\.ts:175-176/);
-  assert.match(strikeDown.judgeReason, /effects\/filters\/predicates\.ts:142-160/);
-  assert.match(strikeDown.judgeReason, /chain\/picks\/linked\.ts:80-193/);
-  assert.match(strikeDown.judgeReason, /唯一已知的整卡生产阻塞/);
-  assert.doesNotMatch(strikeDown.judgeReason, /装备选择仍无生产生命周期/);
+  assert.equal(strikeDown.status, "executable");
+  assert.equal(strikeDown.judgeReason, undefined);
 
   assert.equal(
     strikeDown.canonicalCardId,
@@ -81,6 +71,7 @@ test("Strike Down is structurally valid and records the current production gaps"
     strikeDown.sourceText,
     "Choose an equipped friendly unit. It deals damage equal to its Might to an enemy unit. Then detach an Equipment from it."
   );
+  assert.equal(cardRegistryById.get(strikeDown.canonicalCardId), strikeDown);
 });
 
 test("Strike Down models both Finalize choices as targets and one linked Equipment pick", () => {
@@ -144,148 +135,242 @@ test("Strike Down models both Finalize choices as targets and one linked Equipme
   assert.deepEqual(detachInstruction.args.pick, { kind: "literal", value: "detached-equipment" });
 });
 
-test("Strike Down production binding rejects the judge-required program before Finalize", () => {
-  const f = productionPlay({
+function strikeDownScene({ nonEquipment = false, secondEquipment = false } = {}) {
+  return productionPlay({
     programs: [strikeDown],
-    build: (w) => w
-      .player("A", { energy: 3, power: ["Body"] })
-      .player("B", { energy: 3, power: ["Body"] })
-      .object("strike-down", {
-        owner: "A",
-        controller: "A",
-        cardId: strikeDown.canonicalCardId,
-        types: ["spell"],
-        zone: "hand",
-        energy: 3,
-        power: ["Body"]
-      })
-  });
-  const before = f.kernel.snapshot();
-
-  assert.throws(
-    () => f.describe("strike-down"),
-    (error) => error?.code === "judge-required" && error.message === strikeDown.judgeReason
-  );
-  assert.deepEqual(f.requests, []);
-  assert.equal(f.engine.items.length, 0);
-  assert.deepEqual(f.kernel.snapshot(), before);
-});
-
-test("Strike Down's filtered Equipment pick is produced on the real Resolve path", () => {
-  // The shipped program remains blocked by `equipped`, so this probe uses a
-  // structurally executable projection and removes only that unsupported
-  // predicate. Every other card expression, target, Resource payment and pick
-  // remains byte-for-byte the shipped IR. If this passes, the Equipment pick
-  // lifecycle is not a current blocker.
-  const nearExecutable = structuredClone(strikeDown);
-  nearExecutable.status = "executable";
-  delete nearExecutable.judgeReason;
-  delete nearExecutable.abilities[0].body[0].targets[0].filter.equipped;
-
-  const f = productionPlay({
-    programs: [nearExecutable],
     answers: {
-      "target:equipped-friendly-unit": ["host"],
+      "target:equipped-friendly-unit": ["equipped-host"],
       "target:enemy-unit": ["enemy"],
-      "detach/pick%3Adetached-equipment": ["sword"]
+      "detach/pick%3Adetached-equipment": (kernel, request) => {
+        const chosen = request.options.find((option) => option.id === "sword") ?? request.options[0];
+        return [kernel.ref(chosen.id)];
+      }
     },
-    build: (w) => w
-      .player("A", { energy: 3, power: ["Body"] })
-      .player("B", { energy: 3, power: ["Body"] })
-      .object("strike-down", {
-        owner: "A",
-        controller: "A",
-        cardId: nearExecutable.canonicalCardId,
-        types: ["spell"],
-        zone: "hand",
-        energy: 3,
-        power: ["Body"]
-      })
-      .unit("host", {
-        owner: "A",
-        controller: "A",
-        might: 3,
-        location: { type: "battlefield", id: "bf1" }
-      })
-      .object("sword", {
-        owner: "A",
-        controller: "A",
-        types: ["gear"],
-        tags: ["Equipment"],
-        zone: "board",
-        location: { type: "battlefield", id: "bf1" },
-        might: 1,
-        attachedTo: { id: "host", zoneEntryId: 1 }
-      })
-      .unit("enemy", {
-        owner: "B",
-        controller: "B",
-        might: 5,
-        location: { type: "base", player: "B" }
-      })
+    build: (w) => {
+      let builder = w
+        .player("A", { energy: 3, power: ["Body"] })
+        .player("B")
+        .object("strike-down", {
+          owner: "A",
+          controller: "A",
+          cardId: strikeDown.canonicalCardId,
+          types: ["spell"],
+          zone: "hand",
+          energy: 3,
+          power: ["Body"]
+        })
+        .unit("equipped-host", {
+          owner: "A",
+          controller: "A",
+          might: 3,
+          location: { type: "battlefield", id: "bf1" }
+        })
+        .unit("unarmed-host", {
+          owner: "A",
+          controller: "A",
+          might: 3,
+          location: { type: "battlefield", id: "bf1" }
+        })
+        .unit("enemy", {
+          owner: "B",
+          controller: "B",
+          might: 7,
+          location: { type: "base", player: "B" }
+        })
+        .object("sword", {
+          owner: "A",
+          controller: "A",
+          types: ["gear"],
+          tags: ["Equipment"],
+          zone: "board",
+          location: { type: "battlefield", id: "bf1" },
+          energy: null,
+          power: null,
+          might: 1
+        });
+      if (nonEquipment) {
+        builder = builder.object("ordinary-gear", {
+          owner: "A",
+          controller: "A",
+          types: ["gear"],
+          tags: [],
+          zone: "board",
+          location: { type: "battlefield", id: "bf1" },
+          energy: null,
+          power: null,
+          might: null
+        });
+      }
+      if (secondEquipment) {
+        builder = builder.object("shield", {
+          owner: "A",
+          controller: "A",
+          types: ["gear"],
+          tags: ["Equipment"],
+          zone: "board",
+          location: { type: "battlefield", id: "bf1" },
+          energy: null,
+          power: null,
+          might: 2
+        });
+      }
+      return builder;
+    }
   });
+}
 
-  f.engine.execute(f.describe("strike-down"));
-  f.settle();
+test("Strike Down production golden: Finalize, damage, payment, linked Equipment pick and detach", () => {
+  const f = strikeDownScene({ secondEquipment: true });
+  assert.equal(f.engine.commit({
+    type: "attach",
+    object: f.kernel.ref("sword"),
+    host: f.kernel.ref("equipped-host")
+  }).status, "done");
+  assert.equal(f.engine.commit({
+    type: "attach",
+    object: f.kernel.ref("shield"),
+    host: f.kernel.ref("equipped-host")
+  }).status, "done");
+  f.engine.advance();
+  const draft = f.describe("strike-down");
+  assert.equal(draft.kind, "spell");
+  assert.equal(draft.speed, "normal");
+  f.engine.execute(draft);
 
   assert.deepEqual(
-    f.requests.map((request) => [request.id, request.options.map((option) => option.id ?? option)]),
+    f.requests.map((request) => [request.id, request.options.map((option) => option.id)]),
     [
-      ["target:equipped-friendly-unit", ["host"]],
-      ["target:enemy-unit", ["enemy"]],
-      ["detach/pick%3Adetached-equipment", ["sword"]]
+      ["target:equipped-friendly-unit", ["equipped-host"]],
+      ["target:enemy-unit", ["enemy"]]
     ]
   );
-  assert.equal(f.kernel.getObject("enemy").damage, 4, "printed Might 3 + the Sword's Might Bonus 1");
+  const [item] = f.engine.items;
+  assert.equal(item.status, "finalized");
+  assert.deepEqual(item.targetPlans.map((plan) => plan.selected), [
+    [f.kernel.ref("equipped-host")],
+    [f.kernel.ref("enemy")]
+  ]);
+  assert.equal(f.kernel.player("A").energy, 0, "3 Energy was paid during Finalize, before either Priority pass");
+  assert.deepEqual(f.kernel.player("A").power, [], "1 Body Power was paid during Finalize");
+
+  f.settle();
+  assert.deepEqual(
+    f.requests.map((request) => [request.id, request.options.map((option) => option.id)]),
+    [
+      ["target:equipped-friendly-unit", ["equipped-host"]],
+      ["target:enemy-unit", ["enemy"]],
+      ["detach/pick%3Adetached-equipment", ["sword", "shield"]]
+    ]
+  );
+  assert.equal(f.kernel.getObject("enemy").damage, 6, "current Might 3 + 1 + 2 from both attached Equipment");
+  assert.equal(f.kernel.getObject("sword").attachedTo, null);
+  assert.deepEqual(f.kernel.getObject("shield").attachedTo, f.kernel.ref("equipped-host"));
+  assert.equal(f.kernel.player("A").energy, 0);
+  assert.deepEqual(f.kernel.player("A").power, []);
+  assert.equal(f.kernel.getObject("strike-down").zone, "trash");
+  assert.deepEqual(f.engine.items, []);
+
+  const committed = f.kernel.stateForTest().history.map((entry) => entry.action);
+  assert.deepEqual(committed.find((action) => action.type === "damage"), {
+    type: "damage",
+    source: f.kernel.ref("equipped-host"),
+    target: f.kernel.ref("enemy"),
+    amount: 6,
+    combat: false
+  });
+  assert.deepEqual(committed.find((action) => action.type === "detach"), {
+    type: "detach",
+    object: f.kernel.ref("sword")
+  });
+});
+
+test("Strike Down production boundary: bare and non-Equipment-attached Units are not legal targets", () => {
+  for (const options of [{}, { nonEquipment: true }]) {
+    const f = strikeDownScene(options);
+    if (options.nonEquipment) {
+      assert.equal(f.engine.commit({
+        type: "attach",
+        object: f.kernel.ref("ordinary-gear"),
+        host: f.kernel.ref("unarmed-host")
+      }).status, "done");
+    }
+    f.engine.advance();
+
+    assert.throws(
+      () => f.engine.execute(f.describe("strike-down")),
+      (error) => error?.name === "TargetSelectionError" && error.code === "no-legal-targets"
+    );
+    assert.deepEqual(f.requests, []);
+    assert.deepEqual(f.engine.items, []);
+    assert.equal(f.kernel.player("A").energy, 3);
+    assert.deepEqual(f.kernel.player("A").power, ["Body"]);
+    assert.equal(f.kernel.getObject("enemy").damage, 0);
+    assert.equal(f.kernel.getObject("strike-down").zone, "hand");
+  }
+});
+
+test("Strike Down production boundary: losing the last Equipment after Finalize ignores the card at Resolve", () => {
+  const f = strikeDownScene();
+  assert.equal(f.engine.commit({
+    type: "attach",
+    object: f.kernel.ref("sword"),
+    host: f.kernel.ref("equipped-host")
+  }).status, "done");
+  f.engine.advance();
+  f.engine.execute(f.describe("strike-down"));
+  assert.deepEqual(f.engine.items[0].targetPlans.map((plan) => plan.selected), [
+    [f.kernel.ref("equipped-host")],
+    [f.kernel.ref("enemy")]
+  ]);
+
+  f.engine.pass(f.engine.priority);
+  assert.equal(f.engine.commit({ type: "detach", object: f.kernel.ref("sword") }).status, "done");
+  f.engine.advance();
+  f.settle();
+
+  assert.equal(f.kernel.getObject("enemy").damage, 0, "CR 359.3.e.12: the target is no longer a legal equipped Unit");
   assert.equal(f.kernel.getObject("sword").attachedTo, null);
   assert.equal(f.kernel.player("A").energy, 0);
   assert.deepEqual(f.kernel.player("A").power, []);
   assert.deepEqual(f.engine.items, []);
 });
 
-test("Strike Down's equipped and detach filters fail closed until their producers exist", () => {
-  // `equipped` is intentionally present and rejected. If callers bypass the
-  // translator, the shared predicate ignores the unknown field, so a bare
-  // friendly unit would be widened in; this proves why production translation
-  // must fail instead of silently proceeding.
-  assert.throws(
-    () => translateObjectFilter(damageInstruction.targets[0].filter),
-    /Unsupported filter field equipped/
-  );
-  assert.throws(
-    () => translateInstructionTargets(play.body),
-    /Unsupported filter field equipped/
-  );
+test("Strike Down production boundary: losing one of two Equipment remains a legal damage and Equipment pick", () => {
+  const f = strikeDownScene({ secondEquipment: true });
+  for (const id of ["sword", "shield"]) {
+    assert.equal(f.engine.commit({
+      type: "attach",
+      object: f.kernel.ref(id),
+      host: f.kernel.ref("equipped-host")
+    }).status, "done");
+  }
+  f.engine.advance();
+  f.engine.execute(f.describe("strike-down"));
+  f.engine.pass(f.engine.priority);
+  assert.equal(f.engine.commit({ type: "detach", object: f.kernel.ref("sword") }).status, "done");
+  f.engine.advance();
+  f.settle();
 
-  const kernel = world()
-    .unit("unarmed", { owner: "A", controller: "A", might: 3 })
-    .build();
-  const unarmed = kernel.getObject("unarmed");
-  assert.equal(
-    matchesObjectFilter({ type: "unit", controller: "A", equipped: true }, unarmed),
-    true,
-    "the raw predicate ignores the unknown key; production translation must reject it"
+  assert.equal(f.kernel.getObject("enemy").damage, 5, "the detached Sword's +1 no longer applies; the Shield's +2 does");
+  assert.deepEqual(
+    f.requests.find((request) => request.id.startsWith("detach/pick"))?.options.map((option) => option.id),
+    ["shield"]
   );
-  assert.equal(
-    matchesObjectFilter({ type: "unit", controller: "A", states: "attached" }, unarmed),
-    false,
-    "states:attached describes the candidate being attached, not a Unit hosting Equipment"
-  );
-  const equipmentRef = attachEquipment(kernel, "unarmed");
-  assert.equal(
-    matchesObjectFilter({ type: "unit", controller: "A", states: "attached" }, unarmed),
-    false,
-    "a Unit remains false after it becomes equipped"
-  );
-  assert.equal(
-    matchesObjectFilter({ type: "gear", states: "attached" }, kernel.getObject(equipmentRef.id)),
-    true,
-    "states:attached is true for the attached Equipment itself"
-  );
+  assert.deepEqual(f.kernel.getObject("shield").attachedTo, null);
+  assert.equal(f.kernel.getObject("sword").attachedTo, null);
+  assert.equal(f.kernel.player("A").energy, 0);
+  assert.deepEqual(f.kernel.player("A").power, []);
+});
 
-  // attachedTo is a real, supported anchor in the opposite direction: the
-  // Equipment candidate points at its locked host. This is not the missing
-  // host -> Equipment `equipped` predicate.
+test("Strike Down filters translate to the production equipped and attached-Equipment predicates", () => {
+  assert.deepEqual(
+    translateObjectFilter(damageInstruction.targets[0].filter),
+    { type: "unit", zone: "board", controller: "self", equipped: true }
+  );
+  assert.equal(
+    translateInstructionTargets(play.body)[0].targets[0].filter.equipped,
+    true
+  );
   assert.deepEqual(
     translateObjectFilter(detachInstruction.picks[0].filter),
     {
@@ -294,6 +379,24 @@ test("Strike Down's equipped and detach filters fail closed until their producer
       zone: "board",
       attachedTo: { target: "equipped-friendly-unit" }
     }
+  );
+
+  const kernel = world()
+    .player("A")
+    .unit("host", { owner: "A", controller: "A", might: 3 })
+    .build();
+  const host = kernel.getObject("host");
+  const filter = { type: "unit", controller: "you", equipped: true };
+  assert.equal(matchesObjectFilter(filter, host, { controller: "A", objects: kernel.objects }), false);
+  const equipmentRef = attachEquipment(kernel, "host");
+  assert.equal(
+    matchesObjectFilter(filter, kernel.getObject("host"), { controller: "A", objects: kernel.objects }),
+    true
+  );
+  kernel.perform({ type: "detach", object: equipmentRef });
+  assert.equal(
+    matchesObjectFilter(filter, kernel.getObject("host"), { controller: "A", objects: kernel.objects }),
+    false
   );
 });
 
@@ -338,8 +441,8 @@ test("Strike Down detach payload removes one selected Equipment from its host", 
 
 test("Strike Down linked instruction follows the CR 359.3.e.12 stale-host outcome", () => {
   // This is reference-adapter behavior for the already-locked target. It does
-  // not stand in for the missing equipped target predicate: production
-  // translation rejects that filter before Finalize (previous test).
+  // not stand in for the production golden, which exercises the complete
+  // equipped target and linked pick path.
   const kernel = world()
     .unit("host", { owner: "A", controller: "A", might: 3 })
     .unit("enemy", { owner: "B", controller: "B", might: 5 })
