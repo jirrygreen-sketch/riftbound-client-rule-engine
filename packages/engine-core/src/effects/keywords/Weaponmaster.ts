@@ -4,11 +4,11 @@
  * The merged sequence/TargetSpec/count primitives guard the body when no
  * Equipment is selected; choice.optional only chooses a boolean, not objects.
  *
- * Status: judge-required. Dependencies that are not merged yet (CR 821.1.c):
- * - The play-effect targeting layer must bind the symbolic controller filter
- *   and supply the chosen Equipment; TestWorld does not bind "self" aliases.
- * - `cost.modify` / `cost.pay` must calculate the chosen card's Equip cost,
- *   apply the one-any-Power reduction, and pay it without activating Equip.
+ * CR 821.1.c.1-.5: the production binder supplies the current controlled
+ * Equipment target. `cost.modify` reads the authoritative Equip CostSpec from
+ * that object's printed keyword parameters, discounts one original [A], and
+ * only then lets `cost.pay` and `effect.attach` run. Missing, ambiguous or
+ * non-universal Equip costs fail closed without activating Equip.
  */
 import type { Ability, Value } from "@riftbound/card-dsl";
 import type { KeywordDef } from "../keyword-contract.js";
