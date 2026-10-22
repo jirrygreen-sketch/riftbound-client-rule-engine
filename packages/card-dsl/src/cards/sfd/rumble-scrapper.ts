@@ -16,34 +16,23 @@ import type { CardProgram } from "../../ir/index.js";
  *   effect.token 的定义表 id 为 "mech"；440.2.c/185.2.a 的打出流程由 mode "play" 交付
  *   （链上生成后由 play 动作接手；合并内核实测可执行）。
  *
- * Current review（2026-10-17，对照已合入源码重新核实）:
- * - CR v1.5 478.1.a：友方 Mech +1 [M] 光环由默认 static 绑定器注册，包含宿主
- *   自身（createEngineStaticBinder → arithmetic 层）。
- * - CR 383.4.d/471.2/473.2.b：Hold Effect 仍无消费方。事件判别值必须写作封闭
- *   词表的 "held"（EVENT_PATTERN_TYPES；events/pipeline-match.ts 的 EVENT_NAMES
- *   把它映射到 hold 时点）。绑定层随后把 filter: { source: "self" } 译成
- *   object: { objectId: 本卡 }，而 turn/flow.ts 的 scheduleScore 只发
- *   { player, details: { battlefieldId } }：events/pipeline-match.ts 的
- *   matchesTriggerObject 对 undefined object 只在过滤器为空时命中，实测该 spec
- *   对真实 hold 发射恒不匹配，383.4.d.2.a 的「单位当时在场」与 473.2.b 的战场
- *   归属都无从判定。
- * - CR 187.4/440.2.c/185.2.a：effect.token 的 mech/play 子效果由 condition.value
- *   + location 表达式先绑定能力控制者基地，原语真实 create-token 后 play。
+ * Production review（2026-10-21，RIFT-878 合入后重新实测）：
+ * - CR v1.5 478.1.a：默认 static 绑定器把 { tags: ["Mech"], controller:
+ *   "controller", zone: "board" } 注册到 arithmetic 层，controller 在求值时
+ *   相对本能力来源解析；宿主自身也在「Your Mechs」集合内。
+ * - CR 383.4.d.2.a / 473.2.b：TurnFlow 的 Beginning Phase Score wave 现在逐个
+ *   发出当时在场 Unit 的精确 object/source/it，以及 details.battlefieldId/
+ *   objectId/playerId；聚合 score 事件同时携带 participatingUnits。production
+ *   绑定把 filter: { source: "self" } 译为 objectId，因此本卡的 hold 触发只在
+ *   它自己位于被 Hold 的战场时命中，其他友方 Unit 的 Hold 不会误触发。
+ * - CR 187.4 / 440.2.c / 185.2.a：触发正文先求值 ability-controller-base，
+ *   再把该位置交给 effect.token 的 mech/play；生产 ChainEngine 真实 create-token、
+ *   打出 3 Might Mech token，并把它放到能力控制者的 Base。
  */
 export default {
   canonicalCardId: "card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "「When I hold」仍缺消费方：触发已在程序里写作封闭判别值 held（管线映射到 hold 时点），production 绑定后 spec 为 " +
-    "{ at: \"hold\", filter: { event: \"held\", object: { objectId: <本卡> } } }，可注册但恒不命中——turn/flow.ts 的 scheduleScore " +
-    "只发 { player, details: { battlefieldId } }，没有携带被固守战场上的单位，events/pipeline-match.ts 的 matchesTriggerObject 对 " +
-    "undefined object 仅在过滤器为空时返回 true。因此 CR v1.5 383.4.d.2.a 的「本单位在 Hold 时在场」与 473.2.b 的按战场归属无法判定；" +
-    "依赖 RIFT-120 后续（hold 发射补齐被固守对象或战场身份，使 source: self 锚点可判定；sfd/guardian-of-the-passage、" +
-    "sfd/dunebreaker 同缺口，RIFT-120 仍未合入）。" +
-    "第一条 continuous.might 光环的默认 static 注册、tag→tags 与 controller→来源控制者归一如实执行（golden 用生产绑定器断言只加友方 Mech）；" +
-    "effect.token 的 mech/play 子效果经 condition.value + location 绑定能力控制者基地，再以 linked-value 交给原语，真实执行 create-token + play。" +
-    "不把所有己方 Hold 或无关单位的 Hold 当作本单位 Hold。",
+  status: "executable",
   abilities: [
     {
       kind: "static",
@@ -52,9 +41,10 @@ export default {
       // source itself is a Mech, so it is inside its own filter (478.1.a).
       effect: {
         kind: "continuous.might",
-        // The default static binder translates tag -> tags and resolves
-        // controller relative to the aura source before layer evaluation.
-        filter: { tag: "Mech", controller: "controller", zone: "board" },
+        // Use the layer vocabulary directly: a plural tag set plus the
+        // source-relative controller selector. The binder keeps the selector
+        // symbolic and resolves it against the live aura source.
+        filter: { tags: ["Mech"], controller: "controller", zone: "board" },
         value: { kind: "constant", value: 1 }
       }
     },
