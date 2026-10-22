@@ -19,12 +19,6 @@ const constant = value => ({ kind: 'constant', value });
 const battlefield = { type: 'battlefield', id: 'battlefield-1' };
 
 const admitted = program => ({ ...program, status: 'executable', judgeReason: undefined });
-// The inverse of `admitted`: keep a real program's structure but withhold it as
-// judge-required, so lifecycle gating is exercised independently of whichever
-// shipped cards are still judge-required at the time.
-const withheld = (program, judgeReason) => ({ ...program, status: 'judge-required', judgeReason });
-const withheldRumble = withheld(rumbleHotheaded,
-  'lifecycle fixture: Rumble, Hotheaded program withheld as judge-required for gating coverage');
 const card = (id, abilities) => ({
   canonicalCardId: id, rulesetVersion: 'core-1.5', status: 'executable', sourceText: id, abilities,
 });
@@ -210,7 +204,7 @@ test('Secret Zones evaluate only replacement abilities active for that zone', ()
     .deck('hidden', { cardId: undertitan.canonicalCardId, types: ['unit'] })
     .deck('inactive', { cardId: rumbleHotheaded.canonicalCardId, types: ['unit'] })
     .rune('not-secret-relevant', { cardId: ironBallista.canonicalCardId }),
-  [admitted(undertitan), withheldRumble, ironBallista]);
+  [admitted(undertitan), rumbleHotheaded, ironBallista]);
   const hiddenRef = f.kernel.ref('hidden');
   assert.equal(f.engine.pipeline.hasReplacementRegistration(`replacement:hidden:${hiddenRef.zoneEntryId}`), true,
     'the deck-hosted card-revealed replacement is active');
@@ -222,7 +216,7 @@ test('Secret Zones evaluate only replacement abilities active for that zone', ()
     'inactive Secret-Zone statics are not installed');
   assert.equal(f.errors.length, 0, 'unrelated judge-required abilities do not fail Secret-Zone initialization');
   assert.equal(undertitan.status, 'judge-required');
-  assert.equal(withheldRumble.status, 'judge-required');
+  assert.equal(rumbleHotheaded.status, 'judge-required');
   f.lifecycle.detach();
   assert.equal(f.engine.pipeline.checkpoint().replacements.size, 0);
 });
@@ -254,14 +248,15 @@ test('Rune Deck replacement matching uses the active zone and leaves unrelated p
 
 test('a registered judge-required Board program blocks through the real lifecycle hook', () => {
   for (const [id, cardId, patterns] of [
-    // The blocking error carries the program's judgeReason verbatim.
-    ['judge', withheldRumble.canonicalCardId, [withheldRumble.judgeReason]],
+    // The blocking error carries the card's current judgeReason verbatim; pin
+    // that authoritative text rather than file:line fragments of an older audit.
+    ['judge', rumbleHotheaded.canonicalCardId, [rumbleHotheaded.judgeReason]],
   ]) {
-    const f = runtime(world().player('A').player('B').unit(id, { cardId, types: ['unit'] }), [withheldRumble],
+    const f = runtime(world().player('A').player('B').unit(id, { cardId, types: ['unit'] }), [rumbleHotheaded],
       undefined, error => { throw error; });
     const ref = f.kernel.ref(id);
     const events = f.engine.pipeline.events.length;
-    assert.equal(withheldRumble.status, 'judge-required');
+    assert.equal(rumbleHotheaded.status, 'judge-required');
     assert.throws(() => f.engine.commit({ type: 'kill', object: ref }), error => {
       for (const expected of patterns) {
         assert.equal(typeof expected, 'string');
