@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/index.js";
-import program from "../../../dist/cards/sfd/rumble-hotheaded.js";
+import program, { RUMBLE_OFFICIAL_EFFECT_ORDER_EVIDENCE } from "../../../dist/cards/sfd/rumble-hotheaded.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
@@ -88,7 +90,7 @@ function productionConquer(accept) {
   throw new Error("production Conquer flow did not settle");
 }
 
-test("Rumble, Hotheaded: validates, is registered, and remains judge-required", () => {
+test("Rumble, Hotheaded: validates, is registered, and records the Finalize receipt bridge gap", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.issues));
   assert.equal(program.canonicalCardId, CANONICAL);
@@ -99,10 +101,53 @@ test("Rumble, Hotheaded: validates, is registered, and remains judge-required", 
   assert.match(program.judgeReason, /383\.3\.a/);
   assert.match(program.judgeReason, /383\.3\.b\.1/);
   assert.match(program.judgeReason, /355\.10\.c\.1/);
-  assert.match(program.judgeReason, /cost\/payment\.ts:92-94/);
-  assert.match(program.judgeReason, /Board|unperformable-trigger/);
-  assert.match(program.judgeReason, /Might\/LKI/);
+  assert.match(program.judgeReason, /RIFT-929/);
+  assert.match(program.judgeReason, /leading-choice\.ts:29-44/);
+  assert.match(program.judgeReason, /object-property\.object\.linked/);
+  assert.match(program.judgeReason, /mistargeted/);
+  assert.match(program.judgeReason, /linked-ignored/);
+  assert.match(program.judgeReason, /支付前 Might/);
   assert.doesNotMatch(program.judgeReason, /CostPlan.*没有顶层|conquer.*恒不匹配|Unsupported filter field role/);
+  assert.doesNotMatch(program.judgeReason, /cost\/payment\.ts:92-94/);
+  assert.doesNotMatch(program.judgeReason, /Unknown or forward instruction link/);
+});
+
+test("Rumble, Hotheaded: official effect-order evidence records sources, timing, Priority/Focus, and response windows", () => {
+  const evidence = RUMBLE_OFFICIAL_EFFECT_ORDER_EVIDENCE;
+  assert.equal(evidence.canonicalCardId, CANONICAL);
+  assert.deepEqual(evidence.sources.coreRules, {
+    version: "1.5",
+    published: "2026-10-09",
+    effective: "2026-10-16",
+    url: "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+    patchNotesUrl: "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+    sha256: "94d41fee86f88b61c4157c0389c0595d990b98e5b42555c99d9f649ee64d1fec"
+  });
+  assert.equal(evidence.sources.radianceRulings.published, "2026-10-09");
+  assert.equal(evidence.sources.radianceRulings.effective, "2026-10-16");
+  assert.match(evidence.sources.radianceRulings.url, /^https:\/\/playriftbound\.com\//);
+  assert.equal(evidence.sources.spiritforgedErrata.published, "2026-01-14");
+  assert.equal(evidence.sources.spiritforgedErrata.effective, null);
+  assert.equal(evidence.sources.spiritforgedErrata.url,
+    "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/");
+  assert.equal(evidence.rulingStatus, "no-card-specific-ruling",
+    "neither official rulings source contains a Rumble-specific entry");
+  assert.deepEqual(evidence.interactions.map(entry => entry.id), [
+    "assault-grant",
+    "conquer-leading-recycle-play"
+  ]);
+  for (const interaction of evidence.interactions) {
+    assert.equal(interaction.canonicalCardId, CANONICAL);
+    assert.ok(interaction.ruleRefs.length > 0);
+    assert.ok(interaction.timeline.length >= 3);
+    assert.match(interaction.priorityFocus, /Priority/);
+    assert.match(interaction.responseWindow, /response|window|discretionary|continuous effect|deterministic/i);
+  }
+  const conquer = evidence.interactions[1];
+  assert.ok(conquer.ruleRefs.includes("312.1.b.1"));
+  assert.ok(conquer.ruleRefs.includes("359.3.e.13"));
+  assert.ok(conquer.timeline.some(line => line.includes("A then B receive Priority")));
+  assert.ok(conquer.productionAssertions.some(name => name.includes("mistargeted") || name.includes("cannot bind")));
 });
 
 test("Rumble, Hotheaded: the permanent ability is a friendly-Mech Assault 1 grant", () => {
@@ -202,7 +247,7 @@ test("Rumble, Hotheaded: the recycle is one non-target leading base-cost choice"
   }]);
 });
 
-test("Rumble, Hotheaded golden: accepting reaches real Conquer Finalize, which rejects Board recycle atomically", () => {
+test("Rumble, Hotheaded production golden: accepting Conquer Finalize recycles the Board unit and prompts for the Mech target", () => {
   const { kernel, flow, requests } = productionConquer(true);
   const conquer = flow.chain.pipeline.events.filter((event) => event.timingPoint === "conquer");
   assert.equal(conquer.length, 1);
@@ -218,16 +263,47 @@ test("Rumble, Hotheaded golden: accepting reaches real Conquer Finalize, which r
   ]);
   assert.deepEqual(requests[1].options.map((ref) => ref.id), ["trash-mech"]);
   assert.deepEqual(requests[2].options.map((ref) => ref.id), ["fodder"]);
-  assert.equal(flow.chain.pipeline.events.some((event) => event.timingPoint === "became-target"), false);
-  assert.ok(flow.chain.trace.some((entry) =>
-    entry.step === "removed" && entry.item === "trigger:1" && entry.reason === "unperformable-trigger"));
-  assert.equal(kernel.getObject("fodder").zone, "board");
+  assert.deepEqual(
+    flow.chain.pipeline.events.filter((event) => event.timingPoint === "became-target").map(event => event.target.ref.id),
+    ["trash-mech"],
+    "the play target is a target; the recycle cost choice is not"
+  );
+  assert.ok(flow.chain.trace.some((entry) => entry.step === "finalized" && entry.item === "trigger:1"));
+  assert.equal(flow.chain.trace.some(entry =>
+    entry.step === "removed" && entry.item === "trigger:1" && entry.reason === "unperformable-trigger"), false);
+
+  const trace = flow.chain.trace;
+  const showdownOpen = trace.findIndex(entry => entry.timingPoint === "showdown-open");
+  const firstFocus = trace.findIndex(entry => entry.step === "focus-granted" && entry.player === "A");
+  const firstFocusPass = trace.findIndex(entry => entry.step === "focus-pass" && entry.player === "A");
+  const secondFocus = trace.findIndex(entry => entry.step === "focus-granted" && entry.player === "B");
+  const secondFocusPass = trace.findIndex(entry => entry.step === "focus-pass" && entry.player === "B");
+  const showdownClose = trace.findIndex(entry => entry.timingPoint === "showdown-close");
+  const conquerEvent = trace.findIndex(entry => entry.timingPoint === "conquer");
+  const pending = trace.findIndex(entry => entry.item === "trigger:1" && entry.step === "pending");
+  const finalized = trace.findIndex(entry => entry.item === "trigger:1" && entry.step === "finalized");
+  const priorityA = trace.findIndex((entry, index) => index > finalized && entry.step === "pass" && entry.player === "A");
+  const priorityB = trace.findIndex((entry, index) => index > priorityA && entry.step === "pass" && entry.player === "B");
+  const resolve = trace.findIndex(entry => entry.item === "trigger:1" && entry.step === "resolve-start");
+  assert.ok(showdownOpen >= 0 && showdownOpen < firstFocus && firstFocus < firstFocusPass);
+  assert.ok(firstFocusPass < secondFocus && secondFocus < secondFocusPass && secondFocusPass < showdownClose);
+  assert.ok(showdownClose < conquerEvent && conquerEvent < pending && pending < finalized);
+  assert.ok(finalized < priorityA && priorityA < priorityB && priorityB < resolve,
+    "A then B must pass after Finalize and before Resolve; Focus is not a bypass");
+  assert.equal(kernel.getObject("fodder").zone, "deck");
+  assert.deepEqual(kernel.zone("A", "deck").at(-1), kernel.ref("fodder"));
   assert.equal(kernel.getObject("trash-mech").zone, "trash");
+  // The test flow pays its two starting runes into the pool, and the recycle
+  // trigger has no Energy resource cost. The blocked play never charges the
+  // Mech's reduced, non-zero cost.
   assert.equal(kernel.player("A").energy, 0);
 });
 
-test("Rumble, Hotheaded: cost payment rejects a Board Unit recycle as this card requires", () => {
-  const kernel = world().player("A").unit("fodder", { controller: "A", might: 3 }).build();
+test("Rumble, Hotheaded: cost payment accepts the friend's Board recycle and rejects an enemy Board Unit", () => {
+  const kernel = world().player("A").player("B")
+    .unit("fodder", { owner: "A", controller: "A", might: 3 })
+    .unit("enemy", { owner: "B", controller: "B", might: 3 })
+    .build();
   const context = kernel.clone({
     source: kernel.ref("fodder"),
     sourceSnapshot: kernel.getObject("fodder"),
@@ -238,34 +314,88 @@ test("Rumble, Hotheaded: cost payment rejects a Board Unit recycle as this card 
     cost: { kind: "explicit", payments: [{ kind: "recycle", object: "self" }] }
   });
   const assessed = assessCostPayment(context, plan);
-  assert.equal(assessed.payable, false);
-  assert.equal(assessed.error.reason, "cannot-pay-cost");
-  assert.match(assessed.error.message, /A recycle cost requires an owned card in Trash or a Rune in the Rune Zone/);
+  assert.equal(assessed.payable, true);
+  assert.equal(assessed.prepared.actions.at(-1).action.type, "recycle");
   assert.equal(kernel.getObject("fodder").zone, "board");
+
+  const enemyPlan = buildCostPlan(context, {
+    id: "rumble.enemy-board-recycle",
+    cost: { kind: "explicit", payments: [{ kind: "recycle", object: kernel.ref("enemy") }] }
+  });
+  const enemy = assessCostPayment(context, enemyPlan);
+  assert.equal(enemy.payable, false);
+  assert.equal(enemy.error.reason, "cannot-pay-cost");
+  assert.equal(kernel.getObject("enemy").zone, "board");
 });
 
-test("Rumble, Hotheaded: adapter Resolve cannot read the removed leading cost's selected Unit", () => {
+test("Rumble, Hotheaded: the registered Resolve body cannot bind the chosen object or Might from the Finalize receipt", () => {
   const kernel = world()
     .player("A", { energy: 5 })
     .unit("rumble", { cardId: CANONICAL, tags: ["Mech"], might: 4 })
     .unit("fodder", { controller: "A", might: 3 })
     .card("trash-mech", { zone: "trash", types: ["unit"], tags: ["Mech"], energy: 5, power: null })
     .build();
+  const lifted = { ...program, status: "executable", judgeReason: undefined };
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const [registration] = triggerRegistrations(
+    new ProgramRegistry([lifted]),
+    kernel.getObject("rumble")
+  );
+  assert.ok(registration);
+  assert.equal(registration.cost?.id, "cost:rumble:1:rumble.opt-in");
+  const engine = new ChainEngine({
+    host: createActionPipelineHost({
+      checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+      restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+      objects: () => kernel.objects,
+      perform: action => kernel.perform(action),
+      choose: request => { throw new Error(`Unexpected choice ${request.id}`); },
+      context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+    }),
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    cleanup: () => false
+  });
+  assert.deepEqual(binding.registerProgramTriggers(engine, kernel.getObject("rumble")), ["program:rumble:1:1"]);
+  // Leading-choice Finalize removes the payment instruction and its direct
+  // linkedTo gate from the body actually registered for Resolve.
+  const registeredBody = registration.body;
+  assert.deepEqual(registeredBody.map(instruction => instruction.id), [
+    "rumble.mech-cost",
+    "rumble.play-mech"
+  ]);
+  assert.equal(recycleCost.id, "rumble.recycle-cost");
+
   kernel.setTargets("rumble.mech-in-trash", [kernel.ref("trash-mech")]);
-  assert.throws(() => resolveChainBody([cost], bindResolveContext(kernel, {
-    source: kernel.getObject("rumble"), controller: "A"
+  const outcome = resolveChainBody(registeredBody, bindResolveContext(kernel, {
+    source: kernel.getObject("rumble"), controller: "A", timingPoint: "chain-item-resolve"
   }), {
     cost: {
       plan: {
-        finalized: true, id: "cost:rumble", player: "A", source: kernel.ref("rumble"),
-        selectedAdditional: [], declinedAdditional: [], additional: [], total: { choices: [] }
+        finalized: true,
+        id: "cost:rumble:1:rumble.opt-in",
+        player: "A",
+        source: kernel.ref("rumble"),
+        selectedAdditional: [],
+        declinedAdditional: [],
+        total: { energy: 0, power: [], xp: 0, actions: [], choices: [
+          { id: "rumble.fodder", kind: "recycle", min: 1, max: 1, count: 1, objects: [kernel.ref("fodder")] }
+        ] }
       },
       receipt: {
-        planId: "cost:rumble", paid: true, additional: [],
-        total: { choices: [{ id: "rumble.fodder", objects: [kernel.ref("fodder")] }] }
+        planId: "cost:rumble:1:rumble.opt-in",
+        paid: true,
+        additional: [],
+        total: { energy: 0, power: [], xp: 0, actions: [], choices: [
+          { id: "rumble.fodder", kind: "recycle", min: 1, max: 1, count: 1, objects: [kernel.ref("fodder")] }
+        ] }
       }
     }
-  }), /Unknown or forward instruction link: rumble\.recycle-cost/);
+  });
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status, entry.result.reason]), [
+    ["rumble.mech-cost", "ignored", "mistargeted"],
+    ["rumble.play-mech", "ignored", "linked-ignored"]
+  ]);
   assert.equal(kernel.getObject("trash-mech").zone, "trash");
   assert.equal(kernel.getObject("fodder").zone, "board");
 });
