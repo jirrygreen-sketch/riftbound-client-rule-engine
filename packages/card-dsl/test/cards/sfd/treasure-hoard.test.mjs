@@ -69,9 +69,9 @@ const OFFICIAL_EVIDENCE = Object.freeze({
         "LKI is not needed for the trigger condition; the emitted conquer payload identifies the exact battlefield."
       ]),
       productionAssertions: Object.freeze([
-        "production boundary: default createMatch and MatchCommandAdapter leave Treasure Hoard on Chain and register no trigger",
-        "production boundary: explicit Board establishment registers one exact trigger, and repeated attachment is idempotent",
-        "here matcher: a concrete battlefield location fires only for the same field; a null-location self anchor currently fails closed"
+        "default createMatch places the selected Battlefield on Board at its own Location",
+        "production MatchCommandAdapter binds one exact Board trigger, and repeated attachment is idempotent",
+        "here matcher: a Battlefield with null location self-anchors by ObjectRef id; another field still fails closed"
       ]),
       priorityFocus: "The card defines no numeric priority. Once Conquer creates the Pending trigger, the ordinary Chain grants Priority and any Showdown Focus by CR 311-313; the card adds no timing permission.",
       responseWindow: "A legal Reaction may be played in the ordinary Execute step while the triggered ability remains on the Chain (CR 338.1.a.2). No special response window is invented for this card.",
@@ -88,12 +88,12 @@ const OFFICIAL_EVIDENCE = Object.freeze({
         "Play/Pending: Conquer creates the triggered ability as a Pending Item.",
         "Finalize: the leading may is selected, then the printed one Energy is paid; declining or an unpayable cost removes the trigger without a free Gold.",
         "Resolve: effect.token would create Gold on the Chain and play it to the controller's Base, entering exhausted.",
-        "Current fail-closed boundary: Gold creation is negated before Resolve completes its effect because the Gold ability binding and Universal Power Add remain incomplete."
+        "Current fail-closed boundary: Finalize pays one Energy, then Resolve negates Gold creation because the token definition intentionally blocks an intrinsic Add [A] that the resource contract cannot represent."
       ]),
       productionAssertions: Object.freeze([
         "production golden: accepted Finalize emits exactly one pay event and reduces Energy before the resolved Gold receipt is blocked",
         "production counterexamples: declining and insufficient-Energy cases pay nothing and create no substitute Token",
-        "Gold boundary: the token definition is blocked and an admitted Gold program still rejects its [rainbow] Add shape"
+        "Gold boundary: the token definition is blocked and an admitted exact-body Gold program still rejects its [rainbow] Add shape"
       ]),
       priorityFocus: "CR 383.3.a makes the leading may a Finalize decision. Paying the one Energy follows CR 405.1; CR 430.2.a is not applicable to this Energy payment, and this card cannot pass Priority or Focus during Finalize.",
       responseWindow: "Other players respond to the finalized triggered ability through the ordinary Chain (CR 338.1.a.2). The optional payment itself creates no separate response window.",
@@ -290,12 +290,9 @@ test("sfd-220-221 Treasure Hoard: validates, is registered and names the current
   assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
   assert.match(program.judgeReason, /135\.2\.e\.5\.b/);
   assert.match(program.judgeReason, /仍无生产 Add 路径/);
-  assert.match(program.judgeReason, /133\.6\.a\.1/);
-  assert.match(program.judgeReason, /game\/lifecycle\.ts:250-258,382-385/);
-  assert.match(program.judgeReason, /Chain 区/);
-  assert.match(program.judgeReason, /events\/pipeline-match\.ts:17-23,34-37,89-94/);
-  assert.match(program.judgeReason, /199\.1/);
-  assert.match(program.judgeReason, /自锚/);
+  assert.match(program.judgeReason, /默认 Match.*Board/);
+  assert.match(program.judgeReason, /RIFT-973/);
+  assert.match(program.judgeReason, /ObjectRef 自锚/);
   assert.match(program.judgeReason, /entersExhausted/);
   assert.match(program.judgeReason, /Finalize/);
   assert.equal(goldProgram.status, "judge-required");
@@ -305,6 +302,9 @@ test("sfd-220-221 Treasure Hoard: validates, is registered and names the current
   assert.doesNotMatch(program.judgeReason, /Unsupported filter field here/);
   assert.doesNotMatch(program.judgeReason, /entry overrides? are not supported/i);
   assert.doesNotMatch(program.judgeReason, /Gold.*absent from the frozen/i);
+  assert.doesNotMatch(program.judgeReason, /game\/lifecycle\.ts:250-258/);
+  assert.doesNotMatch(program.judgeReason, /events\/pipeline-match\.ts/);
+  assert.doesNotMatch(program.judgeReason, /显式生产 move-zone/);
 });
 
 test("sfd-220-221 Treasure Hoard: official CR, Radiance, SFD and processing evidence is pinned", () => {
@@ -341,7 +341,7 @@ test("sfd-220-221 Treasure Hoard: official CR, Radiance, SFD and processing evid
     "Play/Pending: Conquer creates the triggered ability as a Pending Item.",
     "Finalize: the leading may is selected, then the printed one Energy is paid; declining or an unpayable cost removes the trigger without a free Gold.",
     "Resolve: effect.token would create Gold on the Chain and play it to the controller's Base, entering exhausted.",
-    "Current fail-closed boundary: Gold creation is negated before Resolve completes its effect because the Gold ability binding and Universal Power Add remain incomplete."
+    "Current fail-closed boundary: Finalize pays one Energy, then Resolve negates Gold creation because the token definition intentionally blocks an intrinsic Add [A] that the resource contract cannot represent."
   ]);
 });
 
@@ -369,7 +369,7 @@ test("sfd-220-221 Treasure Hoard: optional Conquer, one Energy, Gold play and ex
   assert.equal(playGold.args.locations, undefined);
 });
 
-test("sfd-220-221 Treasure Hoard: here matches an explicit field location but not a Battlefield's self anchor", () => {
+test("sfd-220-221 Treasure Hoard: here matches the source Battlefield by explicit location and null-location self anchor", () => {
   const source = world().player("A").unit("hoard-card", {
     types: ["battlefield"],
     location: { type: "battlefield", id: "bf1" }
@@ -396,8 +396,8 @@ test("sfd-220-221 Treasure Hoard: here matches an explicit field location but no
   assert.equal(matchesTriggerEvent(translated, { ...conquer("bf1"), details: {} }, "A", source), false);
 
   // CR v1.5 199.1: a Battlefield is also the Game Object at its own Location.
-  // A normal match object has a null location and anchors `here` by its own
-  // ObjectRef id; this missing production behavior must fail closed.
+  // A setup carrier can expose a null location, so `here` must anchor it by its
+  // own ObjectRef id. The different-field branch above remains fail-closed.
   const selfLocated = world().player("A").object("hoard-card", {
     cardId: CANONICAL,
     types: ["battlefield"],
@@ -405,7 +405,8 @@ test("sfd-220-221 Treasure Hoard: here matches an explicit field location but no
     location: null
   }).build().getObject("hoard-card");
   const selfConquer = { ...conquer(selfLocated.ref.id), object: selfLocated };
-  assert.equal(matchesTriggerEvent(translated, selfConquer, "A", selfLocated), false);
+  assert.equal(matchesTriggerEvent(translated, selfConquer, "A", selfLocated), true);
+  assert.equal(matchesTriggerEvent(translated, { ...selfConquer, details: { battlefieldId: "bf1" } }, "A", selfLocated), false);
 });
 
 test("sfd-220-221 Treasure Hoard production golden: Finalize pays one Energy, then Gold fails closed before creation", () => {
@@ -522,7 +523,7 @@ test("sfd-220-221 Treasure Hoard production counterexample: conquering another b
   assert.deepEqual(f.kernel.objects.filter((object) => object.isToken), []);
 });
 
-test("sfd-220-221 Treasure Hoard production boundary: default setup and MatchCommandAdapter remain blocked until the Battlefield is established on Board", () => {
+test("sfd-220-221 Treasure Hoard production boundary: default setup and MatchCommandAdapter bind the Board Battlefield exactly once", () => {
   const kernel = world().player("A").player("B").build();
   const choose = (request) => {
     throw new Error(`Match setup made an unexpected choice ${request.type} ${request.id}`);
@@ -551,63 +552,46 @@ test("sfd-220-221 Treasure Hoard production boundary: default setup and MatchCom
     programs: binding,
     battlefieldChoice: [0, 0]
   });
-  const lifecycleErrors = [];
-  let lifecycle = binding.attachLifecycle(match.flow.chain, (error) => lifecycleErrors.push(error));
-
   const battlefield = match.setup.battlefields.find((entry) => entry.cardId === "sfd-220-221");
   assert.ok(battlefield);
   const source = kernel.getObject(battlefield.id);
   assert.equal(source.cardId, CANONICAL);
-  assert.equal(source.zone, "chain");
-  assert.equal(source.location, null);
+  assert.equal(source.zone, "board");
+  assert.deepEqual(source.location, { type: "battlefield", id: battlefield.id });
+  assert.equal(source.ref.id, battlefield.id);
   assert.equal(source.isToken, true);
   assert.deepEqual(source.types, ["battlefield"]);
-  // The default setup path creates the Battlefield in Chain through the host.
-  // RIFT-959 makes a later lifecycle attachment scan established setup
-  // Battlefields, but it cannot manufacture the CR 133.6.a.1 Board transition.
-  assert.deepEqual(
-    match.flow.chain.pipeline.events.filter((event) => event.object?.cardId === CANONICAL),
-    []
-  );
 
   const registrations = () => [...match.flow.chain.pipeline.checkpoint().triggers.values()]
     .filter((registration) => registration.source.cardId === CANONICAL);
   assert.deepEqual(registrations(), []);
-  assert.deepEqual(lifecycleErrors, []);
-  lifecycle.detach();
+  assert.equal(source.location.id, source.ref.id, "the default setup Battlefield is its own Location");
 
   // The public MatchCommandAdapter is the default player-command lifecycle
-  // owner. It must not turn the Chain-zone setup carrier into a trigger source.
+  // owner. Its attach must discover the already established setup Battlefield
+  // without a test-side Chain-to-Board migration or a manual registration.
   const adapter = createMatchCommandAdapter({ match, stateVersion: 0 });
   try {
-    assert.deepEqual(registrations(), []);
-    assert.deepEqual(lifecycleErrors, []);
+    const errors = [];
+    assert.deepEqual(
+      registrations().map((registration) => [registration.id, registration.source.ref, registration.source.zone]),
+      [[`program:${source.ref.id}:${source.ref.zoneEntryId}:0`, source.ref, "board"]]
+    );
+    assert.deepEqual(registrations()[0].spec, {
+      at: "conquer",
+      filter: {
+        event: "conquer",
+        here: true,
+        player: "self"
+      }
+    });
+    const repeated = binding.attachLifecycle(match.flow.chain, (error) => errors.push(error));
+    assert.equal(registrations().length, 1);
+    repeated.detach();
+    assert.equal(registrations().length, 1);
+    assert.deepEqual(errors, []);
   } finally {
     adapter.detach();
   }
-
-  // This is the production migration required at setup. The lifecycle attaches
-  // to the exact new Board incarnation and binds the original Treasure Hoard
-  // trigger; repeated attachment stays idempotent.
-  const established = match.flow.chain.commit({
-    type: "move-zone",
-    object: source.ref,
-    to: "board",
-    location: { type: "battlefield", id: battlefield.id }
-  });
-  assert.equal(established.status, "done");
-  const boardSource = kernel.getObject(battlefield.id);
-  assert.equal(boardSource.zone, "board");
-  assert.deepEqual(boardSource.location, { type: "battlefield", id: battlefield.id });
-  assert.notDeepEqual(boardSource.ref, source.ref);
-  lifecycle = binding.attachLifecycle(match.flow.chain, (error) => lifecycleErrors.push(error));
-  assert.deepEqual(
-    registrations().map((registration) => [registration.id, registration.source.ref, registration.source.zone]),
-    [[`program:${boardSource.ref.id}:${boardSource.ref.zoneEntryId}:0`, boardSource.ref, "board"]]
-  );
-  const repeated = binding.attachLifecycle(match.flow.chain, (error) => lifecycleErrors.push(error));
-  assert.equal(registrations().length, 1);
-  repeated.detach();
-  assert.equal(registrations().length, 1);
-  lifecycle.detach();
+  assert.deepEqual(registrations(), []);
 });
