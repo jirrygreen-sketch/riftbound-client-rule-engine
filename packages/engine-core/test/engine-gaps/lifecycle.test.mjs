@@ -248,11 +248,9 @@ test('Rune Deck replacement matching uses the active zone and leaves unrelated p
 
 test('a registered judge-required Board program blocks through the real lifecycle hook', () => {
   for (const [id, cardId, patterns] of [
-    ['judge', rumbleHotheaded.canonicalCardId, [
-      /cost\/payment\.ts:92-94/,
-      /effects\/interpreter\.ts:207-210/,
-      /unperformable-trigger/,
-    ]],
+    // The blocking error carries the card's current judgeReason verbatim; pin
+    // that authoritative text rather than file:line fragments of an older audit.
+    ['judge', rumbleHotheaded.canonicalCardId, [rumbleHotheaded.judgeReason]],
   ]) {
     const f = runtime(world().player('A').player('B').unit(id, { cardId, types: ['unit'] }), [rumbleHotheaded],
       undefined, error => { throw error; });
@@ -260,7 +258,11 @@ test('a registered judge-required Board program blocks through the real lifecycl
     const events = f.engine.pipeline.events.length;
     assert.equal(rumbleHotheaded.status, 'judge-required');
     assert.throws(() => f.engine.commit({ type: 'kill', object: ref }), error => {
-      for (const pattern of patterns) assert.match(error.message, pattern);
+      for (const expected of patterns) {
+        assert.equal(typeof expected, 'string');
+        assert.ok(expected.length > 0);
+        assert.ok(error.message.includes(expected), `blocking error carries the judgeReason: ${error.message}`);
+      }
       return true;
     });
     assert.deepEqual(f.kernel.ref(id), ref, 'the blocked source keeps its exact incarnation');
