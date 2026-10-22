@@ -107,6 +107,7 @@ test("Rumble, Hotheaded: validates, is registered, and records the Finalize rece
   assert.match(program.judgeReason, /mistargeted/);
   assert.match(program.judgeReason, /linked-ignored/);
   assert.match(program.judgeReason, /支付前 Might/);
+  assert.doesNotMatch(program.judgeReason, /CostPlan.*没有顶层|conquer.*恒不匹配|Unsupported filter field role/);
   assert.doesNotMatch(program.judgeReason, /cost\/payment\.ts:92-94/);
   assert.doesNotMatch(program.judgeReason, /Unknown or forward instruction link/);
 });
