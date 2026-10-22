@@ -226,15 +226,31 @@ export class GameRoom {
       roster: [rosterSeat(seats[0]!), rosterSeat(seats[1]!)] };
   }
 
-  private engineRuntimeOptions(seats: readonly Seat[] = [...this.seats.values()]) {
+  private engineRuntimeOptions(
+    seats: readonly Seat[] = [...this.seats.values()],
+    journalBattlefieldChoice?: readonly [number | null, number | null] | null
+  ) {
     if (!this.catalog || seats.length !== 2 || seats.some(seat => !seat.ready || !seat.deck)) {
       throw new RoomError("对局缺少已确认的双方牌组", "invalid-deck");
     }
     const catalog = this.constructedRegion ? catalogForConstructedRegion(this.catalog, this.constructedRegion) : this.catalog;
     const runtimeSeats = seats.map((seat, index) => ({ playerId: index === 0 ? "A" : "B", name: seat.name }));
     const decks = seats.map(seat => this.engineDeck(seat, catalog)) as [EngineRuntimeDeck, EngineRuntimeDeck];
+    const battlefieldChoice = journalBattlefieldChoice === null
+      ? undefined
+      : journalBattlefieldChoice ?? [this.duelRandomIndex(3), this.duelRandomIndex(3)] as const;
+    const selectedBattlefields = battlefieldChoice === undefined ? [] : decks.flatMap((deck, index) => {
+      const choice = battlefieldChoice[index];
+      // The setup lifecycle owns this same validation. Check here first so a bad
+      // server RNG cannot produce a program collection from a different field.
+      if (choice === undefined || choice === null) return [];
+      if (!Number.isInteger(choice) || choice < 0 || choice > 2) {
+        throw new RoomError("Battlefield selection must be 0, 1 or 2", "command-rejected");
+      }
+      return [deck.battlefields[choice]!];
+    });
     const deckPrograms = [...new Set(decks.flatMap(deck => [
-      ...deck.mainDeck, deck.championLegend, deck.chosenChampion,
+      ...deck.mainDeck, deck.championLegend, deck.chosenChampion, ...selectedBattlefields,
     ].map(card => card.cardId).filter((id): id is string => typeof id === "string")))]
       .flatMap(cardId => {
         const program = cardProgramsById.get(cardId);
@@ -251,6 +267,12 @@ export class GameRoom {
       decks,
       seed: this.roomId,
       catalogDigest: catalog.publicCatalog.digest,
+      ...(battlefieldChoice === undefined ? {} : {
+        battlefieldChoice: [
+          battlefieldChoice[0] ?? undefined,
+          battlefieldChoice[1] ?? undefined,
+        ] as const,
+      }),
       ...(deckPrograms.length > 0 ? { programs: deckPrograms } : {}),
     } as const;
   }
@@ -555,8 +577,9 @@ export class GameRoom {
     // Reopening the server loads that protected head; it must never be rolled back here.
     const validatedRuntime = this.runtimeMode === "legacy-p4" && duel
       ? CurrentDuelRuntime.restore(this.runtimeOptions(copy.seats), duel) : null;
+    const restoredBattlefieldChoice = engineJournal?.header.setup?.battlefieldChoice ?? null;
     const validatedEngineRuntime = this.runtimeMode === "engine-v2" && engineJournal
-      ? createEngineRuntime(this.engineRuntimeOptions(copy.seats)).restore(engineJournal) : null;
+      ? createEngineRuntime(this.engineRuntimeOptions(copy.seats, restoredBattlefieldChoice)).restore(engineJournal) : null;
     const restoredRuntime = this.duelRuntime?.isDurable ? this.duelRuntime : validatedRuntime;
     this.seats.clear();
     for (const seat of copy.seats) this.seats.set(seat.id, seat);
