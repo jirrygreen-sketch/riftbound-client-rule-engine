@@ -27,6 +27,63 @@ const SOURCE_TEXT =
   "Your Mechs have [Deflect] and [Ganking]. (Opponents must pay :rb_rune_rainbow: to choose us with a spell or ability. We can move from battlefield to battlefield.)\n" +
   "I enter ready if you control another Mech.";
 
+// Frozen official evidence for this card's production assertions. These are
+// source identities, not runtime network lookups: the official snapshots were
+// fetched and hash-recorded in shared/rules/official-order/source-snapshots.json.
+const OFFICIAL_EVIDENCE = Object.freeze({
+  canonicalCardId: CARD_ID,
+  coreRules: Object.freeze({
+    version: "1.5",
+    published: "2026-10-09",
+    effective: "2026-10-16",
+    url: "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+  }),
+  radianceRulings: Object.freeze({
+    published: "2026-10-09",
+    effective: "2026-10-16",
+    url: "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+    result: "checked: no Breakneck Mech ruling changes the CR v1.5 rule treatment above",
+  }),
+  spiritforgedErrata: Object.freeze({
+    url: "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/",
+    result: "checked: Spiritforged errata contains no Breakneck Mech correction",
+  }),
+});
+
+const PRODUCTION_EVIDENCE = Object.freeze({
+  entryReplacement: Object.freeze({
+    canonicalCardId: CARD_ID,
+    rules: Object.freeze(["143.4", "359.2.c", "369.3", "370.1.b", "805.6"]),
+    timeline: Object.freeze(["Play", "Chain Finalize", "Move to Board", "entry-orientation replacement", "no extra object-readied"]),
+    regression: "breakneck-mech production: another Mech makes it enter ready and activates Deflect/Ganking only for friendly Mechs",
+  }),
+  deflect: Object.freeze({
+    canonicalCardId: CARD_ID,
+    rules: Object.freeze(["809.1.c", "809.1.c.1", "809.1.d"]),
+    timeline: Object.freeze(["opponent cast", "Finalize locks target", "append any-Domain Power", "atomic payment", "Resolve"]),
+    regression: "breakneck-mech production: opponent-targeting a friendly Mech pays the granted Deflect as any-domain Power",
+  }),
+  ganking: Object.freeze({
+    canonicalCardId: CARD_ID,
+    rules: Object.freeze(["144.4.c.1", "810.1.c"]),
+    timeline: Object.freeze(["continuous-layer re-expansion", "Standard Move legality read", "battlefield-to-battlefield move", "exhaust"]),
+    regression: "breakneck-mech production: granted Ganking permits a real Battlefield-to-Battlefield Standard Move",
+  }),
+  mechTagScope: Object.freeze({
+    canonicalCardId: CARD_ID,
+    rules: Object.freeze(["133.3.a", "133.8"]),
+    timeline: Object.freeze(["source becomes active", "grant reads source-relative tag", "non-Unit Mech receives grants", "controller/type exclusions rechecked"]),
+    regression: "breakneck-mech production: another Mech makes it enter ready and activates Deflect/Ganking only for friendly Mechs",
+  }),
+});
+
+function assertProductionEvidence(entry) {
+  assert.equal(entry.canonicalCardId, CARD_ID);
+  assert.ok(entry.rules.length > 0);
+  assert.ok(entry.timeline.length > 0);
+  assert.ok(entry.regression.length > 0);
+}
+
 const [grant, enterReady] = program.abilities;
 
 /** Pipeline host over the reference kernel, as engine-core's chain tests build it. */
@@ -107,6 +164,18 @@ test("breakneck-mech program is registered and validates", () => {
 
 test("breakneck-mech no longer carries an obsolete judge-required reason", () => {
   assert.equal(Object.hasOwn(program, "judgeReason"), false);
+});
+
+test("breakneck-mech evidence: official sources and production timelines are complete", () => {
+  assert.equal(OFFICIAL_EVIDENCE.canonicalCardId, CARD_ID);
+  assert.equal(OFFICIAL_EVIDENCE.coreRules.version, "1.5");
+  assert.equal(OFFICIAL_EVIDENCE.coreRules.published, "2026-10-09");
+  assert.match(OFFICIAL_EVIDENCE.coreRules.url, /^https:\/\//);
+  assert.equal(OFFICIAL_EVIDENCE.radianceRulings.effective, "2026-10-16");
+  assert.match(OFFICIAL_EVIDENCE.radianceRulings.result, /no Breakneck Mech ruling/);
+  assert.match(OFFICIAL_EVIDENCE.spiritforgedErrata.result, /no Breakneck Mech correction/);
+  assert.deepEqual(Object.keys(PRODUCTION_EVIDENCE), ["entryReplacement", "deflect", "ganking", "mechTagScope"]);
+  for (const entry of Object.values(PRODUCTION_EVIDENCE)) assertProductionEvidence(entry);
 });
 
 test("breakneck-mech structure: static grant + enter-ready replacement", () => {
@@ -388,6 +457,8 @@ function playBreakneck(options) {
 }
 
 test("breakneck-mech production: another Mech makes it enter ready and activates Deflect/Ganking only for friendly Mechs", () => {
+  assertProductionEvidence(PRODUCTION_EVIDENCE.entryReplacement);
+  assertProductionEvidence(PRODUCTION_EVIDENCE.mechTagScope);
   const { f, draft } = playBreakneck({ controlsTaggedGear: true });
   const entered = f.kernel.getObject("breakneck");
   assert.equal(draft.speed, "normal");
@@ -406,6 +477,14 @@ test("breakneck-mech production: another Mech makes it enter ready and activates
   assert.equal(nonMech.movement.canGank, false);
   assert.deepEqual(nonMech.keywords, []);
   assert.deepEqual(enemy.keywords, []);
+  const lifecycle = f.engine.pipeline.events
+    .filter(event => event.object?.ref.id === "breakneck")
+    .map(event => event.timingPoint);
+  for (const timingPoint of ["object-enters-chain", "chain-item-pending", "chain-item-finalize", "object-enters-board", "chain-item-resolve"]) {
+    assert.ok(lifecycle.includes(timingPoint), `production lifecycle includes ${timingPoint}`);
+  }
+  assert.ok(lifecycle.indexOf("chain-item-finalize") < lifecycle.indexOf("object-enters-board"));
+  assert.ok(lifecycle.indexOf("object-enters-board") < lifecycle.indexOf("chain-item-resolve"));
   assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "object-enters-board" && event.object?.ref.id === "breakneck"), true);
   assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "object-readied" && event.object?.ref.id === "breakneck"), false);
   assert.deepEqual(f.requests, [], "the replacement and static grant add no player choices");
@@ -420,6 +499,7 @@ test("breakneck-mech production: without another friendly Mech it enters exhaust
 });
 
 test("breakneck-mech production: opponent-targeting a friendly Mech pays the granted Deflect as any-domain Power", () => {
+  assertProductionEvidence(PRODUCTION_EVIDENCE.deflect);
   const inspect = productionPlay({
     programs: [program, defiantDance],
     answers: {
@@ -466,13 +546,18 @@ test("breakneck-mech production: opponent-targeting a friendly Mech pays the gra
   ]);
   assert.equal(inspect.kernel.player("B").energy, 19);
   assert.deepEqual(inspect.kernel.player("B").power, [], "one Calm paid the printed cost and one paid Deflect");
+  assert.equal(inspect.engine.pipeline.events.some(event => event.timingPoint === "chain-item-finalize" && event.object?.ref.id === "dance"), true);
+  assert.equal(inspect.engine.pipeline.events.some(event => event.timingPoint === "became-target" && event.target?.ref.id === "other-mech"), true);
+  assert.equal(inspect.engine.pipeline.events.some(event => event.timingPoint === "chain-item-resolve" && event.object?.ref.id === "dance"), false);
 
   inspect.settle();
+  assert.equal(inspect.engine.pipeline.events.some(event => event.timingPoint === "chain-item-resolve" && event.object?.ref.id === "dance"), true);
   assert.equal(inspect.might("other-mech"), 5, "+2 applied to the targeted Mech");
   assert.equal(inspect.might("ally-non-mech"), 1, "-2 applied to the other targeted non-Mech");
 });
 
 test("breakneck-mech production: granted Ganking permits a real Battlefield-to-Battlefield Standard Move", () => {
+  assertProductionEvidence(PRODUCTION_EVIDENCE.ganking);
   const { f } = playBreakneck();
   const mover = f.kernel.getObject("other-mech");
   assert.equal(mover.zone, "board");
