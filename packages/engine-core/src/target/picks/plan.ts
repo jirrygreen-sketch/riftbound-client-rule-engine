@@ -116,6 +116,20 @@ function isLinkedExpression(value: unknown): value is NonNullable<PickSpec["link
 }
 
 /**
+ * A target selector in the existing options vocabulary. Unlike a static option,
+ * this reads the complete TargetPlan locked during this item's Finalize.
+ */
+export function targetPickSource(spec: PickSpec): string | undefined {
+  if (!Array.isArray(spec.options) || spec.options.length !== 1) return undefined;
+  const selector = spec.options[0];
+  if (!isRecord(selector) || Object.keys(selector).length !== 2 ||
+      selector.kind !== "target" || typeof selector.id !== "string" || selector.id.length === 0) {
+    return undefined;
+  }
+  return selector.id;
+}
+
+/**
  * Original card IR spells a linked Resolve source as the sole option, for
  * example `options: [{ kind: "linked-value", instructionId, key }]`. Keep that
  * spelling distinct from ordinary static options and from the later explicit
@@ -153,6 +167,9 @@ function assertPick(spec: PickSpec): void {
       "invalid-pick",
       `${spec.id} linked options must be the sole source; zoneSlice/linked/exclude cannot also be declared`
     );
+  }
+  if (targetPickSource(spec) !== undefined && (own(spec, "zoneSlice") || own(spec, "linked") || own(spec, "exclude"))) {
+    throw new PickSelectionError("invalid-pick", "A target source must be the sole source");
   }
 }
 
@@ -221,6 +238,12 @@ function sourceValues(context: ResolveContext, spec: PickSpec, options: PickCand
   if (spec.linked !== undefined) return evaluateResult(context, spec.linked, spec.id);
   const linkedOption = linkedPickExpression(spec);
   if (linkedOption !== undefined) return evaluateResult(context, linkedOption, spec.id);
+  const target = targetPickSource(spec);
+  if (target !== undefined) {
+    const refs = context.targets(target);
+    if (refs.length === 0) throw new PickSelectionError("missing-source", `${spec.id} target is unavailable`);
+    return refs.map(copyValue);
+  }
   if (options.source !== undefined) return options.source.map(copyValue);
   if (spec.zoneSlice !== undefined) {
     throw new PickSelectionError("missing-source", `${spec.id} requires a Finalize zoneSlice binding`);
