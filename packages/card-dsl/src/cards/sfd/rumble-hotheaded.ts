@@ -3,68 +3,50 @@ import type { CardProgram } from "../../ir/index.js";
 /**
  * Rumble, Hotheaded (sfd-026-221) — Rumble SFD precon unit (chosen champion).
  *
- * Your Mechs each have [Assault]. (+1 [M] while they're attackers.)
+ * Your Mechs each have [Assault]. (+1 [M] while we're attackers.)
  * When I conquer, you may recycle another friendly unit to play a Mech from
  * your trash. Reduce its Energy cost by the Might of the unit you recycled.
  *
- * Ability 1 is a static ability-layer grant: every friendly Mech gains the
- * Assault keyword (CR v1.5 807, valued, default 1 per 807.1.b.3).
- * continuous.grant-keyword and the Assault keyword expansion are both merged,
- * and the default static binder registers the aura for real. The merged
- * KeywordGrantLayerEngine now also consumes a runtime Assault and maps its
- * designation condition to combatRole; production lifecycle wiring remains
- * separate from that re-expander.
+ * The permanent grant is a real ability-layer keyword grant (CR v1.5 807).
+ * The conquer event is the source Unit's own event (383.4.c / 383.4.c.2.a).
+ * The leading "you may recycle ... to play ..." is a triggered-ability base
+ * cost within instructions, so it is represented by one leading
+ * choice.optional whose first instruction is cost.pay (204.1.c, 383.3.a/b.1,
+ * and 404.1.b.1). The recycle is a non-target cost choice, not a target
+ * (355.10.c.1). Its selected unit's current Might feeds the discounted play
+ * cost.
  *
- * Ability 2 triggers when this unit conquers (timing point "conquer", which
- * turn/flow.ts emits in the Score wave). The recycle instruction still has a
- * blocked target declaration: as a "to" cost it must instead make a non-target
- * choice (355.10.c.1). effect.recycle links recycled refs and their count. The play
- * instruction then computes a cost plan and plays a Mech from the controller's
- * trash. The merged cost.modify / cost.pay path really computes the discount (measured: base
- * energy 5, a 3-Might recycled unit yields plan.base.energy=5,
- * plan.discounts=[{amount:3,before:5,after:2}], plan.total.energy=2), but the
- * complete CostPlan has no flat top-level `energy` field, so effect.play's
- * finalized override is read as cost.energy ?? 0 (chain/engine.ts) and pays
- * silently zero. The missing piece is a CostPlan -> flat finalized-override
- * conversion primitive, not the discount calculation itself.
- *
- * Current review (re-checked 2026-10-18):
- * CR 383.4.c / 383.4.c.2.a: "When I conquer" requires this unit at the scored
- * battlefield; the conquer producer emits only { player, details: {
- * battlefieldId } }, so a source:self anchor cannot be evaluated (measured: the
- * registered spec is { event: "conquered", object: { objectId: <this card> } }
- * and never matches a real conquer emission).
- * CR 355.10.c.1: the recycled unit is a non-target cost within an instruction.
- * The programs translation layer rejects both relative anchors the printed
- * wording needs ("another friendly unit"): role:other-friendly and exclude:self
- * are measured "Unsupported filter field role/exclude" failures even though the
- * IR anchors exist. An explicit base=5 + linked-Might reduce modifier executes
- * for real (see above), so the discount math is available; only the plan-shape
- * conversion is missing.
+ * Current status: judge-required. The production leading-choice adapter lifts
+ * the recycle choice into Finalize and the real trigger pipeline selects the
+ * correct non-target friendly Unit. Two production links remain blocked:
+ * (1) cost/payment.ts:92-94 limits a `recycle` cost to an owned card in Trash
+ * or a Rune in the Rune Zone, while CR 417 permits recycling this specified
+ * Board Unit; (2) after the adapter removes the paid instruction from Resolve,
+ * effects/interpreter.ts:207-210 still requires cost.modify's `linkedTo` to
+ * name an earlier instruction in the current body, so the Finalize receipt is
+ * not reachable and the trigger is removed as unperformable. The selected
+ * Unit's pre-move Might/LKI must travel with that receipt so the same
+ * Finalize transaction can build the discounted play cost. Moving recycle to
+ * Resolve would be the wrong timing. The conquer payload and primitive
+ * cost/play operations themselves are covered by production regressions.
  */
 export default {
   canonicalCardId: "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处当前缺口，均不近似实现（复核 2026-10-18）：" +
-    "(1)「Your Mechs each have [Assault]」的 continuous.grant-keyword 静态登记已真实生效；KeywordGrantLayerEngine 还能把运行时授予的 Assault 展开成" +
-    "attacker-only Might，并把 designation 映射到 combatRole。production lifecycle 仍使用普通 LayerEngine，" +
-    "不会在真实 card-program 路径中自动采用该 re-expander，但 Assault 规则消费本身已有独立执行证据。" +
-    "(2)「When I conquer」（383.4.c/383.4.c.2.a）的触发已改用封闭判别值 conquered + source:self，可注册且通过 trigger-spec 校验，" +
-    "但 turn/flow.ts 的 Score wave 只发 { player, details: { battlefieldId } }，没有本单位 object，" +
-    "events/pipeline-match.ts 的 matchesTriggerObject 对 undefined object 仅在过滤器为空时命中，实测真实 conquer 发射恒不匹配，无法判定本单位在被征服战场。" +
-    "(3) 回收作为「to」费用依 355.10.c.1 不应是目标：印文的「another friendly unit」需要相对锚（除本单位外），" +
-    "当前 role:other-friendly 键被程序绑定 fail-closed 拒绝（实测 \"Unsupported filter field role\"），" +
-    "IR 的 exclude 锚虽已存在，但 programs/filters.ts 的 translateObjectFilter 同样拒绝该键（实测 \"Unsupported filter field exclude\"）。" +
-    "(4) cost.modify/cost.pay 均已合入且减费计算真实可执行（实测 explicit base=5、被回收单位 Might=3 时 " +
-    "plan.base.energy=5、plan.discounts=[{amount:3,before:5,after:2}]、plan.total.energy=2）；" +
-    "但完整 CostPlan 没有顶层扁平 energy 字段，effect.play 的 finalized 费用覆盖被 chain/engine.ts 按 " +
-    "cost.energy ?? 0 读取，静默支付 0 费（实测 A 的能量保持 10）。缺的是完整 CostPlan 到扁平 " +
-    "finalized override 的转换原语，不是减费运算本身；effect.recycle 也只链接 recycled 引用与 recycledCount，" +
-    "不写 recycledMight 键，取 Might 需按引用自行求值。" +
-    "依赖：production lifecycle 对运行时关键词 re-expander 的接线、conquer 发射的场地/对象身份、回收的非目标选择器，" +
-    "以及 CostPlan → 扁平 finalized 费用覆盖的转换原语。",
+    "两处当前缺口，不近似实现（复核 2026-10-21）：「When I conquer, you may recycle another friendly unit to play a Mech from your trash. " +
+    "Reduce its Energy cost by the Might of the unit you recycled」的开头是触发能力的可选指令内基础费用。" +
+    "卡牌已按 204.1.c / 383.3.a / 383.3.b.1 / 404.1.b.1 写成 leading choice.optional + cost.pay；" +
+    "recycle 依 355.10.c.1 是非目标费用选择。真实 TurnFlow Conquer 后，Finalize 正确提供并选择另一名友方单位，" +
+    "但 cost/payment.ts:92-94 把 recycle 费用限制为 Trash 中的拥有者卡牌或 Rune Zone 中的 Rune，" +
+    "因此 Board 上的该单位被 cannot-pay-cost 拒绝，触发以 unperformable-trigger 移除并原子回滚。" +
+    "另外，adapter 已把费用指令从 Resolve body 移除，但 effects/interpreter.ts:207-210 仍要求 cost.modify 的 linkedTo " +
+    "指向当前 body 的前序指令，实测抛 \"Unknown or forward instruction link: rumble.recycle-cost\"；" +
+    "支付检查通过后，还必须在单位离开 Board 前保留其 Might/LKI，在同一 Finalize 计划中生成减费后的 effect.play cost。" +
+    "conquer 的 object/source/it payload 已由 turn/flow.ts:159-163 " +
+    "发出并被 pipeline-match.ts:95-96 消费；continuous.grant-keyword 与 Assault re-expander 已存在，独立 attacker Might 正例可执行。" +
+    "剩余缺的是 Board recycle 费用支付、leading cost receipt 的 Resolve link 与非目标费用对象的 pre-move Might/LKI 绑定，而非 CostPlan 形状或 conquer payload。",
   abilities: [
     {
       kind: "static",
@@ -84,94 +66,127 @@ export default {
       kind: "triggered",
       trigger: {
         at: "conquer",
-        // 383.4.c.2.a: this Unit's own Conquer Ability. The closed
-        // EventPattern discriminant for the conquer timing point is
-        // "conquered" (EVENT_PATTERN_TYPES; pipeline-match maps it to conquer),
-        // and the object anchor is this card. The runtime emission still carries
-        // only { player, details: { battlefieldId } }, so the anchor cannot match
-        // yet (judgeReason).
-        filter: { event: "conquered", filter: { source: "self" } }
+        // 383.4.c.2.a: this Unit's own Conquer Ability. objectId:self is the
+        // engine-valid symbol the production trigger translator binds to the
+        // exact source incarnation; the real Score wave carries object/source/it.
+        filter: { event: "conquered", object: { objectId: "self" } }
       },
-      optional: true,
+      // The decision belongs to Finalize (383.3.a), represented by the leading
+      // choice.optional below rather than a scan-time optional registration.
+      optional: false,
       body: [
         {
-          id: "rumble.recycle-fodder",
-          op: "effect.recycle",
+          id: "rumble.opt-in",
+          op: "choice.optional",
           args: {
-            target: { kind: "constant", value: "rumble.fodder" }
-          },
-          targets: [
-            {
-              id: "rumble.fodder",
-              filter: {
-                zone: "board",
-                controller: "controller",
-                type: "unit",
-                role: "other-friendly"
-              },
-              min: 1,
-              max: 1,
-              selection: "one"
-            }
-          ]
-        },
-        {
-          id: "rumble.mech-cost",
-          op: "cost.modify",
-          linkedTo: "rumble.recycle-fodder",
-          args: {
-            id: { kind: "constant", value: "rumble.mech-cost" },
-            cost: {
+            prompt: {
               kind: "constant",
-              value: {
-                kind: "explicit",
-                energy: {
-                  kind: "object-property",
-                  object: { target: "rumble.mech-in-trash" },
-                  property: "energy"
-                }
-              }
+              value: "Recycle another friendly unit to play a Mech from your trash?"
             },
-            modifier: {
+            body: {
               kind: "constant",
-              value: {
-                kind: "reduce",
-                resource: "energy",
-                amount: {
-                  kind: "object-property",
-                  object: { linked: "rumble.recycle-fodder" },
-                  property: "might"
+              value: [
+                {
+                  id: "rumble.recycle-cost",
+                  // 383.3.b.1: the first cost within instructions is the base
+                  // cost and must be paid while finalizing the trigger.
+                  op: "cost.pay",
+                  args: {
+                    payments: {
+                      kind: "constant",
+                      value: [
+                        {
+                          kind: "recycle",
+                          // 355.10.c.1: the recycled unit is a non-target cost
+                          // choice. "another" is a relation to this source.
+                          choice: {
+                            id: "rumble.fodder",
+                            options: [],
+                            filter: {
+                              zone: "board",
+                              controller: "controller",
+                              type: "unit",
+                              relation: { relation: "other", object: "self" }
+                            },
+                            min: 1,
+                            max: 1,
+                            selection: "one"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  id: "rumble.mech-cost",
+                  op: "cost.modify",
+                  linkedTo: "rumble.recycle-cost",
+                  args: {
+                    id: { kind: "constant", value: "rumble.mech-cost" },
+                    cost: {
+                      kind: "constant",
+                      value: {
+                        kind: "explicit",
+                        energy: {
+                          kind: "object-property",
+                          object: { target: "rumble.mech-in-trash" },
+                          property: "energy"
+                        }
+                      }
+                    },
+                    modifier: {
+                      kind: "constant",
+                      value: {
+                        kind: "reduce",
+                        resource: "energy",
+                        // This reads the selected recycle-cost object's LKI
+                        // through the leading payment receipt. The current
+                        // interpreter cannot resolve the removed linkedTo yet.
+                        amount: {
+                          kind: "object-property",
+                          object: { linked: "rumble.recycle-cost" },
+                          property: "might"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  id: "rumble.play-mech",
+                  op: "effect.play",
+                  linkedTo: "rumble.mech-cost",
+                  args: {
+                    target: { kind: "constant", value: "rumble.mech-in-trash" },
+                    cost: {
+                      kind: "linked-value",
+                      instructionId: "rumble.mech-cost",
+                      key: "cost"
+                    }
+                  },
+                  targets: [
+                    {
+                      id: "rumble.mech-in-trash",
+                      filter: {
+                        zone: "trash",
+                        owner: "controller",
+                        tag: "Mech",
+                        type: "unit"
+                      },
+                      min: 1,
+                      max: 1,
+                      selection: "one"
+                    }
+                  ]
                 }
-              }
+              ]
             }
           }
-        },
-        {
-          id: "rumble.play-mech",
-          op: "effect.play",
-          linkedTo: "rumble.mech-cost",
-          args: {
-            target: { kind: "constant", value: "rumble.mech-in-trash" },
-            cost: { kind: "linked-value", instructionId: "rumble.mech-cost", key: "cost" }
-          },
-          targets: [
-            {
-              id: "rumble.mech-in-trash",
-              filter: {
-                zone: "trash",
-                owner: "controller",
-                tag: "Mech",
-                type: "unit"
-              },
-              min: 1,
-              max: 1,
-              selection: "one"
-            }
-          ]
         }
       ]
     }
   ],
   sourceText:
-    "Your Mechs each have [Assault]. (+1 :rb_might: while we're attackers.)\nWhen I conquer, you may recycle another friendly unit to play a Mech from your trash. Reduce its Energy cost by the Might of the unit you recycled."
+    "Your Mechs each have [Assault]. (+1 :rb_might: while we're attackers.)\n" +
+    "When I conquer, you may recycle another friendly unit to play a Mech from your trash. " +
+    "Reduce its Energy cost by the Might of the unit you recycled."
 } satisfies CardProgram;
