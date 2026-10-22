@@ -42,40 +42,58 @@ const OFFICIAL_EVIDENCE = Object.freeze({
 });
 
 const EVIDENCE_TIMELINES = Object.freeze({
-  printedResolution: Object.freeze([
-    "setup / establish Battlefield",
-    "conquer Score wave",
-    "Pending Conquer trigger",
-    "Finalize optional decision and 1 Energy cost",
-    "Resolve draw",
-  ]),
-  effectiveMight: Object.freeze([
-    "frozen participating Units",
-    "current layered Might",
-    "condition true at 5+",
-    "Pending Conquer trigger",
-    "Finalize",
-    "Resolve",
-  ]),
-  opponentConquer: Object.freeze([
-    "A initially controls Battlefield",
-    "B conquers and control changes",
-    "B becomes Battlefield ability controller",
-    "Pending",
-    "Finalize",
-    "Resolve for B",
-  ]),
+  printedResolution: Object.freeze({
+    productionTest: "sunken-temple: lifecycle-bound single-Mighty golden pays then draws after the real Score wave",
+    timeline: Object.freeze([
+      "setup / establish Battlefield",
+      "conquer Score wave",
+      "Pending Conquer trigger",
+      "Finalize optional decision and 1 Energy cost",
+      "Resolve draw",
+    ]),
+  }),
+  effectiveMight: Object.freeze({
+    productionTest: "sunken-temple: current layered Might of 5 satisfies Mighty and executes once",
+    timeline: Object.freeze([
+      "frozen participating Units",
+      "current layered Might",
+      "condition true at 5+",
+      "Pending Conquer trigger",
+      "Finalize",
+      "Resolve",
+    ]),
+  }),
+  opponentConquer: Object.freeze({
+    productionTest: "sunken-temple: current controller conquers and receives the Finalize/Resolve path",
+    timeline: Object.freeze([
+      "A initially controls Battlefield",
+      "B conquers and control changes",
+      "B becomes Battlefield ability controller",
+      "Pending",
+      "Finalize",
+      "Resolve for B",
+    ]),
+  }),
   simultaneousTriggers: Object.freeze({
     applicable: false,
+    productionTest: "sunken-temple: one Score wave collects exactly one trigger for multiple Mighty Units",
+    observedTriggerCount: 1,
     reason: "Sunken Temple contributes one trigger to this Score; CR 383.3.d ordering is not needed to resolve the card",
   }),
-  replacedPoint: Object.freeze([
-    "Conquer",
-    "Score point gain replaced by Draw",
-    "Conquer Effect still Pending",
-    "Finalize and pay",
-    "resolve the paid Draw",
-  ]),
+  priorityResponse: Object.freeze({
+    productionTest: "sunken-temple: lifecycle-bound single-Mighty golden pays then draws after the real Score wave",
+    timeline: Object.freeze(["Pending", "Finalize", "A pass", "B pass", "Resolve"]),
+  }),
+  replacedPoint: Object.freeze({
+    productionTest: "sunken-temple: a replaced point gain preserves the Conquer trigger and its real draw",
+    timeline: Object.freeze([
+      "Conquer",
+      "Score point gain replaced by Draw",
+      "Conquer Effect still Pending",
+      "Finalize and pay",
+      "resolve the paid Draw",
+    ]),
+  }),
 });
 
 const deckCard = (id, type) => ({
@@ -206,14 +224,14 @@ test("sunken-temple: official CR/SFD/Radiance evidence is pinned to the complete
   assert.deepEqual(OFFICIAL_EVIDENCE.rules.scoreOnce, ["472", "473.2.c"]);
   assert.deepEqual(OFFICIAL_EVIDENCE.rules.mighty, ["706", "708", "710"]);
   assert.deepEqual(OFFICIAL_EVIDENCE.rules.layerDependency, ["478.1", "479.4.e.1.a"]);
-  assert.deepEqual(EVIDENCE_TIMELINES.printedResolution, [
+  assert.deepEqual(EVIDENCE_TIMELINES.printedResolution.timeline, [
     "setup / establish Battlefield",
     "conquer Score wave",
     "Pending Conquer trigger",
     "Finalize optional decision and 1 Energy cost",
     "Resolve draw",
   ]);
-  assert.deepEqual(EVIDENCE_TIMELINES.effectiveMight, [
+  assert.deepEqual(EVIDENCE_TIMELINES.effectiveMight.timeline, [
     "frozen participating Units",
     "current layered Might",
     "condition true at 5+",
@@ -221,7 +239,7 @@ test("sunken-temple: official CR/SFD/Radiance evidence is pinned to the complete
     "Finalize",
     "Resolve",
   ]);
-  assert.deepEqual(EVIDENCE_TIMELINES.opponentConquer, [
+  assert.deepEqual(EVIDENCE_TIMELINES.opponentConquer.timeline, [
     "A initially controls Battlefield",
     "B conquers and control changes",
     "B becomes Battlefield ability controller",
@@ -231,9 +249,18 @@ test("sunken-temple: official CR/SFD/Radiance evidence is pinned to the complete
   ]);
   assert.deepEqual(EVIDENCE_TIMELINES.simultaneousTriggers, {
     applicable: false,
+    productionTest: "sunken-temple: one Score wave collects exactly one trigger for multiple Mighty Units",
+    observedTriggerCount: 1,
     reason: "Sunken Temple contributes one trigger to this Score; CR 383.3.d ordering is not needed to resolve the card",
   });
-  assert.deepEqual(EVIDENCE_TIMELINES.replacedPoint, [
+  assert.deepEqual(EVIDENCE_TIMELINES.priorityResponse.timeline, [
+    "Pending",
+    "Finalize",
+    "A pass",
+    "B pass",
+    "Resolve",
+  ]);
+  assert.deepEqual(EVIDENCE_TIMELINES.replacedPoint.timeline, [
     "Conquer",
     "Score point gain replaced by Draw",
     "Conquer Effect still Pending",
@@ -498,11 +525,13 @@ test("sunken-temple: Battlefield setup is not complete before the host enters th
 });
 
 test("sunken-temple: official evidence timelines name the executable production assertions", () => {
-  assert.equal(EVIDENCE_TIMELINES.printedResolution.length, 5);
-  assert.equal(EVIDENCE_TIMELINES.effectiveMight.length, 6);
-  assert.equal(EVIDENCE_TIMELINES.opponentConquer.length, 6);
+  assert.equal(EVIDENCE_TIMELINES.printedResolution.timeline.length, 5);
+  assert.equal(EVIDENCE_TIMELINES.effectiveMight.timeline.length, 6);
+  assert.equal(EVIDENCE_TIMELINES.opponentConquer.timeline.length, 6);
   assert.equal(EVIDENCE_TIMELINES.simultaneousTriggers.applicable, false);
-  assert.equal(EVIDENCE_TIMELINES.replacedPoint.length, 5);
+  assert.equal(EVIDENCE_TIMELINES.simultaneousTriggers.observedTriggerCount, 1);
+  assert.equal(EVIDENCE_TIMELINES.priorityResponse.timeline.length, 5);
+  assert.equal(EVIDENCE_TIMELINES.replacedPoint.timeline.length, 5);
   assert.match(CORE_RULES_URL, /5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94\.pdf$/);
   assert.match(RADIANCE_URL, /effective-october-16-2026/);
   assert.match(SFD_ERRATA_URL, /spiritforged-errata/);
