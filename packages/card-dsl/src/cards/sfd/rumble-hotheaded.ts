@@ -26,9 +26,10 @@ import type { CardProgram } from "../../ir/index.js";
  * Its dependency check misses the nested `object-property -> { linked }`
  * selector, so cost.modify reaches Resolve and its discount expression cannot
  * resolve `rumble.recycle-cost` through interpreter.ts. The Chain does pass
- * the plan/receipt as opaque `options.cost`, but no expression or instruction
- * reads the matching receipt choice. A receipt is also only a list of
- * ObjectRefs (cost/plan-types.ts); it does not carry the chosen Unit's
+ * the plan/receipt as opaque `options.cost`, but its receipt-aware predicate
+ * can only answer boolean `condition.result` checks. No ObjectSelector or
+ * value Expr binds the matching receipt choice. A receipt is also only a list
+ * of ObjectRefs (cost/plan-types.ts); it does not carry the chosen Unit's
  * pre-payment Might snapshot. The interpreter would therefore need an explicit
  * bridge that freezes that value before the recycle and exposes it to the
  * same Resolve body. Moving the recycle to Resolve would violate 383.3.b.1.
@@ -50,7 +51,8 @@ export default {
     "剩余缺口是 Finalize 收据进入 Resolve 的桥：programs/trigger-adapters/leading-choice.ts:29-44 只识别 linked/linked-value Expr，" +
     "漏掉 cost.modify 深层 object-property.object.linked，并在 :41-44 删除支付门禁后没有把被移除 cost.pay 的 receipt 以 " +
     "rumble.recycle-cost 暴露给当前 body；chain/engine.ts:1243-1249 虽把 plan/receipt 作为 options.cost 传入，" +
-    "effects/interpreter.ts:173-180 的 linked 求值路径不读取该 receipt。" +
+    "effects/interpreter/predicates/result.ts:5-8 的 condition.result 只能做布尔判断，没有把 choices[] 中的对象或 Might " +
+    "绑定成 ObjectSelector / 数值 Expr 的路径，effects/interpreter.ts:173-180 的 linked 求值路径也不读取该 receipt。" +
     "实测生产注册 body 在 Resolve 得到 cost.modify=mistargeted、effect.play=linked-ignored，Mech 留在 Trash。" +
     "即使补上收据映射，cost/plan-types.ts:59-66 的 CostChoiceReceipt 只含 ObjectRef，不含支付前 Might；" +
     "对象已回主牌库后，effects/interpreter/selectors.ts:77-80 只有在 canLookBack 时读 lastKnown，而费用支付不经解释器 perform 登记该 look-back。" +

@@ -270,7 +270,7 @@ test("Rumble, Hotheaded: cost payment accepts the friend's Board recycle and rej
   assert.equal(kernel.getObject("enemy").zone, "board");
 });
 
-test("Rumble, Hotheaded: the registered Resolve body cannot access the removed leading cost receipt", () => {
+test("Rumble, Hotheaded: the registered Resolve body cannot bind the chosen object or Might from the Finalize receipt", () => {
   const kernel = world()
     .player("A", { energy: 5 })
     .unit("rumble", { cardId: CANONICAL, tags: ["Mech"], might: 4 })
