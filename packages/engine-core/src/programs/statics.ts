@@ -299,12 +299,18 @@ function installKeywordReexpansion(engine: ChainEngine): void {
     if (!id.startsWith('program-keyword:') && !id.startsWith('program-keyword-capability:')) syncView();
     return removed;
   }) as typeof engine.layers.removeContinuous;
-  const advance = engine.layers.advance.bind(engine.layers);
-  engine.layers.advance = ((event: import('../layers/types.js').TimingEvent) => {
-    const expired = advance(event);
-    if (event.id === 'turn-end' || event.id === 'combat-end') syncView();
+  // TurnPhaseLayers.expireTurn() calls LayerEngine's parent implementation
+  // directly, bypassing any wrapper on layers.advance(). The shared registry
+  // is nevertheless reached by both Ending Step and Expiration paths, so sync
+  // after the actual expiry operation rather than after a particular subclass
+  // dispatch. This keeps "this turn" grants alive through the Ending Step and
+  // revokes their derived movement rules only when expireTurn() removes them.
+  const expireAt = effectRegistry.expireAt.bind(effectRegistry);
+  effectRegistry.expireAt = ((event, object) => {
+    const expired = expireAt(event, object);
+    if (expired.some(id => !id.startsWith('program-keyword:'))) syncView();
     return expired;
-  }) as typeof engine.layers.advance;
+  }) as typeof effectRegistry.expireAt;
   const detach = () => {
     for (const binding of lifecycleRegistry.values()) unregister(binding.ids);
     for (const id of installedIds) if (pipeline.hasTriggerRegistration(id)) pipeline.unregisterTrigger(id);

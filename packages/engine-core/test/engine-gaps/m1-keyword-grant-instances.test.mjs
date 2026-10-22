@@ -22,6 +22,7 @@ import { ChainEngine } from '../../dist/chain/engine.js';
 import { bindResolveContext, createActionPipelineHost } from '../../dist/events/action-adapter.js';
 import { movement } from '../../dist/layers/rules/query.js';
 import { createProgramBinding } from '../../dist/programs/index.js';
+import { TurnPhaseLayers } from '../../dist/turn/phase-layers.js';
 import { moveDuelUnitsStandard } from '../../dist/zones/movement.js';
 import { duelWorld, mainTiming, readinessFor } from '../rules/movement/support.mjs';
 import forecaster from '../../../card-dsl/dist/cards/sfd/forecaster.js';
@@ -29,7 +30,7 @@ import gemJammer from '../../../card-dsl/dist/cards/sfd/gem-jammer.js';
 
 const admitted = program => ({ ...program, status: 'executable', judgeReason: undefined });
 
-function runtime(builder, programs = [], answers = {}) {
+function runtime(builder, programs = [], answers = {}, options = {}) {
   const kernel = builder.build();
   const answerMap = new Map(Object.entries(answers));
   const asked = [];
@@ -58,8 +59,10 @@ function runtime(builder, programs = [], answers = {}) {
     context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
   });
   const binding = createProgramBinding({ cardPrograms: programs.map(admitted) });
+  const layers = options.turnPhaseLayers === true ? new TurnPhaseLayers(kernel.objects) : undefined;
   const engine = new ChainEngine({
     turnOrder: ['A', 'B'], turnPlayer: 'A', phase: 'main', host, cleanup: () => false,
+    ...(layers === undefined ? {} : { layers }),
     describePlay: binding.describePlay,
   });
   binding.attachLifecycle(engine, error => { throw error; });
@@ -81,7 +84,7 @@ function runtime(builder, programs = [], answers = {}) {
     settle();
   };
   const snapshot = id => { engine.layers.setObjects(kernel.objects); return engine.layers.evaluate(kernel.ref(id)); };
-  return { kernel, engine, binding, asked, settle, enter, snapshot };
+  return { kernel, engine, binding, asked, layers: engine.layers, settle, enter, snapshot };
 }
 
 function visionPrompts(asked) {
@@ -155,6 +158,7 @@ test('Gem Jammer Ganking expires with its derived Standard Move permission and p
       }),
     [gemJammer],
     { 'target:gem-jammer.unit': ['target'] },
+    { turnPhaseLayers: true },
   );
   assert.equal(f.engine.commit({
     type: 'play', object: f.kernel.ref('gem'), player: 'A', location: { type: 'base', player: 'A' },
@@ -174,11 +178,19 @@ test('Gem Jammer Ganking expires with its derived Standard Move permission and p
   assert.equal(moved.board.units.find(unit => unit.objectId === 'target').locationId, given.bf2);
 
   f.engine.emit({ timingPoint: 'turn-end', player: 'A' });
+  const ending = f.snapshot('target');
+  assert.deepEqual(ending.keywords.map(keyword => keyword.id), ['Ganking'],
+    'CR 317.1.a keeps the this-turn grant through the Ending Step');
+  assert.equal(movement(f.engine.layers.registry, ending.ref, ending, 'B').canGank, true);
+  const movementRules = () => f.engine.layers.registry.lifecycleRuleEffects().filter(entry =>
+    entry.effect.effect.kind === 'continuous.movement' && entry.effect.filter.objectId === 'target');
+  assert.equal(movementRules().length, 1, 'the Ending Step retains the derived permission');
+
+  assert.ok(f.layers.expireTurn('A').length > 0, 'the Expiration Step removes the grant');
   const expired = f.snapshot('target');
   assert.deepEqual(expired.keywords, []);
   assert.equal(movement(f.engine.layers.registry, expired.ref, expired, 'B').canGank, false);
-  assert.equal(f.engine.layers.registry.lifecycleRuleEffects().filter(entry =>
-    entry.effect.effect.kind === 'continuous.movement' && entry.effect.filter.objectId === 'target').length, 0);
+  assert.equal(movementRules().length, 0);
 
   const beforeBoard = structuredClone(moved.board);
   const beforeReadiness = readinessFor(moved.board);
