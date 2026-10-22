@@ -7,6 +7,11 @@
 //   5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
 // Jaull-Fish source and Accelerate keyword:
 //   packages/card-dsl/src/cards/sfd/jaull-fish.ts
+// canonicalCardId:
+//   card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732
+// Timeline: Hand Play -> chain-item-pending -> chain-item-finalize (freeze
+// cost plan and pay receipt) -> Resolve -> evidence-scoped Chain-to-Board
+// move -> the matching entry replacement or the default exhausted entry.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
