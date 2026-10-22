@@ -33,7 +33,7 @@ function card(id, types, extra = {}) {
   };
 }
 
-function deck({ prefix, minefieldIndex = 0, sameField = false }) {
+function deck({ prefix, withMinefield = false }) {
   const battlefieldId = `battlefield:${prefix}`;
   return {
     mainDeck: Array.from({ length: 16 }, (_, index) => card(`${prefix}:main:${index}`, ['unit'], {
@@ -49,9 +49,9 @@ function deck({ prefix, minefieldIndex = 0, sameField = false }) {
       canonicalCardId: `${prefix}:champion-card`, cardType: 'Champion',
     }),
     battlefields: Array.from({ length: 3 }, (_, index) => card(`${prefix}:battlefield:${index}`, ['battlefield'], {
-      cardId: sameField || index === minefieldIndex ? battlefieldId : `${battlefieldId}:${index}`,
-      canonicalCardId: index === minefieldIndex ? minefield.canonicalCardId : `${prefix}:battlefield-program:${index}`,
-      cardType: 'Battlefield', name: index === minefieldIndex ? 'Minefield' : `${prefix} field ${index}`,
+      cardId: withMinefield && index === 0 ? battlefieldId : `${battlefieldId}:${index}`,
+      canonicalCardId: withMinefield && index === 0 ? minefield.canonicalCardId : `${prefix}:battlefield-program:${index}`,
+      cardType: 'Battlefield', name: withMinefield && index === 0 ? 'Minefield' : `${prefix} field ${index}`,
     })),
   };
 }
@@ -93,30 +93,22 @@ function makeHost(builder) {
   return { kernel, host: pipeline, requests };
 }
 
-// createMatch currently records selected Battlefields but does not place their
-// objects into the Battlefield Zone. Keep that shared-lifecycle gap explicit:
-// this fixture advances only those selected setup tokens through the real host
-// port, then uses the public setup result for all game rules. The test does not
-// mutate the resulting Board controls or ability registrations by hand.
+// RIFT-954 requested setup-time Battlefield binding. The shared createMatch
+// lifecycle currently records the selected token but leaves it Pending on the
+// Chain; this explicit public transition is the only fixture-only placement
+// needed below. It does not install a program registration or alter control.
 function establishSelectedBattlefields(match, kernel) {
-  for (const [index, selected] of match.setup.battlefields.entries()) {
+  for (const selected of match.setup.battlefields) {
     const object = kernel.getObject(selected.id);
-    assert.equal(object.zone, 'chain', `selected setup Battlefield ${index} starts Pending`);
+    assert.equal(object.zone, 'chain');
     assert.equal(object.types.includes('battlefield'), true);
-    const outcome = match.flow.chain.commit({
-      type: 'move-zone',
-      object: object.ref,
-      to: 'board',
-      location: field(selected.id),
-    });
-    assert.equal(outcome.status, 'done');
-    const established = kernel.getObject(selected.id);
-    assert.equal(established.zone, 'board');
-    assert.deepEqual(established.location, field(selected.id));
+    assert.equal(match.flow.chain.commit({
+      type: 'move-zone', object: object.ref, to: 'board', location: field(selected.id),
+    }).status, 'done');
   }
 }
 
-function setup({ sameField = false } = {}) {
+function setup() {
   const made = makeHost(world().player('A').player('B'));
   const programs = new Map([
     [minefield.canonicalCardId, executableMinefield],
@@ -136,7 +128,7 @@ function setup({ sameField = false } = {}) {
   const binding = createProgramBinding({ cardPrograms: programs });
   const match = createMatch({
     host: made.host,
-    decks: [deck({ prefix: 'A' }), deck({ prefix: 'B', sameField })],
+    decks: [deck({ prefix: 'A', withMinefield: true }), deck({ prefix: 'B' })],
     programs: binding,
     seed: 'RIFT-959',
     battlefieldChoice: [0, 0],
