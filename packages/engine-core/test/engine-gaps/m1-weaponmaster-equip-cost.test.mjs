@@ -7,6 +7,19 @@ import { ChainEngine } from '../../dist/chain/engine.js';
 import { createProgramBinding } from '../../dist/programs/index.js';
 import { world } from '../../dist/effects/testing/index.js';
 
+// Rules evidence (CR v1.5, last updated 2026-10-09, effective 2026-10-16):
+// https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// CR 821.1.c.2-.5 and 725.3 bind the selected Equipment's Equip CostSpec;
+// 135.2.e.5/163.2.b distinguish original [A] from a named Domain. Official
+// Spiritforged errata contains the same Weaponmaster reminder text:
+// https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/
+// canonicalCardId: Veteran Poro card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7;
+// Lucian, Merciless card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef.
+// Timeline: real Play -> Chain Finalize locks the Equipment TargetSpec ->
+// card-played Pending trigger -> cost.modify reads Equip params.cost and
+// discounts original [A] -> cost.pay settles atomically -> Resolve attaches.
+
 const constant = value => ({ kind: 'constant', value });
 const CARD_ID = veteranPoro.canonicalCardId;
 const BASE = { type: 'base', player: 'A' };
@@ -52,7 +65,7 @@ function runtime({ energy = 10, power = ['Fury'], equipPower = 'any', equipAmoun
     turnOrder: ['A', 'B'], turnPlayer: 'A', phase: 'main', host, cleanup: () => false,
     describePlay: binding.describePlay,
   });
-  binding.attachLifecycle(engine, error => { throw error; });
+  binding.attachLifecycle(engine);
   const settle = () => {
     for (let guard = 0; engine.items.length; guard++) {
       if (guard > 50) throw new Error('Chain did not settle');
@@ -117,12 +130,12 @@ test('Weaponmaster accepts [A] provenance across all six domains instead of hard
   assert.deepEqual(f.kernel.getObject('equipment').attachedTo, f.kernel.getObject('poro').ref);
 });
 
-test('Weaponmaster never turns a named-domain Equip cost into an [A] discount', () => {
+test('Weaponmaster pays a named-domain Equip cost in full because it contains no [A] to reduce', () => {
   const f = runtime({ energy: 2, power: ['Fury'], equipPower: 'Fury', equipAmount: 1 });
-  assert.throws(f.play, /821\.1\.c\.3.*no \[A\] to reduce/);
+  f.play();
   assert.equal(f.kernel.player('A').energy, 0);
-  assert.deepEqual(f.kernel.player('A').power, ['Fury']);
-  assert.equal(f.kernel.getObject('equipment').attachedTo, null);
+  assert.deepEqual(f.kernel.player('A').power, [], 'the named-domain Equip cost was paid in full');
+  assert.deepEqual(f.kernel.getObject('equipment').attachedTo, f.kernel.getObject('poro').ref);
 });
 
 test('Weaponmaster reduces only the original [A] component of a mixed Equip cost', () => {
@@ -144,4 +157,33 @@ test('Weaponmaster reduces only the original [A] component of a mixed Equip cost
   assert.ok(payment);
   assert.deepEqual(payment.power, ['Body'], 'only the named-domain component remains after reducing [A]');
   assert.deepEqual(f.kernel.getObject('equipment').attachedTo, f.kernel.getObject('poro').ref);
+});
+
+test('Weaponmaster rejects a selected Equipment with no Equip ability without side effects', () => {
+  const f = runtime({ energy: 2, power: [] });
+  f.kernel.addObject({ ...f.kernel.getObject('equipment'), keywords: [] }, 'board');
+  const beforeEquipment = f.kernel.getObject('equipment');
+  const beforeLinks = f.kernel.linkedSnapshot();
+  assert.throws(f.play, error => /821\.1\.c\.4.*no Equip cost|missing authoritative Equip-cost binding/i.test(String(error?.message)));
+  assert.deepEqual(f.kernel.linkedSnapshot(), beforeLinks);
+  assert.equal(f.kernel.player('A').energy, 0);
+  assert.deepEqual(f.kernel.player('A').power, []);
+  assert.deepEqual(f.kernel.getObject('equipment').ref, beforeEquipment.ref);
+  assert.equal(f.kernel.getObject('equipment').attachedTo, null);
+  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === 'object-attached'), false);
+});
+
+test('Weaponmaster cannot source [A] from a six-domain array without symbol provenance', () => {
+  const sixDomains = ['Fury', 'Calm', 'Mind', 'Body', 'Chaos', 'Order'];
+  const f = runtime({ energy: 2, power: [], equipment: false, build: builder => builder.object('equipment', {
+    cardId: 'test:equipment', types: ['gear'], tags: ['Equipment'], zone: 'board', location: BASE,
+    energy: null, power: null, might: null,
+    keywords: [{ id: 'Equip', value: 1, params: { cost: {
+      kind: 'activated', payments: [{ kind: 'power', amount: constant(1), allowedDomains: sixDomains }]
+    } } }]
+  }) });
+  assert.throws(f.play, /ambiguous named Power domains/);
+  assert.equal(f.kernel.player('A').energy, 0);
+  assert.deepEqual(f.kernel.player('A').power, []);
+  assert.equal(f.kernel.getObject('equipment').attachedTo, null);
 });

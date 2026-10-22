@@ -325,10 +325,6 @@ function isPowerRequirement(value: unknown): value is IndexedEquipPowerRequireme
     typeof value.amount === "number" && typeof value.index === "number";
 }
 
-function isNormalizedEquipPayment(value: unknown): value is NormalizedEquipPayment {
-  return isRecord(value) && "payment" in value && (typeof value.order === "number" || value.order === null);
-}
-
 function expressionValue(value: unknown): unknown {
   return isRecord(value) && (value.kind === "constant" || value.kind === "literal") ? value.value : undefined;
 }
@@ -413,7 +409,7 @@ function normalizedEquipCost(cost: CostSpec): NormalizedEquipCost {
   const power = rawPayments.flatMap((payment) =>
     isPowerRequirement(payment) ? [payment] : []);
   const orderedPower = [...power.filter(entry => entry.universal), ...power.filter(entry => !entry.universal)];
-  const payments = rawPayments.map((payment): NormalizedEquipPayment => {
+  const payments: NormalizedEquipPayment[] = rawPayments.map((payment) => {
     if (!isPowerRequirement(payment)) return { payment, order: null };
     const order = orderedPower.findIndex(entry => entry.index === payment.index);
     if (order < 0) throw new Error("Normalized Power requirement lost its payment position");
@@ -467,22 +463,30 @@ const execute: InstructionDef<CostModifyArgs>["execute"] = (ctx, args): Instruct
         throw new CostPlanError("cannot-pay-cost", "Weaponmaster requires one current controlled Equipment target");
       }
       const equipCost = normalizedEquipCost(authoritativeEquipCost(equipment));
-      if (!equipCost.hasUniversalPower) {
-        throw new CostPlanError("cannot-pay-cost", `821.1.c.3: the Equip cost for ${equipment.ref.id} has no [A] to reduce`);
-      }
       const requestedModifiers = [...(args.modifier === undefined ? [] : [args.modifier]), ...(args.modifiers ?? [])];
       if (requestedModifiers.length !== 1 || requestedModifiers[0]?.kind !== "reduce-equip-cost") {
         throw new CostPlanError("invalid-cost-plan", "Weaponmaster source requires one reduce-equip-cost modifier");
       }
+      const modifier = requestedModifiers[0];
+      const amount = expressionValue(modifier.amount);
+      if (modifier.resource !== "power" || amount !== 1) {
+        throw new CostPlanError("invalid-cost-plan", "Weaponmaster reduces exactly one original [A] Power");
+      }
       const id = args.id ?? `weaponmaster:${ctx.source.ref.id}:${ctx.source.ref.zoneEntryId}:${equipment.ref.id}:${equipment.ref.zoneEntryId}:equip-cost`;
+      if (!equipCost.hasUniversalPower) {
+        const plan = buildCostPlan(ctx, { id, cost: equipCost.cost });
+        const key = args.linkKey ?? "cost";
+        ctx.link(key, plan as unknown as Value);
+        return { status: "executed", events: [], linkedValues: { [key]: plan as unknown as Value } };
+      }
       const normalized = modifiersToCostPlanInput({
         ...args,
         id,
-        modifier: requestedModifiers[0],
+        modifier,
         modifiers: undefined,
         domains: undefined,
         cost: equipCost.cost,
-        discountOrder: [requestedModifiers[0].id ?? `${id}:modifier:0`]
+        discountOrder: [modifier.id ?? `${id}:modifier:0`]
       }, true);
       const plan = buildCostPlan(ctx, {
         ...normalized,
