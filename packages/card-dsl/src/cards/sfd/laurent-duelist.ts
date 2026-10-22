@@ -6,38 +6,33 @@ import type { CardProgram } from "../../ir/index.js";
  * sourceText (packages/card-data/data/deck-catalog.json, sfd-156-221):
  *   [Assault 2] (+2 :rb_might: while I'm an attacker.)
  *
- * [Assault 2] 按契约 3.1 表示为带数值的 keyword 能力（807：攻击时 +2 [M]）。
- * 关键词展开（continuous.might 静态效果 + “我是攻击者”条件）由
- * effects/keywords/Assault.ts 负责，已合入并经 RIFT-257 的 expandProgram 解析
- * （golden 验证展开形状）。
+ * [Assault 2] is a declared keyword, not a card-local effect. The engine
+ * Assault KeywordDef expands it into a continuous arithmetic +2 Might effect,
+ * conditioned on the exact Unit's Attacker designation (CR 807.1.c/.d.1).
+ * CombatFlow establishes and removes that designation at CR 466.2.c.3 and
+ * 468.7.a; the ChainEngine's read-only combat-role projection makes the live
+ * static condition and layer path observe the same designation without
+ * mutating the authoritative host snapshot. ProgramBinding installs the
+ * expansion automatically when Laurent enters the Board.
  *
- * 仍缺（实测复核 2026-10-21）：Assault 的 designation 求值已接入默认表达式
- * 路径；一个 combatRole 已是 attacker 的独立快照经 createProgramBinding 与生产
- * createEngineStaticBinder 绑定后，Might 正确从印刷值 3 变为 5，defender/无角色
- * 保持 3。但真实 CombatFlow 把 designation 写入私有 combatRoles，并在
- * combat/flow.ts:196-200 构造角色视图；该视图没有成为 ChainEngine 的持久宿主
- * 视图。ChainEngine.pipeline.onEvent 在 chain/engine.ts:414-416 每次从
- * host.objects() 重置图层，而静态条件在 programs/static-adapters/model.ts:256-288
- * 也从同一 base host 重新读取 source。结果是 combat/flow.ts:289-304 虽已指定
- * attack/defender，flow.combat.snapshot(...).combatRole 为 attacker 时，默认图层
- * 求值仍是 3，攻击期间 +2 不生效。
- *
- * 依赖：engine-core 必须把 CombatFlow 的权威角色投影接入 LayerEngine 与静态条件
- * 的 source 视图（CR 466.2.c.3、807.1.d.1）。
+ * The Play/lifecycle, designation and layer path are executable, but the full
+ * damage path is not yet correct. CombatFlow returns an already-layered Might 5
+ * Unit, then transactions/damage.ts feeds that snapshot back into the same
+ * LayerEngine for currentMight evaluation. Assault applies a second time and
+ * the damage plan reports 7 where CR 467.2 requires 5. Keep the card fail-closed.
  */
 const laurentDuelist = {
   canonicalCardId: "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "实测（2026-10-21）Assault 的 KeywordDef（effects/keywords/Assault.ts，807.1.c）和 designation 默认求值已合入：" +
-    "combatRole=attacker 的独立源快照经 createProgramBinding + createEngineStaticBinder 从印刷 Might 3 得到 5，" +
-    "defender/无角色均为 3。剩余缺口在生产角色投影：CombatFlow 将 designation 保存在私有 combatRoles，并在 " +
-    "combat/flow.ts:196-200 通过 layerObjects() 派生角色视图，但 ChainEngine.pipeline.onEvent 在 " +
-    "chain/engine.ts:414-416 用 host.objects() 重置图层；静态条件在 programs/static-adapters/model.ts:256-288 " +
-    "也从同一 base host 重新读取 source。故 combat/flow.ts:289-304 已完成 attacker/defender 指定、" +
-    "flow.combat.snapshot(...).combatRole 为 attacker 时，默认图层仍算出 Might 3，+2 在真实攻击期间不生效。" +
-    "需由 engine-core 把 CombatFlow 的权威战斗角色投影接入静态条件与层对象视图（CR 466.2.c.3、807.1.d.1）。不近似实现。",
+    "整卡仍为 judge-required（2026-10-22 复核）：独立探针临时放行状态后，从手牌 Play 可完成 4 Energy 支付并自动安装 Assault 2，" +
+    "真实 CombatFlow 的 466.2.c.3 角色投影也使攻击者层快照为 5、防守者和非战斗为 3；但完整 Play/战斗路径进入 " +
+    "packages/engine-core/src/combat/transactions/damage.ts:166 的 currentMight 后，CombatFlow.units() 已层化的" +
+    "ObjectSnapshot（Might 5）被原样 setObjects 回同一 LayerEngine，第 167 行 evaluate 再次应用 Assault，" +
+    "prepareDamage()/damageView().attackerMight 实测为 7，而 CR 467.2 要求 current Might 5，违反 CR 478.2/478.4" +
+    "的一次应用语义。建议 engine-core owner 在 damage.ts 的 currentMight 与 106/167 行 Stunned lethal 读取处从 " +
+    "未层化 raw/host 输入重建层对象，或让 LayerEngine 从 printed 基线重算；不得在已层化结果上重放。正式 ProgramBinding 继续 fail-closed。",
   abilities: [{ kind: "keyword", keyword: "assault", value: 2 }],
   sourceText: "[Assault 2] (+2 :rb_might: while I'm an attacker.)"
 } satisfies CardProgram;
