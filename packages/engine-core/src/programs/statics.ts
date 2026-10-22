@@ -306,9 +306,9 @@ function installKeywordReexpansion(engine: ChainEngine): void {
   // dispatch. This keeps "this turn" grants alive through the Ending Step and
   // revokes their derived movement rules only when expireTurn() removes them.
   const expireAt = effectRegistry.expireAt.bind(effectRegistry);
-  effectRegistry.expireAt = ((event, object, syncExpiredView = true) => {
+  effectRegistry.expireAt = ((event, object) => {
     const expired = expireAt(event, object);
-    if (syncExpiredView && expired.some(id => !id.startsWith('program-keyword:'))) syncView();
+    if (expired.some(id => !id.startsWith('program-keyword:'))) syncView();
     return expired;
   }) as typeof effectRegistry.expireAt;
   const detach = () => {
