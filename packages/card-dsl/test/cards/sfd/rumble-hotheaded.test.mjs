@@ -11,12 +11,14 @@ import costModify from "../../../../engine-core/dist/effects/instructions/cost.m
 import keywordDef from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
 import recycleDef from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
 import playDef from "../../../../engine-core/dist/effects/instructions/effect.play.js";
+import { matchesObjectPredicates } from "../../../../engine-core/dist/effects/filters/predicates.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { assessCostPayment } from "../../../../engine-core/dist/cost/payment.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
 import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 
@@ -253,6 +255,32 @@ test("Rumble, Hotheaded: official effect-order evidence names the exact source, 
   assert.ok(conquer.productionAssertions.some((line) => /pre-move Might/u.test(line)));
 });
 
+test("Rumble, Hotheaded: the Trash Play target admits only a controller-owned Mech unit", () => {
+  assert.deepEqual(play.targets, [{
+    id: "rumble.mech-in-trash",
+    filter: { zone: "trash", owner: "controller", tag: "Mech", type: "unit" },
+    min: 1,
+    max: 1,
+    selection: "one",
+  }]);
+
+  const filter = translateObjectFilter(play.targets[0].filter);
+  const kernel = world().player("A").player("B")
+    .unit("rumble", { owner: "A", controller: "A", location: { type: "base", player: "A" } })
+    .card("trash-mech", { owner: "A", zone: "trash", types: ["unit"], tags: ["Mech"] })
+    .card("enemy-mech", { owner: "B", zone: "trash", types: ["unit"], tags: ["Mech"] })
+    .card("trash-spell", { owner: "A", zone: "trash", types: ["spell"], tags: ["Mech"] })
+    .build();
+  const source = kernel.getObject("rumble");
+  const eligible = (id) => matchesObjectPredicates(filter, kernel.getObject(id), {
+    controller: "A",
+    anchor: source,
+  });
+  assert.equal(eligible("trash-mech"), true);
+  assert.equal(eligible("enemy-mech"), false, "owner is controller-relative");
+  assert.equal(eligible("trash-spell"), false, "a Mech-tagged spell is not a unit");
+});
+
 test("Rumble, Hotheaded: the permanent grant covers friendly Mechs with Assault 1", () => {
   assert.deepEqual(grant, {
     kind: "static",
@@ -342,6 +370,12 @@ test("Rumble, Hotheaded production golden: Finalize recycles, receipt preserves 
   assert.equal(conquer.length, 1);
   assert.deepEqual(conquer[0].object.ref, kernel.ref("rumble"));
   assert.deepEqual(conquer[0].source.ref, kernel.ref("rumble"));
+  assert.deepEqual(conquer[0].details, {
+    battlefieldId: "bf1",
+    battlefieldControllerBefore: null,
+    objectId: "rumble",
+    playerId: "A",
+  });
 
   const finalize = requests.filter((request) => request.id === "finalize:trigger:1:optional");
   const target = requests.filter((request) => request.id === "target:rumble.mech-in-trash");
@@ -514,6 +548,7 @@ test("Rumble, Hotheaded: recycle, Might-valued reduction, payment and Trash Mech
   assert.equal(played.result.status, "executed");
   assert.equal(played.linked.played, 1);
   assert.equal(kernel.getObject("trash-mech").zone, "board");
+  assert.deepEqual(played.events.map((event) => event.action), ["pay", "play"]);
   assert.equal(kernel.getObject("trash-spell").zone, "trash");
 });
 
@@ -558,4 +593,79 @@ test("Rumble, Hotheaded production golden: Assault adds Might only to friendly M
   assert.equal(flow.chain.commit({ type: "move-zone", object: kernel.ref("rumble"), to: "hand" }).status, "done");
   flow.chain.advance();
   assert.deepEqual(evaluate("friendly-mech").keywords, []);
+});
+
+test("Rumble, Hotheaded static lifecycle: isolated Assault grant survives in layers and is cleared by detach", () => {
+  const kernel = world()
+    .hand("rumble", {
+      cardId: CANONICAL, owner: "A", types: ["unit"], tags: ["Mech"], might: 4,
+      combatRole: "attacker", energy: null, power: null,
+    })
+    .unit("friendly-mech", {
+      owner: "A", controller: "A", types: ["unit"], tags: ["Mech"], might: 3,
+      combatRole: "attacker", location: { type: "base", player: "A" },
+    })
+    .unit("friendly-defender", {
+      owner: "A", controller: "A", types: ["unit"], tags: ["Mech"], might: 3,
+      combatRole: "defender", location: { type: "base", player: "A" },
+    })
+    .unit("friendly-other", {
+      owner: "A", controller: "A", types: ["unit"], tags: [], might: 3,
+      combatRole: "attacker", location: { type: "base", player: "A" },
+    })
+    .unit("enemy-mech", {
+      owner: "B", controller: "B", types: ["unit"], tags: ["Mech"], might: 3,
+      combatRole: "attacker", location: { type: "base", player: "B" },
+    })
+    .build();
+  const choose = (request) => { throw new Error(`Unexpected production choice ${request.id}`); };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (saved) => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+  });
+  const engine = new ChainEngine({
+    host, turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", cleanup: () => false,
+  });
+  const staticOnly = { ...program, abilities: [program.abilities[0]] };
+  const lifecycle = createProgramBinding({ cardPrograms: [staticOnly] }).attachLifecycle(engine);
+  assert.equal(engine.commit({ type: "move-zone", object: kernel.ref("rumble"), to: "chain" }).status, "done");
+  assert.equal(engine.commit({
+    type: "move-zone", object: kernel.ref("rumble"), to: "base",
+    location: { type: "base", player: "A" },
+  }).status, "done");
+  engine.advance();
+  const evaluate = (id) => {
+    engine.layers.setObjects(kernel.objects);
+    return engine.layers.evaluate(kernel.ref(id));
+  };
+  const registrations = engine.layers.registry.list();
+  assert.equal(registrations.length, 1, "the static-only program registers exactly its Assault grant");
+  assert.match(registrations[0].effect.id, /^program-static:rumble:/u);
+  assert.equal(registrations[0].effect.effect.kind, "continuous.grant-keyword");
+  assert.equal(registrations[0].effect.effect.keyword, "Assault");
+  assert.equal(registrations[0].effect.effect.value.value, 1);
+  assert.deepEqual(evaluate("rumble").keywords, [{ id: "Assault", value: 1 }]);
+  assert.deepEqual(evaluate("friendly-mech").keywords, [{ id: "Assault", value: 1 }]);
+  assert.equal(evaluate("friendly-mech").might, 4);
+  assert.deepEqual(evaluate("friendly-defender").keywords, [{ id: "Assault", value: 1 }]);
+  assert.equal(evaluate("friendly-defender").might, 3);
+  assert.deepEqual(evaluate("friendly-other").keywords, []);
+  assert.equal(evaluate("friendly-other").might, 3);
+  assert.deepEqual(evaluate("enemy-mech").keywords, []);
+  assert.equal(evaluate("enemy-mech").might, 3);
+
+  lifecycle.detach();
+  assert.equal(engine.layers.registry.list().length, 0);
+  assert.deepEqual(evaluate("rumble").keywords, []);
+  assert.deepEqual(evaluate("rumble").might, 4);
+  assert.deepEqual(evaluate("friendly-mech").keywords, []);
+  assert.equal(evaluate("friendly-mech").might, 3);
+  assert.deepEqual(evaluate("friendly-defender").keywords, []);
+  assert.equal(evaluate("friendly-defender").might, 3);
+  assert.deepEqual(evaluate("friendly-other").keywords, []);
+  assert.deepEqual(evaluate("enemy-mech").keywords, []);
 });
