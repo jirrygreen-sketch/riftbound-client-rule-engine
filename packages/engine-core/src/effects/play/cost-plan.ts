@@ -14,7 +14,7 @@ import type {
   ResolveContext,
   Value
 } from "../contract.js";
-import { cardProgramFor, playCostFor } from "./catalog.js";
+import { cardProgramFor, playCostFor, printedProjectionFor, type EffectPlayPrintedProjection } from "./catalog.js";
 
 export interface BuildEffectPlayPlanRequest {
   readonly object: ObjectRef;
@@ -106,20 +106,50 @@ function numericPower(snapshot: ObjectSnapshot, programCost: CostSpec | undefine
   return null;
 }
 
+function exactCatalogCost(
+  catalog: EffectPlayPrintedProjection | undefined
+): CostPlanInput["cost"] | undefined {
+  if (catalog === undefined ||
+      typeof catalog.energy !== "number" || !Number.isSafeInteger(catalog.energy) || catalog.energy < 0) return undefined;
+  if (catalog.power === null) {
+    return { kind: "explicit", energy: literal(catalog.energy), power: literal([]) };
+  }
+  if (typeof catalog.power !== "number" || !Number.isSafeInteger(catalog.power) || catalog.power < 0) return undefined;
+  return {
+    kind: "explicit",
+    energy: literal(catalog.energy),
+    power: literal(catalog.power === 0 ? [] : catalog.power)
+  };
+}
+
+function catalogDomains(catalog: EffectPlayPrintedProjection | undefined): readonly Domain[] | undefined {
+  if (catalog === undefined) return undefined;
+  const domains = [...new Set(catalog.domains)];
+  if (domains.length === 0 || domains.length === 1 && domains[0] === "Colorless") return [...DUEL_DOMAINS];
+  if (domains.some(domain => !DOMAIN_SET.has(domain))) {
+    throw new CostPlanError("judge-required", "The catalog printed cost has an invalid Domain list");
+  }
+  return domains as Domain[];
+}
+
 function hasPrintedCostDirective(descriptor: AnyRecord): boolean {
   return descriptor.base === "printed";
 }
 
-function printedProjection(snapshot: ObjectSnapshot, programCost: CostSpec | undefined) {
+function printedProjection(
+  snapshot: ObjectSnapshot,
+  programCost: CostSpec | undefined,
+  catalog: EffectPlayPrintedProjection | undefined
+) {
   return {
-    id: snapshot.cardId ?? snapshot.ref.id,
-    cardType: cardType(snapshot),
+    id: catalog?.id ?? snapshot.cardId ?? snapshot.ref.id,
+    cardType: catalog?.cardType ?? cardType(snapshot),
     // Energy is a scalar and remains the source projection. The selected
     // program supplies an exact Power symbol count because ObjectSnapshot.power
     // is only the unique Domain set.
-    energy: snapshot.energy,
-    power: numericPower(snapshot, programCost),
-    domains: domainsOf(snapshot) ?? []
+    energy: catalog?.energy ?? snapshot.energy,
+    power: catalog === undefined ? numericPower(snapshot, programCost) : catalog.power,
+    domains: [...(catalog?.domains ?? domainsOf(snapshot) ?? [])]
   };
 }
 
@@ -158,17 +188,23 @@ function zeroTokenPlan(ctx: ResolveContext, snapshot: ObjectSnapshot, player: Pl
   return buildCostPlan(ctx, {
     id: planId(snapshot, player, "token"),
     cost: { kind: "explicit", energy: literal(0), power: literal([]) },
-    printed: printedProjection(snapshot, undefined)
+    printed: printedProjection(snapshot, undefined, undefined)
   });
 }
 
-function printedPlan(ctx: ResolveContext, snapshot: ObjectSnapshot, player: PlayerId, programCost: CostSpec | undefined): CostPlan {
+function printedPlan(
+  ctx: ResolveContext,
+  snapshot: ObjectSnapshot,
+  player: PlayerId,
+  programCost: CostSpec | undefined,
+  catalog: EffectPlayPrintedProjection | undefined
+): CostPlan {
   const domains = programDomains(snapshot, programCost) ?? domainsOf(snapshot);
   const cost = normalizedProgramCost(programCost) ?? { kind: "printed" as const };
   return buildCostPlan(ctx, {
     id: planId(snapshot, player),
     cost,
-    printed: printedProjection(snapshot, programCost),
+    printed: printedProjection(snapshot, programCost, catalog),
     ...(domains === undefined ? {} : { domains })
   });
 }
@@ -333,12 +369,16 @@ function exactSelectedProgramCost(programCost: CostSpec | undefined): CostPlanIn
   return undefined;
 }
 
-function partialEnergyBaseCost(programCost: CostSpec | undefined, partial: CostPlanInput["cost"]): CostPlanInput["cost"] {
+function partialEnergyBaseCost(
+  programCost: CostSpec | undefined,
+  catalog: EffectPlayPrintedProjection | undefined,
+  partial: CostPlanInput["cost"]
+): CostPlanInput["cost"] {
   // A card-effect descriptor may read Energy from the selected runtime card
   // while the exact Power component comes from its trusted CardProgram. This
   // keeps the partial expression target-aware and preserves the omitted Power
   // symbols without inventing a count from ObjectSnapshot.power's domain set.
-  const complete = exactSelectedProgramCost(programCost);
+  const complete = exactSelectedProgramCost(programCost) ?? exactCatalogCost(catalog);
   if (complete === undefined) {
     throw new CostPlanError(
       "judge-required",
@@ -356,9 +396,10 @@ function partialEnergyBaseCost(programCost: CostSpec | undefined, partial: CostP
 function evaluatedPrintedBase(
   descriptor: AnyRecord,
   programCost: CostSpec | undefined,
-  snapshot: ObjectSnapshot
+  snapshot: ObjectSnapshot,
+  catalog: EffectPlayPrintedProjection | undefined
 ): CostPlanInput["cost"] {
-  const complete = exactSelectedProgramCost(programCost);
+  const complete = exactSelectedProgramCost(programCost) ?? exactCatalogCost(catalog);
   const declared = record(descriptor.cost) === null
     ? undefined
     : normalizedProgramCost(descriptor.cost as CostSpec);
@@ -373,7 +414,7 @@ function evaluatedPrintedBase(
     throw new CostPlanError("judge-required", "A printed-base modification must use an explicit partial CostSpec");
   }
   if (declaredCost?.energy !== undefined && declaredCost.power === undefined) {
-    return partialEnergyBaseCost(programCost, declared!);
+    return partialEnergyBaseCost(programCost, catalog, declared!);
   }
   const energy = declaredCost?.energy !== undefined && declared?.energy !== undefined
     ? declared.energy
@@ -420,6 +461,7 @@ function descriptorPlan(ctx: ResolveContext, snapshot: ObjectSnapshot, player: P
   }
   const program = cardProgramFor(snapshot.cardId);
   const programCost = playCostFor(program);
+  const catalog = programCost === undefined ? printedProjectionFor(descriptor) : undefined;
   const discounts = [...modifierDiscounts(ctx, descriptor.modifiers ?? descriptor.modifier)];
   const direct = singleDiscount(ctx, descriptor.discount);
   if (direct !== null) discounts.push(direct);
@@ -454,23 +496,24 @@ function descriptorPlan(ctx: ResolveContext, snapshot: ObjectSnapshot, player: P
       });
     }
   }
-  const domains = domainsOf(snapshot);
+  const domains = catalogDomains(catalog) ?? domainsOf(snapshot);
   // A printed-base modification needs either an explicit target projection or
   // an exact selected-card program. Older descriptors with only a modifier
   // retain the legacy path and cannot silently infer Power from a Domain set.
   const trustPrintedEnergy = hasPrintedCostDirective(descriptor) &&
-    (record(descriptor.cost) !== null || exactSelectedProgramCost(programCost) !== undefined);
-  if (trustPrintedEnergy && snapshot.energy === null && exactSelectedProgramCost(programCost) === undefined) {
+    (record(descriptor.cost) !== null || exactSelectedProgramCost(programCost) !== undefined || exactCatalogCost(catalog) !== undefined);
+  if (trustPrintedEnergy && snapshot.energy === null && exactSelectedProgramCost(programCost) === undefined &&
+      exactCatalogCost(catalog) === undefined) {
     throw new CostPlanError("missing-printed-cost", `Selected card ${snapshot.ref.id} has no printed Energy cost`);
   }
   const cost = trustPrintedEnergy
-    ? evaluatedPrintedBase(descriptor, programCost, snapshot)
+    ? evaluatedPrintedBase(descriptor, programCost, snapshot, catalog)
     : descriptorBaseCost(descriptor, programCost) ?? { kind: "printed" as const };
   const ignored = ignoreModifications(descriptor.ignore) ?? [];
   return buildCostPlan(ctx, {
     id: planId(snapshot, player, typeof descriptor.id === "string" ? descriptor.id : "descriptor"),
     cost,
-    printed: printedProjection(snapshot, programCost),
+    printed: printedProjection(snapshot, programCost, catalog),
     ...(domains === undefined ? {} : { domains }),
     ...(ignored.length > 0 ? { baseModifications: ignored } : {}),
     ...(discounts.length > 0 ? { discounts } : {}),
@@ -577,6 +620,7 @@ export function buildEffectPlayCostPlan(ctx: ResolveContext, request: BuildEffec
   const ignore = ignoreModifications(argIgnore) ?? [];
   const program: CardProgram | undefined = cardProgramFor(snapshot.cardId);
   const programCost = playCostFor(program);
+  const catalog = rawCost === null || programCost !== undefined ? undefined : printedProjectionFor(rawCost);
   if (rawCost !== null && rawCost.finalized !== true) assertDescriptorFields(rawCost);
 
   if (snapshot.isToken && programCost === undefined && rawCost === null) {
@@ -607,13 +651,13 @@ export function buildEffectPlayCostPlan(ctx: ResolveContext, request: BuildEffec
       }
       return undefined;
     }
-    const plan = printedPlan(bound, snapshot, request.player, programCost);
+    const plan = printedPlan(bound, snapshot, request.player, programCost, catalog);
     return flattenEffectPlayCostPlan(bound, ignore.length === 0
       ? plan
       : buildCostPlan(bound, {
         id: plan.id,
         cost: normalized ?? { kind: "printed" },
-        printed: printedProjection(snapshot, programCost),
+        printed: printedProjection(snapshot, programCost, catalog),
         ...(programDomains(snapshot, programCost) ?? domainsOf(snapshot)) === undefined
           ? {}
           : { domains: programDomains(snapshot, programCost) ?? domainsOf(snapshot) },
@@ -628,25 +672,26 @@ export function buildEffectPlayCostPlan(ctx: ResolveContext, request: BuildEffec
     directive.mandatoryAdditional !== undefined || directive.increases !== undefined || directive.ignoreAllCosts === true;
   if (rawCost.finalized === true && !hasDirective) return flatCost(bound, request.player, directive);
   const descriptorKind = typeof directive.kind === "string" ? directive.kind.replace(/^cost\./, "") : undefined;
-  // A printed-base descriptor is bound to the selected card's trusted
-  // CardProgram. Synthetic/legacy targets without a directory entry cannot
-  // provide that provenance, so the nested Play is negated before any action.
-  if (hasPrintedCostDirective(directive) && program === undefined) return undefined;
+  // A printed-base descriptor is bound to either the selected card's trusted
+  // CardProgram or the enclosing catalog projection. Synthetic/legacy targets
+  // with neither source fail closed before any action.
+  if (hasPrintedCostDirective(directive) && program === undefined && exactCatalogCost(catalog) === undefined) return undefined;
   const explicitBase = record(directive.cost) !== null || descriptorKind === "printed" || descriptorKind === "explicit";
   if (!hasDirective && !explicitBase && descriptorKind !== "modify") {
     throw new CostPlanError("judge-required", "Unrecognized unfinalized play cost descriptor");
   }
   const ignoresPower = (ignoreModifications(directive.ignore) ?? []).some(modification =>
     modification.kind === "ignore-base" && modification.ignore !== "energy");
+  const exactPrinted = exactSelectedProgramCost(programCost) ?? exactCatalogCost(catalog);
   if (hasPrintedCostDirective(directive) && snapshot.power !== null && !ignoresPower &&
-      programCost !== undefined && record(directive.cost) === null &&
-      exactSelectedProgramCost(programCost) === undefined) {
+      record(directive.cost) === null && (programCost !== undefined || catalog !== undefined) &&
+      exactPrinted === undefined) {
     throw new CostPlanError(
       "judge-required",
       `Selected card ${snapshot.ref.id} has no exact numeric Power cost; its Domain list is not a count`
     );
   }
-  if (programCost === undefined && snapshot.power !== null && !ignoresPower &&
+  if (programCost === undefined && catalog === undefined && snapshot.power !== null && !ignoresPower &&
       record(directive.cost) === null && descriptorKind !== "explicit" && !hasPrintedCostDirective(directive)) {
     if (program !== undefined) {
       throw new CostPlanError(

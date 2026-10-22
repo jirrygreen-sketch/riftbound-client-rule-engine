@@ -11,13 +11,22 @@ import { performBurnOutStep, type BurnOutParticipant } from './burn-out.js';
 import {
   cleanupLostControl,
   createHiddenState,
+  findHiddenCard,
+  clearHiddenProvenance,
+  hideWithCost,
+  playedFromHidden,
+  playFromHidden,
   restoreHiddenState,
   setBattlefieldController,
   setFacedownCapacity,
+  setTurn,
   type HiddenState,
 } from '../zones/hidden/index.js';
+import { bindResolveContext } from '../events/action-adapter.js';
+import { executeContractAction as executeBridgeContractAction } from '../events/contract-actions/bridge.js';
 import { inheritTurnTaskCapability, registerTurnTaskCapability } from '../effects/instructions/effect.additional-turn.js';
 import { matchesObjectFilter } from '../layers/filter.js';
+import { describeDraftHasHiddenPermission, describeDraftHiddenAbilities, withHiddenSource } from '../programs/play.js';
 import type { StandardMoveFormationInput } from '../combat/flow.js';
 import type { StandardMoveBatchResult } from './movement.js';
 
@@ -36,7 +45,8 @@ export interface TurnFlowOptions {
   readonly turnOrder: readonly [PlayerId, PlayerId];
   readonly battlefields: readonly { readonly id: string; readonly controller: PlayerId | null }[];
   readonly victoryScore?: number;
-  readonly describePlay?: (action: Extract<GameAction, { type: 'play' }>, source: ObjectSnapshot) => ChainDraft;
+  readonly describePlay?: (action: Extract<GameAction, { type: 'play' }>, source: ObjectSnapshot,
+    hiddenSource?: { hidden(): HiddenState }) => ChainDraft;
   readonly hiddenState?: HiddenState;
   readonly facedownCapacity?: (battlefieldId: string) => number;
   readonly taskCapabilities?: { readonly clearStun?: (object: ObjectRef) => void };
@@ -135,10 +145,37 @@ export class TurnFlow {
       },
       choose: request => options.host.choose(request),
       testTrigger: options.host.testTrigger ? (registration, event, source) => options.host.testTrigger!(registration, event, source) : undefined,
-      executeContract: options.host.executeContract === undefined ? undefined : action => options.host.executeContract!(action),
+      executeContract: action => this.executeContractAction(action),
       execute: action => {
         const before = 'object' in action ? options.host.objects().find(object => object.ref.id === action.object.id) : undefined;
-        const execution = options.host.execute(action);
+        const actionObjectRef = 'object' in action ? action.object : undefined;
+        const concealed = before !== undefined && actionObjectRef !== undefined && findHiddenCard(this.hiddenState, before.ref) !== null &&
+          (['discard', 'recycle', 'banish', 'return-to-hand', 'kill'].includes(action.type) ||
+            action.type === 'move-zone' && action.to === 'trash');
+        const actionCheckpoint = concealed ? options.host.checkpoint() : undefined;
+        let revealExecution: ReturnType<typeof options.host.execute> | undefined;
+        if (concealed) {
+          revealExecution = options.host.execute({ type: 'reveal', object: actionObjectRef! });
+          if (revealExecution.outcome.status !== 'done') {
+            options.host.restore(actionCheckpoint);
+            return revealExecution;
+          }
+        }
+        let execution: ReturnType<typeof options.host.execute>;
+        try {
+          execution = options.host.execute(action);
+        } catch (error) {
+          if (concealed) options.host.restore(actionCheckpoint);
+          throw error;
+        }
+        if (concealed && execution.outcome.status !== 'done' && execution.outcome.status !== 'replaced') {
+          options.host.restore(actionCheckpoint);
+          return execution;
+        }
+        if (revealExecution !== undefined) execution = {
+          outcome: { ...execution.outcome, events: [...revealExecution.outcome.events, ...execution.outcome.events] },
+          emissions: [...revealExecution.emissions, ...execution.emissions],
+        };
         // Gaining points and Scoring a Battlefield are distinct (CR 470.1).
         const emissions: TimingEmission[] = execution.emissions.map(event => action.type === 'score' && event.timingPoint === 'score'
           ? { ...event, timingPoint: 'points-gained' } : event);
@@ -196,11 +233,12 @@ export class TurnFlow {
     };
     this.chain = new ChainEngine({
       turnOrder: options.turnOrder, turnPlayer: options.turnOrder[0], phase: 'not-started', layers: this.layers,
-      host, cleanup: engine => this.cleanup(engine), describePlay: options.describePlay,
+      host, cleanup: engine => this.cleanup(engine), describePlay: options.describePlay === undefined ? undefined :
+        (action, source) => withHiddenSource(this, () => options.describePlay!(action, source, this)),
     });
     // Batch 4's initial clock is 1; this driver emits the first turn-start itself.
     this.chain.pipeline.clock.turn = 0;
-    this.combat = new CombatFlow(this.chain, options.host, options.battlefields,
+    this.combat = new CombatFlow(this.chain, host, options.battlefields,
       (player, field) => this.scheduleScore(player, field, 'conquer'));
   }
   get phase(): TurnPhase { return this.phaseValue; }
@@ -211,6 +249,8 @@ export class TurnFlow {
   scored(player: PlayerId): readonly string[] { return this.scoreLedger.fields(player); }
   get queuedAdditionalTurns() { return this.turnQueue.snapshot().additional; }
   hidden(): HiddenState { return restoreHiddenState(this.hiddenState); }
+  /** Authoritative objects with TurnFlow's facedown projection bit applied. */
+  objects(): readonly ObjectSnapshot[] { return this.objectsWithBattlefieldControllers(); }
 
   private checkpoint() {
     return { phase: this.phaseValue, turn: this.turnValue, winner: this.winnerValue, special: this.special,
@@ -249,6 +289,7 @@ export class TurnFlow {
         if (this.chain.items.length && this.chain.items.every(item => item.status === 'finalized')) return;
         this.chain.advance();
         if (this.chain.items.length) return;
+        this.clearPlayedFromHidden();
         this.combat.advance();
         if (this.chain.items.length) return;
         if (this.combat.active) {
@@ -272,8 +313,199 @@ export class TurnFlow {
   execute(draft: ChainDraft): void {
     if (!this.chain.items.length && !this.combat.active) this.advance();
     if (this.winnerValue || this.phase !== 'main' || this.tasks.length) throw new Error('Discretionary action is not available');
-    this.chain.execute(draft);
-    this.advance();
+    const hidden = findHiddenCard(this.hiddenState, draft.source.ref);
+    if (hidden === null) {
+      this.chain.execute(draft);
+      this.advance();
+      return;
+    }
+    const checkpoint = this.options.host.checkpoint();
+    const chainCheckpoint = this.chain.pipeline.checkpoint();
+    const previousHidden = restoreHiddenState(this.hiddenState);
+    try {
+      const source = this.options.host.objects().find(object => object.ref.id === hidden.ref.id &&
+        object.ref.zoneEntryId === hidden.ref.zoneEntryId);
+      if (source === undefined) throw new TurnCombatBlockedError('hidden-source', 'Hidden source is not current');
+      if (source.controller !== draft.controller || hidden.controller !== draft.controller) {
+        throw new TurnCombatBlockedError('hidden-control', 'Hidden card must remain controlled by its player');
+      }
+      const hiddenField = this.battlefields.find(field => field.id === hidden.battlefieldId);
+      const hiddenBattlefield = this.options.host.objects().find(object => object.zone === 'board' &&
+        object.types.some(type => type.toLowerCase() === 'battlefield') &&
+        (object.ref.id === hidden.battlefieldId || object.location?.type === 'battlefield' && object.location.id === hidden.battlefieldId));
+      const controller = hiddenField === undefined ? hiddenBattlefield?.controller ?? null : hiddenField.controller;
+      if (controller !== draft.controller) {
+        throw new TurnCombatBlockedError('hidden-control', 'Hidden card must remain at a Battlefield controlled by its player');
+      }
+      if ((hidden.kind === 'unit' || hidden.kind === 'gear') &&
+          (draft.location?.type !== 'battlefield' || draft.location.id !== hidden.battlefieldId)) {
+        throw new TurnCombatBlockedError('hidden-destination', 'A Hidden permanent must be played to its controlled source Battlefield');
+      }
+      if (this.hiddenState.turn === hidden.hiddenTurn) {
+        throw new TurnCombatBlockedError('not-unlocked', 'A Hidden card gains Reaction beginning on the next turn');
+      }
+      const declared = this.options.describePlay === undefined ? draft : withHiddenSource(this,
+        () => this.options.describePlay!({ type: 'play', object: source.ref, player: draft.controller,
+          ...(draft.location === undefined ? {} : { location: draft.location }) }, source, this));
+      if (declared.targets !== undefined && declared.targets.length > 0) {
+        const context = bindResolveContext(this.options.host.context(source, draft.controller, 'main-start'), {
+          source, controller: draft.controller, timingPoint: 'main-start',
+        });
+        for (const target of declared.targets) {
+          const required = (target.requirement.min ?? (target.requirement.selection === 'one' ? 1 : 0)) > 0;
+          const scoped = context.query(target.requirement.filter).filter(object => {
+            const location = target.requirement.location as unknown;
+            if (location === undefined) return true;
+            if (location === null) return object.location === null;
+            if (typeof location !== 'object' || Array.isArray(location)) return true;
+            const record = location as Readonly<Record<string, unknown>>;
+            if (record.type === 'battlefield' && typeof record.id === 'string') {
+              return object.location?.type === 'battlefield' && object.location.id === record.id;
+            }
+            if (record.type === 'base' && typeof record.player === 'string') {
+              return object.location?.type === 'base' && object.location.player === record.player;
+            }
+            return true;
+          });
+          if (required && scoped.every(object => object.zone !== 'board' || object.faceDown)) {
+            throw new TurnCombatBlockedError('hidden-target', 'No legal target exists at the Hidden source Battlefield');
+          }
+        }
+      }
+      const played = playFromHidden(this.hiddenState, {
+        object: source.ref,
+        source,
+        player: draft.controller,
+        turn: this.hiddenState.turn,
+        ...(draft.location?.type === 'battlefield' ? { destinationBattlefieldId: draft.location.id } : {}),
+      });
+      this.hiddenState = played.state;
+      const trusted = withHiddenSource(this, () => this.options.describePlay!(
+        { type: 'play', object: source.ref, player: draft.controller,
+          ...(draft.location === undefined ? {} : { location: draft.location }) }, source));
+      const hiddenSource = { ...source, zone: 'board' as const, faceDown: true,
+        location: { type: 'battlefield' as const, id: hidden.battlefieldId },
+        facedownLocation: { type: 'battlefield' as const, id: hidden.battlefieldId } };
+      this.chain.execute({ ...trusted, source: hiddenSource, speed: 'reaction' });
+      const hiddenZone = Object.values(this.hiddenState.zones).find(zone =>
+        zone.cards.some(card => card.ref.id === source.ref.id && card.ref.zoneEntryId === source.ref.zoneEntryId));
+      if (hiddenZone !== undefined) this.hiddenState = restoreHiddenState({ ...this.hiddenState,
+        zones: { ...this.hiddenState.zones, [hiddenZone.battlefieldId]: { ...hiddenZone,
+          cards: hiddenZone.cards.filter(card => card.ref.id !== source.ref.id) } } });
+      const current = this.options.host.objects().find(object => object.ref.id === source.ref.id);
+      if (current !== undefined) this.hiddenState = this.rebindHidden(this.hiddenState, source.ref, current.ref);
+      this.advance();
+    } catch (error) {
+      this.options.host.restore(checkpoint);
+      this.chain.pipeline.restore(chainCheckpoint);
+      this.hiddenState = previousHidden;
+      throw error;
+    }
+  }
+  /** Execute one Hide as a single state transaction; it never opens a Chain (CR 811.1.c.2). */
+  hide(action: Extract<import('../effects/contract.js').ContractGameAction, { type: 'hide' }>):
+    import('../effects/contract.js').ActionOutcome & {
+      readonly plan?: import('../cost/plan-types.js').CostPlan;
+      readonly costReceipt?: import('../cost/plan-types.js').CostPaymentReceipt;
+    } {
+    if (this.winnerValue || this.phase !== 'main' || this.tasks.length || this.chain.items.length ||
+        this.combat.active || action.player !== this.turnPlayer || this.chain.turnState !== 'neutral-open') {
+      throw new TurnCombatBlockedError('hidden-timing', 'Hide requires the turn player\'s Open State');
+    }
+    const checkpoint = this.options.host.checkpoint();
+    const chainCheckpoint = this.chain.pipeline.checkpoint();
+    const previousHidden = restoreHiddenState(this.hiddenState);
+    try {
+      const source = this.options.host.objects().find(object =>
+        object.ref.id === action.object.id && object.ref.zoneEntryId === action.object.zoneEntryId);
+      if (source === undefined) throw new TurnCombatBlockedError('hidden-source', 'Hidden source is not current');
+      const field = this.battlefields.find(value => value.id === action.location.id);
+      const battlefieldObject = this.options.host.objects().find(object =>
+        object.ref.id === action.location.id || object.location?.type === 'battlefield' && object.location.id === action.location.id);
+      const controller = field?.controller ?? battlefieldObject?.controller ?? null;
+      if (field === undefined || controller !== action.player) {
+        throw new TurnCombatBlockedError('hidden-battlefield', 'Hide destination must be a controlled Battlefield');
+      }
+      if (this.options.describePlay === undefined) {
+        throw new TurnCombatBlockedError('hidden-permission', 'Hide requires a trusted card-program permission');
+      }
+      const described = withHiddenSource(this, () =>
+        this.options.describePlay!({ type: 'play', object: source.ref, player: action.player }, source));
+      if (!describeDraftHasHiddenPermission(described)) {
+        throw new TurnCombatBlockedError('hidden-permission', 'The source does not have an executable Hidden permission');
+      }
+      const origin = source.zone as string;
+      if (origin !== 'hand' && origin !== 'champion-zone' && origin !== 'champion') {
+        throw new TurnCombatBlockedError('hidden-origin', 'Hidden must begin in Hand or the Champion Zone');
+      }
+      const hiddenAbilities = describeDraftHiddenAbilities(described);
+      const state = setBattlefieldController(setTurn(this.hiddenState, this.turnValue),
+        action.location.id, controller).state;
+      const choose = <T>(request: import('../effects/contract.js').ChoiceRequest<T>) => this.options.host.choose(request);
+      const context = bindResolveContext(this.options.host.context(source, action.player, 'main-start'), {
+        source, controller: action.player, timingPoint: 'main-start', choose,
+      });
+      const paid = hideWithCost(state, {
+        card: source, source, player: action.player, battlefieldId: action.location.id,
+        abilities: hiddenAbilities,
+        turn: this.turnValue, openState: true, ctx: context,
+        costId: `hide:${source.ref.id}:${source.ref.zoneEntryId}:${this.turnValue}`,
+        ...(action.cost === undefined ? {} : { ignoreAllCosts: false }),
+      });
+      const moved = this.options.host.execute({ type: 'move-zone', object: source.ref, to: 'battlefield',
+        location: action.location });
+      if (moved.outcome.status !== 'done') throw new TurnCombatBlockedError('hidden-move', 'Hide move produced no state transition');
+      const own = this.options.host.objects().find(object => object.ref.id === source.ref.id);
+      if (own === undefined) throw new TurnCombatBlockedError('hidden-move', 'Hidden card disappeared after Hide');
+      // A zone move creates a new canonical incarnation. Rebind the validated
+      // sidecar so its private zone and the live object name the same identity.
+      this.hiddenState = this.rebindHidden(paid.state, source.ref, own.ref);
+      this.chain.pipeline.emit({
+        timingPoint: 'card-hidden',
+        // Trigger matching may observe the private card; the public projection
+        // is responsible for suppressing its identity from other players.
+        object: Object.freeze({ ...own,
+          might: null, energy: null, power: null, zone: 'board', faceDown: true,
+          location: { type: 'battlefield' as const, id: action.location.id },
+          facedownLocation: { type: 'battlefield' as const, id: action.location.id } }),
+        player: action.player, details: { battlefieldId: action.location.id },
+      });
+      return { status: 'done', events: [...moved.outcome.events], plan: paid.plan, costReceipt: paid.receipt,
+        receipt: { status: 'committed', actions: [{ type: 'hide', status: 'done' }] } };
+    } catch (error) {
+      this.options.host.restore(checkpoint);
+      this.chain.pipeline.restore(chainCheckpoint);
+      this.hiddenState = previousHidden;
+      throw error;
+    }
+  }
+  private executeContractAction(action: import('../effects/contract.js').ContractGameAction):
+    import('../events/pipeline-types.js').ActionExecution {
+    const leaves = action.type === 'batch' ? action.actions.flatMap(leaf =>
+      leaf.type === 'batch' ? leaf.actions : [leaf]) : [action];
+    if (action.type === 'hide' || leaves.some(leaf => leaf.type === 'hide')) {
+      const execution = executeBridgeContractAction(action, {
+        checkpoint: () => ({ host: this.options.host.checkpoint(), rules: this.checkpoint() }),
+        restore: saved => {
+          const checkpoint = saved as { readonly host: unknown; readonly rules: ReturnType<TurnFlow['checkpoint']> };
+          this.options.host.restore(checkpoint.host);
+          this.restore(checkpoint.rules);
+        },
+        objects: () => this.objects(),
+        perform: leaf => this.options.host.execute(leaf).outcome,
+        performContract: leaf => leaf.type === 'hide' ? this.hide(leaf) :
+          this.options.host.executeContract?.(leaf)?.outcome ?? {
+            status: 'impossible', events: [], receipt: { status: 'rejected', actions: [{ type: leaf.type, status: 'impossible' }] },
+          },
+      }, { transactionId: action.type === 'hide'
+        ? `hide:${action.object.id}:${action.object.zoneEntryId}:${this.turnValue}`
+        : `hide-batch:${this.turnValue}:${this.chain.pipeline.events.length}` });
+      return { outcome: execution.outcome, emissions: [] };
+    }
+    if (this.options.host.executeContract === undefined) {
+      throw new TurnCombatBlockedError('contract-actions', 'Contract action execution is unavailable');
+    }
+    return this.options.host.executeContract(action);
   }
   move(player: PlayerId, object: ObjectRef, field: string): StandardMoveBatchResult {
     if (!this.chain.items.length && !this.combat.active) this.advance();
@@ -326,6 +558,7 @@ export class TurnFlow {
         throw error;
       }
       this.turnValue++;
+      this.hiddenState = setTurn(this.hiddenState, this.turnValue);
       this.turns.set(player, this.turns.get(player)! + 1);
       this.scoreLedger.clear();
     });
@@ -568,6 +801,14 @@ export class TurnFlow {
   private objectsWithBattlefieldControllers(): readonly ObjectSnapshot[] {
     const controllers = new Map(this.combat.battlefields.map(field => [field.id, field.controller] as const));
     return this.options.host.objects().map(object => {
+      const hidden = findHiddenCard(this.hiddenState, object.ref);
+      if (hidden !== null) return Object.freeze({ ...object, cardId: null, name: 'Hidden card', types: [], tags: [],
+        keywords: [], might: null, energy: null, power: null, zone: 'board' as const,
+        location: { type: 'battlefield' as const, id: hidden.battlefieldId }, faceDown: true,
+        facedownLocation: { type: 'battlefield' as const, id: hidden.battlefieldId } });
+      if (playedFromHidden(this.hiddenState, object.ref) !== null) {
+        return Object.freeze({ ...object, faceDown: false, facedownLocation: null });
+      }
       if (object.zone !== 'board' || !object.types.some(type => type.toLowerCase() === 'battlefield')) return object;
       const battlefieldId = object.location?.type === 'battlefield' ? object.location.id : object.ref.id;
       if (!controllers.has(battlefieldId)) return object;
@@ -577,8 +818,33 @@ export class TurnFlow {
     });
   }
   private refKey(object: ObjectRef): string { return `${object.id}:${object.zoneEntryId}`; }
+  private rebindHidden(state: HiddenState, before: ObjectRef, after: ObjectRef): HiddenState {
+    const oldKey = this.refKey(before);
+    const zones = Object.fromEntries(Object.entries(state.zones).map(([id, zone]) => [id, {
+      ...zone,
+      cards: zone.cards.map(card => this.refKey(card.ref) === oldKey ? { ...card, ref: after } : card),
+    }]));
+    const playedFromHidden = Object.fromEntries(Object.entries(state.playedFromHidden).map(([key, card]) =>
+      key === oldKey ? [this.refKey(after), { ...card, ref: after }] : [key, card]));
+    return restoreHiddenState({ ...state, zones, playedFromHidden });
+  }
+  private clearPlayedFromHidden(): void {
+    let next = this.hiddenState;
+    for (const card of Object.values(next.playedFromHidden)) next = clearHiddenProvenance(next, card.ref);
+    this.hiddenState = next;
+  }
   private cleanupRecallAndHidden(): boolean {
     let changed = false;
+    const currentHiddenZones = Object.fromEntries(Object.entries(this.hiddenState.zones).map(([id, zone]) => [id, {
+      ...zone,
+      cards: zone.cards.filter(card => this.options.host.objects().some(object =>
+        object.ref.id === card.ref.id && object.ref.zoneEntryId === card.ref.zoneEntryId && object.zone === 'board')),
+    }]));
+    if (Object.values(currentHiddenZones).some((zone, index) => zone.cards.length !==
+        Object.values(this.hiddenState.zones)[index]!.cards.length)) {
+      this.hiddenState = restoreHiddenState({ ...this.hiddenState, zones: currentHiddenZones });
+      changed = true;
+    }
     for (const field of this.options.battlefields) {
       const controller = this.battlefields.find(value => value.id === field.id)?.controller ?? null;
       this.hiddenState = setBattlefieldController(this.hiddenState, field.id, controller).state;
@@ -614,6 +880,7 @@ export class TurnFlow {
         changed = true;
         continue;
       }
+      if (findHiddenCard(this.hiddenState, object.ref) !== null) continue;
       const recalled = location.type === 'base'
         ? location.player !== object.controller && object.attachedTo === null
         : !object.types.includes('unit') && object.attachedTo === null &&
@@ -638,7 +905,8 @@ export class TurnFlow {
     }
   }
   private discardHidden(object: ObjectRef, battlefieldId: string): void {
-    const candidate = this.options.host.objects().find(value => value.ref.id === object.id);
+    const candidate = this.options.host.objects().find(value => value.ref.id === object.id &&
+      value.ref.zoneEntryId === object.zoneEntryId);
     const current = candidate?.zone === 'board' ? candidate : undefined;
     if (current === undefined) return;
     // CR 422.4: a facedown card changing zones is revealed to all players

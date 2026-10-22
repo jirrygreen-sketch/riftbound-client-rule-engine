@@ -1,4 +1,5 @@
 import type { Condition } from '@riftbound/card-dsl';
+import type { LocationFilter } from '@riftbound/card-dsl';
 import type { ActionOutcome, ContractGameAction, Domain, GameAction, Instruction, ObjectRef, ObjectSnapshot, PlayerId, ResolveContext, Value } from '../effects/contract.js';
 import { AwaitChoice } from '../effects/contract.js';
 import { CONTRACT_ACTION_CAPABILITY_VERSION } from '../effects/contract.js';
@@ -11,6 +12,9 @@ import { finalizeTargetPlan, resolveTargetPlan, TargetSelectionError, type Targe
 import { LayerEngine } from '../layers/engine.js';
 import { matchesObjectFilter } from '../layers/filter.js';
 import { actionTimings, canAct as canActByRules, playLocations, restrictions as ruleRestrictions } from '../layers/rules/query.js';
+import type { RegisteredContinuousEffect } from '../layers/types.js';
+import { literal, record } from '../programs/static-adapters/model.js';
+import { locationPermissionMatches, playPermissionAllows } from '../programs/play-permissions.js';
 import { EventPipeline } from '../events/pipeline.js';
 import { evaluateAcceleratePayment } from '../effects/keywords/Accelerate.js';
 import { triggerEventObjectBinding, type PipelineHost, type ReplacementCostEvidence, type TimingEmission, type TriggerSnapshot } from '../events/pipeline-types.js';
@@ -383,6 +387,7 @@ export class ChainEngine {
   private readonly consumedPaymentContinuations = new Set<string>();
   private readonly suspendedPaymentContinuations = new Map<string, PaymentContinuation>();
   private readonly combatRoles = new Map<string, 'attacker' | 'defender'>();
+  private readonly battlefieldControllers = new Map<string, PlayerId | null>();
   private activeCombatId: string | null = null;
   private activeCombatBattlefieldId: string | null = null;
   private activeCombatAttackerId: PlayerId | null = null;
@@ -435,11 +440,25 @@ export class ChainEngine {
     this.pipeline.onTrigger = trigger => this.append({ id: `trigger:${++this.triggerSequence}`, controller: trigger.controller, source: trigger.source, kind: 'triggered', body: trigger.registration.body, cost: trigger.registration.cost, targets: trigger.registration.targets, mayAtFinalize: trigger.registration.mayAtFinalize, trigger });
     this.pipeline.onEvent = event => {
       this.observeCombatRoleEvent(event);
+      this.observeBattlefieldControl(event);
       this.layers.setObjects(this.hostObjects());
       this.layers.advance({ id: event.timingPoint, player: event.player });
       this.record({ step: 'event', timingPoint: event.timingPoint });
     };
     this.grantIdle();
+  }
+  /** Seed setup-time control; runtime changes remain driven by committed events. */
+  initializeBattlefieldControl(fields: readonly { readonly id: string; readonly controller: PlayerId | null }[]): void {
+    this.battlefieldControllers.clear();
+    for (const field of fields) this.battlefieldControllers.set(field.id, field.controller);
+  }
+  /** Runtime projection used by TurnFlow when no event has established control yet. */
+  setBattlefieldController(battlefieldId: string, controller: PlayerId | null): void {
+    this.battlefieldControllers.set(battlefieldId, controller);
+  }
+  /** Whether setup state or a committed control event currently says this player controls the field. */
+  controlsBattlefield(player: PlayerId, battlefieldId: string): boolean {
+    return this.battlefieldControllers.get(battlefieldId) === player;
   }
   get items(): readonly ChainItem[] { return structuredClone(this.entries); }
   /** Apply only exact Unit combat roles held in this active Combat window. */
@@ -512,6 +531,13 @@ export class ChainEngine {
       this.activeCombatAttackerId = null;
       this.activeCombatDefenderId = null;
     }
+  }
+  private observeBattlefieldControl(event: import('../events/pipeline-types.js').PipelineEvent): void {
+    if (event.timingPoint !== 'control-established' && event.timingPoint !== 'control-lost') return;
+    const battlefieldId = event.details?.battlefieldId;
+    if (typeof battlefieldId !== 'string') return;
+    this.battlefieldControllers.set(battlefieldId,
+      event.timingPoint === 'control-established' ? event.player ?? null : null);
   }
   private layerPassInFlight = false;
   private layerObjects(): readonly ObjectSnapshot[] {
@@ -594,6 +620,7 @@ export class ChainEngine {
       resumingPaymentContinuation: this.resumingPaymentContinuation,
       suspendedPaymentContinuations: suspended,
       combatRoles: new Map(this.combatRoles),
+      battlefieldControllers: new Map(this.battlefieldControllers),
       activeCombatId: this.activeCombatId,
       activeCombatBattlefieldId: this.activeCombatBattlefieldId,
       activeCombatAttackerId: this.activeCombatAttackerId,
@@ -828,7 +855,6 @@ export class ChainEngine {
         item.body.some(instruction => this.options.finalizeExtensions?.some(extension => extension.op === instruction.op));
       assertFinalizationSurface(item.body, controlPlanRequired);
       let context = this.context(item);
-      if (!this.playDestinationIsLegal(item)) throw new Error('Play destination is not legally allowed');
       if (item.mayAtFinalize) {
         const accepted = context.choose<boolean>({ id: `finalize:${item.id}:optional`, chooser: item.controller, visibility: 'public', type: 'optional' });
         if (typeof accepted !== 'boolean') throw new TypeError('Finalize decision must be boolean');
@@ -836,6 +862,7 @@ export class ChainEngine {
       }
       if (item.trigger?.frequencyKey && !this.pipeline.consume(item.trigger)) { this.remove(item, 'frequency-exhausted'); this.busy = 'idle'; return; }
       if ([...(item.requirements ?? []), ...(item.restrictions ?? [])].some(condition => !context.test(condition))) throw new Error('Finalize legality failed');
+      if (!this.playDestinationIsLegal(item)) throw new Error('Play destination is not legally allowed');
       if (item.conditionalReaction && item.speed !== 'reaction' && this.entries.length > 1 && !context.test(item.conditionalReaction)) throw new Error('Conditional Reaction no longer applies');
       const targetTaxes: CostComponentInput[] = [];
       const answerPrefix = this.finalizeAnswerPrefix(item);
@@ -1156,24 +1183,113 @@ export class ChainEngine {
   }
   private playDestinationIsLegal(item: ChainItem): boolean {
     if (item.kind !== 'unit' && item.kind !== 'gear') return true;
-    const destination = item.location;
-    if (destination === undefined) return true;
+    const destination = item.location ?? { type: 'base' as const, player: item.controller };
+    const objects = this.hostObjects();
+    const state = this.playDestinationState(destination, objects);
+    const baselineAllowed = destination.type === 'base'
+      ? destination.player === item.controller
+      : !this.battlefieldControllers.has(destination.id)
+        ? !state.battlefieldExists || state.controller === item.controller
+        : this.battlefieldControllers.get(destination.id) === item.controller;
+    // CR 355.2.a; 806.3 and 813.3.a do not broaden this inherent play rule.
+    const hasPermission = this.hasStructuredPlayLocationPermission(item, destination, state, objects);
     const view = playLocations(this.layers.registry, item.source.ref, item.source, item.controller);
-    const permissions = new Set(view.permissions.map(entry => entry.name.toLowerCase()));
-    const restrictions = new Set(view.restrictions.map(entry => entry.name.toLowerCase()));
-    // The host still owns baseline placement rules (controlled Battlefield,
-    // default Base, and card-specific legality). The query bridge only adds
-    // explicit continuous.location prohibitions or permissions; an absent
-    // location effect must therefore leave the existing host validation intact.
-    if (permissions.size === 0 && restrictions.size === 0) return true;
-    const blocked = (kind: 'base' | 'battlefield'): boolean =>
-      restrictions.has(`no-${kind}`) || restrictions.has(`cannot-${kind}`) || restrictions.has(`cannot-play-${kind}`);
-    if (destination.type === 'battlefield') {
-      if (blocked('battlefield')) return false;
-      return true;
+    const deployAllowed = item.kind === 'gear' && this.hasDeployPermission(item, destination, objects);
+    if (!baselineAllowed && !hasPermission && !deployAllowed) return false;
+    const blockedKind = destination.type;
+    const blockers = new Set(view.restrictions.map(entry => entry.name.toLowerCase()));
+    const unrestricted = !blockers.has(`no-${blockedKind}`) && !blockers.has(`cannot-${blockedKind}`) &&
+      !blockers.has(`cannot-play-${blockedKind}`);
+    return unrestricted;
+  }
+  private playDestinationState(
+    destination: Exclude<ChainDraft['location'], undefined>,
+    objects: readonly ObjectSnapshot[],
+  ): {
+    readonly ref: Exclude<ChainDraft['location'], undefined>;
+    readonly controller: PlayerId | null | undefined;
+    readonly battlefieldExists: boolean;
+    readonly owner?: PlayerId;
+    readonly occupied: boolean;
+    readonly units: readonly ObjectRef[];
+  } {
+    if (destination.type === 'base') {
+      const baseUnits = objects.filter(object => object.zone === 'board' && object.types.some(type => type.toLowerCase() === 'unit') &&
+        object.location?.type === 'base' && object.location.player === destination.player).map(object => object.ref);
+      return { ref: destination, controller: destination.player, owner: destination.player,
+        battlefieldExists: false, occupied: baseUnits.length > 0, units: baseUnits };
     }
-    if (blocked('base')) return false;
-    return true;
+    const units = objects.filter(object => object.zone === 'board' && object.types.some(type => type.toLowerCase() === 'unit') &&
+      object.location?.type === 'battlefield' && object.location.id === destination.id).map(object => object.ref);
+    return {
+      ref: destination,
+      controller: this.battlefieldController(destination.id),
+      battlefieldExists: this.battlefieldExists(destination.id),
+      occupied: units.length > 0,
+      units,
+    };
+  }
+  private battlefieldExists(battlefieldId: string): boolean {
+    if (this.battlefieldControllers.has(battlefieldId)) return true;
+    return this.hostObjects().some(object => object.zone === 'board' &&
+      object.types.some(type => type.toLowerCase() === 'battlefield') &&
+      (object.ref.id === battlefieldId || object.location?.type === 'battlefield' && object.location.id === battlefieldId));
+  }
+  private battlefieldController(battlefieldId: string): PlayerId | undefined {
+    if (this.battlefieldControllers.has(battlefieldId)) {
+      return this.battlefieldControllers.get(battlefieldId) ?? undefined;
+    }
+    const battlefield = this.hostObjects().find(object => object.zone === 'board' &&
+      object.types.some(type => type.toLowerCase() === 'battlefield') &&
+      (object.ref.id === battlefieldId || object.location?.type === 'battlefield' && object.location.id === battlefieldId));
+    if (battlefield !== undefined) return battlefield.controller;
+    const genericOccupant = this.hostObjects().find(object => object.zone === 'board' &&
+      object.types.some(type => type.toLowerCase() === 'unit') &&
+      object.location?.type === 'battlefield' && object.location.id === battlefieldId);
+    return genericOccupant?.controller;
+  }
+  private hasStructuredPlayLocationPermission(
+    item: ChainItem,
+    destination: Exclude<ChainDraft['location'], undefined>,
+    state: ReturnType<ChainEngine['playDestinationState']>,
+    objects: readonly ObjectSnapshot[],
+  ): boolean {
+    const sourceObject = objects.find(object => object.ref.id === item.source.ref.id &&
+      object.ref.zoneEntryId === item.object.zoneEntryId) ?? item.source;
+    const permissionSource = { ...sourceObject, controller: item.controller };
+    if (playPermissionAllows(this.layers.registry, permissionSource, destination, {
+      player: item.controller, state, objects,
+    })) return true;
+    for (const entry of this.layers.registry.list() as readonly RegisteredContinuousEffect[]) {
+      const effect = record(entry.effect.effect);
+      const kind = String(effect.kind ?? '').toLowerCase();
+      if (kind !== 'play-location-permission' && kind !== 'continuous.location' && kind !== 'location') continue;
+      if (entry.effect.source !== undefined && entry.effect.source.id !== item.source.ref.id) continue;
+      if (entry.effect.source?.zoneEntryId !== undefined && entry.effect.source.zoneEntryId !== item.object.zoneEntryId) continue;
+      const raw = record(literal(effect.value));
+      const candidate = raw.kind === 'constant' || raw.kind === 'literal' ? literal(raw.value) : literal(effect.location ?? raw.location ?? effect.permission);
+      const filter = record(candidate);
+      if (Object.keys(filter).length === 0) continue;
+      if (literal(filter.appliesTo) === 'friendly-units' && sourceObject.controller !== item.controller) continue;
+      if (locationPermissionMatches(filter as LocationFilter, destination, { player: item.controller, state, objects })) return true;
+    }
+    return false;
+  }
+  private hasDeployPermission(
+    item: ChainItem,
+    destination: Exclude<ChainDraft['location'], undefined>,
+    objects: readonly ObjectSnapshot[],
+  ): boolean {
+    if (destination.type !== 'battlefield') return false;
+    const source = objects.find(object => object.ref.id === item.source.ref.id &&
+      object.ref.zoneEntryId === item.object.zoneEntryId) ?? item.source;
+    return source.keywords.some(keyword => keyword.id.toLowerCase() === 'deploy') ||
+      this.layers.registry.list().some(entry => {
+        if (entry.effect.source?.id !== item.source.ref.id) return false;
+        const effect = record(entry.effect.effect);
+        const play = record(effect.play);
+        return effect.kind === 'continuous.location' && play.anyBattlefield === true;
+      });
   }
   /** CR 430.3: Reaction Add can interrupt payment without transferring Priority. */
   activateAddDuringPayment(draft: ChainDraft): void {
