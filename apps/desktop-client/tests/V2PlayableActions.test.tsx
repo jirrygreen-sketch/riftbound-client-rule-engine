@@ -114,6 +114,36 @@ describe("V2 playable action surface", () => {
     expect(buildV2ChoiceAnswer({ ...objects, kind: "number", min: 0, max: 9 }, [], "1.5")).toBeNull();
   });
 
+  it("keeps the projected zone-entry identity in select-object answers", () => {
+    const objects = {
+      status: "pending" as const,
+      choiceId: "objects",
+      ownerPlayerId: "player-1",
+      stateVersion: 9,
+      kind: "select-objects" as const,
+      options: [{ id: "unit-1", label: "Unit", value: "unit-1", zoneEntryId: 17 }],
+      min: 1,
+      max: 1
+    };
+    expect(buildV2ChoiceAnswer(objects, ["unit-1"], ""))
+      .toEqual([{ objectId: "unit-1", zoneEntryId: 17 }]);
+  });
+
+  it("shows a server-wait state instead of deriving missing object candidates", () => {
+    const pending = {
+      status: "pending" as const,
+      choiceId: "objects",
+      ownerPlayerId: "player-1",
+      stateVersion: 9,
+      kind: "select-objects" as const,
+      min: 1,
+      max: 1
+    };
+    const html = render(state(projection(pending)));
+    expect(html).toContain("等待服务端投影选择候选");
+    expect(html).toContain("客户端不会从手牌或其他对象自行推导");
+  });
+
   it("builds attack and defense packets from selected projected units", () => {
     expect(buildV2DeclareCombatCommand("declare-attack", "battlefield-1", ["unit-1"]))
       .toEqual({ type: "declare-attack", battlefieldId: "battlefield-1", attackerObjectIds: ["unit-1"] });
@@ -201,5 +231,50 @@ describe("V2 rejected command rendering", () => {
     expect(html).toContain("创建 1v1 房间");
     expect(html).toContain("加入房间");
     expect(html).toContain("ws://127.0.0.1:39500/ws");
+  });
+
+  it("renders accepted and duplicate command receipts returned by the server", () => {
+    const html = renderToStaticMarkup(<V2MatchBoard state={state(projection())}
+      lastReceipt={{ type: "command-receipt", protocolVersion: "2.0.0", commandId: "pass-7",
+        stateVersion: 10, eventSeq: 5, accepted: true, duplicate: true, rejection: null }}
+      onCommand={async () => {
+        throw new Error("unused");
+      }} />);
+    expect(html).toContain("pass-7 已接受");
+    expect(html).toContain("幂等重复");
+  });
+
+  it.each([
+    ["setup", "setup", false],
+    ["main without priority", "main", false],
+    ["main with priority", "main", true],
+    ["combat without priority", "combat", false],
+    ["combat with priority", "combat", true]
+  ] as const)("derives action enablement only from the %s projection", (_, phase, withPriority) => {
+    const value = projection();
+    value.phase = phase;
+    value.priority = { playerId: withPriority ? "player-1" : "player-2", focusPlayerId: null, window: "open" };
+    value.chain = { ...value.chain, priorityPlayerId: value.priority.playerId };
+    const html = render(state(value));
+    const passEnabled = /<button[^>]*>Pass<\/button>/u.test(html) &&
+      !/<button[^>]*disabled=""[^>]*>Pass<\/button>/u.test(html);
+    expect(passEnabled).toBe(withPriority);
+  });
+
+  it("stops actions and shows a server-wait state when the local choice notice expires", () => {
+    const value = projection({
+      status: "pending", choiceId: "number", ownerPlayerId: "player-1",
+      stateVersion: 9, kind: "number", min: 1, max: 2
+    });
+    const clientState = state(value);
+    const html = renderToStaticMarkup(<V2MatchBoard state={{
+      ...clientState,
+      choice: { ...clientState.choice, status: "expired", answerable: false }
+    }} onCommand={async () => ({
+      type: "command-receipt", protocolVersion: "2.0.0", commandId: "x",
+      stateVersion: 9, eventSeq: 4, accepted: true, duplicate: false, rejection: null
+    })} />);
+    expect(html).toContain("等待服务端提供新的 choice 状态");
+    expect(html).toContain("Pass");
   });
 });

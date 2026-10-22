@@ -39,7 +39,10 @@ export function updateV2ChoiceUiState(
     return { status: "none", choice: pending, startedAt: null, expiresAt: null, answerable: false };
   }
 
-  const timeoutMs = Math.max(0, options.timeoutMs ?? DEFAULT_CHOICE_TIMEOUT_MS);
+  // `undefined` is the production default. Only an explicit zero is treated as
+  // an immediate local expiry; otherwise a server choice would be instantly
+  // unanswerable in the desktop controller.
+  const timeoutMs = options.timeoutMs === undefined ? DEFAULT_CHOICE_TIMEOUT_MS : Math.max(0, options.timeoutMs);
   const sameChoice = previous?.choice.status === "pending" && previous.choice.choiceId === pending.choiceId &&
     previous.choice.stateVersion === pending.stateVersion;
   const startedAt = sameChoice ? previous.startedAt ?? now : now;

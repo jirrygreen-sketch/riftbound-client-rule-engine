@@ -56,7 +56,8 @@ const emptySnapshot: V2MatchSessionSnapshot = {
   session: null,
   pendingCommandIds: [],
   error: null,
-  reconnectUrl: ""
+  reconnectUrl: "",
+  lastReceipt: null
 };
 
 /**

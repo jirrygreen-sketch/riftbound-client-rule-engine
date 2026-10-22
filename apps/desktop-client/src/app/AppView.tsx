@@ -396,6 +396,7 @@ export function AppView({
           {v2UiEnabled ? (
             <V2MatchBoard
               state={v2Match.state}
+              lastReceipt={v2Match.lastReceipt}
               room={v2Match.room}
               session={v2Match.session}
               playerName={profile.name}
@@ -456,6 +457,7 @@ export function AppView({
           {controls}
           <V2MatchBoard
             state={v2Match.state}
+            lastReceipt={v2Match.lastReceipt}
             room={v2Match.room}
             session={v2Match.session}
             playerName={profile.name}

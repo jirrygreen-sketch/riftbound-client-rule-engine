@@ -32,6 +32,7 @@ import "./V2MatchBoard.css";
 
 export interface V2MatchBoardProps {
   readonly state: V2ClientState;
+  readonly lastReceipt?: V2CommandReceipt | null;
   readonly room?: RoomView | null;
   readonly session?: ClientSession | null;
   readonly playerName?: string;
@@ -104,6 +105,7 @@ export function visibleV2Objects(
 
 export function V2MatchBoard({
   state,
+  lastReceipt = null,
   room = null,
   session = null,
   playerName = "玩家",
@@ -265,9 +267,10 @@ export function V2MatchBoard({
   const setup = projection.phase === "setup";
   const hasPriority = projection.priority.playerId === projection.viewerPlayerId;
   const choiceOpen = projection.pendingChoice.status === "none";
+  const choiceExpired = state.choice.status === "expired";
   const canAct = state.connectionStatus === "connected" && projection.winnerPlayerId === null && !busy;
-  const canPass = canAct && hasPriority && choiceOpen;
-  const canPlay = setup ? canAct : canAct && hasPriority && choiceOpen;
+  const canPass = canAct && hasPriority && choiceOpen && !choiceExpired;
+  const canPlay = setup ? canAct && !choiceExpired : canAct && hasPriority && choiceOpen && !choiceExpired;
   const selectedCard = ownHand.find(card => card.objectId === selectedCardId) ?? null;
   const selectedTarget = targetCandidates.find(object => object.objectId === selectedTargetId) ?? null;
 
@@ -277,7 +280,18 @@ export function V2MatchBoard({
         <div><p className="v2-kicker">协议 v2 · {projection.rulesetVersion}</p><h2>{phaseLabel(projection.phase)} · 第 {projection.turnNumber} 回合</h2></div>
         <div className="v2-match-meta"><ConnectionState state={state.connectionStatus} /><span>状态 {projection.stateVersion}</span><span>事件 {projection.eventSeq}</span></div>
       </header>
+      {lastReceipt ? (
+        <p className="v2-receipt" role="status" aria-label="最近的命令确认">
+          命令 {lastReceipt.commandId} {lastReceipt.accepted ? "已接受" : "已拒绝"}
+          {lastReceipt.duplicate ? "（幂等重复）" : ""} · 状态 {lastReceipt.stateVersion}
+        </p>
+      ) : null}
       {transportError || state.lastError || commandError ? <p className="v2-error" role="alert">{transportError ?? state.lastError ?? commandError}</p> : null}
+      {choiceExpired ? (
+        <p className="v2-waiting" role="status">
+          本地选择提示已到期；等待服务端提供新的 choice 状态，当前动作已停用。
+        </p>
+      ) : null}
       <section className="v2-players" aria-label="玩家状态">
         {projection.players.map(player => <PlayerSummary key={player.playerId} player={player} active={player.playerId === projection.activePlayerId} priority={player.playerId === projection.priority.playerId} score={projection.scoring.players.find(value => value.playerId === player.playerId)?.points ?? player.score} />)}
       </section>
@@ -398,11 +412,13 @@ function ChoicePanel({ choice, selectedIds, numberAnswer, optionalAnswer, disabl
   if (choice.choice.status === "none") return null;
   const pending = choice.choice;
   const multiple = pending.kind === "select-objects" || pending.kind === "order" || (pending.max ?? 1) > 1;
+  const missingCandidates = (pending.kind === "select-objects" || pending.kind === "order") &&
+    (pending.options ?? []).length === 0;
   return <section className="v2-choice" aria-label="选择请求"><div className="v2-section-heading"><h3>选择请求 · {choiceKindLabel(pending.kind)}</h3><span>{choice.status === "expired" ? "已过期" : choice.answerable ? "请作出选择" : "等待对手回应"}</span></div>
     {pending.kind === "number" ? <input aria-label="选择数值" type="number" min={pending.min} max={pending.max} value={numberAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onChange={event => onNumberChange(event.currentTarget.value)} /> :
-      <div className="v2-choice-options">{(pending.options ?? []).length === 0 && pending.kind === "optional" ? <><button type="button" aria-pressed={optionalAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onOptionalAnswerChange(true)}>接受</button><button type="button" aria-pressed={!optionalAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onOptionalAnswerChange(false)}>拒绝</button></> : (pending.options ?? []).map(option => <button key={option.id} type="button" aria-pressed={selectedIds.includes(option.id)} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onToggle(option.id)}>{option.label}</button>)}</div>}
+      <div className="v2-choice-options">{(pending.options ?? []).length === 0 && pending.kind === "optional" ? <><button type="button" aria-pressed={optionalAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onOptionalAnswerChange(true)}>接受</button><button type="button" aria-pressed={!optionalAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onOptionalAnswerChange(false)}>拒绝</button></> : missingCandidates ? <p className="v2-waiting" role="status">等待服务端投影选择候选；客户端不会从手牌或其他对象自行推导。</p> : (pending.options ?? []).map(option => <button key={option.id} type="button" aria-pressed={selectedIds.includes(option.id)} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onToggle(option.id)}>{option.label}</button>)}</div>}
     {pending.min !== undefined || pending.max !== undefined ? <p className="v2-muted">可选数量：{pending.min ?? 0}–{pending.max ?? "不限"}{multiple ? "（可多选）" : ""}</p> : null}
-    <button type="button" className="v2-primary-action" disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={onSubmit}>提交选择</button>
+    <button type="button" className="v2-primary-action" disabled={disabled || !choice.answerable || choice.status === "expired" || missingCandidates} onClick={onSubmit}>提交选择</button>
   </section>;
 }
 
@@ -446,7 +462,11 @@ export function buildV2ChoiceAnswer(choice: V2PendingChoice, selectedIds: readon
 
 function choiceOptionAnswer(choice: Extract<V2PendingChoice, { status: "pending" }>, option: V2ChoiceOption): Exclude<V2ChoiceAnswer, readonly unknown[]> {
   const value = option.value ?? option.id;
-  if (choice.kind === "select-objects" && typeof value === "string") return { objectId: value };
+  if (choice.kind === "select-objects" && typeof value === "string") {
+    const extended = option as V2ChoiceOption & { readonly zoneEntryId?: unknown };
+    const zoneEntryId = typeof extended.zoneEntryId === "number" ? extended.zoneEntryId : undefined;
+    return { objectId: value, ...(zoneEntryId === undefined ? {} : { zoneEntryId }) };
+  }
   return value;
 }
 

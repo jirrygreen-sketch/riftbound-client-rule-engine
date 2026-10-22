@@ -42,6 +42,7 @@ export interface V2MatchSessionSnapshot {
   readonly pendingCommandIds: readonly string[];
   readonly error: string | null;
   readonly reconnectUrl: string;
+  readonly lastReceipt: V2CommandReceipt | null;
 }
 
 interface RequestResult {
@@ -193,6 +194,7 @@ export class V2MatchSessionController {
   private session: ClientSession | null = null;
   private room: RoomView | null = null;
   private error: string | null = null;
+  private lastReceipt: V2CommandReceipt | null = null;
   private manuallyClosed = true;
   private ready = false;
   private socketGeneration = 0;
@@ -223,7 +225,8 @@ export class V2MatchSessionController {
       session: this.session,
       pendingCommandIds: [...this.pendingCommands.keys()],
       error: this.error,
-      reconnectUrl: this.url
+      reconnectUrl: this.url,
+      lastReceipt: this.lastReceipt
     };
   }
 
@@ -498,6 +501,7 @@ export class V2MatchSessionController {
       return;
     }
     if (packet.type === "command-receipt") {
+      this.lastReceipt = packet as V2CommandReceipt;
       const pending = this.pendingCommands.get(packet.commandId);
       if (pending) {
         clearTimeout(pending.timer);

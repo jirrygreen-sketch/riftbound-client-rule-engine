@@ -32,3 +32,5 @@
 .v2-lobby input, .v2-lobby select, .v2-action-panel select { padding: .45rem; min-width: 9rem; }
 .v2-lobby button, .v2-action-panel > button, .v2-action-panel .v2-choice-options button { border: 1px solid color-mix(in srgb, currentColor 25%, transparent); border-radius: .5rem; padding: .55rem .7rem; background: transparent; color: inherit; cursor: pointer; }
 .v2-player.has-priority { box-shadow: inset 0 3px 0 #0f766e; }
+.v2-waiting { margin: 0; border-radius: .5rem; padding: .65rem; background: #fef3c7; color: #92400e; }
+.v2-receipt { margin: 0; border-radius: .5rem; padding: .5rem .65rem; background: #dcfce7; color: #166534; }
