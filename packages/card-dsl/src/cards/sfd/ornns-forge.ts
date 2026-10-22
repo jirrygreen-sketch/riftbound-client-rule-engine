@@ -6,6 +6,10 @@ import type { CardProgram } from "../../ir/index.js";
  * "While you control this battlefield, the first friendly non-token gear
  *  played each turn costs {1 energy} less."
  *
+ * Rules evidence: Core Rules v1.5, last updated 2026-10-09 and effective
+ * 2026-10-16, https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+ * (CR 190.6.a/190.6.d control, 356.4 cost discounts, 420.4.b Finalize history).
+ *
  * Status rationale (re-checked 2026-10-22 against integration): the DSL keeps
  * the full printed effect. Production Finalize now discovers this bound static,
  * runs `finalizeCostPlan`, and pays through the same rollback transaction. The
