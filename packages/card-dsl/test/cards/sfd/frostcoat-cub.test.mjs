@@ -11,8 +11,10 @@ import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js"
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createEngineStaticBinder, staticCostSources } from "../../../../engine-core/dist/programs/statics.js";
 import { translateCost } from "../../../../engine-core/dist/programs/play.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CARD_ID = "card.hash-868962f51f93e867b6166a5b00e7da34767ced7692925eb143855d3d05c68618";
 
@@ -125,33 +127,24 @@ test("sfd-067-221 Frostcoat Cub: the declared shapes name the cost and continuou
   assert.equal(playTrigger.body.some((instruction) => instruction.op === "effect.buff"), false);
 });
 
-test("sfd-067-221 Frostcoat Cub: the declaration has no CardProgram -> CostPlanInput consumer (current gap)", () => {
-  // 356.2.b/356.2.b.1: the optional additional cost is declared by a static
-  // Passive Ability. The merged cost layer plans and pays the shape when a
-  // caller supplies it (asserted below), but both production adapters that
-  // would carry the declaration reject it instead of approximating the charge.
-  assert.throws(
-    () => translateCost({ kind: "additional", payments: [] }, "frostcoat-cub", "play"),
-    /Additional costs are not bound/
-  );
-  assert.throws(
-    () => translateCost({ kind: "explicit", optional: true, payments: [] }, "frostcoat-cub", "play"),
-    /Unsupported play cost field optional/
-  );
-  const kernel = world().unit("cub", { might: 3 }).build();
-  const binder = createEngineStaticBinder({
-    layers: createLayerEngine(kernel.objects, []),
-    pipeline: {
-      host: {
-        objects: () => kernel.objects,
-        context: (snapshot) => kernel.clone({ sourceSnapshot: snapshot, source: snapshot.ref })
-      }
-    }
+test("sfd-067-221 Frostcoat Cub: the declaration enters the Finalize cost sources", () => {
+  const kernel = world().unit("cub", { cardId: CARD_ID, might: 3 }).build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => { throw new Error("A static binding must not ask for a choice"); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
   });
-  assert.throws(
-    () => binder.bindStatic(additionalCost, kernel.getObject("cub")),
-    /Static ability kind cost\.additional has no layer mapping/
-  );
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host });
+  const handle = createEngineStaticBinder(engine).bindStatic(additionalCost, kernel.getObject("cub"));
+  const [source] = staticCostSources(engine);
+  assert.equal(source.ability.effect.kind, "cost.additional");
+  assert.equal(source.ability.effect.optional, true);
+  assert.deepEqual(source.ability.effect.payments, additionalCost.effect.payments);
+  handle.unbind();
+  assert.deepEqual(staticCostSources(engine), []);
 });
 
 test("sfd-067-221 Frostcoat Cub golden: the trigger condition reads the real paid/declined receipt (356.4.f.1)", () => {
