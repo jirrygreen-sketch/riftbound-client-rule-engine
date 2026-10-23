@@ -272,22 +272,18 @@ test("Bone Skewer: the merged Hidden expansion is only the static cost.hidden ma
   );
 });
 
-test("Bone Skewer: the card's own body stops at the unregistered target.player opcode", () => {
-  // 355.7 / 355.9.a: "An opponent" is a player choice. The merged instruction
-  // registry has no target.player entry, so the authored body cannot run past
-  // the battlefield read.
-  assert.equal(registryById.has("target.player"), false);
-  assert.equal(registryById.has("trigger.reflexive"), false);
+test("Bone Skewer: the registered player choice waits for an opponent selection", () => {
+  // 355.7 / 355.9.a: "An opponent" reaches target.player and the production
+  // interpreter asks for the Finalize player choice.
+  assert.equal(registryById.has("target.player"), true);
+  assert.equal(registryById.has("trigger.reflexive"), true);
   const kernel = world()
     .unit("skewer", { types: ["spell"], owner: "A", controller: "A" })
     .object("bf-1", { owner: "A", controller: "A", types: ["battlefield"], zone: "board", location: null })
     .build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("skewer") });
   scoped.setTargets("bone-skewer.battlefield", [kernel.ref("bf-1")]);
-  assert.throws(
-    () => resolveChainBody([battlefieldInstruction, chooseOpponent], scoped),
-    /Unregistered instruction opcode: target\.player/
-  );
+  assert.throws(() => resolveChainBody([battlefieldInstruction, chooseOpponent], scoped), error => error.name === "AwaitChoice");
 });
 
 test("Bone Skewer fail-closed: the ignore-all-costs rewrite cannot reach a finalized plan", () => {

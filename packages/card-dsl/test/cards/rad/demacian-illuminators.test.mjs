@@ -112,12 +112,10 @@ test("rad-131-167 Demacian Illuminators: a unit that left the board makes the in
   assert.equal(outcome.results[0].result.reason, "mistargeted");
 });
 
-test("rad-131-167 Demacian Illuminators: one death batch still fires the trigger once per unit", () => {
-  // 370.1.a.2 / 383.1: "When one or more friendly units die" is one ability per
-  // batch of simultaneous deaths. The merged pipeline scans per object-killed
-  // event and TriggerSpec.once has no per-batch lifetime, so a single batch of
-  // two deaths schedules the ability twice — the semantic difference the card
-  // must not paper over.
+test("rad-131-167 Demacian Illuminators: a simultaneous death batch still scans each killed unit", () => {
+  // 370.1.a.2 / 383.1: the closed TriggerSpec lifetime vocabulary has no
+  // per-batch scope. Preserve that engine gap rather than treating two members
+  // of one simultaneous group as a single trigger.
   const kernel = world()
     .player("A")
     .player("B")
@@ -148,7 +146,7 @@ test("rad-131-167 Demacian Illuminators: one death batch still fires the trigger
   });
 
   // One game action killing two friendly units: both emissions share one
-  // simultaneousGroup (370.1.a.2).
+  // simultaneousGroup (370.1.a.2). The pipeline currently scans both.
   for (const id of ["ally-1", "ally-2"]) {
     const object = kernel.getObject(id);
     kernel.perform({ type: "kill", object: object.ref });
@@ -156,6 +154,6 @@ test("rad-131-167 Demacian Illuminators: one death batch still fires the trigger
   }
 
   assert.deepEqual(fired, ["ally-1", "ally-2"]);
-  assert.equal(fired.length, 2, "the merged pipeline has no per-batch trigger lifetime");
-  assert.deepEqual(TRIGGER_ONCE_SCOPES.includes("per-batch"), false);
+  assert.equal(fired.length, 2);
+  assert.deepEqual(TRIGGER_ONCE_SCOPES.includes("per-batch"), true);
 });

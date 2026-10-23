@@ -152,11 +152,8 @@ test("unl-168-219 Undying Loyalty golden: a unit no longer in the Trash is mista
   assert.equal(kernel.getObject("recycled-poro").zone, "deck");
 });
 
-test("unl-168-219 Undying Loyalty boundary: printed-cost ceilings are rejected by the production target translator", () => {
-  assert.throws(
-    () => translateObjectFilter(playUnit.targets[0].filter),
-    error => error?.code === "judge-required" && /Unsupported filter field printedEnergyMax/.test(error.message)
-  );
+test("unl-168-219 Undying Loyalty: printed-cost ceilings translate", () => {
+  assert.equal(translateObjectFilter(playUnit.targets[0].filter).printedEnergyMax, 2);
 });
 
 test.todo(

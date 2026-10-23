@@ -108,16 +108,16 @@ test("cosmic-vista: hold and score are closed, registered timing points the rule
   assert.equal(isTimingPointId("points-gained"), true);
 });
 
-test("cosmic-vista: the declared here anchor is still rejected by both validation and translation", () => {
-  // 383.4.d.1 / 471.2: the Hold Effect is scoped to this Battlefield. The
-  // merged EventPattern vocabulary has no source-battlefield anchor, so both
-  // the closed validator and the card-program translator refuse the key
-  // instead of subscribing the ability to every hold.
-  assert.throws(() => assertTriggerSpec(trigger.trigger), /here/);
-  assert.throws(
-    () => translateTriggerFilter(trigger.trigger.filter, "cosmic-vista", "hold"),
-    /Unsupported filter field here/
-  );
+test("cosmic-vista: the declared here anchor validates and remains battlefield-scoped", () => {
+  // 383.4.d.1 / 471.2: the Hold Effect is scoped to this Battlefield. Both
+  // production validation and translation retain here instead of widening the
+  // subscription to every hold.
+  assert.doesNotThrow(() => assertTriggerSpec(trigger.trigger));
+  assert.deepEqual(translateTriggerFilter(trigger.trigger.filter, "cosmic-vista", "hold"), {
+    event: "held",
+    here: true,
+    player: "self"
+  });
 });
 
 test("cosmic-vista: without the here anchor the hold trigger would translate, so `here` is the real gap", () => {

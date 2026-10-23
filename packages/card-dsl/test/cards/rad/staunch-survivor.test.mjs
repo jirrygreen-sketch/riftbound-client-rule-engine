@@ -182,11 +182,10 @@ test("rad-088-167 Staunch Survivor: the generated card registry exposes the prog
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
-test("rad-088-167 Staunch Survivor: the production binder really keeps both keywords at printed Might", () => {
+test("rad-088-167 Staunch Survivor: the production binder applies both attacker and defender keywords", () => {
   // 807.1.c / 814.1.c: the expansions bind as continuous.might registrations,
   // but their conditions read object-property "designation" while the merged
-  // ObjectSnapshot exposes only combatRole. Measured through the real engine
-  // static binder: both registrations exist and evaluate to the printed 2.
+  // ObjectSnapshot's designation resolves through the live combat role.
   const kernel = world().player("A").player("B")
     .unit("survivor", {
       controller: "A", owner: "A", might: 2, combatRole: "defender", zone: "board",
@@ -213,14 +212,12 @@ test("rad-088-167 Staunch Survivor: the production binder really keeps both keyw
     engine.layers.registry.list().map(entry => entry.effect.effect.kind),
     ["continuous.might", "continuous.might"]
   );
-  assert.equal(engine.layers.evaluate(snapshot.ref).might, 2, "both designation gates are permanently false");
+  assert.equal(engine.layers.evaluate(snapshot.ref).might, 4);
   for (const handle of handles) handle.unbind();
 });
 
-test("rad-088-167 Staunch Survivor: the designation predicate really throws while the combatRole equivalent evaluates", () => {
-  // Isolates the gap to the property name: evaluating the merged expansion's
-  // condition throws for the missing "designation" characteristic, while the
-  // same comparison over ObjectSnapshot.combatRole returns true.
+test("rad-088-167 Staunch Survivor: the designation predicate follows the combatRole equivalent", () => {
+  // The production characteristic resolves to the attacker's live role.
   const kernel = world().player("A").player("B")
     .unit("survivor", { controller: "A", owner: "A", might: 2, combatRole: "attacker", zone: "board" })
     .build();
@@ -234,10 +231,7 @@ test("rad-088-167 Staunch Survivor: the designation predicate really throws whil
     isIgnored: () => false
   };
   const [assaultExpansion] = assault.expand({ value: 2, host: HOST });
-  assert.throws(
-    () => evaluateCondition(assaultExpansion.condition, environment),
-    /Unavailable characteristic: designation/
-  );
+  assert.equal(evaluateCondition(assaultExpansion.condition, environment), true);
   assert.equal(
     evaluateCondition({
       kind: "compare",

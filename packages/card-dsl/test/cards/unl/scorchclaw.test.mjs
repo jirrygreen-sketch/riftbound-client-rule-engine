@@ -213,10 +213,9 @@ test("unl-016-219 Scorchclaw: the real conquer emission carries no Hunt host, so
   }
 });
 
-test("unl-016-219 Scorchclaw golden: the XP gate cannot be evaluated by the merged Condition vocabulary (gap 2)", () => {
-  // Evidence for gap (2): the count expression counts objects, not the
-  // controller's XP. Four unrelated objects make the gte-3 clause true, and two
-  // objects make it false, with XP unchanged.
+test("unl-016-219 Scorchclaw golden: the XP gate reads the controller's live XP", () => {
+  // 824.1.b.1 / 824.1.c: count(controller-xp) uses XP, so zero XP is false and
+  // three XP is true regardless of the number of objects in play.
   const environment = kernel => ({
     context: kernel,
     host: kernel.ref("scorchclaw"),
@@ -224,23 +223,20 @@ test("unl-016-219 Scorchclaw golden: the XP gate cannot be evaluated by the merg
     canLookBack: () => true,
     isIgnored: () => false
   });
-  const fourObjects = world()
-    .player("A", { xp: 0 })
+  const threeXp = world()
+    .player("A", { xp: 3 })
     .unit("scorchclaw")
     .unit("a").unit("b").unit("c")
     .build();
-  const twoObjects = world().player("A", { xp: 0 }).unit("scorchclaw").unit("a").build();
-  assert.equal(evaluateCondition(levelMight.condition, environment(fourObjects)), true);
-  assert.equal(evaluateCondition(levelMight.condition, environment(twoObjects)), false);
-  for (const kernel of [fourObjects, twoObjects]) assert.equal(kernel.player("A").xp, 0);
-  assert.equal(levelMight.condition.left.subject, "controller-xp",
-    "the authored subject records the intended XP gate that no evaluator reads");
+  const noXp = world().player("A", { xp: 0 }).unit("scorchclaw").unit("a").build();
+  assert.equal(evaluateCondition(levelMight.condition, environment(threeXp)), true);
+  assert.equal(evaluateCondition(levelMight.condition, environment(noXp)), false);
+  assert.equal(levelMight.condition.left.subject, "controller-xp");
 });
 
-test("unl-016-219 Scorchclaw: the Level predicate expansion has no layer mapping (gap 2)", () => {
-  // Evidence for gap (2): programs/statics.ts rejects the expanded
-  // condition.predicate, so the dependent ability cannot be bound to a live XP
-  // gate (CR 824.1.b.1/824.1.c/824.1.d).
+test("unl-016-219 Scorchclaw: the Level predicate expansion binds in production", () => {
+  // The production static binder installs the condition.predicate for the
+  // source's live XP gate (CR 824.1.b.1/824.1.c/824.1.d).
   const snapshot = unitSnapshot();
   const expanded = expandProgram(executableProgram(), snapshot);
   const predicate = expanded.abilities.find(candidate => candidate.kind === "static" && candidate.effect.kind === "condition.predicate");
@@ -248,16 +244,14 @@ test("unl-016-219 Scorchclaw: the Level predicate expansion has no layer mapping
   assert.equal(predicate.effect.query, "controller-xp");
   const f = fixture({ cards: [{ id: "scorchclaw", cardId: CANONICAL_ID, types: ["unit"], energy: 3, power: ["Fury"], zone: "board" }] });
   f.engine.commit({ type: "move-zone", object: f.kernel.ref("scorchclaw"), to: "board", location: { type: "base", player: "A" } });
-  assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic(predicate, f.kernel.getObject("scorchclaw")),
-    /Static ability kind condition\.predicate has no layer mapping/
-  );
+  const handle = createEngineStaticBinder(f.engine).bindStatic(predicate, f.kernel.getObject("scorchclaw"));
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
 });
 
-test("unl-016-219 Scorchclaw: matchesEnterAction ignores the ability condition (gap 3)", () => {
-  // Evidence for gap (3): replacement/bind.ts's entry branch does not consult
-  // ability.condition, so the XP-gated "enter ready" cannot be shown to respect
-  // its gate (RIFT-359 bridge).
+test("unl-016-219 Scorchclaw: matchesEnterAction honors the ability condition", () => {
+  // The entry branch consults the XP gate: never stays done and always
+  // replaces the exhausted entry.
   const withNever = { ...levelEnterReady, condition: { kind: "never" } };
   const entries = [];
   for (const [label, ability] of [["never", withNever], ["always", { ...levelEnterReady, condition: { kind: "always" } }]]) {
@@ -274,8 +268,7 @@ test("unl-016-219 Scorchclaw: matchesEnterAction ignores the ability condition (
     entries.push([label, f.engine.pipeline.commit(entry).status]);
     handle?.unbind?.();
   }
-  // Both gates behave identically: the condition is not consulted on this path.
-  assert.deepEqual(entries, [["never", "replaced"], ["always", "replaced"]]);
+  assert.deepEqual(entries, [["never", "done"], ["always", "replaced"]]);
 });
 
 test.todo(

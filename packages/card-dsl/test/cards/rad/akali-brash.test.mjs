@@ -39,20 +39,20 @@ test("rad-015-167 Akali, Brash: program validates and has expected identity", ()
   assert.doesNotMatch(program.judgeReason, /RIFT-(257|261)/);
 });
 
-test("rad-015-167 Akali, Brash: the two move triggers really cannot register (421.1 / 449.1)", () => {
-  // The production registration path validates trigger.filter.event against the
-  // closed EVENT_PATTERN_TYPES vocabulary, and object-moved is not in it, so a
-  // program that declares these triggers cannot be bound at all.
+test("rad-015-167 Akali, Brash: the production pipeline subscribes both move triggers (421.1 / 449.1)", () => {
+  // The production registration path accepts object-moved and binds each
+  // declared trigger to Akali's current board incarnation.
   const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
   const kernel = world().unit("akali", { cardId: program.canonicalCardId, types: ["unit"], zone: "board" }).build();
   const registrations = triggerRegistrations(registry, kernel.getObject("akali"));
   assert.equal(registrations.length, 2);
   const f = fixture({ cards: [] });
-  assert.throws(
-    () => f.engine.pipeline.registerTrigger(registrations[0]),
-    error => error.name === "TriggerSpecValidationError" &&
-      /trigger\.filter\.event/.test(error.message)
-  );
+  for (const registration of registrations) {
+    assert.equal(registration.spec.at, "object-moved");
+    assert.deepEqual(registration.spec.filter, { objectId: "akali" });
+    f.engine.pipeline.registerTrigger(registration);
+    assert.equal(f.engine.pipeline.hasTriggerRegistration(registration.id), true);
+  }
 });
 
 test("rad-015-167 Akali, Brash: the second-move ordinal history has no evaluable Condition", () => {

@@ -226,13 +226,10 @@ test("For Demacia! golden: the granted Shield really lands in the ability layer 
   );
 });
 
-test("For Demacia! golden: the default layer engine ignores the Shield designation condition", () => {
+test("For Demacia! golden: the default layer engine honors the Shield defender condition", () => {
   // Shield's merged expansion (effects/keywords/Shield.ts) is a
   // continuous.might static ability gated on `designation === "defender"`.
-  // layers/engine.ts conditionMatches only implements
-  // always/never/type/has-tag/has-keyword and returns true for any other
-  // condition, so the +2 Might lands for every combat role. This pins the
-  // actual current behaviour instead of assuming the gate holds.
+  // 814.1.d.1: the +2 applies to a Defender only.
   const [shieldMight] = keywordDefinitionsById.get("Shield").expand({
     value: 2,
     host: { canonicalCardId: CANONICAL }
@@ -258,9 +255,7 @@ test("For Demacia! golden: the default layer engine ignores the Shield designati
       }
     };
     const engine = createLayerEngine([shielded], [{ effect: spec, duration: { type: "permanent" } }]);
-    // The condition is never evaluated, so the +2 lands even without the
-    // Defender designation — the reason the card stays judge-required.
-    assert.equal(engine.evaluate(shielded.ref).might, 4, "combatRole=" + combatRole);
+    assert.equal(engine.evaluate(shielded.ref).might, combatRole === "defender" ? 4 : 2, "combatRole=" + combatRole);
   }
 });
 
@@ -373,7 +368,7 @@ test("For Demacia!: the printed play really locks the chosen battlefield before 
   assert.deepEqual(byId.get("allyHere").keywords, [{ id: "Shield", value: 2 }]);
   assert.deepEqual(byId.get("allyElsewhere").keywords, []);
   assert.deepEqual(byId.get("foeHere").keywords, []);
-  assert.equal(byId.get("allyHere").might, 2);
+  assert.equal(byId.get("allyHere").might, 4);
   // The battlefield itself was really locked as the target, never a unit.
   assert.deepEqual(
     result.events.filter(event => event.timingPoint === "became-target").map(event => event.target.ref.id),

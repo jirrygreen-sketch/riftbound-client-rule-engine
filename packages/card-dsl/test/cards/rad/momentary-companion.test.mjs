@@ -148,34 +148,30 @@ test("rad-095-167 Momentary Companion: the grant is not approximated with a buff
   assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), true);
 });
 
-test("rad-095-167 Momentary Companion boundary: the Hidden static expansion has no production layer mapping", () => {
-  // effects/keywords/Hidden.ts declares static effect { kind: "cost.hidden" };
-  // programs/statics.ts layerFor() rejects it, so Hide/permission wiring never
-  // reaches a layer consumer (CR 811).
+test("rad-095-167 Momentary Companion: the Hidden static expansion binds in production", () => {
+  // effects/keywords/Hidden.ts declares cost.hidden, whose production binding
+  // now installs the Hide/cost registration for the card incarnation.
   const [hidden] = keywordDefinitionsById.get("Hidden").expand({ host: { canonicalCardId: CARD_ID } });
   assert.equal(hidden.effect.kind, "cost.hidden");
   const f = fixture({ cards: [{ id: "companion", cardId: CARD_ID, types: ["unit"] }] });
-  assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic(hidden, f.kernel.getObject("companion")),
-    /Static ability kind cost\.hidden has no layer mapping/
-  );
+  const handle = createEngineStaticBinder(f.engine).bindStatic(hidden, f.kernel.getObject("companion"));
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
 });
 
-test("rad-095-167 Momentary Companion boundary: the granted Temporary beginning-start trigger cannot be registered", () => {
-  // 816.1.b: the grant registers the keyword, but its expanded beginning-start
-  // trigger names an event pattern outside EVENT_PATTERN_TYPES, so the pipeline
-  // rejects the registration.
+test("rad-095-167 Momentary Companion: the granted Temporary beginning-start trigger registers", () => {
+  // 816.1.b: the expanded beginning-start event is accepted and installed on
+  // the production pipeline.
   const [temporary] = keywordDefinitionsById.get("Temporary").expand({ host: { canonicalCardId: CARD_ID } });
   const f = fixture();
   const source = f.kernel.getObject("source");
-  assert.throws(
-    () => f.engine.pipeline.registerTrigger({
-      id: "temporary:self-kill", source, controller: source.controller,
-      spec: { at: temporary.trigger.at, filter: temporary.trigger.filter },
-      body: temporary.body, optional: temporary.optional
-    }),
-    error => error.name === "TriggerSpecValidationError" && /trigger\.filter\.event/.test(error.message)
-  );
+  const registration = {
+    id: "temporary:self-kill", source, controller: source.controller,
+    spec: { at: temporary.trigger.at, filter: temporary.trigger.filter },
+    body: temporary.body, optional: temporary.optional
+  };
+  f.engine.pipeline.registerTrigger(registration);
+  assert.equal(f.engine.pipeline.hasTriggerRegistration(registration.id), true);
 });
 
 test.todo('Momentary Companion: compare turn player with controller when card-played triggers, before granting Temporary.');

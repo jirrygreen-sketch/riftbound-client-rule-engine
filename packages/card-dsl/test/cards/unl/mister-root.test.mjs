@@ -107,7 +107,7 @@ test.todo(
     "every spelling) and action-adapter.ts leaves fromZone/toZone unset on move-location"
 );
 
-test("unl-127-219 Mister Root: the move trigger cannot be registered through the merged closed vocabulary", async () => {
+test("unl-127-219 Mister Root: the move trigger registers through the translated event pattern", async () => {
   // 421.1 / 449.1/449.2 / 458/458.1 need a real Move trigger, but the closed
   // EVENT_PATTERN_TYPES vocabulary has no object-moved entry: the card's own
   // filter is rejected and so is every equivalent spelling, so this cannot be
@@ -116,12 +116,11 @@ test("unl-127-219 Mister Root: the move trigger cannot be registered through the
   const { validateTriggerSpec, EVENT_PATTERN_TYPES } = await import("../../../../engine-core/dist/events/trigger-spec.js");
   const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
 
-  assert.equal(EVENT_PATTERN_TYPES.includes("object-moved"), false);
+  assert.equal(EVENT_PATTERN_TYPES.includes("object-moved"), true);
   const spec = validateTriggerSpec({ at: "object-moved", filter: triggered.trigger.filter });
+  // The authored nested filter remains invalid until its object anchor is
+  // translated; the production path supplies that source binding below.
   assert.equal(spec.ok, false);
-  assert.ok(spec.issues.some(issue => issue.code === "invalid-event-type"));
-  // The nested self anchor is unrepresentable too: the closed EventPattern has
-  // no filter field.
   assert.ok(spec.issues.some(issue => issue.code === "unknown-field"));
 
   const lifted = { ...program, status: "executable" };
@@ -137,14 +136,9 @@ test("unl-127-219 Mister Root: the move trigger cannot be registered through the
     location: { type: "battlefield", id: "bf-1" }
   });
   const source = { ...f.kernel.getObject("root"), cardId: CARD_ID, zone: "board" };
-  // registerTrigger validates the spec and throws before any subscription is
-  // stored; the message lists the closed vocabulary the card's event is absent
-  // from.
-  assert.throws(
-    () => binding.registerProgramTriggers(f.engine, source),
-    /trigger\.filter\.event: 值必须属于 zone-entered/
-  );
-  assert.equal(f.engine.pipeline.triggers.size ?? 0, 0);
+  const ids = binding.registerProgramTriggers(f.engine, source);
+  assert.ok(ids.length > 0);
+  assert.ok(f.engine.pipeline.triggers.size > 0);
 });
 
 test("unl-127-219 Mister Root golden: a real move-location carries no from/to zone payload", async () => {
@@ -171,7 +165,7 @@ test("unl-127-219 Mister Root golden: a real move-location carries no from/to zo
   assert.equal(f.kernel.getObject("root").location.id, "bf-2");
 });
 
-test("unl-127-219 Mister Root: the Accelerate static declaration cannot enter the production layer path", async () => {
+test("unl-127-219 Mister Root: the Accelerate static declaration enters the production layer path", async () => {
   // 805.1.b: the merged KeywordDef publishes a static accelerate.cost
   // declaration, but programs/statics.ts's layerFor has no mapping for it, and
   // the play draft the merged describePlay builds carries no cost at all.
@@ -195,15 +189,14 @@ test("unl-127-219 Mister Root: the Accelerate static declaration cannot enter th
   const [accelerate] = binding.inspect(source).abilities.filter(ability => ability.kind === "static");
   assert.equal(accelerate.effect.kind, "accelerate.cost");
   assert.equal(accelerate.effect.cost.optional, true);
-  assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic(accelerate, source),
-    /Static ability kind accelerate\.cost has no layer mapping/
-  );
+  const handle = createEngineStaticBinder(f.engine).bindStatic(accelerate, source);
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
 
   const draft = binding.describePlay(
     { type: "play", player: "A", object: f.kernel.ref("root") },
     f.kernel.getObject("root")
   );
-  assert.equal(draft.cost, undefined);
+  assert.equal(draft.cost.optionalAdditional[0].kind, "accelerate");
   assert.equal(draft.body.length, 0);
 });

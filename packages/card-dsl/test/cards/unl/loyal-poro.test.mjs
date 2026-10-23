@@ -135,7 +135,7 @@ test("unl-156-219 Loyal Poro golden: the object-killed CardProgram trigger regis
   assert.match(ids[0], /^program:poro:1:/);
 });
 
-test("unl-156-219 Loyal Poro: the registered condition still cannot see a friendly unit here (808.1.c.2 / 740.2.a)", () => {
+test("unl-156-219 Loyal Poro: the registered condition sees the friendly unit here (808.1.c.2 / 740.2.a)", () => {
   // The condition now rides the registration, but its controller placeholder is
   // not normalized: the reference kernel and the pipeline's
   // evaluateTriggerCondition both compare it literally, so the same-location
@@ -185,32 +185,28 @@ test("unl-156-219 Loyal Poro: the registered condition still cannot see a friend
     canLookBack: () => true,
     isIgnored: () => false
   };
-  assert.deepEqual(
-    queryObjects(conditioned.spec.condition.left.filter, environment).map((object) => object.ref.id),
-    []
-  );
+  assert.deepEqual(queryObjects(conditioned.spec.condition.left.filter, environment).map((object) => object.ref.id), ["friend"]);
   const anchored = structuredClone(conditioned.spec.condition.left.filter);
   anchored.controller = "A";
   assert.deepEqual(
     queryObjects(anchored, environment).map((object) => object.ref.id),
     ["friend"]
   );
-  assert.equal(evaluateCondition(conditioned.spec.condition, environment), false);
+  assert.equal(evaluateCondition(conditioned.spec.condition, environment), true);
   const literal = structuredClone(conditioned.spec.condition);
   literal.left.filter.controller = "A";
   assert.equal(evaluateCondition(literal, environment), true, "a literal player id resolves the count");
 });
 
-test("unl-156-219 Loyal Poro: the [Deathknell] expansion body still references the unregistered trigger.leave op (808.1.d)", () => {
-  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
+test("unl-156-219 Loyal Poro: the [Deathknell] expansion body reaches the registered trigger.leave op (808.1.d)", () => {
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), true);
   const definition = keywordDefinitionsById.get("Deathknell");
   const [expansion] = definition.expand({ host: { canonicalCardId: CANONICAL_ID } });
   const kernel = world().unit("poro", { owner: "A", controller: "A" }).build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("poro"), controller: "A" });
-  assert.throws(
-    () => resolveChainBody(expansion.body, scoped),
-    /Unregistered instruction opcode: trigger\.leave/
-  );
+  const outcome = resolveChainBody(expansion.body, scoped);
+  assert.equal(outcome.results[0].op, "trigger.leave");
+  assert.notEqual(outcome.results[0].result.reason, "unregistered-opcode");
 });
 
 test.todo(

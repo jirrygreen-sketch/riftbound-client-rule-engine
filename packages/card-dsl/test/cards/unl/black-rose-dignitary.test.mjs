@@ -153,21 +153,20 @@ test("unl-152-219 Black Rose Dignitary boundary: the [Assault] expansion binds b
   assert.equal(expansion.effect.amount.value, 1);
   createEngineStaticBinder(f.engine).bindStatic(expansion, source);
   const [entry] = f.engine.layers.registry.list();
-  assert.equal(entry.effect.effect.amount, 1);
-  assert.equal(entry.effect.effect.condition(source), false,
-    "the attacker condition must not claim a contribution while designation is unreadable");
+  assert.deepEqual(entry.effect.effect.amount, { kind: "constant", value: 1 });
+  assert.equal(entry.effect.effect.condition(source), true);
   f.engine.layers.setObjects(f.kernel.objects);
-  assert.equal(f.engine.layers.evaluate(source.ref).might, 2);
+  assert.equal(f.engine.layers.evaluate(source.ref).might, 3);
 });
 
-test("unl-152-219 Black Rose Dignitary boundary: the [Deathknell] expansion body cannot execute (CR 808.1.c/808.1.d)", () => {
-  // Third-sweep evidence: subscription succeeds, but the expanded body's op has
-  // no InstructionDef, so the real chain adapter throws when the effect runs.
+test("unl-152-219 Black Rose Dignitary: the [Deathknell] expansion body reaches trigger.leave (CR 808.1.c/808.1.d)", () => {
   const [deathknellExpansion] = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL_ID } });
   const body = deathknellExpansion.body;
   assert.equal(body.length, 1);
   assert.equal(body[0].op, "trigger.leave");
-  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), true);
   const kernel = world().player("A").rune(["top-rune"]).build();
-  assert.throws(() => resolveChainBody(body, kernel), /Unregistered instruction opcode: trigger\.leave/);
+  const outcome = resolveChainBody(body, kernel);
+  assert.equal(outcome.results[0].op, "trigger.leave");
+  assert.notEqual(outcome.results[0].result.reason, "unregistered-opcode");
 });

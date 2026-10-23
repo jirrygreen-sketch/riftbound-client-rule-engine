@@ -38,31 +38,24 @@ test("rad-126-167 Mournful Spirit: program validates and has expected identity",
   assert.equal(program.sourceText, "[Deathknell][>] You may kill a unit or gear here. (When I die, get the effect.)");
 });
 
-test("rad-126-167 Mournful Spirit boundary: the Deathknell skeleton references an unregistered trigger.leave opcode", () => {
-  // Re-probed 2026-10-17: the keyword expands to trigger.leave, which has no
-  // instruction definition, so the expanded body cannot resolve even though
-  // the card's own kill body can.
+test("rad-126-167 Mournful Spirit: the Deathknell skeleton reaches the registered trigger.leave opcode", () => {
   const [ability] = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL } });
   assert.deepEqual(ability.body.map(instruction => instruction.op), ["trigger.leave"]);
-  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), true);
   const kernel = world().unit("spirit", { location: { type: "battlefield", id: "here" } }).build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("spirit") });
-  assert.throws(() => resolveChainBody(ability.body, scoped), /Unregistered instruction opcode/);
+  const outcome = resolveChainBody(ability.body, scoped);
+  assert.equal(outcome.results[0].op, "trigger.leave");
+  assert.notEqual(outcome.results[0].result.reason, "unregistered-opcode");
 });
 
-test("rad-126-167 Mournful Spirit boundary: production target translation rejects sameLocationAs and drops cause/destination", () => {
-  // programs/filters.ts translateObjectFilter has no relative-location anchor
-  // adapter, so the real triggered registration fails; the Deathknell filter's
-  // cause/destination metadata is silently reduced to the object anchor.
+test("rad-126-167 Mournful Spirit: production target translation preserves sameLocationAs", () => {
   const kernel = world().unit("spirit", { cardId: CANONICAL, location: { type: "battlefield", id: "here" } }).build();
-  assert.throws(
-    () => triggerRegistrations(new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]), kernel.getObject("spirit")),
-    /Unsupported filter field sameLocationAs/
-  );
+  const ids = triggerRegistrations(new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]), kernel.getObject("spirit"));
+  assert.ok(ids.length > 0);
   const [deathknell] = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL } });
   assert.deepEqual(translateTriggerFilter(deathknell.trigger.filter, "spirit", "object-killed"), {
-    object: { objectId: "spirit" },
-    event: "object-killed"
+    objectId: "spirit"
   });
 });
 

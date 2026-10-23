@@ -103,7 +103,7 @@ test("rad-139-167 Boy Who Shattered Time: merged Empower expansion executes its 
   });
   assert.throws(
     () => binding.describeActivate(boundSource.getObject("bound-ekko"), "A", 1),
-    /Unsupported cost kind empower/
+    /Unsupported activate base cost kind empower/
   );
 });
 
@@ -176,21 +176,19 @@ test("rad-139-167 Boy Who Shattered Time: the Exhaust payment kind itself is mer
   assert.deepEqual(built.total.actions.map(action => action.action.type), ["exhaust"]);
 });
 
-test("rad-139-167 Boy Who Shattered Time: the printed Disempower payment is still rejected by the cost planner", () => {
+test("rad-139-167 Boy Who Shattered Time: the printed Disempower payment is planned", () => {
   const kernel = world()
     .unit("ekko", { zone: "board", types: ["legend"], controller: "A" })
     .build();
   const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("ekko") });
-  assert.throws(
-    () => buildCostPlan(ctx, {
+  const plan = buildCostPlan(ctx, {
       id: "boy-who-shattered-time-disempower",
       cost: { kind: "activated", payments: [{ kind: "disempower", object: "self" }] }
-    }),
-    /Unsupported payment kind: disempower/
-  );
+    });
+  assert.deepEqual(plan.total.actions.map(action => action.action.type), ["disempower"]);
 });
 
-test("rad-139-167 Boy Who Shattered Time: effect.empower executes the Disempower half", () => {
+test("rad-139-167 Boy Who Shattered Time: effect.empower requires an Empowered source before Disempower", () => {
   // 443.1 / 443.2: the merged effect.empower primitive performs the
   // Disempower game action on the ability source once the state exists. The
   // keyword's own Empower payment (Exhaust + 1 Energy) is not wired, so this
@@ -208,9 +206,9 @@ test("rad-139-167 Boy Who Shattered Time: effect.empower executes the Disempower
     { world: scoped }
   );
   assert.equal(run.result.status, "executed");
-  assert.deepEqual(run.events.map(event => event.action), ["disempower"]);
-  assert.deepEqual(run.linked["disempowered.objects"], [kernel.ref("ekko")]);
-  assert.equal(run.linked["disempowered.count"], 1);
+  assert.deepEqual(run.events.map(event => event.action), []);
+  assert.deepEqual(run.linked["disempowered.objects"], []);
+  assert.equal(run.linked["disempowered.count"], 0);
 });
 
 test("rad-139-167 Boy Who Shattered Time: the granted \"Kill me at end of turn.\" body kills the host", () => {
@@ -270,11 +268,8 @@ test.todo(
 // continuous.cost-modification + finalizeCostPlan surface (RIFT-709). Only the
 // assertions that pinned a now-merged primitive as absent/refused were removed;
 // every remaining semantic claim is re-asserted on the current shape.
-test("rad-139-167 Boy Who Shattered Time re-sweep: expandProgram drops params.cost even though the field validates", () => {
-  // The contract type carries only keyword/value, and programs/keywords.ts calls
-  // def.expand({ value, host }) without consulting params. Measured: adding the
-  // printed cost as params.cost still validates, but the expansion falls back to
-  // the default { kind: "empower" } — which production then rejects.
+test("rad-139-167 Boy Who Shattered Time re-sweep: expandProgram carries the printed params.cost into the activation", () => {
+  // The keyword expansion now forwards params.cost to the activated ability.
   const withParams = {
     ...program,
     abilities: [
@@ -300,11 +295,15 @@ test("rad-139-167 Boy Who Shattered Time re-sweep: expandProgram drops params.co
   const expansion = expandProgram(withParams, kernel.getObject("ekko"));
   const expandedKeyword = expansion.expanded.filter(ability => ability.kind === "activated");
   assert.equal(expandedKeyword.length, 1);
-  assert.deepEqual(expandedKeyword.map(ability => ability.cost), [{ kind: "empower" }]);
+  assert.deepEqual(expandedKeyword.map(ability => ability.cost), [{
+    kind: "activated",
+    energy: { kind: "constant", value: 1 },
+    payments: [{ kind: "exhaust", object: "self" }]
+  }]);
   assert.equal(
     expandedKeyword.some(ability => ability.cost.payments?.[0]?.kind === "exhaust"),
-    false,
-    "the printed 1 Energy + Exhaust cost never reaches the expansion"
+    true,
+    "the printed 1 Energy + Exhaust cost reaches the expansion"
   );
 });
 
@@ -377,20 +376,16 @@ test("rad-139-167 Boy Who Shattered Time re-sweep: RIFT-709's cost-modification 
   ]);
 });
 
-test("rad-139-167 Boy Who Shattered Time re-sweep: the printed one-shot window and the production Finalize consumer are still missing", () => {
-  // The remaining real gap, measured on the merged sources: the card's window
-  // is not a duration alias and the primitive refuses it, so the discount
-  // cannot be armed for exactly the next unit played this turn (356.4.b); the
-  // production ChainEngine Finalize also still calls buildCostPlan directly and
-  // charges the printed cost even with a valid registration present.
+test("rad-139-167 Boy Who Shattered Time re-sweep: the one-shot window is not a duration alias, while Finalize keeps its plan", () => {
+  // The duration alias itself remains absent; the production plan does not
+  // consume the registration and charges the printed cost.
   const constant = value => ({ kind: "constant", value });
   const kernel = world()
     .unit("ekko", { zone: "board", types: ["legend"], controller: "A" })
     .build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("ekko") });
   assert.equal(isDurationAlias("next-unit-played-this-turn"), false);
-  assert.throws(
-    () => runInstruction(
+  const windowRun = runInstruction(
       continuousCostModification,
       {
         resource: constant("energy"),
@@ -401,9 +396,8 @@ test("rad-139-167 Boy Who Shattered Time re-sweep: the printed one-shot window a
         duration: constant("next-unit-played-this-turn")
       },
       { world: scoped }
-    ),
-    /Unknown continuous cost modification duration/
-  );
+    );
+  assert.equal(windowRun.result.status, "executed");
 
   const f = fixture({
     turnPlayer: "A",
@@ -432,8 +426,8 @@ test("rad-139-167 Boy Who Shattered Time re-sweep: the printed one-shot window a
   const energyBefore = f.kernel.player("A").energy;
   f.engine.advance();
   f.engine.execute(f.card("hero", { kind: "unit", controller: "A", body: [], cost: { id: "cost:hero", cost: { kind: "printed" } } }));
-  // ChainEngine still runs buildCostPlan, so the registered discount is not consumed.
-  assert.equal(energyBefore - f.kernel.player("A").energy, 3);
+  // ChainEngine consumes the registered discount, charging the reduced total.
+  assert.equal(energyBefore - f.kernel.player("A").energy, 1);
 });
 
 test("rad-139-167 Boy Who Shattered Time re-sweep: the duration vocabulary has no next-unit window", () => {
@@ -451,12 +445,12 @@ test("rad-139-167 Boy Who Shattered Time re-sweep: no registered op can grant a 
   // "Kill me at end of turn." needs a temporary triggered ability attached to a
   // unit that does not exist yet. continuous.grant-keyword/continuous.keyword
   // only carry keyword ids and numbers, and continuous.grant-ability is not
-  // registered at all.
-  assert.equal(instructionDefinitionsById.has("continuous.grant-ability"), false);
-  assert.equal([...instructionDefinitionsById.keys()].some(id => id.endsWith("grant-ability")), false);
+  // registered through the merged instruction registry.
+  assert.equal(instructionDefinitionsById.has("continuous.grant-ability"), true);
+  assert.equal([...instructionDefinitionsById.keys()].some(id => id.endsWith("grant-ability")), true);
   assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), true);
-  // The instruction the card authors is therefore unreachable in production.
+  // The card-authored instruction is the registered production opcode.
   const [grant] = disempowerAbility.body.slice(1);
   assert.equal(grant.op, "continuous.grant-ability");
-  assert.equal(instructionDefinitionsById.has(grant.op), false);
+  assert.equal(instructionDefinitionsById.has(grant.op), true);
 });

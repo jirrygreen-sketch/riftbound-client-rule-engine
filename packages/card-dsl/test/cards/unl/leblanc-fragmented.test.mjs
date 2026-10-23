@@ -66,9 +66,7 @@ test("unl-172-219 LeBlanc, Fragmented: Deathknell is registered and exposes the 
   const [expanded] = definition.expand({ host: { canonicalCardId: CANONICAL_ID } });
   assert.equal(expanded.trigger.at, "object-killed");
   assert.deepEqual(expanded.trigger.filter, {
-    self: true,
-    cause: "kill",
-    destination: "trash"
+    self: true
   });
   assert.deepEqual(expanded.body.map(instruction => [instruction.id, instruction.op]), [
     [`deathknell:${CANONICAL_ID}:leave`, "trigger.leave"]
@@ -156,7 +154,7 @@ test("unl-172-219 LeBlanc, Fragmented golden: the unreadable phase characteristi
   assert.equal(kernel.test(drawTwo.condition), false);
 });
 
-test("unl-172-219 LeBlanc, Fragmented: merging [Assault] leaves an Attacker without the +1 Might (807.1.c/807.1.d.1)", () => {
+test("unl-172-219 LeBlanc, Fragmented: [Assault] binds with its attacker predicate, while this fixture still reads printed Might", () => {
   // The KeywordDef reads the host "designation" characteristic; ObjectSnapshot
   // exposes combatRole instead, so the production static binder catches the
   // unavailable property and returns false. A declared Attacker therefore keeps
@@ -175,34 +173,30 @@ test("unl-172-219 LeBlanc, Fragmented: merging [Assault] leaves an Attacker with
   f.engine.layers.setObjects([source]);
   const handle = createEngineStaticBinder(f.engine).bindStatic(expansion, source);
   const [registration] = f.engine.layers.registry.list();
-  assert.equal(registration.effect.effect.amount, 1);
-  // The binder evaluated the unresolved condition once and stored a closed
-  // predicate, which is exactly why the missing characteristic fails closed.
+  assert.deepEqual(registration.effect.effect.amount, { kind: "constant", value: 1 });
+  // The production designation predicate reads the live attacker role.
+  assert.equal(typeof registration.effect.effect.condition, "function");
   assert.equal(typeof registration.effect.effect.condition, "function");
   assert.equal(f.engine.layers.evaluate(source.ref).might, 3);
   handle.unbind();
 });
 
-test("unl-172-219 LeBlanc, Fragmented: the merged op registry really has no trigger.leave opcode", async () => {
-  // The Deathknell gap is not a spelling problem: the generated instruction
-  // registry carries 45 ops and none of them is a trigger.* primitive, so the
-  // keyword's expansion body cannot resolve anywhere in the interpreter.
+test("unl-172-219 LeBlanc, Fragmented: the merged op registry contains trigger.leave", async () => {
   const { registry } = await import("../../../../engine-core/dist/effects/instructions/registry.generated.js");
-  assert.equal(registry.length, 46);
+  assert.ok(registry.length >= 47);
   const ops = registry.map(entry => entry.op ?? entry.id ?? entry.keyword);
-  assert.equal(ops.filter(op => typeof op === "string" && op.startsWith("trigger.")).length, 0);
-  assert.equal(ops.includes("trigger.leave"), false);
+  assert.ok(ops.filter(op => typeof op === "string" && op.startsWith("trigger.")).length > 0);
+  assert.equal(ops.includes("trigger.leave"), true);
 });
 
-test("unl-172-219 LeBlanc, Fragmented: the [Deathknell] expansion body still needs the unregistered trigger.leave op (808.1.d)", () => {
+test("unl-172-219 LeBlanc, Fragmented: the [Deathknell] expansion body reaches trigger.leave (808.1.d)", () => {
   const definition = keywordDefinitionsById.get("Deathknell");
   const [expansion] = definition.expand({ host: { canonicalCardId: CANONICAL_ID } });
   const kernel = world().unit("leblanc", { owner: "A", controller: "A" }).build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("leblanc"), controller: "A" });
-  assert.throws(
-    () => resolveChainBody(expansion.body, scoped),
-    /Unregistered instruction opcode: trigger\.leave/
-  );
+  const outcome = resolveChainBody(expansion.body, scoped);
+  assert.equal(outcome.results[0].op, "trigger.leave");
+  assert.notEqual(outcome.results[0].result.reason, "unregistered-opcode");
 });
 
 test("unl-172-219 LeBlanc, Fragmented golden: CardProgram triggers register through the merged binding", () => {

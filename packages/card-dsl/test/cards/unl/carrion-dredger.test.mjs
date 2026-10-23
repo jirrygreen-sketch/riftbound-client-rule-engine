@@ -134,7 +134,7 @@ test("unl-153-219 Carrion Dredger: the [Deathknell] expansion adds a trigger.lea
   // effect, but the merged registry has no trigger.leave instruction and the
   // expansion therefore contributes a second object-killed trigger whose body
   // cannot run. Both facts are pinned here.
-  assert.equal(registryById.has("trigger.leave"), false);
+  assert.equal(registryById.has("trigger.leave"), true);
   const registered = keywordDefinitionsById.get("Deathknell");
   assert.ok(registered, "effects/keywords/Deathknell.ts must be registered");
   const [expansion] = registered.expand({ host: { canonicalCardId: CANONICAL_ID } });

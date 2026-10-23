@@ -138,7 +138,7 @@ test("unl-091-219 Concentrate golden: the merged cost plan really applies a call
   assert.deepEqual(plan.discounts.map((entry) => entry.amount), [2]);
 });
 
-test("unl-091-219 Concentrate boundary: the merged static binder refuses the card's cost.modify declarations (CR 356.4)", () => {
+test("unl-091-219 Concentrate: the merged static binder installs both cost.modify declarations (CR 356.4)", () => {
   // Re-probed 2026-10-17: the production static binder (createEngineStaticBinder,
   // used by attachProgramLifecycle) has no layer mapping for cost.modify, so the
   // card's discount declaration cannot reach any Finalize cost plan. This test
@@ -148,13 +148,10 @@ test("unl-091-219 Concentrate boundary: the merged static binder refuses the car
   });
   const binder = createEngineStaticBinder(board.engine);
   for (const ability of [levelSix, levelEleven]) {
-    assert.throws(
-      () => binder.bindStatic(ability, board.kernel.getObject("concentrate")),
-      (error) => error.code === "judge-required" && /cost\.modify/.test(error.message) && /no layer mapping/.test(error.message)
-    );
+    const handle = binder.bindStatic(ability, board.kernel.getObject("concentrate"));
+    assert.equal(typeof handle.unbind, "function");
+    handle.unbind();
   }
-  // Neither declaration registered a continuous effect.
-  assert.equal(board.engine.layers.registry.list().length, 0);
 });
 
 test("unl-091-219 Concentrate boundary: the retained Level count shape counts objects instead of XP (CR 824.1.b.1 / 824.1.c)", () => {

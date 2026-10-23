@@ -112,7 +112,7 @@ function engineFor(kernel) {
   return new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
 }
 
-test("rad-086-167 K'Sante, Courageous boundary: the Accelerate cost declaration has no layer mapping", () => {
+test("rad-086-167 K'Sante, Courageous: the Accelerate cost declaration binds in production", () => {
   // 805.1.b: the printed optional additional cost. The KeywordDef is merged and
   // its enter-ready replacement binds, but the accelerate.cost static effect is
   // rejected by the merged layer mapping, so Finalize never sees the option.
@@ -124,17 +124,14 @@ test("rad-086-167 K'Sante, Courageous boundary: the Accelerate cost declaration 
   const kernel = world().object("ksante", { cardId: CARD_ID, types: ["unit"], might: 4, power: ["Body"] }).build();
   const engine = engineFor(kernel);
   const binder = createEngineStaticBinder(engine);
-  assert.throws(
-    () => binder.bindStatic(expansion[0], kernel.getObject("ksante")),
-    /accelerate\.cost has no layer mapping/
-  );
+  const handle = binder.bindStatic(expansion[0], kernel.getObject("ksante"));
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
   assert.doesNotThrow(() => binder.bindReplacement(expansion[1], kernel.getObject("ksante")));
 });
 
-test("rad-086-167 K'Sante, Courageous boundary: the [Shield 2] expansion cannot evaluate its designation", () => {
-  // 814.1.c: "While I am a defender, I have +2 [M]". The expansion reads the
-  // `designation` property, which ObjectSnapshot does not carry (it exposes
-  // combatRole), so binding leaves the printed Might untouched.
+test("rad-086-167 K'Sante, Courageous: [Shield 2] adds 2 Might to a defender", () => {
+  // 814.1.c: the designation predicate resolves from the live combat role.
   const expansion = Shield.expand({ value: 2, host: { canonicalCardId: CARD_ID } });
   assert.deepEqual(expansion[0].condition.left, {
     kind: "object-property", object: "self", property: "designation"
@@ -143,7 +140,7 @@ test("rad-086-167 K'Sante, Courageous boundary: the [Shield 2] expansion cannot 
   const engine = engineFor(kernel);
   createEngineStaticBinder(engine).bindStatic(expansion[0], kernel.getObject("ksante"));
   engine.layers.setObjects(kernel.objects);
-  assert.equal(engine.layers.evaluate(kernel.ref("ksante")).might, 4);
+  assert.equal(engine.layers.evaluate(kernel.ref("ksante")).might, 6);
 });
 
 test("rad-086-167 K'Sante, Courageous boundary: the hold trigger can never match a scoring hold event", () => {

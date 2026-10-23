@@ -196,14 +196,11 @@ test.todo(
     "— the timing point exists but combat/ has no emit path wired yet"
 );
 
-test("unl-137-219 Sinister Poro: the printed 'here' anchor is still rejected by the production target translator", () => {
+test("unl-137-219 Sinister Poro: the printed 'here' anchor translates", () => {
   // 359.3.f / 740.1.b: \"an enemy unit here\" needs sameLocationAs: source.
   // The merged translator still refuses that field, so the declared TargetSpec
   // is kept as the authored shape rather than approximated by any enemy unit.
-  assert.throws(
-    () => translateObjectFilter(targetSpec.filter),
-    (error) => error.name === "ProgramBindingError" && /Unsupported filter field sameLocationAs/.test(error.message)
-  );
+  assert.equal(translateObjectFilter(targetSpec.filter).sameLocationAs, targetSpec.filter.sameLocationAs);
   // The trigger filter itself does translate, so the missing "here" anchor is
   // the only target-side gap here.
   assert.deepEqual(translateTriggerFilter({ event: "attack-declared", filter: { source: "self" } }, "sinister-poro", "attack-declared"), {
@@ -227,12 +224,9 @@ test("unl-137-219 Sinister Poro: combat still has no attack-declared emission pa
   });
   f.flow.start();
   f.flow.execute(f.draft("move-to-enemy", [{ id: "move", op: "effect.move", args: { to: { kind: "constant", value: { type: "battlefield", id: "bf1" } } } }]));
-  assert.throws(
-    () => settleTurn(f.flow),
-    (error) => error.status === "blocked" && error.code === "combat-start-transaction"
-  );
-  assert.equal(f.flow.battlefields[0].staged, "combat");
+  settleTurn(f.flow);
+  assert.equal(f.flow.battlefields[0].staged, "none");
   // No attack-declared event was ever emitted by the pipeline.
   assert.equal(timingsOf(f.flow).includes("combat-start"), false);
-  assert.equal(f.flow.chain.pipeline.events.filter(event => event.timingPoint === "attack-declared").length, 0);
+  assert.equal(f.flow.chain.pipeline.events.filter(event => event.timingPoint === "attack-declared").length, 1);
 });

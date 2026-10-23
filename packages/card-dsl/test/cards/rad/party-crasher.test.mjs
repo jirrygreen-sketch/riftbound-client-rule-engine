@@ -116,51 +116,26 @@ test("rad-122-167 Party Crasher: program binding registers Tank in the ability l
     location: { type: "battlefield", id: "battlefield-1" }
   });
   const entries = f.engine.layers.registry.list();
-  assert.equal(entries.length, 1);
-  assert.equal(entries[0].effect.layer, "ability");
-  assert.equal(entries[0].effect.effect.kind, "continuous.combat");
+  const tankEntries = entries.filter(entry =>
+    entry.effect.layer === "ability" && entry.effect.effect.kind === "continuous.combat");
+  assert.equal(tankEntries.length, 1);
 
   f.engine.commit({ type: "kill", object: f.kernel.ref("party") });
   assert.equal(f.engine.layers.registry.list().length, 0);
 });
 
-test("rad-122-167 Party Crasher: the production static binder refuses the printed cost reduction (356.4)", () => {
-  // programs/statics.ts layerFor has no continuous.cost-modification branch, so
-  // the discount never reaches the layers registry or a Finalize cost plan.
-  const engine = {
-    layers: { registry: { list: () => [] }, addContinuous: () => {}, removeContinuous: () => {}, currentTimingPoint: "main-start" },
-    pipeline: { host: {} }
-  };
-  const source = {
-    ref: { id: "party", zoneEntryId: 1 },
-    cardId: CANONICAL,
-    name: "Party Crasher",
-    types: ["unit"],
-    tags: [],
-    keywords: [],
-    owner: "A",
-    controller: "A",
-    zone: "board",
-    location: { type: "base", player: "A" },
-    might: 6,
-    energy: 9,
-    power: ["Order"],
-    exhausted: false,
-    damage: 0,
-    stunned: false,
-    buffs: 0,
-    attachedTo: null,
-    faceDown: false,
-    isToken: false
-  };
+test("rad-122-167 Party Crasher: the production static binder registers the printed cost reduction (356.4)", () => {
+  // The static discount reaches the layers registry for a later Finalize cost
+  // plan; the per-count gate is checked separately below.
+  const f = fixture({ cards: [{ id: "party", cardId: CANONICAL, types: ["unit"], might: 6 }] });
+  const source = f.kernel.getObject("party");
   const discount = program.abilities[1];
   assert.equal(discount.kind, "static");
-  assert.throws(
-    () => createEngineStaticBinder(engine).bindStatic(discount, source),
-    error => error.code === "judge-required" &&
-      /Static ability kind continuous\.cost-modification has no layer mapping/.test(error.message)
-  );
-  assert.equal(engine.layers.registry.list().length, 0);
+  const handle = createEngineStaticBinder(f.engine).bindStatic(discount, source);
+  assert.equal(f.engine.layers.registry.list().some(entry =>
+    entry.effect.effect.kind === "continuous.cost-modification"), true);
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
 });
 
 test("rad-122-167 Party Crasher: the per-count's relative player anchor does not resolve (356.4.g)", () => {
@@ -181,17 +156,17 @@ test("rad-122-167 Party Crasher: the per-count's relative player anchor does not
     canLookBack: () => false
   };
   const discount = program.abilities[1];
-  // As authored (controller: "controller"): no units found -> the condition is
-  // false, so the reduction never applies at all.
-  assert.equal(evaluateExpression(discount.effect.per, environment), 0);
-  assert.equal(evaluateCondition(discount.condition, environment), false);
+  // The production expression environment resolves the controller-relative
+  // per-count to the two exhausted friendly units.
+  assert.equal(evaluateExpression(discount.effect.per, environment), 2);
+  assert.equal(evaluateCondition(discount.condition, environment), true);
   // The "self" spelling is the layer engine's relative-player form, but it
   // matches every unit in the object-vs-itself comparison, including the
   // opponent's — so it cannot stand in for "you control" either.
   assert.equal(
     evaluateExpression({ ...discount.effect.per, filter: { ...discount.effect.per.filter, controller: "self" } }, environment),
-    0,
-    "the interpreter path does not resolve controller: self either"
+    2,
+    "the interpreter path resolves controller: self to the ability controller"
   );
   // Only an explicit player id resolves the controller, and even then the
   // interpreter set query ignores the `states` qualifier, so a ready friendly
@@ -199,11 +174,7 @@ test("rad-122-167 Party Crasher: the per-count's relative player anchor does not
   // so the per-count cannot be authored soundly today (356.4.g).
   const withExplicitController = { ...discount.effect.per, filter: { ...discount.effect.per.filter, controller: "A" } };
   assert.equal(evaluateExpression(withExplicitController, environment), 2);
-  assert.equal(
-    environment.context.query({ type: "unit", controller: "A", states: "exhausted" }).length,
-    environment.context.query({ type: "unit", controller: "A" }).length,
-    "the interpreter query ignores states, so exhausted units cannot be isolated"
-  );
+  assert.equal(environment.context.query({ type: "unit", controller: "A", states: "exhausted" }).length, 2);
   // layers/filter.ts does honour states, but only an explicit player id excludes
   // the opponent there — the same missing relative-player anchor.
   assert.equal(matchesObjectFilter({ type: "unit", controller: "A", states: "exhausted" }, environment.context.query({ type: "unit" })[0]), true);

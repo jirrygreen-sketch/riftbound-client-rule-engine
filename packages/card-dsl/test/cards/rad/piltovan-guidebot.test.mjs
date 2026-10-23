@@ -125,10 +125,10 @@ test("rad-057-167 Piltovan Guidebot: the authored trigger filter really binds in
   assert.equal(registered[0].spec.at, "card-played");
 });
 
-test("rad-057-167 Piltovan Guidebot: neither the trait-layer op nor a keyword-value set-might is merged", () => {
+test("rad-057-167 Piltovan Guidebot: the trait-layer base-Might op is registered", () => {
   // (1) The merged continuous.might really is arithmetic-only (478.1.a): it
   // rejects a trait-layer declaration, so the printed base-Might set has no op.
-  assert.equal(registryById.has("continuous.base-might"), false);
+  assert.equal(registryById.has("continuous.base-might"), true);
   const continuousMight = registryById.get("continuous.might");
   assert.ok(continuousMight);
   assert.throws(
@@ -145,11 +145,10 @@ test("rad-057-167 Piltovan Guidebot: neither the trait-layer op nor a keyword-va
   assert.equal(Object.hasOwn(accepted, "layer"), false);
 });
 
-test("rad-057-167 Piltovan Guidebot: 'that card's Energy cost' still has no event-object read path (420.4.a)", () => {
-  // The instruction's own op is unregistered, and the trigger's object
-  // selector vocabulary (self/source/target/pick/linked) has no member that
-  // reaches the played card carried by the card-played event.
-  assert.equal(registryById.has(setBaseMight.op), false);
+test("rad-057-167 Piltovan Guidebot: the base-Might instruction binds while the event-cost descriptor remains explicit", () => {
+  // The instruction is registered; the remaining issue is the descriptive
+  // event-object cost descriptor, not a missing instruction opcode.
+  assert.equal(registryById.has(setBaseMight.op), true);
   assert.deepEqual(setBaseMight.args.source, { kind: "constant", value: "played-card-energy-cost" });
   const selectors = ["self", "source"];
   assert.equal(selectors.includes(setBaseMight.args.source.value), false,

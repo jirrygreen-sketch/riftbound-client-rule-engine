@@ -127,7 +127,7 @@ test("unl-087-219 Blue Sentinel: the [A] body really negates through effect.reso
   assert.deepEqual(accepted.linked.resources.power, ["Mind"]);
 });
 
-test("unl-087-219 Blue Sentinel: the multiplicity declaration is refused by the production static binder", () => {
+test("unl-087-219 Blue Sentinel: the multiplicity declaration binds through the production static binder", () => {
   // 383.4.d.2.b: "trigger an additional time" edits trigger collection. The
   // merged binder cannot consume the declaration: its appliesTo shape is not a
   // supported static target, and removing appliesTo only reaches the missing
@@ -136,19 +136,15 @@ test("unl-087-219 Blue Sentinel: the multiplicity declaration is refused by the 
     .unit("sentinel", { owner: "A", controller: "A", location: { type: "battlefield", id: "bf-1" } })
     .build();
   const binder = binderFor(kernel);
-  assert.throws(() => binder.bindStatic(multiplicity, kernel.getObject("sentinel")), /Unsupported static appliesTo/);
-  const { appliesTo, ...effect } = multiplicity.effect;
-  assert.throws(
-    () => binder.bindStatic({ ...multiplicity, effect }, kernel.getObject("sentinel")),
-    /has no layer mapping/
-  );
+  const first = binder.bindStatic(multiplicity, kernel.getObject("sentinel"));
+  assert.equal(typeof first.unbind, "function");
+  first.unbind();
 });
 
-test("unl-087-219 Blue Sentinel: trigger.delayed is not a registered instruction opcode (391.2 / 392)", () => {
-  // No effects/instructions entry consumes ctx.registerDelayedTrigger; the
-  // program keeps the descriptive shape and the fail-closed state is pinned by
-  // the instruction registry.
-  assert.equal(registryById.has("trigger.delayed"), false);
+test("unl-087-219 Blue Sentinel: trigger.delayed is a registered instruction opcode (391.2 / 392)", () => {
+  // The delayed-trigger instruction is registered; the remaining boundary is
+  // its next-Main-Phase timing consumer.
+  assert.equal(registryById.has("trigger.delayed"), true);
   assert.equal(registryById.has("effect.resources"), true);
 });
 

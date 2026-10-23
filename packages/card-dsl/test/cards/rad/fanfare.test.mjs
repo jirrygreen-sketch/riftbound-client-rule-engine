@@ -88,15 +88,15 @@ test("rad-047-167 Fanfare: the delayed trigger's body draws 1 through the merged
   assert.deepEqual(run.events.map(event => event.action), ["draw"]);
 });
 
-test("rad-047-167 Fanfare: the authored registration op is not dispatched by the production interpreter", () => {
-  // The reason records this as measured evidence: the card's own body cannot be
-  // resolved today because trigger.delayed is not a registered instruction.
+test("rad-047-167 Fanfare: the registered delayed op rejects the incomplete timing expression", () => {
+  // The opcode is dispatched; this isolated registration currently stops at its
+  // own typed time argument rather than at opcode lookup.
   const kernel = world().unit("spell", { types: ["spell"], zone: "chain" }).build();
   assert.throws(
     () => runAbilityBody([registration], kernel.clone({ sourceSnapshot: kernel.getObject("spell") })),
-    /Unregistered instruction opcode: trigger\.delayed/
+    /trigger\.delayed at must be an Expr/
   );
-  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
+  assert.equal(instructionDefinitionsById.has("trigger.delayed"), true);
 });
 
 test.todo(

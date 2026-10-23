@@ -177,35 +177,35 @@ test("rad-156-167 Demacian Standard: a stale self reference ignores the return i
   assert.deepEqual(scoped.events.map((event) => event.action), ["move-zone"]);
 });
 
-test("rad-156-167 Demacian Standard: both here anchors are still rejected, never rebound to a whole board", () => {
-  // 466.2.c / 473.2.b: the attack and hold triggers are both scoped "here". The
-  // merged translator has no evaluable battlefield anchor, so it refuses each
-  // registration rather than subscribing to every battlefield.
+test("rad-156-167 Demacian Standard: both here anchors translate with their battlefield scope", () => {
+  // 466.2.c / 473.2.b: the attack and hold triggers are both scoped "here".
+  // Production now preserves that anchor rather than subscribing either
+  // trigger to every battlefield.
   for (const ability of [program.abilities[1], program.abilities[2]]) {
-    assert.throws(
-      () => translateTriggerFilter(ability.trigger.filter, "demacian-standard", ability.trigger.at),
-      /Unsupported filter field here/
-    );
+    const translated = translateTriggerFilter(ability.trigger.filter, "demacian-standard", ability.trigger.at);
+    assert.equal(translated.here, true);
+    assert.equal(translated.player, "self");
+    assert.equal(translated.event, ability.trigger.filter.event);
   }
 });
 
-test("rad-156-167 Demacian Standard: the attack body's 'here' target filter is refused too", () => {
-  // The +2 Might TargetSpec expresses "a friendly unit ... attack here" with the
-  // source-relative location anchor, but the production body translator
-  // (programs/play.ts uses translateInstructionTargets) accepts neither the
-  // relative-player spelling nor sameLocationAs, so the body cannot reach the
-  // chain as written. Assert the real rejection instead of rewriting the card's
-  // rule text into an absolute player id.
-  assert.throws(
-    () => translateInstructionTargets(program.abilities[1].body),
-    /Unsupported filter field sameLocationAs/
-  );
+test("rad-156-167 Demacian Standard: the attack body's here target resolves to the source location", () => {
+  // 053.3 / 355.10.d: the friendly-unit TargetSpec uses the source-relative
+  // location anchor. Production translation binds it to the source location at
+  // play time while retaining the controller restriction.
+  const [translated] = translateInstructionTargets(program.abilities[1].body);
+  const [target] = translated.targets;
+  assert.equal(target.id, "demacian-standard.attacking-unit");
+  assert.deepEqual(target.filter, {
+    type: "unit",
+    controller: "self",
+    sameLocationAs: "source"
+  });
 });
 
-test("rad-156-167 Demacian Standard: the Deploy expansion still cannot bind to a layer", () => {
+test("rad-156-167 Demacian Standard: the Deploy expansion binds its battlefield-placement layer", () => {
   // 830.1.b: Deploy's KeywordDef expands to a continuous.location static
-  // ability. The merged program binder maps no layer for that kind, so the
-  // expansion is refused outright instead of silently registering nothing.
+  // ability. Production binds it to the Gear's battlefield incarnation.
   const deploy = keywordDefinitionsById.get("Deploy");
   assert.ok(deploy, "the merged Deploy KeywordDef is present");
   const expanded = deploy.expand({} );
@@ -215,10 +215,9 @@ test("rad-156-167 Demacian Standard: the Deploy expansion still cannot bind to a
   const kernel = world().unit("demacian-standard", { types: ["gear"], location: BATTLEFIELD }).build();
   const source = kernel.getObject("demacian-standard");
   const binder = binderFor(kernel);
-  assert.throws(
-    () => binder.bindStatic(locationAbility, source),
-    /no layer mapping/
-  );
+  const handle = binder.bindStatic(locationAbility, source);
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
 });
 
 test.todo(

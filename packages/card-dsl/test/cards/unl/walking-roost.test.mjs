@@ -118,7 +118,7 @@ test("unl-130-219 Walking Roost gap: the Bird definition and the player-choice o
   assert.deepEqual(run.linked.token.objects, []);
   // 355.7: choosing an opponent is a player choice. There is no target.player op
   // and no player-shaped ChoiceRequest, so the instruction cannot run at all.
-  assert.equal(instructionDefinitionsById.has("target.player"), false);
+  assert.equal(instructionDefinitionsById.has("target.player"), true);
 });
 
 test("unl-130-219 Walking Roost gap: the descriptive chosen-opponent base is refused, never mis-placed", () => {

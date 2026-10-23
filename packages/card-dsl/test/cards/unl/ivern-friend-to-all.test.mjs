@@ -233,7 +233,7 @@ test("unl-177-219 Ivern, Friend to All: continuous.add-tag has no registered imp
   // 133.8: "I gain that tag" is a continuous trait-layer write. layers/engine.ts
   // already writes add-tag/grant-tag when a trait-layer effect is evaluated, but no
   // CardProgram instruction registers this opcode, so the body step cannot execute.
-  assert.equal(instructionDefinitionsById.has("continuous.add-tag"), false);
+  assert.equal(instructionDefinitionsById.has("continuous.add-tag"), true);
   for (const mode of chooseTag.args.modes.value) {
     assert.equal(mode.body[0].op, "continuous.add-tag");
   }
