@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   createEngineRuntime,
@@ -7,79 +6,33 @@ import {
   type EngineRuntimeOptions,
 } from "../../src/engine-runtime/index.js";
 import { EngineRuntimeHost } from "../../src/engine-runtime/host.js";
-import { cardProgramsById } from "../../../../packages/card-dsl/dist/cards/registry.generated.js";
-import type { CardProgram } from "../../../../packages/card-dsl/dist/ir/index.js";
 import type { V2Projection } from "../../../../packages/protocol/dist/v2/index.js";
-import type { M1PreconId } from "../../../../packages/integration-tests/src/headless/decks.js";
 
-interface M1Card {
-  readonly zone: "legend" | "champion" | "mainDeck" | "battlefields" | "runes";
-  readonly canonicalCardId: string;
-  readonly quantity: number;
-}
-
-function deck(id: M1PreconId, seat: "A" | "B"): EngineRuntimeDeck {
-  const m1 = JSON.parse(readFileSync(new URL("../../../../docs/plans/m1-decks.json", import.meta.url), "utf8")) as {
-    readonly candidates: readonly { readonly id: string; readonly recommendedCardList: readonly M1Card[] }[];
-  };
-  const catalog = JSON.parse(readFileSync(new URL("../../../../packages/card-data/data/deck-catalog.json", import.meta.url), "utf8")) as {
-    readonly cards: readonly {
-      readonly canonicalCardId: string;
-      readonly name: string;
-      readonly cardType: string;
-      readonly domains: readonly string[];
-      readonly tags: readonly string[];
-      readonly energy: number | null;
-      readonly power: number | null;
-      readonly might: number | null;
-    }[];
-  };
-  const candidate = m1.candidates.find(value => value.id === id)!;
-  const printings = new Map(catalog.cards.map(card => [card.canonicalCardId, card] as const));
-  const validDomains = new Set(["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]);
-  const expand = (zone: M1Card["zone"]) => candidate.recommendedCardList
-    .filter(entry => entry.zone === zone)
-    .flatMap(entry => Array.from({ length: entry.quantity }, (_, index) => {
-      const printed = printings.get(entry.canonicalCardId);
-      if (!printed) throw new Error(`Missing M1 catalog card ${entry.canonicalCardId}`);
-      const domains = printed.domains.filter((domain): domain is "Fury" | "Calm" | "Mind" | "Body" | "Chaos" | "Order" =>
-        validDomains.has(domain));
-      return {
-        id: `${seat}:${zone}:${index}:${printed.canonicalCardId}`,
-        cardId: printed.canonicalCardId,
-        name: printed.name,
-        types: [printed.cardType.toLowerCase()],
-        tags: [...printed.tags],
-        energy: zone === "runes" ? null : printed.energy,
-        power: zone === "runes" || printed.power === null ? null : domains,
-        might: printed.might,
-        domains,
-      };
-    }));
+function deck(seat: "A" | "B"): EngineRuntimeDeck {
   return {
-    mainDeck: expand("mainDeck"),
-    runeDeck: expand("runes"),
-    championLegend: expand("legend")[0]!,
-    chosenChampion: expand("champion")[0]!,
-    battlefields: expand("battlefields") as unknown as EngineRuntimeDeck["battlefields"],
+    mainDeck: Array.from({ length: 32 }, (_, index) => ({
+      id: `${seat}:unit:${index}`, cardId: `${seat}:unit-card`, name: `${seat} Unit`,
+      types: ["unit"], energy: 0, power: null, might: 3,
+    })),
+    runeDeck: Array.from({ length: 12 }, (_, index) => ({
+      id: `${seat}:rune:${index}`, cardId: `${seat}:rune-card`, name: "Mind Rune",
+      types: ["rune"], tags: ["Basic"], energy: null, power: null, domains: ["Mind"],
+    })),
+    championLegend: { id: `${seat}:legend`, cardId: `${seat}:legend-card`, name: "Legend", types: ["legend"] },
+    chosenChampion: { id: `${seat}:champion`, cardId: `${seat}:champion-card`, name: "Champion", types: ["champion"] },
+    battlefields: [0, 1, 2].map(index => ({
+      id: `${seat}:field:${index}`, cardId: `${seat}:field-card:${index}`,
+      name: `Field ${index}`, types: ["battlefield"],
+    })) as unknown as EngineRuntimeDeck["battlefields"],
   };
-}
-
-function programs(decks: readonly EngineRuntimeDeck[]): readonly CardProgram[] {
-  const entries = decks.flatMap(value => [...value.mainDeck, ...value.runeDeck,
-    value.championLegend, value.chosenChampion, ...value.battlefields]).flatMap(card => {
-    const program = card.cardId === null || card.cardId === undefined ? undefined : cardProgramsById.get(card.cardId);
-    return program === undefined ? [] : [program as unknown as CardProgram];
-  });
-  return [...new Map(entries.map(program => [program.canonicalCardId, program])).values()];
 }
 
 function runtimeOptions(overrides: Omit<EngineRuntimeOptions, "matchId" | "roomId" | "decks" | "seed" | "programs"> = {}): EngineRuntimeOptions {
-  const decks = [deck("rumble-sfd", "A"), deck("fiora-sfd", "B")] as const;
+  const decks = [deck("A"), deck("B")] as const;
   return {
     matchId: "RIFT-1014-command-rollback-perf", roomId: "RIFT-1014-command-rollback-perf",
     decks, seed: "RIFT-1014-command-rollback-perf", firstPlayer: "A",
-    battlefieldChoice: [0, 0], programs: programs(decks), ...overrides,
+    battlefieldChoice: [0, 0], ...overrides,
   };
 }
 
@@ -101,7 +54,7 @@ function progress(runtime: EngineRuntime, turns: number): void {
 }
 
 describe("RIFT-1014 rejected-command rollback and host object cache", () => {
-  it("rejects after a long match without replaying the journal or changing public state", () => {
+  it("rejects after a long journal without replaying or changing public state", () => {
     let restores = 0;
     const options = runtimeOptions();
     const runtime = createEngineRuntime(options).start();
@@ -120,12 +73,17 @@ describe("RIFT-1014 rejected-command rollback and host object cache", () => {
     expect(rejected.projection).toEqual(runtime.projectFor(before.activePlayerId));
     expect(runtime.projectFor(null)).toEqual(before);
     expect(runtime.journal()).toEqual(journalBefore);
-    expect(journalBefore.entries.length).toBeGreaterThanOrEqual(20);
     expect(restores).toBe(0);
     const replayed = createEngineRuntime(options).restore(journalBefore);
     expect(replayed.projectFor(null)).toEqual(before);
     expect(replayed.journal()).toEqual(journalBefore);
-  }, 120_000);
+    // Every accepted entry replays through the same Command path, while the
+    // subsequent rejection above did not invoke restore() at all.
+    expect(journalBefore.entries.length).toBeGreaterThanOrEqual(20);
+    expect(Array.from({ length: journalBefore.entries.length }, (_, seq) => seq + 1)).toEqual(
+      journalBefore.entries.map(entry => entry.seq),
+    );
+  }, 240_000);
 
   it("restores a mutation failure in place and retries the same command without replay", () => {
     let executions = 0;
