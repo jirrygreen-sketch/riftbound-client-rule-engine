@@ -215,10 +215,8 @@ async function runV2DuelInternal(options: V2DuelRunOptions, deadline: number): P
       new Promise<null>(resolve => setTimeout(() => resolve(null),
         Math.max(1, deadline - Date.now())))
     ]);
-    // Synchronize the snapshot-query clocks before evaluating either winner.
-    // A room transaction may deliver one viewer's projection before its peer;
-    // resolving that pairing here keeps the initial first-player comparison out
-    // of an older frame without mutating either projection.
+    // Both snapshots were populated by projection callbacks before startPair
+    // completed; no second projection is expected for a waiting room.
     if (pair === null) {
       const blocked = blockedBeforeMatch(options, started, "startup timed out before both private projections arrived");
       if (options.outputDirectory) await persistNdjson(options.outputDirectory, blocked);
@@ -430,13 +428,20 @@ async function runV2DuelInternal(options: V2DuelRunOptions, deadline: number): P
           blockedReason = `repeated ${item.code} during ${item.phase}: ${item.reason}${item.cardName === null ? "" : ` (${item.cardName})`}`;
           break;
         }
+        await Promise.all([
+          pair.first.syncProjection(),
+          pair.second.syncProjection()
+        ]);
+        views = snapshotView([pair.first, pair.second]);
+        terminalView = views[0];
+        continue;
       } else {
         repeatSignature = null;
         repeated = 0;
       }
       const next = await Promise.all([
-        pair.first.waitForProjectionAfter(command.commandId),
-        pair.second.waitForProjectionAfter(command.commandId)
+        pair.first.waitForProjectionAfter(command.commandId, receipt),
+        pair.second.waitForProjectionAfter(command.commandId, receipt)
       ]) as readonly [V2Projection, V2Projection];
       if (receipt.accepted) {
         const waitingForChoice = next[0].pendingChoice.status === "pending" &&

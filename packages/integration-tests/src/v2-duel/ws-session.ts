@@ -57,10 +57,6 @@ export class V2WebSocketSession {
   private sequence = 0;
   private state: V2WebSocketSessionSnapshot | null = null;
   private alive = false;
-  private arrival = 0;
-  private pendingReceiptArrival: number | null = null;
-  private readonly arrivalById = new WeakMap<object, number>();
-  private readonly receiptArrivals = new Map<string, number>();
 
   private constructor(
     readonly name: string,
@@ -79,12 +75,6 @@ export class V2WebSocketSession {
         throw new Error(`${name}: server sent a non-object packet`);
       }
       const current = this.state;
-      const messageArrival = ++this.arrival;
-      this.arrivalById.set(packet, messageArrival);
-      if (packet.type === "command-receipt") {
-        if (typeof packet.commandId === "string") this.receiptArrivals.set(packet.commandId, messageArrival);
-        if (typeof packet.requestId === "string") this.receiptArrivals.set(packet.requestId, messageArrival);
-      }
       this.traffic.push(opaqueTrace(packet));
       if (packet.type === "welcome" && record(packet.session)) {
         const session = packet.session as unknown as ClientSession;
@@ -206,14 +196,6 @@ export class V2WebSocketSession {
         (candidate.commandId === command.commandId || candidate.requestId === command.commandId));
       if (index >= 0) {
         const receipt = this.messages.splice(index, 1)[0] as unknown as V2CommandReceipt;
-        // A per-viewer projection can be dispatched before this client's
-        // receipt. Preserve it; the transaction commits the state and outbox
-        // together, and waitForProjectionAfter() applies the acknowledged
-        // stateVersion lower bound to queued projections.
-        this.pendingReceiptArrival = this.receiptArrivals.get(command.commandId) ??
-          this.arrivalById.get(receipt) ?? null;
-        this.receiptArrivals.delete(command.commandId);
-        if (typeof receipt.commandId === "string") this.receiptArrivals.delete(receipt.commandId);
         return receipt;
       }
       const errorIndex = this.messages.findIndex((candidate, index) => index >= startIndex &&
@@ -246,12 +228,6 @@ export class V2WebSocketSession {
 
   /** Refresh both clients from already-queued private V2 projection packets. */
   async syncProjection(): Promise<V2Projection> {
-    const queued = this.messages.find(candidate => candidate.type === "projection" &&
-      isV2Projection(candidate.projection));
-    if (queued) {
-      this.messages.splice(this.messages.indexOf(queued), 1);
-      this.state = this.state === null ? null : { ...this.state, projection: queued.projection as V2Projection };
-    }
     const current = this.state?.projection;
     if (!current) throw new Error(`${this.name}: no projection is available for sync`);
     return current;
@@ -280,29 +256,19 @@ export class V2WebSocketSession {
 
   /** Wait for the next projection after the command receipt, never reusing
    * the snapshot that preceded the command. */
-  async waitForProjectionAfter(commandId: string, timeoutMs = 10_000): Promise<V2Projection> {
-    const receiptArrival = this.pendingReceiptArrival;
-    this.pendingReceiptArrival = null;
-    if (receiptArrival !== null) {
-      for (let index = this.messages.length - 1; index >= 0; index -= 1) {
-        const packet = this.messages[index]!;
-        const packetArrival = this.arrivalById.get(packet);
-        if (packetArrival === undefined || packetArrival <= receiptArrival) this.messages.splice(index, 1);
-      }
-    }
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      const index = this.messages.findIndex(candidate => candidate.type === "projection" &&
-        isV2Projection(candidate.projection));
-      if (index >= 0) {
-        const projection = this.messages.splice(index, 1)[0]!.projection as V2Projection;
-        // The websocket callback has already committed this projection. Return
-        // the queued incarnation so the caller can compare its full clock.
-        return projection;
-      }
-      await new Promise(resolve => setTimeout(resolve, 5));
-    }
-    throw new Error(`${this.name}: timed out waiting for projection after ${commandId}`);
+  async waitForProjectionAfter(
+    commandId: string,
+    clock: { readonly stateVersion: number; readonly eventSeq: number },
+    timeoutMs = 10_000
+  ): Promise<V2Projection> {
+    const reached = (projection: V2Projection) =>
+      projection.stateVersion >= clock.stateVersion && projection.eventSeq >= clock.eventSeq;
+    const current = this.state?.projection;
+    if (current && reached(current)) return current;
+    const packet = await this.wait(candidate => candidate.type === "projection" &&
+      isV2Projection(candidate.projection) && reached(candidate.projection),
+      timeoutMs, `${this.name} projection after ${commandId}`);
+    return packet.projection as V2Projection;
   }
 
 
