@@ -35,7 +35,7 @@ class Client {
       if (index >= 0) return this.messages.splice(index, 1)[0];
       await new Promise(resolve => setTimeout(resolve, 5));
     }
-    throw new Error(`Timed out waiting for v2 message; received ${this.messages.map(value => typeof value === "object" && value !== null && "type" in value ? (value as { type: unknown }).type : "unknown").join(", ")}`);
+    throw new Error(`Timed out waiting for v2 message; received ${JSON.stringify(this.messages)}`);
   }
 
   async close() {
@@ -121,11 +121,98 @@ function assertPrivateProjection(value: V2Projection, viewerPlayerId: string, op
 }
 
 describe("protocol v2 engine runtime over WebSocket", () => {
+  it("resumes a waiting-room seat before setup and immediately after both preset decks start the match", async () => {
+    const port = Number(process.env.SWARM_PORT_BASE ?? 33800);
+    const taskDirectory = path.join("/tmp", process.env.SWARM_TASK ?? "RIFT-1021-v2-waiting-room-resume-loop");
+    await mkdir(taskDirectory, { recursive: true });
+    const directory = await mkdtemp(path.join(taskDirectory, "v2-waiting-"));
+    directories.push(directory);
+    const running = await start(port, directory);
+    const alice = await connect(running.url);
+    alice.send({ type: "create-room", requestId: "waiting-create", playerName: "Alice", rulesetId: DUEL_RULESET_ID });
+    const createdWelcome = await alice.wait(value => value !== null && typeof value === "object" &&
+      (value as { type?: unknown }).type === "welcome" && "session" in value);
+    const session = (createdWelcome as { session: ClientSession }).session;
+    await alice.wait(value => value !== null && typeof value === "object" &&
+      (value as { type?: unknown; requestId?: unknown }).type === "request-result" &&
+      (value as { requestId?: unknown }).requestId === "waiting-create");
+    await alice.close();
+
+    const resumedWithoutCursor = await connect(running.url, session);
+    const resumedWithoutCursorRoom = await resumedWithoutCursor.wait(value => value !== null && typeof value === "object" &&
+      (value as { type?: unknown }).type === "room");
+    expect(resumedWithoutCursorRoom).toMatchObject({ room: { roomId: session.roomId, status: "waiting" } });
+    expect(resumedWithoutCursor.messages).toContainEqual(expect.objectContaining({
+      type: "owner-deck-confirmation", roomId: session.roomId,
+      playerId: session.playerId, deck: null
+    }));
+
+    const bob = await connect(running.url);
+    bob.send({ type: "join-room", requestId: "waiting-join", roomId: session.roomId, playerName: "Bob" });
+    const bobWelcome = await bob.wait(value => value !== null && typeof value === "object" &&
+      (value as { type?: unknown }).type === "welcome" && "session" in value);
+    const bobSession = (bobWelcome as { session: ClientSession }).session;
+    await bob.wait(value => value !== null && typeof value === "object" &&
+      (value as { type?: unknown; requestId?: unknown }).type === "request-result" &&
+      (value as { requestId?: unknown }).requestId === "waiting-join");
+    expect(bobSession.playerId).toBe("player-2");
+    expect(running.server.rooms.get(session.roomId)!.status).toBe("waiting");
+
+    await bob.close();
+    const resumedWithZero = await connect(running.url, session, 0);
+    const resumedWithZeroRoom = await resumedWithZero.wait(value => value !== null && typeof value === "object" &&
+      (value as { type?: unknown }).type === "room");
+    expect(resumedWithZeroRoom).toMatchObject({ room: { roomId: session.roomId, status: "waiting" } });
+    expect(resumedWithZero.messages.some(value => value !== null && typeof value === "object" &&
+      (value as { type?: unknown }).type === "projection")).toBe(false);
+    await resumedWithZero.close();
+    const aliceActive = await connect(running.url, session);
+    const bobResumed = await connect(running.url, bobSession);
+
+    const [deckA, deckB] = await m1Submissions();
+    let roomVersion = running.server.rooms.get(session.roomId)!.currentRoomVersion;
+    aliceActive.send({ type: "submit-deck", requestId: "waiting-deck-a",
+      expectedRoomVersion: roomVersion, deck: deckA });
+    roomVersion = (await aliceActive.wait(value => value !== null && typeof value === "object" &&
+      (value as { type?: unknown; requestId?: unknown }).type === "request-result" &&
+      (value as { requestId?: unknown }).requestId === "waiting-deck-a")).roomVersion;
+    bobResumed.send({ type: "submit-deck", requestId: "waiting-deck-b",
+      expectedRoomVersion: roomVersion, deck: deckB });
+    roomVersion = (await bobResumed.wait(value => value !== null && typeof value === "object" &&
+      (value as { type?: unknown; requestId?: unknown }).type === "request-result" &&
+      (value as { requestId?: unknown }).requestId === "waiting-deck-b")).roomVersion;
+    aliceActive.send({ type: "set-ready", requestId: "waiting-ready-a",
+      expectedRoomVersion: roomVersion, ready: true });
+    roomVersion = (await aliceActive.wait(value => value !== null && typeof value === "object" &&
+      (value as { type?: unknown; requestId?: unknown }).type === "request-result" &&
+      (value as { requestId?: unknown }).requestId === "waiting-ready-a")).roomVersion;
+    bobResumed.send({ type: "set-ready", requestId: "waiting-ready-b",
+      expectedRoomVersion: roomVersion, ready: true });
+    await bobResumed.wait(value => value !== null && typeof value === "object" &&
+      (value as { type?: unknown; requestId?: unknown }).type === "request-result" &&
+      (value as { requestId?: unknown }).requestId === "waiting-ready-b");
+    const [startedA, startedB] = await Promise.all([projection(aliceActive), projection(bobResumed)]);
+    expect(running.server.rooms.get(session.roomId)!.status).toBe("playing");
+    expect(startedA.viewerPlayerId).toBe(session.playerId);
+    expect(startedB.viewerPlayerId).toBe(bobSession.playerId);
+    const gameEventSeq = Math.max(startedA.eventSeq, startedB.eventSeq);
+
+    await resumedWithoutCursor.close();
+    await aliceActive.close();
+    await bobResumed.close();
+    const resumedAfterStart = await connect(running.url, session, gameEventSeq);
+    const resumedProjection = await projection(resumedAfterStart);
+    expect(resumedProjection.viewerPlayerId).toBe(session.playerId);
+    expect(resumedProjection.stateVersion).toBe(startedA.stateVersion);
+    expect(resumedProjection.eventSeq).toBe(startedA.eventSeq);
+    await resumedAfterStart.close();
+  }, 180_000);
+
   it("runs the real default entry without a runtime override and reaches the authoritative resource check", async () => {
     const cli = await readFile(fileURLToPath(new URL("../../src/index.ts", import.meta.url)), "utf8");
     expect(cli).toContain("requestedRuntimeMode === undefined ? {} : { duelRuntimeMode: requestedRuntimeMode as DuelRuntimeMode }");
     expect(cli).toContain("const requestedRuntimeMode = process.env.RIFTBOUND_DUEL_RUNTIME_MODE;");
-    const port = Number(process.env.SWARM_PORT_BASE ?? 34680);
+    const port = Number(process.env.SWARM_PORT_BASE ?? 33800);
     const running = await start(port);
     const client = await connect(running.url);
     client.send({ type: "create-room", requestId: "default-create", playerName: "Alice", rulesetId: DUEL_RULESET_ID });
@@ -193,7 +280,7 @@ describe("protocol v2 engine runtime over WebSocket", () => {
   }, 120_000);
 
   it("creates, resumes and restores a private two-client match", async () => {
-    const port = Number(process.env.SWARM_PORT_BASE ?? 34680);
+    const port = Number(process.env.SWARM_PORT_BASE ?? 33800);
     const taskDirectory = path.join("/tmp", process.env.SWARM_TASK ?? "RIFT-350-server-cutover-engine-runtime");
     await mkdir(taskDirectory, { recursive: true });
     const directory = await mkdtemp(path.join(taskDirectory, "v2-"));

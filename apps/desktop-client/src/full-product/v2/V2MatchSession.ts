@@ -1,7 +1,9 @@
-import type {
-  ClientSession,
-  RoomDeckSubmission,
-  RoomView
+import {
+  isOwnerDeckConfirmationMessage,
+  type ClientSession,
+  type OwnerDeckConfirmationMessage,
+  type RoomDeckSubmission,
+  type RoomView
 } from "@riftbound/protocol";
 import {
   PROTOCOL_V2_VERSION,
@@ -127,6 +129,21 @@ function isBackgroundPacket(value: unknown): value is
   return value.type === "command-receipt" && isV2CommandReceipt(value);
 }
 
+/**
+ * Waiting-room resume also receives the server's private owner-deck echo.
+ * V2 does not derive deck legality from it, but the existing protocol packet
+ * is part of that recovery response and must not be treated as transport data
+ * loss. Restrict what is ignored to the exact owner/room authenticated by the
+ * live V2 session; all other server packets still fail closed.
+ */
+function isMatchingOwnerEcho(
+  value: unknown,
+  session: ClientSession | null
+): value is OwnerDeckConfirmationMessage {
+  return session !== null && isOwnerDeckConfirmationMessage(value) &&
+    value.roomId === session.roomId && value.playerId === session.playerId;
+}
+
 export function normalizeV2ServerUrl(input: string): string {
   const trimmed = input.trim() || DEFAULT_SERVER_URL;
   const candidate = /^[a-z][a-z\d+.-]*:\/\//iu.test(trimmed)
@@ -168,6 +185,9 @@ export function buildV2Hello(
     ...(session === null ? {} : {
       roomId: session.roomId,
       resumeToken: session.resumeToken,
+      // Preserve the established v2 resume shape. A waiting room has no
+      // authoritative game event yet, so its cursor is validly zero; the
+      // server accepts that absent-log state for engine-v2 rooms (RIFT-1021).
       afterEventSeq: Math.max(0, cursor.eventSeq ?? 0)
     })
   };
@@ -496,6 +516,7 @@ export class V2MatchSessionController {
       }
       return;
     }
+    if (isMatchingOwnerEcho(packet, this.session)) return;
     if (!isBackgroundPacket(packet)) {
       this.fail("V2 服务端返回了未识别数据包。");
       return;
