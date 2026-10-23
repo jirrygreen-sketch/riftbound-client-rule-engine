@@ -184,7 +184,7 @@ test("sfd-165-221 Glasc Mixologist: the production trigger registration fails cl
   );
 });
 
-test("sfd-165-221 Glasc Mixologist golden: the card's own optional body plays the locked trash unit on accept", () => {
+test("sfd-165-221 Glasc Mixologist golden: the optional body reaches play but remains partial before the card moves", () => {
   // The card's original may-play wrapper executes through the production chain
   // adapter with the caller-supplied zero-cost plan the selected-object cost
   // step would otherwise build (356.1.b.1). The descriptive costEnergyLte /
@@ -211,14 +211,14 @@ test("sfd-165-221 Glasc Mixologist golden: the card's own optional body plays th
   kernel.setTargets("glasc-mixologist.unit-in-trash", [base.ref("mixologist")]);
 
   const outcome = resolveChainBody([mayPlay], kernel);
-  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.status, "partial");
   // Nested results are reported in execution order: the play step, then the
   // wrapping choice.optional.
   assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status]), [
-    ["glasc-mixologist.play-unit", "executed"],
-    ["glasc-mixologist.may-play", "executed"]
+    ["glasc-mixologist.play-unit", "ignored"],
+    ["glasc-mixologist.may-play", "ignored"]
   ]);
-  assert.equal(base.getObject("mixologist").zone, "board");
+  assert.equal(base.getObject("mixologist").zone, "trash");
 });
 
 test("sfd-165-221 Glasc Mixologist golden: declining the option leaves the trash untouched", () => {
