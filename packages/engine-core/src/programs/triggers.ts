@@ -20,6 +20,7 @@ export function triggerRegistrations(registry: ProgramRegistry, source: ObjectSn
       const body = translateInstructionTargets(ability.body) as any;
       const filter = translateTriggerFilter(ability.trigger.filter as Record<string, unknown>, source.ref.id, ability.trigger.at as TimingPointId);
       const adapted = adaptLeadingChoice(source, body, ability.trigger);
+      const conditionHistory = historyCondition(ability.trigger.condition, source);
       const leadingChoice = body[0]?.op === 'choice.optional';
       if (leadingChoice && !adapted) {
         const nested = body[0]?.args?.body;
@@ -35,7 +36,9 @@ export function triggerRegistrations(registry: ProgramRegistry, source: ObjectSn
         id: `program:${source.ref.id}:${source.ref.zoneEntryId}:${index}`,
         source,
         controller: source.controller,
-        spec: { at: ability.trigger.at as TimingPointId, filter: filter as any, ...(ability.trigger.condition ? { condition: ability.trigger.condition as any } : {}), ...(ability.trigger.once ? { once: ability.trigger.once } : {}) },
+        spec: { at: ability.trigger.at as TimingPointId, filter: filter as any,
+          ...(conditionHistory === undefined ? {} : { conditionHistory }),
+          ...(conditionHistory === undefined && ability.trigger.condition ? { condition: ability.trigger.condition as any } : {}), ...(ability.trigger.once ? { once: ability.trigger.once } : {}) },
         body: adapted?.body ?? body,
         optional: adapted ? false : ability.optional,
         ...(adapted ? {
@@ -57,6 +60,47 @@ export function triggerRegistrations(registry: ProgramRegistry, source: ObjectSn
       throw new ProgramBindingError('judge-required', `Trigger ${index} on ${program.canonicalCardId} cannot be bound`, error);
     }
   });
+}
+
+/**
+ * The CardProgram IR represents Finalize/Legion counts as a `count` over
+ * `cards-finalized-this-turn`. Trigger specifications carry the equivalent
+ * closed HistoryQuery, so bind it to the production event-history reader
+ * instead of letting the expression fall through to a live-object count.
+ */
+function historyCondition(condition: unknown, source: ObjectSnapshot): import('../effects/contract.js').HistoryQuery | undefined {
+  if (condition === null || typeof condition !== 'object' || Array.isArray(condition)) return undefined;
+  const input = condition as Readonly<Record<string, unknown>>;
+  if (input.kind !== 'compare' || input.operator !== 'gte') return undefined;
+  const left = input.left;
+  const right = input.right;
+  if (left === null || typeof left !== 'object' || Array.isArray(left) ||
+      right === null || typeof right !== 'object' || Array.isArray(right)) return undefined;
+  const count = left as Readonly<Record<string, unknown>>;
+  const threshold = right as Readonly<Record<string, unknown>>;
+  if (count.kind !== 'count' || count.subject !== 'cards-finalized-this-turn' ||
+      threshold.value !== 1 || !['constant', 'literal'].includes(String(threshold.kind))) return undefined;
+  const filter = count.filter;
+  if (filter === null || typeof filter !== 'object' || Array.isArray(filter)) return undefined;
+  const fields = filter as Readonly<Record<string, unknown>>;
+  if (Object.keys(fields).some(key => !['player', 'exclude', 'objectFilter'].includes(key))) return undefined;
+  const player = fields.player;
+  const resolve = (value: unknown): string | undefined => typeof value === 'string'
+    ? (['controller', 'self', 'you'].includes(value) ? source.controller : value)
+    : value !== null && typeof value === 'object' && !Array.isArray(value) &&
+        typeof (value as Readonly<Record<string, unknown>>).id === 'string'
+      ? (value as Readonly<Record<string, unknown>>).id as string : undefined;
+  const resolved = player === undefined ? source.controller : resolve(player);
+  if (resolved === undefined) return undefined;
+  const exclude = fields.exclude;
+  const objectFilter = fields.objectFilter;
+  return {
+    scope: 'turn',
+    timingPoint: 'chain-item-finalize',
+    player: resolved,
+    ...(exclude === undefined ? {} : { exclude: exclude as import('../effects/contract.js').ObjectSelector }),
+    ...(objectFilter === undefined ? {} : { objectFilter: objectFilter as import('../effects/contract.js').ObjectFilter }),
+  };
 }
 
 export function registerProgramTriggers(registry: ProgramRegistry, engine: ChainEngine, source: ObjectSnapshot): readonly string[] {
