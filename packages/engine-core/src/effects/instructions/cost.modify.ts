@@ -16,6 +16,10 @@
  * - source: accepts Weaponmaster's target selector; resolves its exact current
  *   identity and reads the authoritative Equip CostSpec carried by its printed
  *   keyword parameters. No play cost or keyword value is used as a fallback.
+ *   A selected Equipment whose bound printed program has no keyword at all is
+ *   a legal no-Equip-cost case (821.1.c.4) in a Chain-marked Weaponmaster
+ *   Resolve and returns Ignored. Missing cost data for a printed Equip
+ *   keyword, or a direct primitive call outside that scope, remains blocked.
  * - cost: `CostSpec` for the base cost; defaults to the printed cost.
  * - printed: optional trusted catalog projection.
  * - domains: optional source domains; an empty array explicitly means the
@@ -84,6 +88,17 @@ export interface CostModifyArgs {
   readonly modifiers?: readonly CostModifierInput[];
   readonly ignoreAllCosts?: boolean;
   readonly linkKey?: string;
+}
+
+/** Exact per-Resolve authority installed by ChainEngine for a production Weaponmaster body. */
+const WEAPONMASTER_NO_EQUIP_POLICIES = new WeakSet<object>();
+
+export function bindWeaponmasterNoEquipPolicy(capability: object | undefined): void {
+  if (capability !== undefined) WEAPONMASTER_NO_EQUIP_POLICIES.add(capability);
+}
+
+function hasWeaponmasterNoEquipPolicy(ctx: ResolveContext): boolean {
+  return ctx.contractActions !== undefined && WEAPONMASTER_NO_EQUIP_POLICIES.has(ctx.contractActions);
 }
 
 const MODIFIER_KEYS = new Set([
@@ -432,9 +447,12 @@ function normalizedEquipCost(cost: CostSpec): NormalizedEquipCost {
   };
 }
 
-function authoritativeEquipCost(equipment: ObjectSnapshot): CostSpec {
+function authoritativeEquipCost(equipment: ObjectSnapshot): CostSpec | null {
   const entries = (equipment.keywords as readonly ObjectKeyword[])
     .filter(keyword => keywordId(keyword.id) === "equip");
+  if (entries.length === 0) {
+    return null;
+  }
   const costs = entries.flatMap(keyword => {
     const params = keyword.params;
     return params !== undefined && isRecord(params.cost) ? [params.cost as CostSpec] : [];
@@ -462,7 +480,18 @@ const execute: InstructionDef<CostModifyArgs>["execute"] = (ctx, args): Instruct
         || sameRef(equipment.ref, ctx.source.ref)) {
         throw new CostPlanError("cannot-pay-cost", "Weaponmaster requires one current controlled Equipment target");
       }
-      const equipCost = normalizedEquipCost(authoritativeEquipCost(equipment));
+      const key = args.linkKey ?? "cost";
+      const rawEquipCost = authoritativeEquipCost(equipment);
+      if (hasWeaponmasterNoEquipPolicy(ctx) && equipment.keywords.length === 0) {
+        // CR 821.1.c.1/.c.4: production Chain Resolve permits the selection,
+        // but there is no Equip cost to pay. Ignoring the producer makes the
+        // linked pay/attach ignored too; no zero-cost plan is created.
+        return { status: "ignored", reason: "mistargeted" };
+      }
+      if (rawEquipCost === null) {
+        throw new CostPlanError("judge-required", `821.1.c.2: missing authoritative Equip-cost binding for ${equipment.ref.id}; original [A]/[C] symbols required`);
+      }
+      const equipCost = normalizedEquipCost(rawEquipCost);
       const requestedModifiers = [...(args.modifier === undefined ? [] : [args.modifier]), ...(args.modifiers ?? [])];
       if (requestedModifiers.length !== 1 || requestedModifiers[0]?.kind !== "reduce-equip-cost") {
         throw new CostPlanError("invalid-cost-plan", "Weaponmaster source requires one reduce-equip-cost modifier");
@@ -475,7 +504,6 @@ const execute: InstructionDef<CostModifyArgs>["execute"] = (ctx, args): Instruct
       const id = args.id ?? `weaponmaster:${ctx.source.ref.id}:${ctx.source.ref.zoneEntryId}:${equipment.ref.id}:${equipment.ref.zoneEntryId}:equip-cost`;
       if (!equipCost.hasUniversalPower) {
         const plan = buildCostPlan(ctx, { id, cost: equipCost.cost });
-        const key = args.linkKey ?? "cost";
         ctx.link(key, plan as unknown as Value);
         return { status: "executed", events: [], linkedValues: { [key]: plan as unknown as Value } };
       }
@@ -495,7 +523,6 @@ const execute: InstructionDef<CostModifyArgs>["execute"] = (ctx, args): Instruct
           powerOrder: equipCost.powerOrder
         }))
       });
-      const key = args.linkKey ?? "cost";
       ctx.link(key, plan as unknown as Value);
       return { status: "executed", events: [], linkedValues: { [key]: plan as unknown as Value } };
     }
