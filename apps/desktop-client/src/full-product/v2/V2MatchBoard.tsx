@@ -49,6 +49,8 @@ export interface V2MatchBoardProps {
   readonly onSetReady?: (ready: boolean) => Promise<RoomView>;
   /** Test/static-render seam for a preselected hand incarnation; still validated against the projection. */
   readonly initialSelectedCardId?: string | null;
+  /** Test/static-render seam for allocation input; still validated against the projection. */
+  readonly initialCombatDamageDrafts?: Readonly<Record<string, string>>;
   readonly onCommand: (request: V2CommandRequest) => Promise<V2CommandReceipt>;
 }
 
@@ -91,14 +93,38 @@ export function buildV2MoveCommand(
   };
 }
 
-export function buildV2DeclareCombatCommand(
-  type: "declare-attack" | "declare-defense",
-  battlefieldId: string,
-  unitIds: readonly string[]
-): V2CommandRequest {
-  return type === "declare-attack"
-    ? { type, battlefieldId, attackerObjectIds: [...unitIds] }
-    : { type, battlefieldId, defenderObjectIds: [...unitIds] };
+export function buildV2EndTurnCommand(): V2CommandRequest {
+  return { type: "end-turn" };
+}
+
+export function buildV2AdvanceCommand(): V2CommandRequest {
+  return { type: "advance" };
+}
+
+export interface V2CombatDamageDraft {
+  readonly unitObjectId: string;
+  readonly amount: string;
+}
+
+/** Build only client-shape checks; the server remains authoritative for assignment legality. */
+export function buildV2CombatDamageCommand(
+  combatId: string,
+  expectedAmount: number,
+  drafts: readonly V2CombatDamageDraft[]
+): V2CommandRequest | null {
+  if (!combatId || !Number.isSafeInteger(expectedAmount) || expectedAmount < 0 || drafts.length === 0) return null;
+  const assignments: { readonly unitObjectId: string; readonly amount: number }[] = [];
+  const seen = new Set<string>();
+  for (const draft of drafts) {
+    if (!draft.unitObjectId || seen.has(draft.unitObjectId) || !/^[1-9]\d*$/u.test(draft.amount)) return null;
+    const amount = Number(draft.amount);
+    if (!Number.isSafeInteger(amount)) return null;
+    seen.add(draft.unitObjectId);
+    assignments.push({ unitObjectId: draft.unitObjectId, amount });
+  }
+  const total = assignments.reduce((sum, assignment) => sum + assignment.amount, 0);
+  if (!Number.isSafeInteger(total) || total !== expectedAmount) return null;
+  return { type: "combat-damage", combatId, assignments };
 }
 
 export function visibleV2Objects(
@@ -106,6 +132,10 @@ export function visibleV2Objects(
   zone: V2ProjectedObject["zone"]
 ): readonly V2ProjectedObject[] {
   return projection.objects.filter(object => object.zone === zone);
+}
+
+function playDestinationKey(destination: V2PlayOption["destination"]): string {
+  return destination.kind === "base" ? `base:${destination.playerId}` : `battlefield:${destination.battlefieldId}`;
 }
 
 /** Build a play command only when the projection offers the exact card and destination. */
@@ -116,10 +146,11 @@ export function buildProjectedV2PlayCommand(
   targets: readonly V2Target[] = []
 ): V2CommandRequest | null {
   const option = projection.actionOptions.plays.find(candidate => candidate.cardObjectId === cardObjectId &&
-    candidate.destination.kind === destination?.kind &&
-    (candidate.destination.kind === "base" && destination?.kind === "base" && candidate.destination.playerId === destination.playerId ||
-      candidate.destination.kind === "battlefield" && destination?.kind === "battlefield" &&
-        candidate.destination.battlefieldId === destination.battlefieldId));
+    (candidate.requiresDestination === false ||
+      candidate.destination.kind === destination?.kind &&
+      (candidate.destination.kind === "base" && destination?.kind === "base" && candidate.destination.playerId === destination.playerId ||
+        candidate.destination.kind === "battlefield" && destination?.kind === "battlefield" &&
+          candidate.destination.battlefieldId === destination.battlefieldId)));
   if (option === undefined) return null;
   let ordered = targets;
   if (option.targetRequirements !== undefined) {
@@ -159,6 +190,7 @@ export function V2MatchBoard({
   onSubmitDeck,
   onSetReady,
   initialSelectedCardId = null,
+  initialCombatDamageDrafts = {},
   onCommand
 }: V2MatchBoardProps) {
   const projection = state.projection;
@@ -176,6 +208,8 @@ export function V2MatchBoard({
   const [selectedPlayTargets, setSelectedPlayTargets] = useState<Readonly<Record<string, readonly string[]>>>({});
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [selectedDestination, setSelectedDestination] = useState<string>("");
+  const [selectedPlayDestination, setSelectedPlayDestination] = useState<string>("");
+  const [combatDamageDrafts, setCombatDamageDrafts] = useState<Readonly<Record<string, string>>>(initialCombatDamageDrafts);
   const [commandError, setCommandError] = useState<string | null>(null);
   const sceneKey = projection === null ? "none" : `${projection.matchId}:${projection.stateVersion}`;
   const busy = pendingCommandIds.length > 0;
@@ -190,6 +224,8 @@ export function V2MatchBoard({
     setSelectedPlayTargets({});
     setSelectedUnitId(null);
     setSelectedDestination("");
+    setSelectedPlayDestination("");
+    setCombatDamageDrafts({});
     setCommandError(null);
   }, [sceneKey]);
 
@@ -307,12 +343,23 @@ export function V2MatchBoard({
   const targetCandidates = projectedTargetCandidates(projection);
   const playOptions = useMemo(() => selectedCardId === null ? [] :
     projection.actionOptions.plays.filter(option => option.cardObjectId === selectedCardId), [projection, selectedCardId]);
-  const selectedPlayOption = playOptions.find(option => option.requiresDestination !== false) ?? playOptions[0] ?? null;
-  const playTargetRequirements = useMemo(() => {
-    if (playOptions.length === 0) return [];
-    const signatures = playOptions.map(option => JSON.stringify(option.targetRequirements ?? null));
-    return new Set(signatures).size !== 1 ? [] : playOptions[0]!.targetRequirements ?? [];
+  const playDestinationOptions = useMemo(() => {
+    const groups = new Map<string, readonly V2PlayOption[]>();
+    for (const option of playOptions) {
+      if (option.requiresDestination === false) continue;
+      const key = playDestinationKey(option.destination);
+      groups.set(key, [...(groups.get(key) ?? []), option]);
+    }
+    return [...groups].map(([key, options]) => ({
+      key, options,
+      label: options[0]!.destination.kind === "base" ? "我的基地" : `战场 ${options[0]!.destination.battlefieldId}`
+    }));
   }, [playOptions]);
+  const selectedPlayDestinationOption = playDestinationOptions.find(option => option.key === selectedPlayDestination) ??
+    (playDestinationOptions.length === 1 ? playDestinationOptions[0]! : null);
+  const selectedPlayOption = playOptions.find(option => option.requiresDestination === false) ??
+    selectedPlayDestinationOption?.options[0] ?? null;
+  const playTargetRequirements = selectedPlayOption?.targetRequirements ?? [];
   const selectedPlayTargetRefs = playTargetRequirements.flatMap(requirement => {
     const selected = selectedPlayTargets[requirement.id] ?? [];
     return selected.flatMap(refKey => {
@@ -329,6 +376,26 @@ export function V2MatchBoard({
   const canAct = state.connectionStatus === "connected" && projection.winnerPlayerId === null && !busy;
   const canPass = canAct && hasPriority && choiceOpen && !choiceExpired;
   const canPlay = setup ? canAct && !choiceExpired : canAct && hasPriority && choiceOpen && !choiceExpired;
+  const canEndTurn = canAct && projection.actionOptions?.canEndTurn === true && choiceOpen && !choiceExpired;
+  const canAdvance = canAct && projection.actionOptions?.canAdvance === true && choiceOpen && !choiceExpired;
+  const combatDamage = projection.combat?.status === "active" && projection.combat.step === "damage" &&
+    projection.combat.combatId !== undefined && projection.combat.damage !== undefined &&
+    projection.combat.damage.expectedPlayerId === projection.viewerPlayerId ? projection.combat.damage : null;
+  const combatDamageSide = combatDamage === null ? null :
+    projection.combat?.attackerPlayerId === projection.viewerPlayerId ? "attacker" :
+      projection.combat?.defenderPlayerId === projection.viewerPlayerId ? "defender" : null;
+  const combatDamageBudget = combatDamage === null || combatDamageSide === null ? null :
+    combatDamageSide === "attacker" ? combatDamage.attackerMight : combatDamage.defenderMight;
+  const combatDamageTargets = combatDamageSide === null ? [] : battlefieldObjects.filter(object =>
+    (object.controllerPlayerId ?? object.ownerPlayerId) !== projection.viewerPlayerId &&
+    object.might !== undefined &&
+    object.location?.kind === "battlefield" && object.location.battlefieldId === projection.combat?.battlefieldId &&
+    projection.battlefields?.find(field => field.battlefieldId === projection.combat?.battlefieldId)
+      ?.occupantObjectIds.includes(object.objectId) === true);
+  const combatDamageCommand = combatDamage === null || projection.combat?.combatId === undefined || combatDamageBudget === null ? null :
+    buildV2CombatDamageCommand(projection.combat.combatId, combatDamageBudget,
+      combatDamageTargets.map(target => ({ unitObjectId: target.objectId, amount: combatDamageDrafts[target.objectId] ?? "" })));
+  const canSubmitCombatDamage = canAct && choiceOpen && !choiceExpired && combatDamageCommand !== null;
   const selectedCard = ownHand.find(card => card.objectId === selectedCardId) ?? null;
   const selectedTarget = targetCandidates.find(object => object.objectId === selectedTargetId) ?? null;
 
@@ -377,6 +444,13 @@ export function V2MatchBoard({
       </section>
       {!setup ? <section className="v2-action-panel" aria-label="出牌目标" data-v2-ui-hook="play-card-placement-and-target-candidates">
         <div className="v2-section-heading"><h3>出牌</h3><span>{selectedCard?.name ?? "先选择手牌"}</span></div>
+        {playDestinationOptions.length === 0 ? null : <label>永久物落点
+          <select aria-label="永久物落点" disabled={!canPlay} value={selectedPlayDestinationOption?.key ?? ""}
+            onChange={event => setSelectedPlayDestination(event.currentTarget.value)}>
+            <option value="">选择</option>
+            {playDestinationOptions.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
+          </select>
+        </label>}
         {playTargetRequirements.length > 0 ? <div aria-label="服务端投影出牌目标要求">{playTargetRequirements.map(requirement =>
           <fieldset key={requirement.id} disabled={!canPlay}><legend>{requirement.label}（{requirement.min === requirement.max ? requirement.min : `${requirement.min}-${requirement.max}`}）</legend>
             <div className="v2-choice-options">{requirement.options.map(option => <button key={option.id} type="button"
@@ -395,7 +469,7 @@ export function V2MatchBoard({
               })}>{option.label}</button>)}</div>
           </fieldset>)}
         </div> : targetCandidates.length > 0 ? <div className="v2-choice-options" aria-label="服务端投影候选目标">{targetCandidates.map(target => <button key={target.objectId} type="button" aria-pressed={selectedTargetId === target.objectId} onClick={() => setSelectedTargetId(target.objectId)}>{target.name ?? target.cardId ?? target.objectId}</button>)}</div> : <p className="v2-muted">服务端未公布该次出牌的目标要求。</p>}
-        <button type="button" className="v2-primary-action" disabled={!canPlay || selectedCard === null ||
+        <button type="button" className="v2-primary-action" disabled={!canPlay || selectedCard === null || selectedPlayOption === null ||
           playTargetRequirements.some(requirement => {
             const count = (selectedPlayTargets[requirement.id] ?? []).length;
             return count < requirement.min || count > requirement.max;
@@ -407,7 +481,8 @@ export function V2MatchBoard({
             ? selectedPlayTargetRefs.map(ref => ({ kind: "object", objectId: ref.objectId, zoneEntryId: ref.zoneEntryId }))
             : selectedTarget ? [{ kind: "object", objectId: selectedTarget.objectId,
               ...(selectedTarget.zoneEntryId === undefined ? {} : { zoneEntryId: selectedTarget.zoneEntryId }) }] : [];
-          const command = buildProjectedV2PlayCommand(projection, selectedCard.objectId, option.destination, targets);
+          const command = buildProjectedV2PlayCommand(projection, selectedCard.objectId,
+            option.requiresDestination === false ? undefined : option.destination, targets);
           if (command !== null) submit(command);
         }}>打出手牌</button>
       </section> : null}
@@ -415,19 +490,24 @@ export function V2MatchBoard({
         <div className="v2-section-heading"><h3>符文</h3><span>能量 {viewer?.energy ?? 0} · Power {formatPower(viewer?.power ?? {})}</span></div>
         {ownRunes.length === 0 ? <p className="v2-muted">没有公开的我方符文。符文区顺序由服务端隐藏，只显示投影对象。</p> : <div className="v2-choice-options">{ownRunes.map(rune => <div key={rune.objectId}><strong>{rune.name ?? rune.cardId ?? rune.objectId}</strong><button type="button" disabled={!canAct || rune.zoneEntryId === undefined || rune.exhausted === true} onClick={() => submit(buildV2RuneCommand("rune-energy", rune))}>取能量</button><button type="button" disabled={!canAct || rune.zoneEntryId === undefined || rune.exhausted === true} onClick={() => submit(buildV2RuneCommand("rune-power", rune))}>取 Power</button></div>)}</div>}
       </section>
-      <section className="v2-action-panel" aria-label="战斗操作" data-v2-ui-hook="combat-declaration-and-advancement">
-        <div className="v2-section-heading"><h3>战斗</h3><span>{selectedUnitId ?? "选择单位"}</span></div>
-        <label>战场 <select aria-label="战斗战场" value={selectedDestination.startsWith("battlefield:") ? selectedDestination : ""} onChange={event => setSelectedDestination(event.currentTarget.value)}><option value="">选择</option>{destinationOptions.filter(destination => destination.value.kind === "battlefield").map(destination => <option key={destination.id} value={destination.id}>{destination.label}</option>)}</select></label>
-        <div className="v2-choice-options">
-          <button type="button" disabled={!canAct || selectedUnitId === null || !selectedDestination.startsWith("battlefield:")} onClick={() => {
-            const destination = destinationOptions.find(value => value.id === selectedDestination);
-            if (selectedUnitId && destination?.value.kind === "battlefield") submit(buildV2DeclareCombatCommand("declare-attack", destination.value.battlefieldId, [selectedUnitId]));
-          }}>宣告攻击</button>
-          <button type="button" disabled={!canAct || selectedUnitId === null || !selectedDestination.startsWith("battlefield:")} onClick={() => {
-            const destination = destinationOptions.find(value => value.id === selectedDestination);
-            if (selectedUnitId && destination?.value.kind === "battlefield") submit(buildV2DeclareCombatCommand("declare-defense", destination.value.battlefieldId, [selectedUnitId]));
-          }}>宣告防守</button>
-        </div>
+      <section className="v2-action-panel" aria-label="战斗推进与伤害操作" data-v2-ui-hook="combat-advance-and-damage">
+        <div className="v2-section-heading"><h3>战斗</h3><span>{projection.combat?.status === "active" ? `${projection.combat.step ?? "active"}${combatDamageSide === null ? "" : ` · ${combatDamageSide}`}` : "无进行中的战斗"}</span></div>
+        <button type="button" disabled={!canAdvance} onClick={() => submit(buildV2AdvanceCommand())}>推进</button>
+        {combatDamage === null ? null : <div aria-label="战斗伤害分配">
+          <p>需分配 {combatDamageBudget} 点伤害；各目标金额合计必须相等。</p>
+          {combatDamageTargets.length === 0 ? <p className="v2-muted">服务端未投影本场战斗的公开目标。</p> :
+            <div className="v2-choice-options">{combatDamageTargets.map(target => <label key={target.objectId}>
+              {target.name ?? target.cardId ?? target.objectId}
+              <input aria-label={`${target.name ?? target.cardId ?? target.objectId} 伤害`} type="number" min="0" step="1"
+                value={combatDamageDrafts[target.objectId] ?? ""}
+                onChange={event => setCombatDamageDrafts(current => ({ ...current, [target.objectId]: event.currentTarget.value }))} />
+            </label>)}</div>}
+          <button type="button" className="v2-primary-action" disabled={!canSubmitCombatDamage} onClick={() => {
+            if (combatDamageCommand === null) return;
+            submit(combatDamageCommand);
+            setCombatDamageDrafts({});
+          }}>提交战斗伤害</button>
+        </div>}
       </section>
       <section className="v2-action-panel" aria-label="移动操作">
         <div className="v2-section-heading"><h3>移动</h3><span>{selectedUnitId ?? "选择单位与目的地"}</span></div>
@@ -440,6 +520,7 @@ export function V2MatchBoard({
       </section>
       <section className="v2-action-row" aria-label="对局操作">
         <button type="button" disabled={!canPass} onClick={() => submit(buildV2PassCommand())}>Pass</button>
+        <button type="button" disabled={!canEndTurn} onClick={() => submit(buildV2EndTurnCommand())}>结束回合</button>
         {projection.winnerPlayerId === null ? <button type="button" disabled={!canAct} onClick={() => submit({ type: "concede" })}>认输</button> : <strong>胜者：{projection.players.find(player => player.playerId === projection.winnerPlayerId)?.name ?? projection.winnerPlayerId}</strong>}
         {busy ? <span role="status">等待命令确认…</span> : null}
       </section>
