@@ -68,7 +68,7 @@ export const RUMBLE_OFFICIAL_EFFECT_ORDER_EVIDENCE = {
         "Rumble's Triggered Ability becomes Pending; its leading may and recycle cost are decided during Finalize.",
         "Finalize selects the Trash Mech target and another friendly Board unit as a non-target cost choice, then atomically pays the recycle to its owner's Main Deck bottom.",
         "The payment receipt preserves the recycled unit's pre-move Might. The Play descriptor declares base: printed so Finalize can use the target's complete trusted printed Energy and Power; after A then B pass the Closed-State Priority window, Resolve reduces only the Energy component and Power remains payable. A production golden with Breakneck's complete printed metadata pays 5 Energy and 2 Mind Power.",
-        "RIFT-985 resolves the selected target's canonicalCardId through the ProgramBinding's trusted printed catalog after Finalize targets lock and before the recycle leaves Board. The default Rumble IR therefore carries no fixed card projection and fails closed when the binding catalog omits the selected Mech."
+        "RIFT-985 resolves the selected target's canonicalCardId through an explicit ProgramBinding printedCatalog after Finalize targets lock and before the recycle leaves Board. The card IR therefore carries no fixed target projection, but the default server currently omits that catalog lookup and still fails closed."
       ],
       priorityFocus: "Focus belongs to the preceding Showdown. Finalize does not pass Priority; A then B receive Closed-State Priority in turn order, and both passes precede Resolve.",
       responseWindow: "After Finalize, the Closed-State window permits legally timed Reactions before Resolve. The production golden verifies the A-to-B Priority order and subsequent Resolve without inventing a Reaction card.",
@@ -76,7 +76,8 @@ export const RUMBLE_OFFICIAL_EFFECT_ORDER_EVIDENCE = {
         "Rumble, Hotheaded production component: Finalize recycles, preserves pre-move Might, and reaches the nested Play",
         "Rumble, Hotheaded production golden: binding catalog plays real Breakneck for 5 Energy plus 2 Mind Power",
         "Rumble, Hotheaded cost-plan boundary: missing numeric Power provenance fails closed",
-        "Rumble, Hotheaded production boundary: missing binding catalog stays fail-closed"
+        "Rumble, Hotheaded production boundary: missing binding catalog stays fail-closed",
+        "Rumble, Hotheaded production boundary: default server binding has no printed catalog lookup"
       ]
     }
   ]
@@ -98,7 +99,7 @@ export const RUMBLE_OFFICIAL_EFFECT_ORDER_EVIDENCE = {
  * (355.10.c.1). Its selected unit's current Might feeds the discounted play
  * cost.
  *
- * Executable after the 2026-10-23 production recheck. The real TurnFlow
+ * Judge-required after the 2026-10-23 integration recheck. The real TurnFlow
  * Conquer path selects and pays the recycle at Finalize (RIFT-929), binds that
  * payment receipt to the same Resolve body, preserves the recycled Unit's
  * pre-move Might for the discount (RIFT-953), and RIFT-972 can start from a
@@ -106,13 +107,26 @@ export const RUMBLE_OFFICIAL_EFFECT_ORDER_EVIDENCE = {
  * Energy component. RIFT-985 resolves a selected card with no play CostSpec
  * through the ProgramBinding's trusted catalog lookup, keyed by its canonical
  * id, and freezes the complete printed cost before the recycle moves it. The
- * card IR carries no fixed target cost; a missing or malformed lookup remains
- * fail-closed under CR 131.2, 131.3, 356.1.c, 356.4.c, and 357.1.
+ * card IR carries no fixed target cost. The default server room/runtime does
+ * not yet collect and pass that catalog, so a server-equivalent binding has no
+ * lookup and remains fail-closed under CR 131.2, 131.3, 356.1.c, 356.4.c,
+ * and 357.1.
  */
 export default {
   canonicalCardId: "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
   rulesetVersion: "core-1.5",
-  status: "executable",
+  status: "judge-required",
+  judgeReason:
+    "整卡保持 judge-required（2026-10-23 默认 server 装配复核）。Assault、Conquer Pending/Finalize、Board recycle、" +
+    "支付前 Might 的 LKI、Energy 组件折扣与 Power 保留；显式提供 ProgramBinding.printedCatalog 时，真实无 play 能力的 " +
+    "Breakneck Mech 可从 Trash 打出并按 8 Energy + 2 Mind Power 冻结、折扣为 5 Energy + 2 Mind Power。" +
+    "但默认 server 装配仍缺目录接线：apps/game-server/src/room.ts:252-276 只收集 CardProgram，没有从已验证 room catalog " +
+    "构造按 canonicalCardId 索引的 Energy/Power 投影；apps/game-server/src/engine-runtime/runtime.ts:269-273 创建 " +
+    "ProgramBinding 时只传 cardPrograms/staticBinder，没有传 printedCatalog。RIFT-985 的 effects/play/catalog.ts:51-78 " +
+    "只通过 binding 的该 lookup 获取缺省投影；缺失时 effects/play/cost-plan.ts:646-649,706 fail-closed。" +
+    "因此默认 server 中 Breakneck 等无 play CostSpec 的 Power Mech 无法完成 nested Play（CR 131.2 / 131.3 / 356.1.c / 356.4.c / 357.1）。" +
+    "最小改法：room owner 将 room catalog 转换为 canonicalCardId→{id,cardType,domains,energy,power} 投影，并作为 " +
+    "EngineRuntimeOptions 传入；runtime.ts 将其传给 createProgramBinding.printedCatalog，再以默认 MatchRuntime 灰盒验证。",
   abilities: [
     {
       kind: "static",
