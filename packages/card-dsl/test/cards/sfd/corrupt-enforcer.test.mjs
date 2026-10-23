@@ -101,18 +101,15 @@ test("sfd-123-221 Corrupt Enforcer: 'when I win a combat' subscribes to combat-r
   assert.equal(drawInstruction.linkedTo, undefined);
 });
 
-test("sfd-123-221 Corrupt Enforcer: neither declared subscription survives the production vocabulary", () => {
-  // Re-probed 2026-10-18: programs/filters.ts really binds the host anchor, but
-  // events/trigger-spec.ts rejects both declared event names, so no trigger is
-  // registered at all. The measured error is pinned rather than restated.
+test("sfd-123-221 Corrupt Enforcer: both declared subscriptions are accepted by the production vocabulary", () => {
+  // Both object-moved and combat-result are in the closed event vocabulary and
+  // retain the host-bound move destination predicate.
   for (const [index, event] of [[0, "object-moved"], [1, "combat-result"]]) {
     const ability = program.abilities[index];
     const translated = translateTriggerFilter(ability.trigger.filter, "enforcer", ability.trigger.at);
     const result = validateTriggerSpec({ at: ability.trigger.at, filter: translated });
-    assert.equal(result.ok, false, event);
-    assert.deepEqual(result.issues.map(issue => [issue.code, issue.path]), [
-      ["invalid-event-type", "trigger.filter.event"]
-    ]);
+    assert.equal(result.ok, true, event);
+    assert.deepEqual(result.issues, [], event);
   }
   // The host anchor itself is merged and correct.
   assert.deepEqual(

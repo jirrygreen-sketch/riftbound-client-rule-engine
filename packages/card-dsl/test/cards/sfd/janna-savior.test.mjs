@@ -225,17 +225,13 @@ test("sfd-053-221 Janna, Savior chain golden: the original heal instruction heal
   assert.ok(engine.trace.some((event) => event.step === "resolved" && event.item === "janna-supported-heal"));
 });
 
-test("sfd-053-221 Janna, Savior: only the unchanged move TargetSpec rejects sameLocationAs at binding", () => {
+test("sfd-053-221 Janna, Savior: both here-scoped target filters translate and the trigger registers", () => {
   const kernel = jannaWorld();
   const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
   assert.deepEqual(translateInstructionTargets([healHere]), [healHere]);
-  assert.throws(() => translateInstructionTargets([moveEnemyHome]), {
-    name: "ProgramBindingError", code: "judge-required", message: "Unsupported filter field sameLocationAs"
-  });
+  assert.deepEqual(translateInstructionTargets([moveEnemyHome])[0].targets[0].filter, moveEnemyHome.targets[0].filter);
   // Keep the full program's original filters when testing trigger registration.
-  assert.throws(() => triggerRegistrations(registry, kernel.getObject("janna")), {
-    name: "ProgramBindingError", code: "judge-required", message: "Unsupported filter field sameLocationAs"
-  });
+  assert.equal(triggerRegistrations(registry, kernel.getObject("janna")).length, 1);
 });
 
 test("sfd-053-221 Janna, Savior: the real Reaction expansion has an independent static binding gap", () => {

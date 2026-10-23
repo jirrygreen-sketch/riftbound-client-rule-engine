@@ -10,7 +10,7 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { boundTargetTaxFor, createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 
 const CARD_ID = "card.hash-cdc4606d9f9f7a0a63ed596fdbdee4a120ac153f9b1a74dd38db8c4c34616644";
 const SOURCE_TEXT =
@@ -195,19 +195,21 @@ test("sfd-057-221 Irelia, Fervent: the Deflect keyword definition stays a target
   assert.equal(tax.effect.kind, "target.tax");
 });
 
-test("sfd-057-221 Irelia, Fervent: the merged static binder refuses the Deflect target tax", () => {
-  // 809.1.a/809.1.d: [Deflect] expands to a static target.tax. The merged
-  // production binder (programs/statics.ts layerFor) has no layer for that kind,
-  // so it fails closed rather than silently dropping the additional cost. This is
-  // the executed evidence for the single remaining gap in the judgeReason.
+test("sfd-057-221 Irelia, Fervent: the production binder registers the Deflect target tax", () => {
+  // 809.1.a/809.1.d: the production binder now exposes the expanded target.tax
+  // as a capability for a prospective target. The remaining gap is its Power
+  // booking in the opener's Finalize plan, not registration.
   const fixture = ireliaFixture();
   const source = fixture.kernel.getObject("irelia");
   const [tax] = deflect.expand({ value: undefined, host: { canonicalCardId: CARD_ID } });
   assert.equal(tax.effect.kind, "target.tax");
-  assert.throws(
-    () => createEngineStaticBinder({ layers: fixture.engine.layers }).bindStatic(tax, source),
-    /Static ability kind target\.tax has no layer mapping/
-  );
+  const handle = createEngineStaticBinder(fixture.engine).bindStatic(tax, source);
+  const bound = boundTargetTaxFor(fixture.engine, source.ref);
+  assert.equal(bound.target.id, "irelia");
+  assert.equal(bound.effect.kind, "target.tax");
+  assert.deepEqual(bound.effect.value, { kind: "constant", value: 1 });
+  handle.unbind();
+  assert.equal(boundTargetTaxFor(fixture.engine, source.ref), null);
 });
 
 test.todo(

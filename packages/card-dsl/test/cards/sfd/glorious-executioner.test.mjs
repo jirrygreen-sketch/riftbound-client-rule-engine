@@ -101,39 +101,37 @@ test("sfd-185-221 Glorious Executioner: the trigger names the combat-result timi
   );
 });
 
-test("sfd-185-221 Glorious Executioner: the declared winner filter is still rejected by production trigger validation", () => {
+test("sfd-185-221 Glorious Executioner: production trigger validation admits combat-result and preserves the literal winner predicate", () => {
   const result = validateTriggerSpec(ability.trigger);
-  assert.equal(result.ok, false);
-  assert.ok(result.issues.some(issue => issue.path.includes("event")));
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.issues, []);
   // The descriptive 'self' value is not a comparison to controller A.
   assert.equal(matchesTriggerEvent(ability.trigger.filter, {
     timingPoint: "combat-result", details: { winnerId: "A" }
   }, "A"), false);
 });
 
-test("sfd-185-221 Glorious Executioner: the merged program adapter cannot register the combat-result trigger", () => {
-  // programs/triggers.ts funnels the EventPattern through
-  // programs/filters.ts, which has no `details` field; the CardProgram can
-  // therefore never subscribe the Draw 1 body to a real combat-result event.
+test("sfd-185-221 Glorious Executioner: the merged program adapter registers combat-result with its winner predicate", () => {
+  // 468.3: the closed event and details vocabulary now admit this trigger. The
+  // literal "self" winner value remains preserved so lost combats do not match.
   const error = registrationError();
-  assert.ok(error, "the merged adapter must refuse this trigger instead of dropping the winner predicate");
-  assert.equal(error.code, "judge-required");
-  assert.match(error.message, /Unsupported filter field details/);
+  assert.equal(error, null);
 });
 
-test("sfd-185-221 Glorious Executioner: no production path emits combat-result yet", () => {
-  // 468.3.a-468.4: the step that determines the winner is exactly the step
-  // CombatFlow still blocks on. Driving the real TurnFlow through a staged
-  // combat shows the timing point is never emitted; the declared
-  // payloadFields are not a producer.
+test("sfd-185-221 Glorious Executioner: production TurnFlow stages combat but has not emitted combat-result yet", () => {
+  // 468.3.a-468.4: driving the real TurnFlow reaches combat-start and the
+  // attack/defense declarations. It stops before damage and Combat Result, so
+  // the declared timing point still has no production producer in this path.
   const f = fixture({ fields: [{ id: "bf1", controller: "B" }, { id: "bf2", controller: null }],
     setup: w => w.unit("defender", { owner: "B", location: { type: "battlefield", id: "bf1" } }) });
   f.flow.start();
   f.flow.execute(f.draft("move-to-enemy", [
     { id: "move", op: "effect.move", args: { to: { kind: "constant", value: { type: "battlefield", id: "bf1" } } } }
   ]));
-  assert.throws(() => settle(f.flow), error => error.code === "combat-start-transaction");
-  assert.equal(timings(f.flow).includes("combat-start"), false);
+  settle(f.flow);
+  assert.equal(timings(f.flow).includes("combat-start"), true);
+  assert.equal(timings(f.flow).includes("attack-declared"), true);
+  assert.equal(timings(f.flow).includes("defense-declared"), true);
   assert.equal(timings(f.flow).includes("combat-result"), false);
   assert.deepEqual(f.flow.chain.pipeline.events.filter(event => event.timingPoint === "combat-result"), []);
 });

@@ -14,7 +14,7 @@ import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { createEngineStaticBinder, staticCostSources } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const ID = "card.hash-512a6baf401c344f2932b0402985380ea003a2798bef0dec74998bf39db0f00c";
@@ -94,11 +94,15 @@ test("sfd-010-221 Void Drone: the merged Finalize collector applies the [2] disc
   assert.throws(() => plan(undefined), (error) => error.reason === "judge-required" && /pre-chain origin zone/.test(String(error.message)));
 });
 
-test("sfd-010-221 Void Drone: the default CardProgram static binder still rejects the declaration", () => {
+test("sfd-010-221 Void Drone: the default CardProgram static binder registers the Finalize cost source", () => {
   const { engine, kernel } = fixture();
   const binder = createEngineStaticBinder(engine);
-  assert.throws(
-    () => binder.bindStatic(program.abilities[0], kernel.getObject("source")),
-    (error) => /Static ability kind continuous\.cost-modification has no layer mapping/.test(String(error.message))
-  );
+  const source = kernel.getObject("source");
+  const handle = binder.bindStatic({ ...program.abilities[0], effect: { ...program.abilities[0].effect, appliesTo: "self" } }, source);
+  const [binding] = staticCostSources(engine);
+  assert.equal(binding.source.id, "source");
+  assert.equal(binding.ability.effect.kind, "continuous.cost-modification");
+  assert.equal(binding.ability.effect.fromZone, "not-hand");
+  handle.unbind();
+  assert.deepEqual(staticCostSources(engine), []);
 });

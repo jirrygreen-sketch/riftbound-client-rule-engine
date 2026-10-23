@@ -9,10 +9,12 @@ import move from "../../../../engine-core/dist/effects/instructions/effect.move.
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createEngineStaticBinder, hiddenAbilitiesFor, hiddenPermissionFor } from "../../../../engine-core/dist/programs/statics.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { isTimingPointId } from "../../../../engine-core/dist/events/timing-points.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 // Card bodies run through the chain's own interpreter adapter — the production
 // entry point that re-wraps Expr arguments for the registered primitives.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
@@ -214,11 +216,10 @@ test("sfd-202-221 Hostile Takeover: the declared dependencies are the judgeReaso
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
-test("sfd-202-221 Hostile Takeover: the merged Hidden expansion is refused by the production static binder", () => {
-  // 811/811.1.b: [Hidden] expands to the static cost.hidden effect. The merged
-  // production binder (programs/statics.ts layerFor) has no layer for that kind,
-  // so it fails closed instead of granting a pretend Hide permission. This is
-  // the executed evidence for gap (1) in the judgeReason.
+test("sfd-202-221 Hostile Takeover: the merged Hidden expansion binds through the production static capability", () => {
+  // 811/811.1.b: [Hidden] binds as a capability registration. The consumer
+  // below reads it back from the real ChainEngine; full Hide execution still
+  // needs the facedown/Hide action path and remains in judgeReason.
   const kernel = world()
     .unit("host", {
       cardId: CARD_ID,
@@ -228,24 +229,34 @@ test("sfd-202-221 Hostile Takeover: the merged Hidden expansion is refused by th
     })
     .build();
   const source = kernel.getObject("host");
-  const layers = createLayerEngine([source]);
-  const binder = createEngineStaticBinder({ layers });
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error(`Unexpected choice: ${request.id}`); },
+    context: (snapshot, controller, timingPoint) =>
+      bindResolveContext(kernel, { source: snapshot, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const binder = createEngineStaticBinder(engine);
   const [expansion] = keywordDefinitionsById.get("Hidden").expand();
   assert.equal(expansion.effect.kind, "cost.hidden");
-  assert.throws(
-    () => binder.bindStatic(expansion, source),
-    /Static ability kind cost\.hidden has no layer mapping/
-  );
-  assert.deepEqual(layers.registry.list(), []);
+  const handle = binder.bindStatic(expansion, source);
+  assert.equal(engine.layers.registry.list().length, 1);
+  assert.equal(hiddenPermissionFor(engine, source), "present");
+  assert.deepEqual(hiddenAbilitiesFor(engine, source), [expansion]);
+  handle.unbind();
+  assert.equal(hiddenPermissionFor(engine, source), "absent");
 });
 
 test("sfd-202-221 Hostile Takeover: the delayed half still has no card-facing instruction", () => {
-  // 391.2/392/393: the end-of-turn half is a Delayed Ability, so it may only be
-  // recorded through a registered trigger.delayed op. The merged instruction
-  // registry has no such entry, so the declared instruction cannot execute.
-  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
-  assert.equal(instructionDefinitionsById.get(delayedRevert.op), undefined);
-  assert.match(program.judgeReason, /registry\.generated\.ts 无该条目/);
+  // 391.2/392/393: the end-of-turn half is a Delayed Ability and its
+  // trigger.delayed instruction is now registered. Whole-card execution still
+  // depends on the separate delayed-control and Recall consumers.
+  assert.equal(instructionDefinitionsById.has("trigger.delayed"), true);
+  assert.equal(instructionDefinitionsById.get(delayedRevert.op).op, "trigger.delayed");
+  assert.match(program.judgeReason, /registerDelayed/i);
 });
 
 test("sfd-202-221 Hostile Takeover golden: control changes the unit and then readies it", () => {
@@ -322,7 +333,7 @@ test("sfd-202-221 Hostile Takeover golden: the ready still executes when the con
   );
 });
 
-test("sfd-202-221 Hostile Takeover golden: the merged recall path refuses to fake a Move (457/458)", () => {
+test("sfd-202-221 Hostile Takeover golden: the merged recall path uses the independent Recall action (457/458)", () => {
   // effect.move documents Recall as explicitly BLOCKED: the frozen move-location
   // action cannot distinguish a Recall from a Move (457, 458.3, 460), so a nonzero
   // recall reports negated/impossible with a blockedReason rather than relocating.
@@ -341,14 +352,14 @@ test("sfd-202-221 Hostile Takeover golden: the merged recall path refuses to fak
     { world: kernel, targets: { [unitSpec.id]: [kernel.ref("enemy-unit")] } }
   );
 
-  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
-  assert.equal(run.linked.moved.count, 0);
-  assert.equal(run.linked.moved.blockedReason.length > 0, true);
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.moved.count, 1);
   const after = kernel.getObject("enemy-unit");
-  assert.deepEqual(after.location, { type: "battlefield", id: "battlefield-1" });
+  assert.deepEqual(after.location, { type: "base", player: "A" });
   assert.equal(after.damage, 2);
   assert.equal(after.controller, "A");
-  assert.deepEqual(kernel.events.map((event) => event.action), []);
+  assert.deepEqual(run.events.map(event => event.action), ["recall"]);
+  assert.equal(kernel.events.some(event => event.action === "move-location"), false);
 });
 
 test("sfd-202-221 Hostile Takeover: the 'at a battlefield' restriction matches battlefields only", () => {

@@ -197,25 +197,50 @@ test("ogs-013-024 Garen, Commander golden: the effect half registers +1 Might on
   assert.equal(layers.evaluate(base.ref("enemy-here")).might, 4);
 });
 
-test("ogs-013-024 Garen, Commander golden: the production static binder rejects the exclude anchor", () => {
-  // 复核 2026-10-17: the production binder is merged, so the remaining gap is
-  // inside it. staticFilter throws for `exclude` before any layer is created.
+test("ogs-013-024 Garen, Commander golden: the production static binder follows the live source, exclusion and location", () => {
+  const BF1 = { type: "battlefield", id: "bf-1" };
+  const BF2 = { type: "battlefield", id: "bf-2" };
   const { engine, kernel } = fixture({ cards: [{ id: "garen", might: 5 }] });
-  engine.commit({ type: "move-zone", object: kernel.ref("garen"), to: "base", location: { type: "base", player: "A" } });
-  assert.throws(
-    () => createEngineStaticBinder(engine).bindStatic(program.abilities[0], kernel.getObject("garen")),
-    (error) => error instanceof ProgramBindingError &&
-      error.code === "judge-required" &&
-      /Static exclude anchor needs a dynamic relative filter/.test(error.message)
-  );
+  const add = (id, might, location) => kernel.addObject({
+    ref: { id, zoneEntryId: 1 }, cardId: `card:${id}`, name: id, types: ["unit"], tags: [], keywords: [],
+    owner: "A", controller: "A", zone: "board", location, might, energy: 1, power: [], exhausted: false,
+    damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false
+  }, "board");
+  add("ally-1", 2, BF1);
+  add("ally-2", 3, BF2);
+  add("enemy-1", 4, BF1);
+  kernel.getObject("enemy-1");
+  const enemy = kernel.query({ objectId: "enemy-1" })[0];
+  kernel.addObject({ ...enemy, owner: "B", controller: "B" }, "board");
+  engine.commit({ type: "move-zone", object: kernel.ref("garen"), to: "battlefield", location: BF1 });
+  const handle = createEngineStaticBinder(engine).bindStatic(program.abilities[0], kernel.getObject("garen"));
+  const registration = engine.layers.registry.list().find(entry =>
+    entry.effect.effect.kind === "continuous.might");
+  assert.ok(registration);
+  assert.equal(registration.effect.source.id, "garen");
+  assert.deepEqual(registration.effect.filter, { type: "unit", controller: "controller" });
+  assert.deepEqual(registration.effect.effect.filter, {
+    type: "unit", controller: "controller", exclude: "source", sameLocationAs: "source"
+  });
+
+  engine.layers.setObjects(kernel.objects);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally-1")).might, 3);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally-2")).might, 3);
+  assert.equal(engine.layers.evaluate(kernel.ref("enemy-1")).might, 5);
+  assert.equal(engine.layers.evaluate(kernel.ref("garen")).might, 5);
+
+  engine.commit({ type: "move-location", object: kernel.ref("garen"), to: BF2 });
+  engine.layers.setObjects(kernel.objects);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally-1")).might, 2);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally-2")).might, 4);
+  handle.unbind();
   assert.equal(engine.layers.registry.list().length, 0);
 });
 
-test("ogs-013-024 Garen, Commander binding-gap probe: sameLocationAs snapshots a LocationRef with identity-sensitive matching", () => {
-  // Removing only the rejected exclude anchor exposes two independent gaps:
-  // the stored location is a snapshot, and equal LocationRefs are separate
-  // objects. The unchanged Might below diagnoses the missing consumer; it does
-  // not mean Garen should leave his co-located ally unmodified (CR 478.1).
+test("ogs-013-024 Garen, Commander golden: the bound anchor is re-evaluated after the source moves", () => {
+  // CR 053.3 / 359.3.f.2: "here" follows the live host. The binding stores a
+  // symbolic condition, not a LocationRef snapshot, so moving Garen transfers
+  // the aura from the old battlefield to the new one.
   const BF1 = { type: "battlefield", id: "bf-1" };
   const BF2 = { type: "battlefield", id: "bf-2" };
   const { engine, kernel } = fixture({ cards: [{ id: "garen", might: 5 }] });
@@ -227,20 +252,20 @@ test("ogs-013-024 Garen, Commander binding-gap probe: sameLocationAs snapshots a
   add("ally-1", 2, BF1);
   add("ally-2", 3, BF2);
   engine.commit({ type: "move-zone", object: kernel.ref("garen"), to: "battlefield", location: BF1 });
-  const partial = {
-    kind: "static",
-    effect: { ...program.abilities[0].effect, filter: { type: "unit", controller: "controller", sameLocationAs: "source" } }
-  };
-  createEngineStaticBinder(engine).bindStatic(partial, kernel.getObject("garen"));
+  createEngineStaticBinder(engine).bindStatic(program.abilities[0], kernel.getObject("garen"));
   const [entry] = engine.layers.registry.list();
-  assert.deepEqual(entry.effect.filter, { type: "unit", controller: "A", location: BF1 });
-  assert.deepEqual(entry.effect.filter.location, kernel.getObject("ally-1").location);
-  assert.notEqual(entry.effect.filter.location, kernel.getObject("ally-1").location);
+  assert.deepEqual(entry.effect.filter, { type: "unit", controller: "controller" });
+  assert.equal(entry.effect.effect.condition(kernel.getObject("ally-1")), true);
+  assert.equal(entry.effect.effect.condition(kernel.getObject("ally-2")), false);
+  assert.equal(entry.effect.effect.condition(kernel.getObject("garen")), false);
+  engine.layers.setObjects(kernel.objects);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally-1")).might, 3);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally-2")).might, 3);
   engine.commit({ type: "move-location", object: kernel.ref("garen"), to: BF2 });
   engine.layers.setObjects(kernel.objects);
   assert.deepEqual(kernel.getObject("garen").location, BF2);
-  assert.deepEqual(entry.effect.filter.location, BF1, "the registered filter retains the old location value");
-  assert.notDeepEqual(entry.effect.filter.location, kernel.getObject("garen").location);
-  assert.equal(engine.layers.evaluate(kernel.ref("ally-1")).might, 2, "equal LocationRef values do not match by identity");
-  assert.equal(engine.layers.evaluate(kernel.ref("ally-2")).might, 3, "the unit at Garen's new location is not buffed");
+  assert.equal(entry.effect.effect.condition(kernel.getObject("ally-1")), false);
+  assert.equal(entry.effect.effect.condition(kernel.getObject("ally-2")), true);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally-1")).might, 2);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally-2")).might, 4);
 });

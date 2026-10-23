@@ -13,6 +13,9 @@ import { finalizeTargetPlan } from "../../../../engine-core/dist/target/target-p
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { boundTargetTaxFor } from "../../../../engine-core/dist/programs/statics.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CARD_ID =
   "card.hash-c75d6f4a1bbeb87090ae0f7135aac4f6a4f1062063662b9ccae6fe99f1c9bc7d";
@@ -44,20 +47,23 @@ test("sfd-037-221 Navori Scout: judgeReason names the missing wiring and its tas
   assert.match(program.judgeReason, /any-Domain Power/);
 });
 
-test("sfd-037-221 Navori Scout: the merged static binder refuses the Deflect target tax", () => {
-  // 809.1.a/809.1.d: Deflect expands to a static target.tax. The merged
-  // production binder (programs/statics.ts layerFor) has no layer for that kind,
-  // so the tax still has no producer that reads it from the permanent. This is
-  // the executed evidence for the current gap in the judgeReason.
+test("sfd-037-221 Navori Scout: the production binder registers the Deflect target tax", () => {
   const kernel = world().unit("navori-scout", { cardId: CARD_ID, might: 4 }).build();
   const source = kernel.getObject("navori-scout");
   const [tax] = deflect.expand({ host: { canonicalCardId: CARD_ID } });
-  const layers = createLayerEngine([source]);
-  assert.throws(
-    () => createEngineStaticBinder({ layers }).bindStatic(tax, source),
-    /Static ability kind target\.tax has no layer mapping/
-  );
-  assert.deepEqual(layers.registry.list(), []);
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => { throw new Error("A static binding must not ask for a choice"); },
+    context: (value, controller, timingPoint) => bindResolveContext(kernel, { source: value, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host });
+  const handle = createEngineStaticBinder(engine).bindStatic(tax, source);
+  assert.equal(boundTargetTaxFor(engine, source.ref).effect.kind, "target.tax");
+  handle.unbind();
+  assert.equal(boundTargetTaxFor(engine, source.ref), null);
 });
 
 test("sfd-037-221 Navori Scout: exactly one unvalued Deflect keyword ability", () => {

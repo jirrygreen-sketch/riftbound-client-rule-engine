@@ -101,31 +101,20 @@ test("sfd-048-221 Stellacorn Herder: the merged program binding resolves the sel
   });
 });
 
-test("sfd-048-221 Stellacorn Herder: the translated object-moved filter is rejected by the trigger validator", () => {
-  // Live evidence for judgeReason: object-moved exists as a timing point but is
-  // absent from EVENT_PATTERN_TYPES, so the production registration path
-  // (pipeline.registerTrigger -> assertTriggerSpec) rejects the filter and the
-  // trigger never reaches the single event pipeline.
+test("sfd-048-221 Stellacorn Herder: the translated object-moved filter is accepted by the trigger validator", () => {
+  // object-moved is a closed EventPattern type and the host anchor survives
+  // production translation.
   const translated = translateTriggerFilter(ability.trigger.filter, "stellacorn", "object-moved");
   const validated = validateTriggerSpec({ at: "object-moved", filter: translated });
 
-  assert.equal(validated.ok, false);
-  assert.deepEqual(
-    validated.issues.map((issue) => [issue.path, issue.code]),
-    [["trigger.filter.event", "invalid-event-type"]]
-  );
-  assert.throws(
-    () => assertTriggerSpec({ at: "object-moved", filter: translated }),
-    /invalid-event-type|必须属于/
-  );
+  assert.equal(validated.ok, true);
+  assert.deepEqual(validated.issues, []);
+  assert.doesNotThrow(() => assertTriggerSpec({ at: "object-moved", filter: translated }));
 });
 
-test("sfd-048-221 Stellacorn Herder: the merged Move emission carries no from/to Location payload to filter on", () => {
-  // Live evidence for the second gap: the production action adapter derives
-  // object-moved from a real move-location commit, and the published emission
-  // carries the moved object only. 449.1/449.2 origin-and-destination data is
-  // absent (no payloadFields, no fromZone/toZone), so a filter cannot read the
-  // Move's start and end Locations, and a Recall cannot be told apart (458.1).
+test("sfd-048-221 Stellacorn Herder: a real Move publishes its origin and destination payload", () => {
+  // 449.1/449.2: object-moved now carries both LocationRefs so a trigger can
+  // distinguish the Move from a Recall and evaluate destination restrictions.
   const kernel = world().player("A").player("B")
     .unit("mover", { controller: "A", location: { type: "battlefield", id: "bf1" } })
     .build();
@@ -149,12 +138,14 @@ test("sfd-048-221 Stellacorn Herder: the merged Move emission carries no from/to
   const [event] = moved.emissions.filter((emission) => emission.timingPoint === "object-moved");
   assert.ok(event, "a real Move must publish object-moved");
   assert.equal(event.object.ref.id, "mover");
-  // The declared payloadFields (fromKind/fromLocationId/toKind/toLocationId)
-  // never reach the event, and neither do the zone fields used to filter it.
-  for (const field of ["fromKind", "fromLocationId", "toKind", "toLocationId"]) {
-    assert.equal(event.details?.[field], undefined, `${field} must remain unpublished`);
-    assert.equal(event[field], undefined, `${field} must not exist on the emission`);
-  }
+  assert.deepEqual(
+    [event.details?.fromKind, event.details?.fromLocationId],
+    ["battlefield", "bf1"]
+  );
+  assert.deepEqual(
+    [event.details?.toKind, event.details?.toLocationId],
+    ["battlefield", "bf2"]
+  );
   assert.equal(event.fromZone, undefined);
   assert.equal(event.toZone, undefined);
   // This layer derives the Move event alone: the object-leaves-*/object-enters-*

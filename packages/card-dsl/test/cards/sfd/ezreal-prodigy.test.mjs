@@ -5,8 +5,9 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/ezreal-prodigy.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createEngineStaticBinder, staticCostSources } from "../../../../engine-core/dist/programs/statics.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
 import discard from "../../../../engine-core/dist/effects/instructions/effect.discard.js";
@@ -194,23 +195,15 @@ test("sfd-149-221 Ezreal, Prodigy cost golden: a selected additional cost reduce
   assert.deepEqual(paid.events.map(event => event.action), ["pay"]);
 });
 
-test("sfd-149-221 Ezreal, Prodigy: the merged static binder rejects optional-additional cost modification", () => {
-  const source = world()
-    .unit("ezreal", {
-      cardId: program.canonicalCardId,
-      zone: "board",
-      energy: 3,
-      power: ["Chaos"],
-      might: 3
-    })
-    .build()
-    .getObject("ezreal");
-  const binder = createEngineStaticBinder({ layers: createLayerEngine([source]) });
-  assert.throws(
-    () => binder.bindStatic(costStatic, source),
-    error => error.code === "judge-required" &&
-      /Unsupported static appliesTo "optional-additional-costs-you-pay"/.test(error.message)
-  );
+test("sfd-149-221 Ezreal, Prodigy: the production binder exposes the optional-additional discount source", () => {
+  const f = fixture({ cards: [{ id: "ezreal", cardId: program.canonicalCardId, types: ["unit"], energy: 3, might: 3 }] });
+  const source = f.kernel.getObject("ezreal");
+  const handle = createEngineStaticBinder(f.engine).bindStatic(costStatic, source);
+  const [binding] = staticCostSources(f.engine);
+  assert.equal(binding.ability.effect.appliesTo, "optional-additional-costs-you-pay");
+  assert.deepEqual(binding.ability.effect.alternative, { resource: "power", universal: true, amount: 1 });
+  handle.unbind();
+  assert.deepEqual(staticCostSources(f.engine), []);
 });
 
 test.todo(

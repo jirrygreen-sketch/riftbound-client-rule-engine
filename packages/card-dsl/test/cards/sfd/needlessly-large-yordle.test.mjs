@@ -13,9 +13,12 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/needlessly-large-yordle.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { createLayerEngine } from "../../../../engine-core/dist/layers/engine.js";
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createEngineStaticBinder, staticCostSources } from "../../../../engine-core/dist/programs/statics.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { DuelBaseCombatBlockedError, createTrustedDuelBaseCombatFacts, planDuelBaseCombatDamage, validateDuelBaseCombatAllocation } from "../../../../engine-core/dist/combat/base-combat-allocation.js";
 
 const CARD_ID = "card.hash-fd21f689bd36e48ea3071e7d21c1fa68fd1527e85ca97ffd9052664f6aaba7de";
@@ -71,13 +74,38 @@ test("sfd-055-221 Needlessly Large Yordle: the cost reduction is per holding poi
  * historical one.
  */
 function bindStatics(combatRole) {
-  const kernel = world().unit("yordle", { cardId: CARD_ID, might: 5, combatRole }).build();
+  const kernel = world()
+    .player("A", { energy: 20, power: ["Calm", "Calm", "Calm"] })
+    .hand("yordle", {
+      cardId: CARD_ID,
+      types: ["unit"],
+      energy: 10,
+      power: ["Calm", "Calm", "Calm"],
+      might: 5,
+      combatRole
+    })
+    .build();
   const source = kernel.getObject("yordle");
-  const layers = createLayerEngine(kernel.objects);
-  const binder = createEngineStaticBinder({ layers, pipeline: { host: {
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => {
+      kernel.restore(checkpoint.state);
+      kernel.copyLinkedFrom(checkpoint.links);
+    },
     objects: () => kernel.objects,
-    context: (snapshot, controller, timingPoint) => kernel.context(snapshot, controller, timingPoint)
-  } } });
+    perform: action => kernel.perform(action),
+    choose: () => { throw new Error("Unexpected choice"); },
+    context: (snapshot, controller, timingPoint) =>
+      bindResolveContext(kernel, { source: snapshot, controller, timingPoint })
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host,
+    cleanup: () => false
+  });
+  const binder = createEngineStaticBinder(engine);
   const bound = [];
   // expandProgram.abilities = declared abilities + keyword expansions; the
   // card's own continuous.cost-modification static is declared, while
@@ -91,17 +119,25 @@ function bindStatics(combatRole) {
       bound.push("BIND-REJECTED:" + String(error.message).slice(0, 60));
     }
   }
-  return { kernel, layers, bound };
+  engine.layers.setObjects(kernel.objects);
+  return { engine, kernel, source, bound };
 }
 
-test("sfd-055-221 Needlessly Large Yordle gap 1: Shield 5 stays unapplied for a real Defender designation", () => {
-  // 814.1.c/814.1.d: [Shield 5] is a static continuous.might gated on the
-  // Defender designation. The merged default expression path only reads
-  // snapshot-own properties, and layers/engine.ts does not consume compare, so
-  // the +5 never applies even when combatRole is defender.
-  const { kernel, layers } = bindStatics("defender");
-  assert.equal(layers.evaluate(kernel.ref("yordle")).might, 5);
-  assert.equal(layers.evaluate(kernel.ref("yordle")).buffs, 0);
+test("sfd-055-221 Needlessly Large Yordle golden: Shield 5 applies for a real Defender designation", () => {
+  // 814.1.c/814.1.d: the production expression evaluator maps the Shield
+  // expansion's designation to combatRole. Run all three observable branches
+  // through the real ChainEngine, static binder and layer registry.
+  const measured = {};
+  for (const role of ["defender", "attacker", null]) {
+    const { engine, kernel } = bindStatics(role);
+    const layered = engine.layers.evaluate(kernel.ref("yordle"));
+    measured[String(role)] = { might: layered.might, buffs: layered.buffs };
+  }
+  assert.deepEqual(measured, {
+    defender: { might: 10, buffs: 0 },
+    attacker: { might: 5, buffs: 0 },
+    null: { might: 5, buffs: 0 }
+  });
 });
 
 test("sfd-055-221 Needlessly Large Yordle gap 2: Tank has no assignment-priority consumer", () => {
@@ -142,15 +178,23 @@ test("sfd-055-221 Needlessly Large Yordle gap 2: Tank has no assignment-priority
   assert.equal(typeof validateDuelBaseCombatAllocation, "function");
 });
 
-test("sfd-055-221 Needlessly Large Yordle gap 3: the Hold-point discount has no binding into Finalize", () => {
+test("sfd-055-221 Needlessly Large Yordle gap 3: the Hold-point declaration binds but Finalize rejects its unsupported reduction expression", () => {
   // 356.1/356.4: the discount must be collected as -2 Energy and -1 Calm Power
-  // per point scored from holding this turn. programs/statics.ts layerFor has no
-  // mapping for continuous.cost-modification, so the binder rejects before any
-  // Finalize cost plan could consume it.
-  const { bound } = bindStatics(null);
-  assert.deepEqual(bound.slice(0, 2), ["continuous.cost-modification", bound[1]]);
-  assert.match(bound[1], /BIND-REJECTED:.*continuous.cost-modification has no lay/);
-  assert.deepEqual(bound.slice(2), ["continuous.might", "continuous.combat"]);
+  // per point scored from holding this turn. The production binder now exposes
+  // the card static through staticCostSources, but the per-point reduction
+  // shape has no executable CostPlan form and remains fail-closed.
+  const { engine, kernel, source, bound } = bindStatics(null);
+  assert.deepEqual(bound, ["continuous.cost-modification", "continuous.might", "continuous.combat"]);
+  const sources = staticCostSources(engine);
+  assert.equal(sources.length, 1);
+  assert.equal(sources[0].source.id, "yordle");
+  assert.deepEqual(sources[0].ability.effect.reductions, discount.effect.reductions);
+  const context = kernel.clone({ sourceSnapshot: source, controller: "A", timingPoint: "finalize" });
+  assert.throws(
+    () => finalizeCostPlan(context, { id: "yordle-cost", cost: { kind: "printed" } }, { statics: sources }),
+    error => error instanceof CostPlanError && error.reason === "judge-required" &&
+      /Unsupported cost reduction entry/.test(error.message)
+  );
 });
 
 test.todo(

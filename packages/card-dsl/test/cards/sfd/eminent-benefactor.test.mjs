@@ -93,9 +93,8 @@ test("sfd-152-221 Eminent Benefactor golden: the merged play path really creates
 });
 
 test.todo(
-  "sfd-152-221 Eminent Benefactor: create and play two Gold gear tokens exhausted once the Gold definition " +
-    "(CR 187.5) and the exhausted entry stipulation (184.1 / 185.2.d) are merged (token primitive task); " +
-    "the chain-creation + play hand-off itself is merged and covered by the supported-definition run above"
+  "sfd-152-221 Eminent Benefactor: create and play two Gold gear tokens exhausted through the authored " +
+    "hold-trigger body once the hold event carries this object's identity"
 );
 
 test.todo(
@@ -103,38 +102,17 @@ test.todo(
     "(383.4.d.2.a); bind the hold player/battlefieldId to the unit's location instead of requiring event.object"
 );
 
-test("sfd-152-221 Eminent Benefactor: the merged token primitive still refuses the Gold entry stipulation and relative base", () => {
-  // The refreshed judgeReason must be reproducible against merged source.
+test("sfd-152-221 Eminent Benefactor: the merged token primitive executes the Gold entry stipulation and relative base", () => {
   const kernel = world().player("A").build();
-  // 184.1 / 185.2.d: the entry-exhausted stipulation is not an accepted argument.
-  assert.throws(
-    () => runInstruction(token, playGold.args, { world: kernel }),
-    (error) => error instanceof TypeError && /Invalid effect\.token argument: entersExhausted/.test(error.message)
-  );
-  // A relative-controller Base must be resolved by the primitive; it only
-  // accepts a constant LocationRef, so the selector expression is refused.
-  assert.throws(
-    () => runInstruction(
-      token,
-      {
-        token: { kind: "constant", value: "gold" },
-        amount: { kind: "constant", value: 1 },
-        mode: { kind: "constant", value: "play" },
-        location: { kind: "location", value: { kind: "relative", relation: "ability-controller-base" } }
-      },
-      { world: kernel }
-    ),
-    (error) => error instanceof TypeError && /Invalid effect\.token argument: location/.test(error.message)
-  );
-  // 187.5: Gold is still absent from the merged token definitions.
-  const gold = runInstruction(
-    token,
-    { token: { kind: "constant", value: "gold" }, amount: { kind: "constant", value: 1 }, mode: { kind: "constant", value: "play" }, location: { kind: "constant", value: { type: "base", player: "A" } }, linkKey: { kind: "constant", value: "g" } },
-    { world: world().player("A").build() }
-  );
-  assert.equal(gold.result.status, "negated");
-  assert.equal(gold.result.reason, "impossible");
-  assert.equal(gold.linked.g.blockedReason, "token-definition-or-abilities-judge-required");
+  const run = runInstruction(token, playGold.args, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked["goldTokens.amount"], 2);
+  const gold = kernel.query({ type: "gear", zone: "board" }).filter(object => object.isToken);
+  assert.equal(gold.length, 2);
+  assert.equal(gold.every(object => object.name === "Gold"), true);
+  assert.equal(gold.every(object => object.exhausted === true), true);
+  assert.equal(gold.every(object => object.location?.type === "base" && object.location.player === "A"), true);
+  assert.equal(gold.every(object => object.energy === null && object.power === null), true);
 });
 
 test("sfd-152-221 Eminent Benefactor: the merged hold payload still carries no object for the source:self filter", () => {

@@ -184,7 +184,7 @@ test.todo(
 // cost.additional declaration. The paid-decision gate itself is merged
 // (RIFT-359) and its real receipt run lives further below.
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createEngineStaticBinder, staticCostSources } from "../../../../engine-core/dist/programs/statics.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
@@ -234,18 +234,15 @@ test("sfd-098-221 Sea Monkey golden: the trigger condition reads the real paid/d
   assert.equal(evaluateCondition(condition, environment(declinedPlan, declinedReceipt)), false);
 });
 
-test("sfd-098-221 Sea Monkey: the production filter adapter rejects the body's self anchor", () => {
-  assert.throws(
-    () => translateObjectFilter(selfSpec.filter),
-    (error) => {
-      assert.ok(error instanceof Error);
-      assert.match(error.message, /Unsupported filter field object/);
-      return true;
-    }
-  );
+test("sfd-098-221 Sea Monkey: the production filter adapter preserves the body's self anchor", () => {
+  assert.deepEqual(translateObjectFilter(selfSpec.filter), {
+    object: "self",
+    type: "unit",
+    zone: "board"
+  });
 });
 
-test("sfd-098-221 Sea Monkey: the production static binder cannot map the cost.additional declaration", () => {
+test("sfd-098-221 Sea Monkey: the production static binder exposes the optional additional cost", () => {
   // The registry refuses judge-required programs, so the binding path is
   // exercised against the same abilities with the status lifted for this
   // scenario only; the shipped program keeps judge-required.
@@ -265,16 +262,24 @@ test("sfd-098-221 Sea Monkey: the production static binder cannot map the cost.a
   });
   board.engine.layers.setObjects(board.kernel.objects);
 
-  // Both static abilities fail closed through the default engine binder: the
-  // additional-cost declaration has no layer mapping, and the buff body's
-  // self anchor is refused by the same production filter adapter.
-  const messages = errors.map((error) => String(error.message));
-  assert.ok(
-    messages.some((message) => /Static ability kind cost\.additional has no layer mapping/.test(message)),
-    "expected the cost.additional mapping rejection, got: " + JSON.stringify(messages)
-  );
-  assert.ok(
-    messages.some((message) => /Unsupported filter field object/.test(message)),
-    "expected the self-anchor rejection, got: " + JSON.stringify(messages)
-  );
+  // The lifecycle binds the exact entry incarnation, and Finalize can collect
+  // its printed optional charge from the registered cost capability.
+  assert.deepEqual(errors, []);
+  const sources = staticCostSources(board.engine);
+  assert.deepEqual(sources.map(source => ({
+    exactSource: source.source.id === "monkey" && source.source.zoneEntryId === 2,
+    effect: source.ability.effect
+  })), [{
+    exactSource: true,
+    effect: {
+      kind: "cost.additional",
+      id: "sea-monkey.additional-cost",
+      appliesTo: "self",
+      optional: true,
+      stage: "optional-additional",
+      payments: [{ kind: "energy", amount: { kind: "constant", value: 1 } }]
+    }
+  }]);
+  // Binding the capability does not promote the still-published card program.
+  assert.equal(program.status, "judge-required");
 });

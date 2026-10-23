@@ -133,23 +133,20 @@ test.todo(
 // binding layer produces the correct host-bound filter, but the closed
 // EventPattern vocabulary rejects the printed event name, so registration on
 // the real pipeline throws instead of silently skipping validation.
-test("sfd-047-221 Simian Ancestor: registerProgramTriggers rejects the buff-added subscription (EventPattern vocabulary)", () => {
+test("sfd-047-221 Simian Ancestor: registerProgramTriggers installs the host-bound buff-added subscription", () => {
   const lifted = { ...program, status: "executable" };
   delete lifted.judgeReason;
   const binding = createProgramBinding({ cardPrograms: [lifted] });
   const { engine, kernel } = fixture({ cards: [{ id: "simian", cardId: CARD_ID, types: ["unit"], might: 5 }] });
   engine.commit({ type: "move-zone", object: kernel.ref("simian"), to: "battlefield", location: { type: "battlefield", id: "battlefield-1" } });
-  assert.throws(
-    () => binding.registerProgramTriggers(engine, kernel.getObject("simian")),
-    (error) => {
-      assert.equal(error.name, "TriggerSpecValidationError");
-      assert.deepEqual([...new Set(error.issues.map(issue => issue.code))], ["invalid-event-type"]);
-      assert.equal(error.issues[0].path, "trigger.filter.event");
-      return true;
-    }
-  );
-  // Fail closed: nothing was half-registered.
-  assert.equal(engine.pipeline.checkpoint().triggers.size, 0);
+  const ids = binding.registerProgramTriggers(engine, kernel.getObject("simian"));
+  assert.equal(ids.length, 1);
+  const [registration] = engine.pipeline.checkpoint().triggers.values();
+  assert.equal(registration.spec.at, "buff-added");
+  assert.deepEqual(registration.spec.filter, {
+    event: "buff-added",
+    object: { objectId: "simian" }
+  });
 });
 
 test("sfd-047-221 Simian Ancestor: the merged action adapter really emits buff-added for a placed Buff counter (427.1)", () => {

@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/index.js";
+import { matchesObjectPredicates } from "../../../../engine-core/dist/effects/filters/predicates.js";
 import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL = "card.hash-6c5e86a11835553c21b709846a47353de46fcea93be21041ecaf6f4a50b1ecd7";
@@ -97,16 +98,11 @@ test("sfd-158-221 Sandshifter: a unit that left the board makes the kill ignored
 });
 
 test.todo(
-  "sfd-158-221 Sandshifter: enforce the '3 :rb_might: or less' target ceiling at Finalize/Resolve " +
-    "(355.9.b / 143.2.a effective-Might predicate) once an effective-Might threshold predicate is " +
-    "merged into ObjectFilter/TargetPlan; RIFT-359's event/result predicates do not cover it"
+  "sfd-158-221 Sandshifter: carry the supported 'Might 3 or less' predicate into the card's " +
+    "TargetSpec and enforce it through Finalize/Resolve (355.9.b / 143.2.a)"
 );
 
-test("sfd-158-221 Sandshifter: TargetPlan filters are equality-only, so a Might ceiling remains judge-required", () => {
-  // Evidence for the judgeReason: TargetPlan reaches the merged layer matcher,
-  // whose Might characteristic comparison is equality-only (characteristics: {
-  // might: N }). "3 or less" therefore has no target-query spelling, and the
-  // card's descriptive mightLte key is outside the production filter translator.
+test("sfd-158-221 Sandshifter: the production predicate reader enforces a Might ceiling", () => {
   const kernel = world()
     .unit("weak-enemy", { owner: "B", controller: "B", might: 2 })
     .unit("exactly-three", { owner: "B", controller: "B", might: 3 })
@@ -132,17 +128,21 @@ test("sfd-158-221 Sandshifter: TargetPlan filters are equality-only, so a Might 
     translateObjectFilter({ type: "unit", zone: "board", controller: "opponent" }),
     { type: "unit", zone: "board", controller: "opponent" }
   );
-  assert.throws(
-    () => translateObjectFilter({ type: "unit", zone: "board", controller: "opponent", mightLte: 3 }),
-    /Unsupported filter field mightLte/
-  );
+  const ceiling = { type: "unit", zone: "board", controller: "opponent", mightLte: 3 };
+  const environment = object => ({
+    controller: "A", anchor: object, references: () => [], objects
+  });
+  assert.deepEqual(objects.map(object => [
+    object.ref.id,
+    matchesObjectPredicates(ceiling, object, environment(object))
+  ]), [
+    ["weak-enemy", true],
+    ["exactly-three", true],
+    ["strong-enemy", false]
+  ]);
 });
 
-test("sfd-158-221 Sandshifter: the RIFT-359 predicate set does not add a Might threshold to target filters", () => {
-  // Live re-verification of the judgeReason: the merged predicates operate on
-  // event payloads and finalized cost/result receipts, so a target requirement
-  // can still not express "effective Might 3 or less". A near-threshold unit is
-  // returned by the only filter shape the translator accepts.
+test("sfd-158-221 Sandshifter: the card target still omits the supported Might predicate", () => {
   const kernel = world()
     .unit("weak-enemy", { owner: "B", controller: "B", might: 2 })
     .unit("over-threshold", { owner: "B", controller: "B", might: 4 })
@@ -155,17 +155,20 @@ test("sfd-158-221 Sandshifter: the RIFT-359 predicate set does not add a Might t
     translateObjectFilter({ type: "unit", zone: "board", controller: "opponent" }),
     { type: "unit", zone: "board", controller: "opponent" }
   );
-  // That accepted filter carries no Might comparison at all, so both the weak
-  // unit and the unit above the printed ceiling satisfy it.
+  // The card filter carries no Might comparison, so both the weak unit and the
+  // unit above the printed ceiling satisfy it; that omission is the remaining
+  // card/TargetPlan producer gap rather than a missing predicate primitive.
   const matches = kernel.objects
     .filter((object) => matchesObjectFilter({ type: "unit", zone: "board" }, object))
     .map((object) => object.ref.id);
   assert.deepEqual(matches, ["weak-enemy", "over-threshold"]);
-  for (const key of ["mightLte", "mightGte", "is-mighty"]) {
-    assert.throws(
-      () => translateObjectFilter({ type: "unit", zone: "board", controller: "opponent", [key]: 3 }),
-      /Unsupported filter field/,
-      `${key} must still be rejected by the production translator`
-    );
-  }
+  const weak = kernel.getObject("weak-enemy");
+  const strong = kernel.getObject("over-threshold");
+  const ceiling = { type: "unit", zone: "board", controller: "opponent", mightLte: 3 };
+  assert.equal(matchesObjectPredicates(ceiling, weak, {
+    controller: "A", anchor: weak, references: () => [], objects: kernel.objects
+  }), true);
+  assert.equal(matchesObjectPredicates(ceiling, strong, {
+    controller: "A", anchor: strong, references: () => [], objects: kernel.objects
+  }), false);
 });

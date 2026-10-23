@@ -7,9 +7,11 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { AwaitChoice, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createEngineStaticBinder, staticCostSources } from "../../../../engine-core/dist/programs/statics.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 
@@ -290,39 +292,40 @@ test.todo(
 // any plan can be built, so the printed [Repeat] cost never reaches Finalize.
 import { translateCost } from "../../../../engine-core/dist/programs/play.js";
 
-test("sfd-077-221 Rocket Barrage: the merged play-cost adapter refuses the optional [Repeat] cost declaration (CR 820.1.c.1)", () => {
+test("sfd-077-221 Rocket Barrage: translateCost delegates the optional [Repeat] declaration to the program cost binder (CR 820.1.c.1)", () => {
   assert.throws(
     () => translateCost(play.cost, "rocket-barrage:play", "play"),
     (error) => {
       assert.ok(error instanceof Error);
-      assert.match(error.message, /Unsupported play cost field optional on rocket-barrage:play/);
+      assert.match(error.message, /Additional costs require the program cost adapter on rocket-barrage:play/);
       return true;
     }
   );
 });
 
-test("sfd-077-221 Rocket Barrage: no consumer maps the Repeat expansion's repeat.cost declaration", () => {
-  // Evidence for the second half of the [Repeat] gap: the merged keyword
-  // expansion authors a repeat.cost static ability, but the production static
-  // binder has no layer mapping for that effect kind, so the declared instance
-  // never reaches the Finalize cost plan.
-  const [declaration] = keywordDefinitionsById.get("Repeat").expand({ host: { canonicalCardId: CANONICAL_ID } });
+test("sfd-077-221 Rocket Barrage: the Repeat expansion registers as a Finalize cost source", () => {
+  const [declaration] = keywordDefinitionsById.get("Repeat").expand({
+    host: { canonicalCardId: CANONICAL_ID },
+    cost: { energy: { kind: "constant", value: 4 }, power: [{ allowedDomains: ["Mind"], amount: { kind: "constant", value: 1 } }] }
+  });
   assert.equal(declaration.kind, "static");
   assert.equal(declaration.effect.kind, "repeat.cost");
   const kernel = world().unit("spell", { might: 3 }).build();
-  const binder = createEngineStaticBinder({
-    layers: createLayerEngine(kernel.objects, []),
-    pipeline: {
-      host: {
-        objects: () => kernel.objects,
-        context: (snapshot) => kernel.clone({ sourceSnapshot: snapshot, source: snapshot.ref })
-      }
-    }
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => { throw new Error("A static binding must not ask for a choice"); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
   });
-  assert.throws(
-    () => binder.bindStatic(declaration, kernel.getObject("spell")),
-    /Static ability kind repeat\.cost has no layer mapping/
-  );
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host });
+  const binder = createEngineStaticBinder(engine);
+  const handle = binder.bindStatic(declaration, kernel.getObject("spell"));
+  const [source] = staticCostSources(engine);
+  assert.equal(source.ability.effect.kind, "cost.additional");
+  assert.equal(source.ability.effect.optional, true);
+  handle.unbind();
 });
 
 test("sfd-077-221 Rocket Barrage: the chain Finalize refuses the card's choice.mode body", () => {

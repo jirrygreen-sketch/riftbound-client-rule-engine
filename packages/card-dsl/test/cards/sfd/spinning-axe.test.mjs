@@ -305,27 +305,25 @@ test("sfd-186-221 Spinning Axe: each Domain can pay the printed one-Power Equip 
 });
 
 // Direct evidence for the remaining timing/cost gaps, all against merged source.
-test("sfd-186-221 Spinning Axe: the merged pipeline rejects the Temporary beginning-start subscription (CR 816.1.b)", () => {
+test("sfd-186-221 Spinning Axe: the merged pipeline accepts the Temporary beginning-start subscription (CR 816.1.b)", () => {
   const spec = keywordDefinitionsById.get("Temporary").expand({ host: HOST })[0].trigger;
   assert.equal(spec.at, "beginning-start");
   const validation = validateTriggerSpec(spec);
-  assert.equal(validation.ok, false);
-  assert.deepEqual([...new Set(validation.issues.map(issue => issue.code))], ["invalid-event-type"]);
-  // Registration through the real pipeline fails closed with the same reason.
+  assert.equal(validation.ok, true);
+  assert.deepEqual(validation.issues, []);
+  // Registration through the real pipeline installs the exact timing point.
   const f = fixture({ cards: [{ id: "spinning-axe", cardId: CARD_ID, types: ["gear"], might: 3, keywords: [{ id: "Temporary" }] }] });
   f.engine.execute(f.card("spinning-axe", { kind: "gear", body: [] }));
   resolveAll(f.engine);
-  assert.throws(() => f.engine.pipeline.registerTrigger({
+  f.engine.pipeline.registerTrigger({
     id: "temporary-axe",
     source: f.kernel.getObject("spinning-axe"),
     controller: "A",
     spec,
     body: [],
     optional: false
-  }), (error) => {
-    assert.equal(error.name, "TriggerSpecValidationError");
-    return true;
   });
+  assert.equal(f.engine.pipeline.checkpoint().triggers.has("temporary-axe"), true);
 });
 
 test("sfd-186-221 Spinning Axe: the merged cost pipeline refuses the Equip payment kind (CR 818.1.b)", () => {

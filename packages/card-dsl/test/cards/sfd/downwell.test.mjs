@@ -6,7 +6,10 @@ import program from "../../../dist/cards/sfd/downwell.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import { planReplacementBody } from "../../../../engine-core/dist/replacement/planner.js";
+import { BlockedReplacementError } from "../../../../engine-core/dist/replacement/types.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 
 const CANONICAL = "card.hash-2d4fa47f98b9d923f7ff215e0893e6d748e4c5b8f906b289eacc50e0f83769db";
 const SOURCE_TEXT = "Return all units and gear to their owners' hands.";
@@ -100,32 +103,33 @@ test("sfd-147-221 Downwell golden: the owner-routed return half really works on 
 });
 
 test.todo(
-  "sfd-147-221 Downwell: 'Return all units and gear to their owners' hands' needs a non-target set form of " +
-    "effect.zone (355.10.d/355.10.d.1) — the merged primitive consumes only ctx.targets / ctx.picks. The " +
-    "effect.ready / effect.heal { kind: 'query', filter } descriptor is the intended shape; the replacement " +
-    "planner likewise maps effect.zone only through its target spelling."
+  "sfd-147-221 Downwell: map the supported effect.zone query selector through the replacement planner " +
+    "(355.10.d/355.10.d.1); the runtime primitive already consumes { kind: 'query', filter }"
 );
 
-test("sfd-147-221 Downwell: the printed non-target set descriptor is still refused by the merged consumers", () => {
-  // The refreshed judgeReason must be reproducible: the card's declared
-  // objects descriptor is not a valid effect.zone argument, and the merged
-  // replacement planner also accepts only the target spelling.
+test("sfd-147-221 Downwell: the printed non-target set descriptor executes through effect.zone", () => {
   const kernel = world()
     .unit("ally-unit", { owner: "A", controller: "A", location: { type: "battlefield", id: "battlefield-1" } })
+    .unit("enemy-gear", { owner: "B", controller: "B", types: ["gear"], location: { type: "base", player: "B" } })
     .build();
-  assert.throws(
-    () => runInstruction(zone, returnInstruction.args, { world: kernel }),
-    (error) => error instanceof TypeError &&
-      /effect\.zone requires exactly one of target or pick/.test(error.message)
-  );
-  assert.equal(kernel.getObject("ally-unit").zone, "board");
+  const context = bindResolveContext(kernel, {
+    query: filter => kernel.objects.filter(object => matchesObjectFilter(filter, object))
+  });
+  const result = zone.execute(context, zone.argsSchema.parse(returnInstruction.args));
+  assert.equal(result.status, "executed");
+  assert.deepEqual(result.linkedValues.movedObjects.map(ref => ref.id).sort(), ["ally-unit", "enemy-gear"]);
+  assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["ally-unit"]);
+  assert.deepEqual(kernel.zone("B", "hand").map(ref => ref.id), ["enemy-gear"]);
+  assert.deepEqual(kernel.objects.filter(object => object.zone === "board").map(object => object.ref.id), []);
 
+  // The replacement planner still needs the same query selector translation.
   assert.throws(
     () => planReplacementBody(play.body, { hostRef: kernel.ref("ally-unit"), replacedObject: null, usedWindow: false }, {
       evaluate: expression => expression.value,
       controller: "A",
       object: () => kernel.ref("ally-unit")
     }),
-    (error) => /effect\.zone target must be an object selector spelling/.test(error.message)
+    (error) => error instanceof BlockedReplacementError && /plan-time selector binding is unavailable: query/.test(error.message)
   );
+  assert.equal(program.status, "judge-required");
 });

@@ -133,15 +133,11 @@ test("sfd-191-221 Rabadon's Deathcrown: the merged cost pipeline refuses the dec
   );
 });
 
-test("sfd-191-221 Rabadon's Deathcrown: expandProgram still stops on the unregistered Unique keyword (kw-unique)", () => {
+test("sfd-191-221 Rabadon's Deathcrown: the registered Unique keyword expands to no gameplay ability", () => {
   const kernel = crownWorld();
-  assert.throws(
-    () => expandProgram({ ...program, status: "executable", judgeReason: undefined }, kernel.getObject("rabadons-deathcrown")),
-    (error) => {
-      assert.match(error.message, /Keyword unique has no executable KeywordDef/);
-      return true;
-    }
-  );
+  const expanded = expandProgram({ ...program, status: "executable", judgeReason: undefined }, kernel.getObject("rabadons-deathcrown"));
+  assert.equal(expanded.expanded.some(ability => ability.kind === "static" && ability.effect.kind === "continuous.deck"), false);
+  assert.equal(keywordDefinitionsById.get("unique")?.ruleRefs.includes("825.3.a"), true);
 });
 
 test("sfd-191-221 Rabadon's Deathcrown: the program keeps the catalog text and invents no Bonus Damage ability", () => {

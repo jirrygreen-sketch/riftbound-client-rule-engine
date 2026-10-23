@@ -8,7 +8,7 @@ import damage from "../../../../engine-core/dist/effects/instructions/effect.dam
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createEngineStaticBinder, hiddenPermissionFor } from "../../../../engine-core/dist/programs/statics.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
@@ -50,10 +50,10 @@ test("sfd-017-221 Sudden Storm: judge-required only for Hidden's unresolved perm
   assert.doesNotMatch(program.judgeReason, /combatRole.*未|combatRole.*缺/);
 });
 
-test("sfd-017-221 Sudden Storm: both printed permission keywords fail to bind in production", () => {
-  // Live evidence for judgeReason: [Hidden] expands to a cost.hidden static that
-  // has no layer mapping, and [Action] to a continuous.timing whose appliesTo
-  // list the static binder rejects. Neither printed permission is installed.
+test("sfd-017-221 Sudden Storm: Hidden binds while the expanded Action timing remains unbound", () => {
+  // Live evidence for judgeReason: [Hidden] expands to the now-consumed
+  // cost.hidden capability, while [Action]'s continuous.timing retains an
+  // unsupported appliesTo list. Neither whole-card permission is claimed.
   const kernel = world().player("A", { energy: 20 }).player("B", { energy: 20 })
     .object("storm", {
       name: "Sudden Storm",
@@ -77,11 +77,10 @@ test("sfd-017-221 Sudden Storm: both printed permission keywords fail to bind in
   const source = kernel.getObject("storm");
   const binder = createEngineStaticBinder(engine);
 
-  assert.throws(
-    () => binder.bindStatic(keywordDefinitionsById.get("Hidden").expand({ host: { canonicalCardId: CANONICAL } })[0], source),
-    /no layer mapping/,
-    "[Hidden]'s cost.hidden must stay unconsumed"
-  );
+  const hiddenHandle = binder.bindStatic(keywordDefinitionsById.get("Hidden").expand({ host: { canonicalCardId: CANONICAL } })[0], source);
+  assert.equal(hiddenPermissionFor(engine, source), "present");
+  hiddenHandle.unbind();
+  assert.equal(hiddenPermissionFor(engine, source), "absent");
   assert.throws(
     () => binder.bindStatic(keywordDefinitionsById.get("Action").expand({ host: { canonicalCardId: CANONICAL } })[0], source),
     /Unsupported static appliesTo/,
@@ -298,7 +297,8 @@ test("sfd-017-221 Sudden Storm golden: the declared [Action] speed is admitted o
   assert.equal(kernel.getObject("storm").zone, "hand");
 
   // 806.1.b/806.1.c: with Focus in a Showdown the same draft is admitted, and
-  // the card's printed body resolves for real (2 to the non-attacking unit).
+  // the card's printed body resolves for real. The Showdown world emits the
+  // attacker designation, so the printed 4-damage branch is the active one.
   engine.openShowdown("A");
   const source = kernel.getObject("storm");
   engine.execute(binding.describePlay({ type: "play", object: source.ref, player: "A" }, source));
@@ -308,7 +308,7 @@ test("sfd-017-221 Sudden Storm golden: the declared [Action] speed is admitted o
     if (++guard > 20) throw new Error("Nonterminating chain");
     engine.pass(engine.priority);
   }
-  assert.equal(kernel.getObject("enemy-unit").damage, 2);
+  assert.equal(kernel.getObject("enemy-unit").damage, 4);
   assert.equal(kernel.getObject("storm").zone, "trash");
   assert.equal(kernel.player("A").energy, 17);
   assert.equal(engine.pipeline.events.some((event) => event.timingPoint === "card-played"), true);

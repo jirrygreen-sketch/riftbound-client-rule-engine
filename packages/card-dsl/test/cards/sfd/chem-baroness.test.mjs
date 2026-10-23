@@ -172,11 +172,14 @@ test("sfd-201-221 Chem-Baroness: the printed exhaust cost is charged as a real e
   assert.equal(kernel.getObject("chem-baroness").exhausted, true);
 
   const chainKernel = legendWorld();
-  assert.throws(
-    () => resolveChainBody([prepareExhaust, payExhaust], chainKernel),
-    error => error instanceof TypeError && /cost\.modify id/.test(error.message)
-  );
-  assert.equal(chainKernel.getObject("chem-baroness").exhausted, false);
+  const chained = resolveChainBody([prepareExhaust, payExhaust], chainKernel);
+  assert.equal(chained.status, "executed");
+  assert.deepEqual(chained.results.map(result => [result.id, result.result.status]), [
+    ["chem-baroness.prepare-exhaust", "executed"],
+    ["chem-baroness.pay-exhaust", "executed"]
+  ]);
+  assert.deepEqual(chained.events.map(event => event.action), ["pay", "exhaust"]);
+  assert.equal(chainKernel.getObject("chem-baroness").exhausted, true);
 });
 
 test("sfd-201-221 Chem-Baroness: the Gold subeffect creates and plays one token without mutating the legend", () => {

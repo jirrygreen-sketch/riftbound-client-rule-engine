@@ -208,11 +208,10 @@ test.todo(
     "is charged at Resolve instead of before the ability is finalized to the chain"
 );
 
-test("Altar of Memories: the trigger registration still carries no base cost", () => {
-  // 383.3.b.1 / 405.2: the leading "exhaust me" cost must be paid to finalize
-  // the triggered ability. The merged TriggeredAbility contract has no cost
-  // field and programs/triggers.ts extracts none, so Finalize has no locked
-  // plan: the declared cost.modify/cost.pay pair only runs at Resolve.
+test("Altar of Memories: the trigger registration lifts mayAtFinalize but cannot lift the cost.modify pair", () => {
+  // 383.3.a/b: the outer may moves to Finalize. The production adapter does not
+  // recognize cost.modify as the leading payable instruction, so no final cost
+  // plan is registered and the cost.pay pair remains in Resolve.
   assert.equal(Object.hasOwn(ability, "cost"), false);
   const { judgeReason, ...executableProgram } = program;
   const registration = triggerRegistrations(
@@ -220,7 +219,7 @@ test("Altar of Memories: the trigger registration still carries no base cost", (
     world().unit("altar", { cardId: CANONICAL, types: ["gear"] }).build().getObject("altar")
   )[0];
   assert.equal(registration.cost, undefined);
-  assert.equal(registration.mayAtFinalize, undefined);
+  assert.equal(registration.mayAtFinalize, true);
 });
 
 test("Altar of Memories: the merged registration really attaches to the event pipeline", () => {
@@ -234,7 +233,10 @@ test("Altar of Memories: the merged registration really attaches to the event pi
   assert.equal(ids.length, 1);
   const registered = triggerRegistrations(registry, source)[0];
   assert.deepEqual(registered.body.map(instruction => instruction.id), [
-    "altar-of-memories.may-exhaust-and-draw"
+    "altar-of-memories.prepare-exhaust",
+    "altar-of-memories.pay-exhaust",
+    "altar-of-memories.draw-1",
+    "altar-of-memories.put-back"
   ]);
 });
 
@@ -288,25 +290,14 @@ test("Altar of Memories golden: an already exhausted altar cannot pay the cost",
 });
 
 test("Altar of Memories: the chain cannot lock the declared trigger cost at Finalize", () => {
-  // 383.3.b.1 / 405.2: the cost must be paid before the ability is finalized to
-  // the chain. programs/triggers.ts extracts no cost, so chain/engine.ts never
-  // calls buildCostPlan for this item, and the production chain path cannot even
-  // literalize cost.modify's id argument, so the declared pair fails closed with
-  // a TypeError instead of silently resolving. Both halves are measured here.
+  // 383.3.b.1 / 405.2: cost.modify is not recognized as a leading cost, so the
+  // registration has no final cost even though mayAtFinalize is set.
   const { judgeReason, ...executableProgram } = program;
   const registration = triggerRegistrations(
     new ProgramRegistry([{ ...executableProgram, status: "executable" }]),
     world().unit("altar", { cardId: CANONICAL, types: ["gear"] }).build().getObject("altar")
   )[0];
   assert.equal(registration.cost, undefined);
-  assert.equal(registration.mayAtFinalize, undefined);
-  assert.equal(registration.body.length, 1);
-
-  const kernel = world().unit("altar", { types: ["gear"] }).build();
-  assert.throws(
-    () => resolveChainBody([prepareExhaust, payExhaust], kernel),
-    error => error instanceof TypeError && /cost\.modify id/.test(error.message)
-  );
-  assert.equal(kernel.getObject("altar").exhausted, false);
-  assert.deepEqual(kernel.events, []);
+  assert.equal(registration.mayAtFinalize, true);
+  assert.equal(registration.body.length, 4);
 });

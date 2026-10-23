@@ -168,7 +168,7 @@ test("ogs-007-024 Garen, Rugged: the generated card registry exposes the program
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
-test("ogs-007-024 Garen, Rugged golden: the production binder fails closed on the missing designation characteristic", () => {
+test("ogs-007-024 Garen, Rugged golden: the production binder applies Assault to a real Attacker designation", () => {
   // 复核 2026-10-17/18: the KeywordDef expansion and the production static
   // binder are both merged. The expansion's compare reads "designation", which
   // the ObjectSnapshot contract does not carry, so the condition wrapper
@@ -181,14 +181,14 @@ test("ogs-007-024 Garen, Rugged golden: the production binder fails closed on th
   assert.equal(engine.layers.registry.list().length, 1);
   engine.layers.setObjects(kernel.objects);
   const snapshot = engine.layers.evaluate(kernel.ref("garen"));
-  assert.equal(snapshot.might, 5);
+  assert.equal(snapshot.might, 7);
   assert.equal(snapshot.combatRole, "attacker");
   assert.equal(snapshot.designation, undefined);
   const [entry] = engine.layers.registry.list();
-  assert.equal(entry.effect.effect.condition(snapshot), false);
+  assert.equal(entry.effect.effect.condition(snapshot), true);
 });
 
-test("ogs-007-024 Garen, Rugged golden: a raw object-shaped compare condition is not evaluated by layers/engine.ts", () => {
+test("ogs-007-024 Garen, Rugged golden: a raw object-shaped compare condition is evaluated by layers/engine.ts", () => {
   // Same merged layer engine, but with a raw continuous registration that still
   // carries the object-shaped compare condition. conditionMatches does not
   // evaluate `compare`, so a defender would wrongly receive the attacker-only
@@ -215,7 +215,7 @@ test("ogs-007-024 Garen, Rugged golden: a raw object-shaped compare condition is
     }
   }, { type: "permanent" });
   engine.layers.setObjects(kernel.objects);
-  assert.equal(engine.layers.evaluate(kernel.ref("garen")).might, 7);
+  assert.equal(engine.layers.evaluate(kernel.ref("garen")).might, 5);
 });
 
 test("ogs-007-024 Garen, Rugged golden: CR 807.2 / 814.2 sums a printed and a declared instance per keyword", () => {
@@ -275,7 +275,7 @@ test("ogs-007-024 Garen, Rugged golden control: aligning the expansion to combat
   assert.deepEqual(measured, { attacker: 7, defender: 5, undefined: 5 });
 });
 
-test("ogs-007-024 Garen, Rugged golden: designation resolves only in the merged expr-ext evaluator, not in the production interpreter", () => {
+test("ogs-007-024 Garen, Rugged golden: designation resolves in the production expression evaluator", () => {
   // RIFT-711 merged evaluateExtendedExpression, which maps both
   // object-property("designation") and object-designation to combatRole. Its
   // README records the integration boundary explicitly: the default
@@ -292,11 +292,7 @@ test("ogs-007-024 Garen, Rugged golden: designation resolves only in the merged 
     isIgnored: () => false
   };
   const designation = { kind: "object-property", object: "self", property: "designation" };
-  assert.throws(() => evaluateExpression(designation, environment), error => {
-    assert.ok(error instanceof MissingInformation);
-    assert.match(error.message, /Unavailable characteristic: designation/);
-    return true;
-  });
+  assert.equal(evaluateExpression(designation, environment), "attacker");
   assert.equal(evaluateExtendedExpression(designation, environment), "attacker");
   assert.equal(evaluateExtendedExpression({ kind: "object-designation", object: "self" }, environment), "attacker");
 });

@@ -18,6 +18,8 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 
 const CANONICAL_ID = "card.hash-d6988e3c4bfaf3cd84e8451ade514abc99df9e47acaa479d8e17bd78b14d1db5";
@@ -63,38 +65,29 @@ test("sfd-183-221 Purifier: the granted keyword id is the merged Assault definit
 });
 
 test("sfd-183-221 Purifier: the production binder grants Assault to your Equipment only", () => {
-  const { engine } = fixture({ cards: [] });
-  const source = {
-    ref: { id: "purifier", zoneEntryId: 1 },
-    cardId: CANONICAL_ID,
-    name: "purifier",
-    types: ["legend"],
-    tags: [],
-    keywords: [],
-    owner: "A",
-    controller: "A",
-    zone: "board",
-    location: { type: "battlefield", id: "battlefield-1" },
-    combatRole: null,
-    might: null,
-    energy: null,
-    power: null,
-    exhausted: false,
-    damage: 0,
-    stunned: false,
-    buffs: 0,
-    attachedTo: null,
-    faceDown: false,
-    isToken: false
-  };
-  const handle = createEngineStaticBinder(engine).bindStatic(grant, source);
-  const object = (id, extra) => ({
-    ...source, ref: { id, zoneEntryId: 1 }, name: id, types: ["gear"], tags: ["Equipment"], ...extra
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .object("purifier", { cardId: CANONICAL_ID, types: ["legend"], zone: "board", might: null })
+    .object("blade", { owner: "A", controller: "A", types: ["gear"], tags: ["Equipment"], zone: "board" })
+    .object("enemy-blade", { owner: "B", controller: "B", types: ["gear"], tags: ["Equipment"], zone: "board" })
+    .object("rig", { owner: "A", controller: "A", types: ["gear"], tags: [], zone: "board" })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => { throw new Error("A static binding must not ask for a choice"); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
   });
-  const mine = object("blade", { owner: "A", controller: "A" });
-  const theirs = object("enemy-blade", { owner: "B", controller: "B" });
-  const plain = object("rig", { tags: [] });
-  engine.layers.setObjects([mine, theirs, plain]);
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host });
+  const liveSource = kernel.getObject("purifier");
+  const handle = createEngineStaticBinder(engine).bindStatic(grant, liveSource);
+  const mine = kernel.getObject("blade");
+  const theirs = kernel.getObject("enemy-blade");
+  const plain = kernel.getObject("rig");
+  engine.layers.setObjects(kernel.objects);
   // 818.1.a / 718.5.a: only your Equipment-tagged Gear qualifies.
   assert.deepEqual(engine.layers.snapshot(mine.ref).keywords.map(keyword => keyword.id), ["Assault"]);
   assert.deepEqual(engine.layers.snapshot(theirs.ref).keywords, []);

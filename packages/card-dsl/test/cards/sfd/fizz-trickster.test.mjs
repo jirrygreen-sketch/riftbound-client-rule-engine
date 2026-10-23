@@ -6,8 +6,8 @@ import program from "../../../dist/cards/sfd/fizz-trickster.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import play from "../../../../engine-core/dist/effects/instructions/effect.play.js";
 import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
-import attach from "../../../../engine-core/dist/effects/instructions/effect.attach.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-2ec80d5a21eaf14b1c8f15f0a61f40ed1d29d8ff68bc87b3e69ce652dbfe74fd";
@@ -161,9 +161,13 @@ test("sfd-140-221 Fizz, Trickster golden: the merged effect.play plays a locked 
     { world: kernel, targets: { [TRASH_TARGET]: [kernel.ref("trash-spell")] } }
   );
 
-  assert.equal(run.result.status, "executed");
-  assert.equal(run.linked.played, 1);
-  assert.equal(kernel.getObject("trash-spell").zone, "board");
+  // The caller must still supply the ignore-Energy finalized plan; without that
+  // missing selected-object adapter, the play primitive refuses the base cost.
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.result.reason, "impossible");
+  assert.deepEqual(run.result.events.map(event => [event.action, event.outcome]), [["pay", "prevented"]]);
+  assert.equal(run.linked.played, undefined);
+  assert.equal(kernel.getObject("trash-spell").zone, "trash");
 });
 
 test("sfd-140-221 Fizz, Trickster golden: the merged recycle moves a live trash spell to the deck bottom (417.1)", () => {
@@ -195,9 +199,8 @@ test("sfd-140-221 Fizz, Trickster golden: a trash spell that already left makes 
 });
 
 test.todo(
-  "sfd-140-221 Fizz, Trickster: enforce the 'Energy cost no more than 3' printed-cost ceiling at Finalize " +
-    "(356.1.c / 206) once a printed-cost predicate is merged — the ObjectFilter has no cost key and the " +
-    "production binder rejects costEnergyLte, so it must never be treated as a working restriction"
+  "sfd-140-221 Fizz, Trickster: carry the translated costEnergyLte ceiling from the bound target into " +
+    "Finalize's selected-object cost predicate (356.1.c / 206); normalization alone does not enforce it"
 );
 
 test.todo(
@@ -207,9 +210,8 @@ test.todo(
 );
 
 test.todo(
-  "sfd-140-221 Fizz, Trickster: 'Recycle that spell after you play it' needs an object reference to the card " +
-    "just played; effect.play links the played COUNT (played → number), and contract 3.6's ObjectSelector set " +
-    "(self/source/target/pick/linked) cannot name the played object (contract change request)"
+  "sfd-140-221 Fizz, Trickster: follow effect.play's linked playedObjects receipt through a 1-card play so " +
+    "the recycle reads the moved spell's new ObjectRef without treating the played count as an object"
 );
 
 test.todo(
@@ -218,32 +220,24 @@ test.todo(
     "predicate and played-object link are available to the executable program"
 );
 
-test("sfd-140-221 Fizz, Trickster: the production trigger binding rejects the descriptive printed-cost ceiling", () => {
-  // Evidence for gap (1): the body target's costEnergyLte key is descriptive IR
-  // only. triggerRegistrations runs the production adapter over the card's own
-  // body and fails closed instead of silently ignoring the ceiling.
+test("sfd-140-221 Fizz, Trickster: the production filter adapter preserves the printed-cost ceiling", () => {
   const lifted = { ...program, status: "executable", judgeReason: undefined };
   const binding = createProgramBinding({ cardPrograms: [lifted] });
   const kernel = world().unit("fizz", { cardId: CARD_ID, types: ["unit"], zone: "board" }).build();
-  const engine = {
-    pipeline: {
-      registerTrigger() { throw new Error("the registration itself must not be reached"); },
-      unregisterTrigger() {}
-    }
-  };
-  assert.throws(
-    () => binding.registerProgramTriggers(engine, kernel.getObject("fizz")),
-    (error) => {
-      assert.match(error.message, /Unsupported filter field costEnergyLte/);
-      return true;
-    }
-  );
+  const registrations = [];
+  const engine = { pipeline: { registerTrigger(registration) { registrations.push(registration); }, unregisterTrigger() {} } };
+  const ids = binding.registerProgramTriggers(engine, kernel.getObject("fizz"));
+  assert.equal(ids.length, 1);
+  assert.equal(registrations.length, 1);
+  const translated = registrations[0].targets[0].requirement.filter;
+  assert.deepEqual(translated, {
+    zone: "trash", type: "spell", owner: "self", costEnergyLte: 3
+  });
+  assert.deepEqual(translateObjectFilter(translated), translated);
+  assert.equal(program.status, "judge-required");
 });
 
-test("sfd-140-221 Fizz, Trickster: effect.play links only the played count, so the recycle cannot name the card (current gap)", () => {
-  // Evidence for gap (3): the linked value the card's own recycle instruction
-  // reads is a number, and effect.attach/effect.recycle style object selections
-  // accept source/target/pick/choose only — never a bare count.
+test("sfd-140-221 Fizz, Trickster: effect.play links the played card's current identity", () => {
   const kernel = world().player("A").card("sp", { types: ["spell"], owner: "A", zone: "trash", energy: 3, power: ["Chaos"] }).build();
   const run = runInstruction(
     play,
@@ -253,13 +247,9 @@ test("sfd-140-221 Fizz, Trickster: effect.play links only the played count, so t
   assert.equal(run.result.status, "executed");
   assert.equal(typeof run.linked.played, "number");
   assert.equal(run.linked.played, 1);
-  assert.deepEqual(Object.keys(run.linked), ["played"]);
-  assert.throws(
-    () => runInstruction(
-      attach,
-      { objects: { kind: "constant", value: 1 }, host: { kind: "constant", value: { kind: "source" } } },
-      { world: kernel }
-    ),
-    /selection must name source, target, pick, or choose/
-  );
+  const played = kernel.getObject("sp");
+  assert.equal(played.zone, "board");
+  assert.deepEqual(run.linked.playedObjects, [played.ref]);
+  assert.deepEqual(Object.keys(run.linked), ["played", "playedObjects"]);
+  assert.notDeepEqual(run.linked.playedObjects, run.linked.played);
 });
