@@ -87,18 +87,19 @@ const definitions = [
       name: "Gold",
       types: ["gear"],
       tags: [],
-      keywords: [{ id: "Reaction" }],
+      // [Reaction][>] modifies the intrinsic Activated Ability, not the token
+      // card as a whole (CR 813.1.d). The canonical program carries it through
+      // activated.timing, avoiding a duplicate card-level keyword expansion.
+      keywords: [],
       might: null,
       energy: null,
       power: null
     },
     ruleRefs: ["187.5", "185.3.a", "149.1", "359.2.d"],
     defaultEntry: "ready",
-    // The canonical Gold program remains judge-required for Universal Power.
-    // The definition is visible for projection/definition evidence, but token
-    // creation stays fail-closed until that intrinsic ability is executable.
-    abilityBinding: "blocked",
-    blockedReason: blockedGold
+    // Created/played Gold carriers bind the canonical sfd-t03 program by
+    // cardId through ProgramBinding.attachLifecycle.
+    abilityBinding: "canonical-card-program"
   },
   {
     id: "reflection",

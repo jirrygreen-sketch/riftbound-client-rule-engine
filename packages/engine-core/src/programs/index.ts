@@ -123,7 +123,8 @@ function hasVerifiedDefaultAddShape(record: ActivatedAddAbility): boolean {
       (args.energy.kind !== 'constant' || typeof args.energy.value !== 'number' || !Number.isSafeInteger(args.energy.value) || args.energy.value < 0)) return false;
   if (args.power !== undefined &&
       (args.power.kind !== 'constant' || !Array.isArray(args.power.value) ||
-       !args.power.value.every(domain => ['Fury', 'Calm', 'Mind', 'Body', 'Chaos', 'Order'].includes(String(domain))))) return false;
+       !args.power.value.every(source => ['Fury', 'Calm', 'Mind', 'Body', 'Chaos', 'Order', 'universal'].includes(String(source))) ||
+       args.power.value.includes('universal') && args.power.value.length !== 1)) return false;
   if (args.linkKey !== undefined && (args.linkKey.kind !== 'constant' || typeof args.linkKey.value !== 'string' || args.linkKey.value.length === 0)) return false;
   return instruction !== undefined &&
     record.resourceInstructionIds.length === 1 && record.resourceInstructionIds[0] === instruction.id &&
