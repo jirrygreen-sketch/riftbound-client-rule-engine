@@ -96,7 +96,7 @@ test("sfd-024-221 Rell, Magnetic: the Tank expansion registers in the ability la
   );
 });
 
-test("sfd-024-221 Rell, Magnetic: the printed energy cap has no ObjectFilter vocabulary and no raw-matcher semantics", () => {
+test("sfd-024-221 Rell, Magnetic: the card's legacy energyLte spelling remains fail-closed", () => {
   const filter = play.picks[0].filter;
 
   // The merged filter adapter fails closed on the printed cap...
@@ -109,11 +109,9 @@ test("sfd-024-221 Rell, Magnetic: the printed energy cap has no ObjectFilter voc
     }
   );
 
-  // ...and the underlying ObjectFilter matcher does not read the key at all.
-  // Isolate the controller condition first (the raw matcher compares the
-  // literal "controller" spelling against the object's controller, so the
-  // printed pick's own controller key must be neutralized here) and then
-  // bracket the printed Energy cap with equipment at 2 and 3.
+  // The card keeps the legacy spelling. Isolate the controller condition so
+  // this test measures the cap itself rather than the reference matcher's
+  // literal controller comparison.
   const handGear = (energy) => ({
     ref: { id: "gear", zoneEntryId: 1 },
     id: "gear",
@@ -124,11 +122,11 @@ test("sfd-024-221 Rell, Magnetic: the printed energy cap has no ObjectFilter voc
     owner: "A",
     energy
   });
-  // Energy 2 satisfies the printed cap, energy 3 violates it — the raw matcher
-  // returns true for both, proving energyLte is silently ignored (never
-  // narrowed) rather than evaluated.
-  assert.equal(matchesObjectFilter(filter, handGear(2)), true);
-  assert.equal(matchesObjectFilter(filter, handGear(3)), true);
+  // The legacy singular `tag` spelling and literal controller placeholder do
+  // not match even the in-cap object through the raw matcher. The production
+  // translator therefore remains the fail-closed gate for this declaration.
+  assert.equal(matchesObjectFilter(filter, handGear(2)), false);
+  assert.equal(matchesObjectFilter(filter, handGear(3)), false);
 });
 
 test.todo(

@@ -170,18 +170,16 @@ test("sfd-074-221 Pickpocket kill receipt: only a successful kill reaches the or
   assert.equal(resultFor(outcome, KILL_ID).result.status, "executed");
   assert.deepEqual(resultFor(outcome, KILL_ID).result.linkedValues.killed, [gearRef]);
   assert.equal(kernel.getObject("cheap-gear").zone, "trash");
-  assert.deepEqual(outcome.events.map((event) => event.action), ["kill"]);
-  // The real token primitive writes this receipt only when its gate opens.
-  // Gold/entry exhaustion are still unsupported: no substitute token is used.
-  assert.deepEqual(resultFor(outcome, TOKEN_ID).result, {
-    status: "negated", reason: "impossible", events: []
-  });
-  assert.deepEqual(outcome.linkedValues[`${MAY_ID}/${TOKEN_ID}.goldToken`], {
-    amount: 0, objects: [], objectsComplete: true
-  });
-  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.events.map((event) => event.action), ["kill", "create-token", "play"]);
+  // 187.5 / 185.2.a: the successful Kill receipt opens the original Gold body.
+  const [gold] = kernel.query({ type: "gear" }).filter((object) => object.isToken);
+  assert.ok(gold);
+  assert.equal(gold.name, "Gold");
+  assert.deepEqual(gold.location, { type: "base", player: "A" });
+  assert.equal(resultFor(outcome, TOKEN_ID).result.status, "executed");
+  assert.equal(outcome.linkedValues[`${MAY_ID}/${TOKEN_ID}.goldToken`].amount, 1);
+  assert.equal(outcome.status, "executed");
   assert.deepEqual(kernel.pendingItems, []);
-  assert.equal(kernel.objects.some((object) => object.isToken), false);
 });
 
 for (const actionOutcome of ["replaced", "prevented", "impossible"]) {

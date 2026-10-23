@@ -113,11 +113,10 @@ test("sfd-131-221 Ancient Warmonger: production static binding registers the sel
   assert.equal(engine.layers.registry.list().length, 1);
   assert.equal(entry.effect.layer, "ability");
   assert.deepEqual(entry.effect.source, source.ref);
-  assert.deepEqual(entry.effect.filter, {
-    objectId: source.ref.id,
-    zone: "board",
-    zoneEntryId: source.ref.zoneEntryId
-  });
+  // `appliesTo: self` is enforced by the registration source and the card's
+  // own live target condition; no synthetic Board/location filter is inserted.
+  assert.deepEqual(entry.effect.filter, {});
+  assert.deepEqual(entry.effect.source, source.ref);
   // appliesTo:self selects the host directly. The count filter belongs to the
   // dynamic value and never enters staticFilter's target-filter translation.
   assert.equal(entry.effect.effect.kind, "continuous.grant-keyword");

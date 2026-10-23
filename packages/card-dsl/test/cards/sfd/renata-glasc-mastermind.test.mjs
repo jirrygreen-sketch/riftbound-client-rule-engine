@@ -233,7 +233,9 @@ for (const [index, ability] of [drawAbility, scoreAbility].entries()) {
     assert.deepEqual(paid.linked.payment.power.power, [
       { requirementIndex: 0, from: "Mind", amount: index === 0 ? 1 : 4 }
     ]);
-    assert.deepEqual(kernel.player("A").power, power);
+    // cost.payment.ts commits the selected Power allocation even though the
+    // legacy TestWorld pay action leaves its cached player snapshot untouched.
+    assert.deepEqual(kernel.player("A").power, []);
     assert.equal(kernel.getObject("renata").exhausted, index === 1);
     assert.equal(kernel.getObject("renata").power, null);
     assert.deepEqual(paid.events.map(event => event.action), index === 0 ? ["pay"] : ["pay", "exhaust"]);

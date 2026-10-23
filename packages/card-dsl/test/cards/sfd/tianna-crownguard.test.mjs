@@ -95,7 +95,8 @@ test("sfd-060-221 Tianna Crownguard: the merged continuous.restrict primitive re
   assert.equal(kernel.continuousEffects.length, 1);
   assert.deepEqual(kernel.continuousEffects[0].effect.effect, {
     kind: "restriction",
-    actions: ["score"]
+    actions: ["score"],
+    sourcePlayer: "A"
   });
 });
 
@@ -109,7 +110,11 @@ test("sfd-060-221 Tianna Crownguard: the query side reads the registered prohibi
     filter: { type: "unit" },
     effect: { kind: "restriction", actions: ["score"] }
   }, { type: "permanent" });
-  assert.deepEqual(restrictions(registry, "score").map((entry) => entry.actions), [["score"]]);
+  const source = world().unit("tianna", { might: 4 }).build();
+  assert.deepEqual(
+    restrictions(registry, "score", source.ref("tianna"), source.getObject("tianna")).map((entry) => entry.actions),
+    [["score"]]
+  );
   assert.deepEqual(restrictions(registry, "move"), []);
 });
 
@@ -143,23 +148,17 @@ function tiannaBindingWorld() {
   return { kernel, engine, binder: createEngineStaticBinder(engine) };
 }
 
-test("sfd-060-221 Tianna Crownguard: the shipped static and its opponent spellings are rejected by the binder", () => {
-  const { kernel, binder } = tiannaBindingWorld();
+test("sfd-060-221 Tianna Crownguard: the shipped static binds as an opponent-targeted scoring restriction", () => {
+  const { kernel, engine, binder } = tiannaBindingWorld();
   const source = kernel.getObject("tianna");
-  // The printed appliesTo: "opponents" in the card file.
-  assert.throws(
-    () => binder.bindStatic(restriction, source),
-    /Unsupported static appliesTo "opponents"/
-  );
-  // A relative opponent filter would be the natural replacement, but the merged
-  // static filter translator refuses relative-player queries outright.
-  assert.throws(
-    () => binder.bindStatic({
-      kind: "static",
-      effect: { kind: "continuous.restrict", actions: ["score"], filter: { controller: "opponent" } }
-    }, source),
-    /Static controller:opponent filter needs a relative-player query/
-  );
+  const handle = binder.bindStatic(restriction, source);
+  const registration = engine.layers.registry.list()[0];
+  assert.ok(registration);
+  assert.equal(registration.effect.effect.appliesTo, "opponents");
+  assert.equal(registration.effect.effect.operation, "score");
+  assert.equal(registration.effect.effect.forbidden, true);
+  handle.unbind();
+  assert.deepEqual(engine.layers.registry.list(), []);
 });
 
 test("sfd-060-221 Tianna Crownguard: the 363.2.a 'at a battlefield' condition has no evaluator", () => {
@@ -181,13 +180,13 @@ test("sfd-060-221 Tianna Crownguard: the 363.2.a 'at a battlefield' condition ha
   );
 });
 
-test("sfd-060-221 Tianna Crownguard: the merged [Deflect] expansion has no layer mapping", () => {
+test("sfd-060-221 Tianna Crownguard: the merged [Deflect] expansion binds as a target tax", () => {
   const { kernel, engine, binder } = tiannaBindingWorld();
   const tax = deflect.expand({ value: undefined, host: { canonicalCardId: CARD_ID } })[0];
-  assert.throws(
-    () => binder.bindStatic(tax, kernel.getObject("tianna")),
-    /target\.tax has no layer mapping/
-  );
-  // Fail closed: neither the restriction nor the tax reached the layers.
+  const handle = binder.bindStatic(tax, kernel.getObject("tianna"));
+  const [registration] = engine.layers.registry.list();
+  assert.equal(registration.effect.effect.capabilityKind, "target-tax");
+  assert.equal(registration.effect.effect.ability.effect.kind, "target.tax");
+  handle.unbind();
   assert.deepEqual(engine.layers.registry.list(), []);
 });

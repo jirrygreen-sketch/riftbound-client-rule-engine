@@ -139,22 +139,30 @@ test.todo(
     "expansion body references the unregistered trigger.leave opcode (the instructions registry has no such op)"
 );
 
-test("sfd-165-221 Glasc Mixologist: the merged Deathknell keyword is registered", () => {
+test("sfd-165-221 Glasc Mixologist: the merged Deathknell boundary executes against the killed source", () => {
   assert.equal(keywordDefinitionsById.has("Deathknell"), true);
   assert.equal(keywordDefinitionsById.get("Deathknell").stacking, "separate");
   assert.deepEqual(keyword, { kind: "keyword", keyword: "deathknell" });
-  // The expansion is authored but its body opcode is still missing: the merged
-  // Deathknell definition expands to a trigger.leave instruction that the
-  // instruction registry does not know, so the trigger cannot execute.
+  // 808.1.d.2: the keyword boundary executes against the pre-Trash source
+  // incarnation and publishes the leave/LKI links before the card body runs.
   const [expansion] = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL } });
   assert.equal(expansion.kind, "triggered");
   assert.equal(expansion.trigger.at, "object-killed");
   assert.deepEqual(expansion.body.map((instruction) => instruction.op), ["trigger.leave"]);
-  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
-  assert.throws(
-    () => resolveChainBody(expansion.body, bindResolveContext(world().unit("dead", { zone: "board" }).build(), { source: { ref: { id: "dead", zoneEntryId: 1 }, cardId: CANONICAL, name: "x", types: ["unit"], tags: [], keywords: [], owner: "A", controller: "A", zone: "board", location: null, might: 5, energy: 5, power: null, exhausted: false, damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false }, controller: "A" }) ),
-    /Unregistered instruction opcode: trigger\.leave/
-  );
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), true);
+  const kernel = world().unit("dead", {
+    cardId: CANONICAL,
+    location: { type: "battlefield", id: "bf-1" }
+  }).build();
+  const source = kernel.getObject("dead");
+  assert.equal(kernel.perform({ type: "kill", object: source.ref }).status, "done");
+  const context = kernel.clone({ sourceSnapshot: source, timingPoint: "object-killed" });
+  const outcome = resolveChainBody(expansion.body, context);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(outcome.results[0].result.linkedValues.leaveCause, "kill");
+  assert.equal(outcome.results[0].result.linkedValues.left, true);
+  assert.deepEqual(outcome.results[0].result.linkedValues.leave, { id: "dead", zoneEntryId: 1 });
 });
 
 test("sfd-165-221 Glasc Mixologist: the production trigger registration fails closed on the descriptive ceilings", () => {
@@ -170,7 +178,7 @@ test("sfd-165-221 Glasc Mixologist: the production trigger registration fails cl
   assert.throws(
     () => binding.registerProgramTriggers(engine, kernel.getObject("mix")),
     (error) => {
-      assert.match(error.message, /Unsupported filter field costEnergyLte/);
+      assert.match(error.message, /Unsupported filter field cost(?:Energy|Power)Lte/);
       return true;
     }
   );

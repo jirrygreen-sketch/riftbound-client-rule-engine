@@ -7,7 +7,6 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
-import { ProgramBindingError } from "../../../../engine-core/dist/programs/errors.js";
 import { attachProgramLifecycle } from "../../../../engine-core/dist/programs/lifecycle.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -138,45 +137,42 @@ test("ogs-001-024 Annie, Fiery supported subeffect: an explicit bonus creates no
   assert.equal(run.linked.dealt, undefined);
 });
 
-test("ogs-001-024 Annie, Fiery golden: the production static binder rejects this grant at bind time", () => {
-  // Binding-gap probe, not a passing printed-card scenario: layerFor has no
-  // continuous.bonus-damage layer mapping and staticTarget cannot express an
-  // action-scoped grant, so the ability never reaches a layer.
+test("ogs-001-024 Annie, Fiery golden: the production static binder registers the action-scoped grant", () => {
+  // The binder now maps continuous.bonus-damage and preserves the controller's
+  // spell/ability scope. The Damage action still needs a consumer that reads
+  // this registration; the two TODO assertions below define that remaining
+  // whole-card behavior without substituting a manual Bonus Damage value.
   const { engine, kernel } = fixture({ cards: [{ id: "annie", cardId: program.canonicalCardId, might: 4 }] });
   engine.commit({ type: "move-zone", object: kernel.ref("annie"), to: "base", location: { type: "base", player: "A" } });
   const source = kernel.getObject("annie");
-  assert.throws(
-    () => createEngineStaticBinder(engine).bindStatic(program.abilities[0], source),
-    (error) => error instanceof ProgramBindingError &&
-      error.code === "judge-required" &&
-      /Unsupported static appliesTo/.test(error.message)
-  );
-  // Dropping appliesTo only moves the failure to the missing layer mapping; the
-  // effect kind still has no consumer anywhere in layers/ or the damage pipeline.
-  assert.throws(
-    () => createEngineStaticBinder(engine).bindStatic(
-      { kind: "static", effect: { ...program.abilities[0].effect, appliesTo: undefined } },
-      source
-    ),
-    (error) => error instanceof ProgramBindingError &&
-      error.code === "judge-required" &&
-      /has no layer mapping/.test(error.message)
-  );
+  const handle = createEngineStaticBinder(engine).bindStatic(program.abilities[0], source);
+  const registration = engine.layers.registry.list().find(entry =>
+    entry.effect.effect.kind === "continuous.bonus-damage");
+  assert.ok(registration);
+  assert.equal(registration.effect.sequence, undefined);
+  assert.equal(registration.effect.source.id, "annie");
+  assert.deepEqual(registration.effect.effect.amount, { kind: "constant", value: 1 });
+  assert.equal(registration.effect.effect.appliesTo, "controller-spells-and-abilities");
+  assert.equal(registration.effect.effect.sourcePlayer, "A");
+  assert.deepEqual(registration.effect.filter, {
+    type: ["spell", "ability"],
+    controller: "controller"
+  });
+  handle.unbind();
   assert.equal(engine.layers.registry.list().length, 0);
 });
 
-test("ogs-001-024 Annie, Fiery golden: the production trigger/static lifecycle surfaces the binder failure", () => {
-  // The lifecycle attaches static abilities automatically when a permanent
-  // enters the Board; onError receives the same ProgramBindingError, which is
-  // the current, merged evidence for this card's judge-required status.
+test("ogs-001-024 Annie, Fiery golden: the production lifecycle installs the grant without reporting an error", () => {
+  // The lifecycle binds static abilities when a permanent enters the Board.
+  // Binding succeeds now; DMG-02 remains the missing whole-card consumer.
   const { engine, kernel } = fixture({ cards: [{ id: "annie", cardId: program.canonicalCardId, might: 4 }] });
   const errors = [];
   const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
   attachProgramLifecycle(engine, registry, undefined, (error) => errors.push(error));
   engine.commit({ type: "move-zone", object: kernel.ref("annie"), to: "base", location: { type: "base", player: "A" } });
-  assert.equal(errors.length, 1);
-  assert.ok(errors[0] instanceof ProgramBindingError);
-  assert.match(errors[0].message, /Unsupported static appliesTo/);
+  assert.deepEqual(errors, []);
+  assert.ok(engine.layers.registry.list().some(entry =>
+    entry.effect.effect.kind === "continuous.bonus-damage"));
 });
 
 test.todo(

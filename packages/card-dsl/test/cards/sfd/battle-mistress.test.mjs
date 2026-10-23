@@ -184,27 +184,25 @@ test.todo(
   "Battle Mistress: group simultaneous enemy deaths by the same game action so one or more triggers once (370.1.a.2)"
 );
 
-test("Battle Mistress: the recycle trigger really cannot register through the closed event vocabulary", () => {
-  // 417.1/185.1: the actions adapter emits card-recycled for real recycle
-  // actions, but the event pattern vocabulary has no such name, so trigger
-  // registration is rejected before any filtering happens.
+test("Battle Mistress: the recycled-rune trigger registers through the production event vocabulary", () => {
+  // 417.1/185.1: card-recycled is a closed event spelling. Both the death and
+  // recycle subscriptions must reach the production pipeline; the paid body
+  // remains a separate Finalize gap.
   const translated = translateTriggerFilter(recycleTrigger.trigger.filter, "battle-mistress", recycleTrigger.trigger.at);
   const validation = validateTriggerSpec({ at: recycleTrigger.trigger.at, filter: translated });
-  assert.equal(validation.ok, false);
-  assert.deepEqual(validation.issues.map(issue => issue.code), ["invalid-event-type"]);
+  assert.equal(validation.ok, true);
+  assert.deepEqual(validation.issues, []);
 
   const f = fixture({ cards: [{ id: "battle-mistress", cardId: CARD_ID, types: ["legend"] }] });
   const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
   const source = f.kernel.getObject("battle-mistress");
-  // Both abilities translate into registrations; only the death trigger's event
-  // name is in the closed vocabulary, so registering the set fails on the
-  // recycle trigger and leaves the pipeline without the card's triggers.
   const registrations = triggerRegistrations(registry, source);
   assert.deepEqual(registrations.map(registration => registration.spec.at), ["card-recycled", "object-killed"]);
-  assert.throws(() => registerProgramTriggers(registry, f.engine, source),
-    error => error.name === "TriggerSpecValidationError" &&
-      error.issues.some(issue => issue.code === "invalid-event-type" && issue.path === "trigger.filter.event"));
-  assert.equal(f.engine.pipeline.triggers.size, 0);
+  assert.deepEqual(registerProgramTriggers(registry, f.engine, source), [
+    registrations[0].id,
+    registrations[1].id
+  ]);
+  assert.equal(f.engine.pipeline.triggers.size, 2);
 });
 
 test("Battle Mistress: the Gold gear token is created and played on the real chain", () => {
@@ -231,16 +229,19 @@ test("Battle Mistress: the Gold gear token is created and played on the real cha
   ]);
 });
 
-test("Battle Mistress: the trigger base cost has no declaration point or Finalize consumer", () => {
-  // 383.3.b.1/415.4/415.5: "you may exhaust me to" must be paid to finalize the
-  // ability. TriggeredAbility has no cost field, programs/triggers.ts never
-  // fills TriggerRegistration.cost, and the legend-zone payer is missing.
+test("Battle Mistress: the production trigger registration carries the printed exhaust cost", () => {
+  // 383.3.b.1/415.4/415.5: the leading may/pay shape lifts the Exhaust cost onto
+  // the registered trigger. The separate Legend Zone payer remains measured by
+  // the TODO above.
   assert.equal(Object.hasOwn(recycleTrigger, "cost"), false);
   const f = fixture({ cards: [{ id: "battle-mistress", cardId: CARD_ID, types: ["legend"] }] });
   const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
   const registration = triggerRegistrations(registry, f.kernel.getObject("battle-mistress"))[0];
-  assert.equal(registration.cost, undefined);
-  assert.equal(OBJECT_FILTER_ZONES.includes("legend-zone"), false);
+  assert.deepEqual(registration.cost, {
+    id: "cost:battle-mistress:1:battle-mistress.may-play-gold",
+    cost: { payments: [{ kind: "exhaust", object: "self" }] }
+  });
+  assert.equal(OBJECT_FILTER_ZONES.includes("legend"), false);
 });
 
 

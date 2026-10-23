@@ -163,7 +163,7 @@ test("sfd-003-221 Blood Rush: the production binder evaluates Assault's conditio
   const handle = createEngineStaticBinder(engine).bindStatic(expansion, source);
   const [entry] = engine.layers.registry.list();
   assert.equal(typeof entry.effect.effect.condition, "function");
-  assert.equal(entry.effect.effect.amount, 2);
+  assert.deepEqual(entry.effect.effect.amount, { kind: "constant", value: 2 });
   // The real binder evaluates the IR condition; the layers fallback for an
   // unwrapped condition object is not used. CR 807.1.d.1 gives no Might here.
   assert.equal(engine.layers.snapshot(source.ref).might, source.might);
