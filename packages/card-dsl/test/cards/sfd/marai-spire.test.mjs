@@ -12,7 +12,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/marai-spire.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createEngineStaticBinder, staticCostSources } from "../../../../engine-core/dist/programs/statics.js";
 import { fixture } from "../../../../engine-core/test/programs/helpers.mjs";
 
 const CANONICAL = "card.hash-e00a3fe8d0f18d062b1743d6d5d1eb534e884d83303af037d7c1d05c3a6a21bd";
@@ -55,30 +55,16 @@ test("sfd-211-221 Marai Spire: static Repeat-cost discount scoped to friendly Re
   });
 });
 
-test("sfd-211-221 Marai Spire: the merged static binder refuses this ability in three measured steps", () => {
-  // programs/statics.ts is the only CardProgram -> layers path for statics.
+test("sfd-211-221 Marai Spire: the production binder registers the Repeat discount source", () => {
   const f = fixture({ cards: [{ id: "spire", cardId: program.canonicalCardId, types: ["battlefield"] }] });
   const host = f.kernel.getObject("spire");
-  // (a) The authored appliesTo anchor is rejected outright.
-  assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic(ability, host),
-    error => error.code === "judge-required" && /repeat-additional-cost/.test(error.message)
-  );
-  // (b) With the anchor dropped, the printed keyword filter is refused.
-  const { appliesTo: _appliesTo, ...withoutAnchor } = ability.effect;
-  assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic({ ...ability, effect: withoutAnchor }, host),
-    error => error.code === "judge-required" && /Unsupported static filter field keyword/.test(error.message)
-  );
-  // (c) With both obstacles removed, layerFor still has no cost.modify mapping.
-  assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic(
-      { ...ability, effect: { ...ability.effect, appliesTo: "self", filter: { controller: "self", zone: "board" } } },
-      host
-    ),
-    error => error.code === "judge-required" && /no layer mapping/.test(error.message)
-  );
-  assert.deepEqual(f.engine.layers.registry.list(), []);
+  const handle = createEngineStaticBinder(f.engine).bindStatic(ability, host);
+  const [source] = staticCostSources(f.engine);
+  assert.equal(source.ability.effect.kind, "cost.modify");
+  assert.equal(source.ability.effect.appliesTo, "repeat-additional-cost");
+  assert.deepEqual(source.ability.effect.filter, { keyword: "Repeat", controller: "self", zone: "board" });
+  handle.unbind();
+  assert.deepEqual(staticCostSources(f.engine), []);
 });
 
 test.todo(

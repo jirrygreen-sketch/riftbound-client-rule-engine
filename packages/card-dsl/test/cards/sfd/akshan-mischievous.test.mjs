@@ -11,7 +11,7 @@ import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 import control from "../../../../engine-core/dist/effects/instructions/effect.control.js";
-import { createEngineStaticBinder, bindStaticAbility } from "../../../../engine-core/dist/programs/statics.js";
+import { createEngineStaticBinder, bindStaticAbility, staticCostSources } from "../../../../engine-core/dist/programs/statics.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-237227d339dd27a4f456f9ba38485d4f136673d8abcc77adbca944e2fa427ef8";
@@ -279,15 +279,18 @@ test.todo(
   "Akshan: collect static cost.additional at Finalize and bind the 356.4.f.1 payment decision before the play effect"
 );
 
-test("sfd-109-221 Akshan, Mischievous: the declared static additional cost has no layer mapping or Finalize collector", () => {
-  // 356.2.b.1: an Optional Additional Cost must be collected at Finalize. The
-  // merged static binder has no layer for cost.additional, so the declaration
-  // never reaches the play pipeline.
-  const f = fixture({});
+test("sfd-109-221 Akshan, Mischievous: the declared optional additional cost enters the Finalize cost sources", () => {
+  const f = fixture({ cards: [{ id: "akshan", cardId: CARD_ID, types: ["unit"], energy: 4, might: 4 }] });
   const binder = createEngineStaticBinder(f.engine);
-  const source = world().unit("akshan", { might: 4 }).build().getObject("akshan");
-  assert.throws(() => bindStaticAbility(binder, additionalCost, source),
-    error => error.code === "judge-required" && /cost\.additional has no layer mapping/.test(error.message));
+  const handle = bindStaticAbility(binder, additionalCost, f.kernel.getObject("akshan"));
+  const [source] = staticCostSources(f.engine);
+  assert.equal(source.ability.effect.kind, "cost.additional");
+  assert.equal(source.ability.effect.optional, true);
+  assert.deepEqual(source.ability.effect.payments, [
+    { kind: "power", amount: { kind: "constant", value: 2 }, allowedDomains: ["Body"] }
+  ]);
+  handle.unbind();
+  assert.deepEqual(staticCostSources(f.engine), []);
 });
 
 test("sfd-109-221 Akshan, Mischievous: while-source-in-zone control is still blocked with a duration reason", () => {
