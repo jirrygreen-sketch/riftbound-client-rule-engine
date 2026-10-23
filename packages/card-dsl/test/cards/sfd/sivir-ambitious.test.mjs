@@ -13,7 +13,7 @@ import { translateObjectFilter } from "../../../../engine-core/dist/programs/fil
 import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { createTargetTaxAdapter } from "../../../../engine-core/dist/target/tax/index.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { boundTargetTaxes, createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
@@ -202,9 +202,18 @@ test("sfd-120-221 Sivir, Ambitious: an object count cannot stand in for the assi
     operator: "gte",
     right: { kind: "constant", value: 5 }
   };
-  assert.equal(evaluateCondition(countSpelling, environment), true);
-  // The shipped condition never returns a value for these objects.
-  assert.throws(() => evaluateCondition(conquerTrigger.trigger.condition, environment));
+  // The history reader recognizes the excess-damage subject as amount data and
+  // refuses to substitute six objects for it.
+  assert.throws(
+    () => evaluateCondition(countSpelling, environment),
+    /Unavailable history subject: excess-damage-assigned-this-combat/
+  );
+  // The shipped condition likewise remains fail-closed until the combat
+  // assignment amount is projected onto the source.
+  assert.throws(
+    () => evaluateCondition(conquerTrigger.trigger.condition, environment),
+    /Unavailable characteristic: excessDamageAssignedThisCombat/
+  );
 });
 
 test("sfd-120-221 Sivir, Ambitious: the merged filter translator rejects the this-attack scope spelling", () => {
@@ -240,7 +249,16 @@ test("sfd-120-221 Sivir, Ambitious: the conquer alias and nested self anchor reg
   assert.deepEqual(registration.spec.filter, { event: "conquered", object: { objectId: "sivir" } });
   assert.deepEqual(registration.spec.condition, conquerTrigger.trigger.condition);
   assert.equal(validateTriggerSpec(registration.spec).ok, true);
-  assert.deepEqual(registration.body, conquerTrigger.body);
+  // The leading optional is now a Finalize decision (CR 383.3.a); its targets
+  // are hoisted and its effect body can proceed only after that decision.
+  assert.equal(registration.optional, false);
+  assert.equal(registration.mayAtFinalize, true);
+  const authoredBody = mayDeal.args.body.value.map(({ targets: _hoisted, ...instruction }) => instruction);
+  assert.deepEqual(registration.body, authoredBody);
+  assert.deepEqual(registration.targets, [{
+    requirement: mayDeal.args.body.value.find(instruction =>
+      instruction.op === "effect.damage").targets[0]
+  }]);
 
   // The spelling fix does not supply the producer's missing host snapshot.
   // This is the payload shape emitted by turn/flow.ts, not a fabricated attack.
@@ -389,31 +407,30 @@ test("sfd-120-221 Sivir, Ambitious golden: the original may body ignores unavail
 });
 
 test.todo(
-  "sfd-120-221 Sivir, Ambitious: programs/statics.ts must bind target.tax and chain/engine.ts::finalize must " +
-    "consume the existing target/tax adapter's CostPlan instead of converting the Deflect amount to Energy (809.1.c/809.1.c.1)"
+  "sfd-120-221 Sivir, Ambitious: chain/engine.ts::finalize must consume the bound target.tax capability " +
+    "through the existing target/tax adapter's CostPlan instead of converting the Deflect amount to Energy (809.1.c/809.1.c.1)"
 );
 
-// The live production rejection for gap (3): the expanded [Deflect 2] static is
-// not merely unwired at the Chain — the merged static binder cannot install it.
-test("sfd-120-221 Sivir, Ambitious: the merged static binder rejects the expanded Deflect target.tax (809.1.c)", () => {
-  const kernel = world()
-    .player("A", { energy: 20 })
-    .unit("sivir", { cardId: CANONICAL, owner: "B", energy: 6, power: ["Body", "Body", "Body"], might: 7 })
-    .build();
-  const { engine } = fixture({ cards: [{ id: "chooser", cardId: CANONICAL, types: ["unit"], might: 2 }] });
+// The merged static binder installs [Deflect 2] as an exact-host capability.
+test("sfd-120-221 Sivir, Ambitious: the merged static binder exposes the expanded Deflect target.tax (809.1.c)", () => {
+  const { engine, kernel } = fixture({
+    cards: [{ id: "sivir", cardId: CANONICAL, types: ["unit"], owner: "B", controller: "B", energy: 6, power: ["Body", "Body", "Body"], might: 7 }]
+  });
+  engine.layers.setObjects(kernel.objects);
   const binder = createEngineStaticBinder(engine);
   const tax = createProgramBinding({ cardPrograms: [program] }).inspect(kernel.getObject("sivir")).abilities
     .find((ability) => ability.kind === "static" && ability.effect.kind === "target.tax");
   assert.ok(tax, "[Deflect 2] must still expand to a static target.tax");
-  assert.throws(
-    () => binder.bindStatic(tax, kernel.getObject("sivir")),
-    (error) => {
-      assert.match(error.message, /target\.tax has no layer mapping/);
-      return true;
-    }
-  );
-  // Fail closed: nothing was half-registered.
+  const handle = binder.bindStatic(tax, kernel.getObject("sivir"));
+  assert.deepEqual(boundTargetTaxes(engine), [{
+    id: "program-target-tax:sivir:1:0",
+    target: kernel.ref("sivir"),
+    effect: { kind: "target.tax", value: { kind: "constant", value: 2 } }
+  }]);
+  handle.unbind();
+  assert.deepEqual(boundTargetTaxes(engine), []);
   assert.deepEqual(engine.layers.registry.list(), []);
+  assert.equal(program.status, "judge-required");
 });
 
 test.todo(
