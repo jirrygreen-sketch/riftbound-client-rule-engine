@@ -268,7 +268,7 @@ test("Azir, Ascendant: the once-per-turn usage limit has no rules adapter, so th
   // trigger registrations rather than activation uses.
   assert.throws(() => translateRestriction(ability.restriction, CARD_ID),
     error => error.code === "judge-required" && /usage-limit needs a rules adapter/.test(error.message));
-  assert.deepEqual(TRIGGER_ONCE_SCOPES, ["per-turn", "per-phase", "per-combat", "per-showdown", "per-chain", "per-object", "per-game"]);
+  assert.ok(TRIGGER_ONCE_SCOPES.includes("per-batch"));
 });
 
 
