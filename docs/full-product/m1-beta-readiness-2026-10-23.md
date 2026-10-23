@@ -10,7 +10,7 @@
 
 | 证据 | 结果 |
 | --- | --- |
-| 一键脚本 Linux 真跑 | 在 `e886dc17` 实际启动服务端 `33680` health `ok`；Vite `33681`、`33682` 均返回 200，脚本可 `--status`/`--stop`。`59249eaf` 上同一进程模型又启动一次，但并行 heavy 门禁排队/争用使三项未在 60 秒内就绪；随后只清理了本任务记录 PID，不能把这次记为通过 |
+| 一键脚本 Linux 真跑 | 默认端口最终实跑：服务端 `8787` health `ok`，Vite `5173`、`5174` 均返回 200，`/api/presets` 为 `rumble-sfd,fiora-sfd`；`--status` 显示三进程，`--stop` 后无监听残留。任务端口 `33680-33682` 与独立构建链的早期实跑亦通过 |
 | 两独立浏览器 | 首页可加载；V2 地址填 `ws://127.0.0.1:33680/ws` 后均显示已连接；客户端 A 可建房并写入本地 room/session |
 | 建房后的 UI | 在 `e886dc17`，客户端进入“连接中”、显示 `Game events are not available before the game starts`；服务端持久化显示该 seat 已断开，页面反复重连。`59249eaf` 未改变这条会话代码，但未完成 Mac 复验 |
 | `RIFT-955` 固定种子（六局） | `e886dc17`、`59249eaf` 两次均为 **6/6 失败 / 0 natural winners**；主要阻塞为 `Stupefy`/`Wages of Pain`/`Frigid Touch` 的 play destination 拒绝或 ACK 超时，隐私审计均通过 |
@@ -123,6 +123,7 @@
 - `/tmp/RIFT-991-m1-beta-readiness/integration-v2-fixed-seeds-e886.log`：`e886dc17` 六局固定种子 6 failed。
 - `/tmp/RIFT-991-m1-beta-readiness/integration-v2-fixed-seeds-59249.log`：当前 `integration` `59249eaf` 同六局复跑 6 failed。
 - `/tmp/RIFT-991-m1-beta-readiness/v2-duel/*.ndjson`：每局 termination、blockedReason、coverage、privacy、trace。
-- `/tmp/RIFT-991-m1-beta-readiness/start-script-runtime4.log`、`start-script-runtime7.log`：服务端与两客户端启动、health/catalog/页面就绪输出。
+- `/tmp/RIFT-991-m1-beta-readiness/start-script-runtime4.log`、`start-script-runtime7.log`：任务端口服务端与两客户端启动、health/catalog/页面就绪输出。
+- `/tmp/RIFT-991-m1-beta-readiness/final-start-debug.log` 与默认 `.riftbound/m1-beta/logs/`：最终默认端口 launcher 的完整构建/启动、health/catalog/页面探针和 stop 记录。
 - `/tmp/RIFT-991-m1-beta-readiness/cdp-ui-smoke3.log`：两个 CDP 浏览器加载、连接、建房和本地 session 证据。
 - `/tmp/RIFT-991-m1-beta-readiness/beta-runtime4/rooms/**/archive.log`：真实房间 archive（含断开/无 game state；仅供维护者）。
