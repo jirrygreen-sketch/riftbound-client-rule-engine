@@ -159,14 +159,20 @@ test("unl-152-219 Black Rose Dignitary boundary: the [Assault] expansion binds b
   assert.equal(f.engine.layers.evaluate(source.ref).might, 3);
 });
 
-test("unl-152-219 Black Rose Dignitary: the [Deathknell] expansion body reaches trigger.leave (CR 808.1.c/808.1.d)", () => {
+test("unl-152-219 Black Rose Dignitary: [Deathknell] executes trigger.leave against the killed incarnation (CR 808.1.c/808.1.d)", () => {
   const [deathknellExpansion] = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL_ID } });
   const body = deathknellExpansion.body;
   assert.equal(body.length, 1);
   assert.equal(body[0].op, "trigger.leave");
   assert.equal(instructionDefinitionsById.has("trigger.leave"), true);
-  const kernel = world().player("A").rune(["top-rune"]).build();
-  const outcome = resolveChainBody(body, kernel);
+  const kernel = world().unit("dignitary", { owner: "A", controller: "A" }).player("A").rune(["top-rune"]).build();
+  const source = kernel.getObject("dignitary");
+  const scoped = kernel.clone({ sourceSnapshot: source, timingPoint: "object-killed" });
+  scoped.perform({ type: "kill", object: scoped.ref("dignitary") });
+  const outcome = resolveChainBody(body, scoped);
+  assert.equal(outcome.status, "executed");
   assert.equal(outcome.results[0].op, "trigger.leave");
-  assert.notEqual(outcome.results[0].result.reason, "unregistered-opcode");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(outcome.results[0].result.linkedValues.leave, source.ref);
+  assert.deepEqual(outcome.results[0].result.linkedValues.leaveSource.location, source.location);
 });

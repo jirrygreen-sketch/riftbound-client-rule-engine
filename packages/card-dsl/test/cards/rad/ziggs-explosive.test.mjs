@@ -194,7 +194,7 @@ test("rad-112-167 Ziggs, Explosive: the effect.token schema requires a concrete 
   assert.deepEqual(accepted.location, { kind: "constant", value: { type: "battlefield", id: "bf-1" } });
 });
 
-test("rad-112-167 Ziggs, Explosive: the Bomb definition and the trigger.leave op are both unregistered (187.12 / 808)", () => {
+test("rad-112-167 Ziggs, Explosive: the Bomb definition remains absent while trigger.leave is registered (187.12 / 808)", () => {
   // The frozen table has no Bomb entry, so executing the card's own token id is
   // negated with the blocked reason instead of inventing a definition.
   const kernel = world().unit("ziggs", { might: 4, location: { type: "battlefield", id: "bf-1" } }).build();

@@ -154,11 +154,11 @@ test("unl-172-219 LeBlanc, Fragmented golden: the unreadable phase characteristi
   assert.equal(kernel.test(drawTwo.condition), false);
 });
 
-test("unl-172-219 LeBlanc, Fragmented: [Assault] binds with its attacker predicate, while this fixture still reads printed Might", () => {
+test("unl-172-219 LeBlanc, Fragmented: [Assault] binds but its designation predicate stays fail-closed", () => {
   // The KeywordDef reads the host "designation" characteristic; ObjectSnapshot
-  // exposes combatRole instead, so the production static binder catches the
-  // unavailable property and returns false. A declared Attacker therefore keeps
-  // its printed Might.
+  // exposes combatRole instead. The production binder installs the entry, and
+  // the evaluator fails closed rather than silently treating combatRole as the
+  // old characteristic.
   const [expansion] = assaultKeyword.expand({ value: 1, host: { canonicalCardId: CANONICAL_ID } });
   const f = fixture({
     cards: [{ id: "leblanc", cardId: CANONICAL_ID, types: ["unit"], energy: 3, power: ["Order"], might: 3 }]
@@ -174,29 +174,30 @@ test("unl-172-219 LeBlanc, Fragmented: [Assault] binds with its attacker predica
   const handle = createEngineStaticBinder(f.engine).bindStatic(expansion, source);
   const [registration] = f.engine.layers.registry.list();
   assert.deepEqual(registration.effect.effect.amount, { kind: "constant", value: 1 });
-  // The production designation predicate reads the live attacker role.
-  assert.equal(typeof registration.effect.effect.condition, "function");
   assert.equal(typeof registration.effect.effect.condition, "function");
   assert.equal(f.engine.layers.evaluate(source.ref).might, 3);
   handle.unbind();
 });
 
-test("unl-172-219 LeBlanc, Fragmented: the merged op registry contains trigger.leave", async () => {
+test("unl-172-219 LeBlanc, Fragmented: the generated op registry contains trigger.leave", async () => {
   const { registry } = await import("../../../../engine-core/dist/effects/instructions/registry.generated.js");
-  assert.ok(registry.length >= 47);
   const ops = registry.map(entry => entry.op ?? entry.id ?? entry.keyword);
-  assert.ok(ops.filter(op => typeof op === "string" && op.startsWith("trigger.")).length > 0);
   assert.equal(ops.includes("trigger.leave"), true);
 });
 
-test("unl-172-219 LeBlanc, Fragmented: the [Deathknell] expansion body reaches trigger.leave (808.1.d)", () => {
+test("unl-172-219 LeBlanc, Fragmented: [Deathknell] executes trigger.leave against the killed incarnation (808.1.d)", () => {
   const definition = keywordDefinitionsById.get("Deathknell");
   const [expansion] = definition.expand({ host: { canonicalCardId: CANONICAL_ID } });
   const kernel = world().unit("leblanc", { owner: "A", controller: "A" }).build();
-  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("leblanc"), controller: "A" });
+  const source = kernel.getObject("leblanc");
+  const scoped = kernel.clone({ sourceSnapshot: source, controller: "A", timingPoint: "object-killed" });
+  scoped.perform({ type: "kill", object: scoped.ref("leblanc") });
   const outcome = resolveChainBody(expansion.body, scoped);
+  assert.equal(outcome.status, "executed");
   assert.equal(outcome.results[0].op, "trigger.leave");
-  assert.notEqual(outcome.results[0].result.reason, "unregistered-opcode");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(outcome.results[0].result.linkedValues.leave, source.ref);
+  assert.deepEqual(outcome.results[0].result.linkedValues.leaveSource.location, source.location);
 });
 
 test("unl-172-219 LeBlanc, Fragmented golden: CardProgram triggers register through the merged binding", () => {

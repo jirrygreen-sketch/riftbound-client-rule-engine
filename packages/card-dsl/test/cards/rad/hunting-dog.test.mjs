@@ -241,24 +241,36 @@ test("rad-119-167 Hunting Dog: a real kill queues the program's death trigger fr
 
   const handBefore = f.kernel.player("A").handSize;
   f.engine.commit({ type: "kill", object: f.kernel.ref("unit") });
-  assert.throws(() => f.engine.resolve(), /Cannot read properties of undefined|object-killed/);
-
-  // The committed kill emits object-killed and queues the death trigger.
+  assert.equal(f.engine.items.length, 1);
+  assert.equal(f.engine.items[0].kind, "triggered");
+  assert.equal(f.engine.items[0].trigger.event.timingPoint, "object-killed");
   assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "object-killed"), true);
-  assert.ok(f.engine.items.length > 0 || f.kernel.player("A").handSize === handBefore + 1);
+  f.engine.advance();
+  assert.equal(f.engine.items[0].status, "finalized");
+  f.engine.pass(f.engine.priority);
+  f.engine.pass(f.engine.priority);
+  assert.deepEqual(f.engine.items, []);
+  assert.equal(f.kernel.player("A").handSize, handBefore + 1);
   assert.equal(f.get("unit").zone, "trash");
 });
 
-test("rad-119-167 Hunting Dog: the Deathknell expansion body reaches the registered trigger.leave op", () => {
+test("rad-119-167 Hunting Dog: trigger.leave executes against the killed Board incarnation", () => {
   // 808.1.c.1: the keyword skeleton expands to the registered trigger.leave
   // primitive; the lifecycle producer remains a separate production concern.
   const [expansion] = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL } });
   assert.deepEqual(expansion.body.map(entry => entry.op), ["trigger.leave"]);
   assert.equal(instructionDefinitionsById.has("trigger.leave"), true);
   const kernel = world().unit("dog", { types: ["unit"] }).build();
-  const outcome = resolveChainBody(expansion.body, kernel.clone({ sourceSnapshot: kernel.getObject("dog") }));
+  const source = kernel.getObject("dog");
+  const scoped = kernel.clone({ sourceSnapshot: source, timingPoint: "object-killed" });
+  scoped.perform({ type: "kill", object: scoped.ref("dog") });
+  const outcome = resolveChainBody(expansion.body, scoped);
+  assert.equal(outcome.status, "executed");
   assert.equal(outcome.results[0].op, "trigger.leave");
-  assert.notEqual(outcome.results[0].result.reason, "unregistered-opcode");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(outcome.results[0].result.linkedValues.leave, source.ref);
+  assert.equal(outcome.results[0].result.linkedValues.leaveCause, "kill");
+  assert.deepEqual(outcome.results[0].result.linkedValues.leaveSource.location, source.location);
 });
 test("rad-119-167 Hunting Dog golden: your base follows the ability controller even when the source has another owner", () => {
   for (const controller of ["A", "B"]) {

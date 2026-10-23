@@ -38,15 +38,20 @@ test("rad-126-167 Mournful Spirit: program validates and has expected identity",
   assert.equal(program.sourceText, "[Deathknell][>] You may kill a unit or gear here. (When I die, get the effect.)");
 });
 
-test("rad-126-167 Mournful Spirit: the Deathknell skeleton reaches the registered trigger.leave opcode", () => {
+test("rad-126-167 Mournful Spirit: trigger.leave executes against the killed incarnation", () => {
   const [ability] = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL } });
   assert.deepEqual(ability.body.map(instruction => instruction.op), ["trigger.leave"]);
   assert.equal(instructionDefinitionsById.has("trigger.leave"), true);
   const kernel = world().unit("spirit", { location: { type: "battlefield", id: "here" } }).build();
-  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("spirit") });
+  const source = kernel.getObject("spirit");
+  const scoped = kernel.clone({ sourceSnapshot: source, timingPoint: "object-killed" });
+  scoped.perform({ type: "kill", object: scoped.ref("spirit") });
   const outcome = resolveChainBody(ability.body, scoped);
+  assert.equal(outcome.status, "executed");
   assert.equal(outcome.results[0].op, "trigger.leave");
-  assert.notEqual(outcome.results[0].result.reason, "unregistered-opcode");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(outcome.results[0].result.linkedValues.leave, source.ref);
+  assert.deepEqual(outcome.results[0].result.linkedValues.leaveSource.location, source.location);
 });
 
 test("rad-126-167 Mournful Spirit: production target translation preserves sameLocationAs", () => {

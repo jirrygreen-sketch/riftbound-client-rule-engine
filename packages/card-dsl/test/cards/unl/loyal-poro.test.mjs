@@ -198,15 +198,20 @@ test("unl-156-219 Loyal Poro: the registered condition sees the friendly unit he
   assert.equal(evaluateCondition(literal, environment), true, "a literal player id resolves the count");
 });
 
-test("unl-156-219 Loyal Poro: the [Deathknell] expansion body reaches the registered trigger.leave op (808.1.d)", () => {
+test("unl-156-219 Loyal Poro: [Deathknell] executes trigger.leave against the killed incarnation (808.1.d)", () => {
   assert.equal(instructionDefinitionsById.has("trigger.leave"), true);
   const definition = keywordDefinitionsById.get("Deathknell");
   const [expansion] = definition.expand({ host: { canonicalCardId: CANONICAL_ID } });
   const kernel = world().unit("poro", { owner: "A", controller: "A" }).build();
-  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("poro"), controller: "A" });
+  const source = kernel.getObject("poro");
+  const scoped = kernel.clone({ sourceSnapshot: source, controller: "A", timingPoint: "object-killed" });
+  scoped.perform({ type: "kill", object: scoped.ref("poro") });
   const outcome = resolveChainBody(expansion.body, scoped);
+  assert.equal(outcome.status, "executed");
   assert.equal(outcome.results[0].op, "trigger.leave");
-  assert.notEqual(outcome.results[0].result.reason, "unregistered-opcode");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(outcome.results[0].result.linkedValues.leave, source.ref);
+  assert.deepEqual(outcome.results[0].result.linkedValues.leaveSource.location, source.location);
 });
 
 test.todo(
