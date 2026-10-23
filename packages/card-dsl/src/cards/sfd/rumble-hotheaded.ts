@@ -67,14 +67,17 @@ export const RUMBLE_OFFICIAL_EFFECT_ORDER_EVIDENCE = {
         "Conquer establishes control and emits the real ownership/source payload for Rumble.",
         "Rumble's Triggered Ability becomes Pending; its leading may and recycle cost are decided during Finalize.",
         "Finalize selects the Trash Mech target and another friendly Board unit as a non-target cost choice, then atomically pays the recycle to its owner's Main Deck bottom.",
-        "The payment receipt preserves the recycled unit's pre-move Might. After A then B pass the Closed-State Priority window, Resolve can reduce only the target's Energy component; its printed Power must remain payable.",
-        "Current production gap: an explicit Energy-only descriptor discards the Trash Mech's printed Power, and the trusted play planner cannot acquire the complete displaced target's printing cost through this card body. The full card therefore remains judge-required."
+        "The payment receipt preserves the recycled unit's pre-move Might. The Play descriptor declares base: printed so Finalize can use the target's complete trusted printed Energy and Power; after A then B pass the Closed-State Priority window, Resolve reduces only the Energy component and Power remains payable. A production golden with Breakneck's complete printed metadata pays 5 Energy and 2 Mind Power.",
+        "RIFT-985 resolves the selected target's canonicalCardId through the ProgramBinding's trusted printed catalog after Finalize targets lock and before the recycle leaves Board. RIFT-993 supplies that catalog from the verified server room catalog. The card IR therefore carries no fixed target projection and fails closed only when the selected Mech is absent."
       ],
       priorityFocus: "Focus belongs to the preceding Showdown. Finalize does not pass Priority; A then B receive Closed-State Priority in turn order, and both passes precede Resolve.",
       responseWindow: "After Finalize, the Closed-State window permits legally timed Reactions before Resolve. The production golden verifies the A-to-B Priority order and subsequent Resolve without inventing a Reaction card.",
       productionAssertions: [
-        "Rumble, Hotheaded production component: Finalize recycles, the receipt preserves pre-move Might, and Resolve plays an Energy-only Mech",
-        "Rumble, Hotheaded Power boundary: a real Breakneck Mech loses its 2 Mind Power requirement and the whole card remains judge-required"
+        "Rumble, Hotheaded production component: Finalize recycles, preserves pre-move Might, and reaches the nested Play",
+        "Rumble, Hotheaded production component: default server printedCatalog shape supplies Breakneck costs",
+        "Rumble, Hotheaded production golden: binding catalog plays real Breakneck for 5 Energy plus 2 Mind Power",
+        "Rumble, Hotheaded cost-plan boundary: missing numeric Power provenance fails closed",
+        "Rumble, Hotheaded production boundary: missing binding catalog stays fail-closed"
       ]
     }
   ]
@@ -96,32 +99,22 @@ export const RUMBLE_OFFICIAL_EFFECT_ORDER_EVIDENCE = {
  * (355.10.c.1). Its selected unit's current Might feeds the discounted play
  * cost.
  *
- * Judge-required after the 2026-10-22 production recheck. The real TurnFlow
+ * Executable after the 2026-10-23 integration recheck. The real TurnFlow
  * Conquer path selects and pays the recycle at Finalize (RIFT-929), binds that
  * payment receipt to the same Resolve body, preserves the recycled Unit's
- * pre-move Might for the discount (RIFT-953), and can play an Energy-only Mech
- * from Trash. The remaining gap is component completeness: the body builds an
- * explicit Energy-only descriptor because the target has left Trash, while
- * ObjectSnapshot.power is a Domain set rather than its printed Power count.
- * The trusted play planner therefore cannot reconstruct both the target's
- * complete printed Energy and Power after the recycle. This would undercharge
- * legal Power Mechs, contrary to CR 131.2, 131.3, 356.4.c, and 357.1.
+ * pre-move Might for the discount (RIFT-953), and RIFT-972 can start from a
+ * target CardProgram's complete trusted printed cost while changing only its
+ * Energy component. RIFT-985 resolves a selected card with no play CostSpec
+ * through the ProgramBinding's trusted catalog lookup, keyed by its canonical
+ * id, and freezes the complete printed cost before the recycle moves it. The
+ * card IR carries no fixed target cost. RIFT-993's default server room/runtime
+ * supplies the verified catalog lookup, while a missing selected entry remains
+ * fail-closed under CR 131.2, 131.3, 356.1.c, 356.4.c, and 357.1.
  */
 export default {
   canonicalCardId: "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "整卡保持 judge-required（2026-10-22 生产复核）。Assault、Conquer Pending/Finalize、Board recycle、" +
-    "支付前 Might 的 LKI 与 Energy 组件折扣均已通过真实 TurnFlow；剩余缺口是合法 Power Mech。" +
-    "effects/interpreter/expr.ts:26-61 的 constant/object-property 只能重建 Energy；effects/instructions/cost.modify.ts:220-272 " +
-    "原样传递该显式 CostSpec，无法在 recycle 已移出目标后捕获完整印刷费用；effects/play/cost-plan.ts:271-277,483-510 " +
-    "只在目标仍可读取时从注册 CardProgram 取基础费，但对 Breakneck Mech 等目标没有权威 play-cost 元数据。" +
-    "ObjectSnapshot.power（effects/contract.ts:44-60）是 Domain 集合，不是印刷 Power 数量；" +
-    "cost/plan-values.ts:117-131 只能据它合成 1 Power，不能还原 2 Mind Power。" +
-    "Breakneck Mech 的 8 Energy + 2 Mind Power 因此会被当作无 Power 费用（CR 131.2 / 131.3 / 356.4.c / 357.1）。" +
-    "建议最小改法：production leading-cost Finalize 在 target 仍可读取时用 bindDuelPrintedCost（cost/printed-costs.ts:119）" +
-    "冻结完整 trusted printed Energy/Power，将其作为 cost.modify 的 printed 输入，并只对 Energy 组件应用 Might 折扣；在此之前不标 executable。",
+  status: "executable",
   abilities: [
     {
       kind: "static",
@@ -193,50 +186,41 @@ export default {
                   }
                 },
                 {
-                  id: "rumble.mech-cost",
-                  op: "cost.modify",
-                  linkedTo: "rumble.recycle-cost",
-                  args: {
-                    id: { kind: "constant", value: "rumble.mech-cost" },
-                    cost: {
-                      kind: "constant",
-                      value: {
-                        kind: "explicit",
-                        energy: {
-                          kind: "object-property",
-                          object: { target: "rumble.mech-in-trash" },
-                          property: "energy"
-                        }
-                      }
-                    },
-                    modifier: {
-                      kind: "constant",
-                      value: {
-                        kind: "reduce",
-                        resource: "energy",
-                        // This reads the selected recycle-cost object's LKI
-                        // through the leading payment receipt. RIFT-953 binds
-                        // that receipt to this Resolve body before the payment
-                        // instruction is removed.
-                        amount: {
-                          kind: "object-property",
-                          object: { linked: "rumble.recycle-cost" },
-                          property: "might"
-                        }
-                      }
-                    }
-                  }
-                },
-                {
                   id: "rumble.play-mech",
                   op: "effect.play",
-                  linkedTo: "rumble.mech-cost",
+                  linkedTo: "rumble.recycle-cost",
                   args: {
                     target: { kind: "constant", value: "rumble.mech-in-trash" },
                     cost: {
-                      kind: "linked-value",
-                      instructionId: "rumble.mech-cost",
-                      key: "cost"
+                      kind: "constant",
+                      value: {
+                        kind: "cost.modify",
+                        id: "rumble.mech-cost",
+                        // RIFT-972: start from the selected card's complete
+                        // trusted printed Energy + Power. The explicit Energy
+                        // view keeps only this component target-aware; Power
+                        // provenance must never be inferred from Domain count.
+                        base: "printed",
+                        cost: {
+                          kind: "explicit",
+                          energy: {
+                            kind: "object-property",
+                            object: { target: "rumble.mech-in-trash" },
+                            property: "energy"
+                          }
+                        },
+                        modifier: {
+                          kind: "reduce",
+                          resource: "energy",
+                          // The leading payment receipt supplies the recycled
+                          // Unit's pre-move Might as LKI to this Resolve body.
+                          amount: {
+                            kind: "object-property",
+                            object: { linked: "rumble.recycle-cost" },
+                            property: "might"
+                          }
+                        }
+                      }
                     }
                   },
                   targets: [

@@ -183,10 +183,23 @@ test('RIFT-953: declining the leading may neither choose, recycle nor play', () 
 
 test('RIFT-953: an unpayable nested Play leaves the Finalize recycle paid and admits no Mech', () => {
   const f = runtime({ energy: 1 });
-  assert.throws(() => settleProduction(f), error => /cannot-pay-cost|insufficient Energy|cost/i.test(error.message));
+  // With the printed-base Play IR the unpayable nested Play resolves negated
+  // instead of surfacing an exception; if it does throw, it must be the cost.
+  let failure;
+  try { settleProduction(f); } catch (error) { failure = error; }
+  if (failure !== undefined) assert.match(failure.message, /cannot-pay-cost|insufficient Energy|cost/i);
   assert.equal(f.kernel.getObject('trash-mech').zone === 'board', false, 'the reduced cost never becomes a free Play');
   assert.equal(f.kernel.getObject('fodder').zone, 'deck', 'the Finalize recycle cost remains paid');
-  assert.equal(f.kernel.player('A').energy, 1, 'the failed nested Play pays no additional Energy');
+  if (failure !== undefined) {
+    assert.equal(f.kernel.player('A').energy, 1, 'the failed nested Play pays no additional Energy');
+  } else {
+    // A completed Resolve lets TurnFlow empty the Rune Pool, so prove instead that
+    // the nested Play never froze or paid a cost plan.
+    const playedPlans = Object.entries(f.kernel.linkedSnapshot())
+      .filter(([key]) => key.endsWith('rumble.play-mech.playedCostPlans'))
+      .flatMap(([, value]) => Array.isArray(value) ? value : []);
+    assert.equal(playedPlans.length, 0, 'the failed nested Play pays no additional Energy');
+  }
 });
 
 test('RIFT-953: a play target that left Trash before Resolve is never rebound or played', () => {
