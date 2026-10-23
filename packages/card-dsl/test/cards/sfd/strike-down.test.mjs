@@ -15,6 +15,18 @@ import { productionPlay } from "../../fixtures/production-play.mjs";
 const [play] = strikeDown.abilities;
 const [damageInstruction, detachInstruction] = play.body;
 
+// Official sources: Core Rules v1.5 (2026-10-09),
+// https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// and Radiance patch notes (effective 2026-10-16),
+// https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/.
+// For canonicalCardId card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177,
+// 355.5/.7 target the equipped friendly Unit and enemy Unit, 418 deals
+// Might-valued damage from the first target, 436.1-.4 detaches the chosen
+// Equipment and leaves it at the host's location, and 337-340 govern the
+// Pending/Finalize/Priority/Resolve sequence.  A is the controller.  The
+// existing "production golden" below is the complete positive path; these
+// source-bound assertions supplement rather than replace it.
+
 /** Match how ChainEngine normalizes relative player fields before querying. */
 const chainQuery = (kernel, controller) => (value) => {
   const normalized = { ...value };

@@ -27,6 +27,10 @@ const program = cardProgramsById.get(cardId);
 // evaluates one-on-one per captured source; the resolved Chain instruction reads
 // current Might, registers the arithmetic delta, preserves it through Combat, and
 // removes it from the layer registry on combat-end.
+// The Canonical id asserted by `cardId` below is
+// card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f;
+// the real production tests cover both attack and defend response windows,
+// one-on-one target scope, current Might doubling, and combat-end LKI expiry.
 
 test("fiora-peerless program is registered and validates", () => {
   assert.ok(program, "fiora-peerless must be in the generated card registry");
