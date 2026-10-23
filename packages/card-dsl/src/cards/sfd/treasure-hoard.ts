@@ -7,36 +7,33 @@ import type { CardProgram } from "../../ir/index.js";
  *  exhausted."
  *
  * Status: judge-required after re-checking the merged production path on
- * 2026-10-22. The authored trigger, leading may, its one-Energy Finalize cost,
- * and the primitive's Gold play-mode/exhausted-entry shape are executable.
+ * 2026-10-23. The authored trigger, leading may, its one-Energy Finalize cost,
+ * Gold creation, and Gold's intrinsic ability are production-bound. The
+ * remaining gap is the entry state of the token actually being played.
  * Default Match setup now creates the selected Battlefield on the Board at its
  * own Location (CR v1.5 133.6.a.1 / 199.1), and the lifecycle and
  * MatchCommandAdapter bind that exact Board incarnation once.
  *
- * One production blocker remains: creating Gold would silently lose the Gold's
- * mandatory intrinsic ability. definitions.ts:83-102 marks Gold
- * abilityBinding "blocked", so effect.token.ts:340-342 returns
- * "token-definition-or-abilities-judge-required" before creation. The reason
- * is the Add side of CR v1.5 135.2.e.5.b / 187.5: RIFT-929 made [A] payable as
- * a cost (135.2.e.5.a), but effect.resources.ts:35-37,54,126-128 accepts only
- * the six named Domains; effects/contract.ts:260-261 keeps gain-power as
- * Domain[]; and programs/index.ts:40-58 rejects ["rainbow"] as an unverified Add
- * shape. The whole card therefore remains judge-required until Gold can Add
- * Universal Power and execute its intrinsic ability.
+ * One production blocker remains: TurnFlow.resolve hard-codes every played
+ * Gear to ready (`chain/engine.ts:1593-1595`) before the Chain Play action.
+ * RIFT-987 now supplies the executable Gold definition/program, so effect.token
+ * attaches exhausted=true to the created Token and Gold's
+ * Reaction Kill/Exhaust Add [A] ability is available. The nested Play,
+ * however, changes that same object to ready, overriding the creating effect's
+ * CR v1.5 184.1 / 185.2.d entry stipulation. A Gold which is ready does not
+ * carry the printed exhausted entry, so the sentence is not fully implemented.
  */
 export default {
   canonicalCardId: "card.hash-77763eae5320de558954776a37677e8638b6d4af73399e5a7c4f5d5321a2b564",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前唯一缺口（2026-10-22 生产路径复核）：本卡的 Conquer 触发、前导可选、在 Finalize 支付 1 能量，以及 play Gold 的 mode/entersExhausted 形状均可执行；" +
-    "默认 Match 已把所选 Battlefield 放到 Board 并以自身为位置，RIFT-973 的 MatchCommandAdapter 生命周期会绑定该 Board 对象，here 也以其自身 ObjectRef 自锚。" +
-    "但金句的宾语 Gold 无法完整生产创建：effects/tokens/definitions.ts:83-102 仍为 abilityBinding=\"blocked\"；" +
-    "effect.token.ts:340-342 在创建前返回 token-definition-or-abilities-judge-required。CR 187.5 的 Gold 自带 [Reaction][>] Kill this, [E]: [Add] [A]；" +
-    "RIFT-929 已支持 [A] 支付（135.2.e.5.a），但 effect.resources.ts:35-37,54,126-128 仍只接受六域 Power，effects/contract.ts:260-261 的 gain-power 仍为 Domain[]，" +
-    "programs/index.ts:40-58 也把 [\"rainbow\"] 视为 unverified Add shape，故 [A] 仍无生产 Add 路径（135.2.e.5.b）。" +
-    "在 TokenSpec 创建后补写能力会伪造新客体语义，而当前 fail-closed 生产 golden 会先在 Finalize 扣除已选择的 1 能量，再在 Gold 创建前 fail-closed。" +
-    "整卡保持 judge-required，待 Universal Power Add 与 Gold 内建能力由引擎契约/生产路径闭合。",
+    "当前唯一缺口（2026-10-23 生产路径复核）：Conquer/here、前导可选、Finalize 支付 1 能量、默认 Match 的 Battlefield 自位自锚及生命周期绑定均已生产通过；" +
+    "RIFT-987 后 Gold 定义已是 canonical-card-program，Gold 的 Reaction「Kill this, [E]: [Add] [A]」可经 ProgramBinding/ChainEngine 支付并产生 Universal Power。" +
+    "但以 mode=play 创建的 Gold 最终进入 Board 时为 ready，而印文要求 exhausted：effect.token 已将 entersExhausted=true 写入 TokenSpec（CR 184.1/185.2.d），" +
+    "TurnFlow 的 gear 子链 Resolve 却在 chain/engine.ts:1593-1595 无条件先执行 ready，再 Play 到 Base，覆盖创建效果规定。" +
+    "该 ready Gold 无法满足 CR 187.5 的 [E] 费用，故称为「play a Gold gear token exhausted」仍未完整实现；" +
+    "已排除的旧缺口包括 Gold abilityBinding blocked、[A]/rainbow Add 与 Universal Power 支付。整卡保持 judge-required，待 gear Play 的入场状态传递闭合。",
   sourceText: "When you conquer here, you may pay :rb_energy_1: to play a Gold gear token exhausted.",
   abilities: [
     {
