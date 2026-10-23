@@ -7,14 +7,17 @@ import type {
   V2CombatSnapshot,
   V2Event,
   V2Phase,
+  V2PlayOption,
   V2Projection,
   V2ProjectedObject,
+  V2PlayTargetRequirement,
   V2Zone,
 } from "../../../../packages/protocol/dist/v2/index.js";
-import { playLocations } from "../../../../packages/engine-core/dist/layers/rules/query.js";
+import { playLocations, restrictions as ruleRestrictions } from "../../../../packages/engine-core/dist/layers/rules/query.js";
 import type { Match } from "../../../../packages/engine-core/dist/game/lifecycle.js";
 import type { ObjectRef, ObjectSnapshot, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
 import { playPermissionAllows, playPermissions } from "../../../../packages/engine-core/dist/programs/play-permissions.js";
+import { queryTargetCandidates, type TargetRequirement } from "../../../../packages/engine-core/dist/target/target-plan.js";
 import { readEmpowered } from "../../../../packages/engine-core/dist/zones/empower-state.js";
 import type { EngineRuntimeHost } from "./host.js";
 import { digest } from "./journal.js";
@@ -177,17 +180,94 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
   }
   const plays: V2ActionOptions["plays"][number][] = [];
   const energy = host.player(viewer).energy;
+  const power = host.player(viewer).power;
+  const binding = match.programBinding;
+  const printedCatalog = binding === undefined ? undefined :
+    (binding.describePlay as typeof binding.describePlay & {
+      readonly printedCatalog?: (canonicalCardId: string) => {
+        readonly domains: readonly string[];
+        readonly energy: number | null;
+        readonly power: number | null;
+      } | undefined;
+    }).printedCatalog;
+  const hasTargets = (source: ObjectSnapshot): boolean => {
+    const program = binding?.registry.inspect(source.cardId);
+    if (program === undefined || program.status !== "executable") return false;
+    const ability = program.abilities.find(candidate => candidate.kind === "play");
+    if (ability === undefined || ability.kind !== "play") return false;
+    return ability.body.some(instruction => (instruction.targets?.length ?? 0) > 0);
+  };
+  const canPay = (source: ObjectSnapshot): boolean => {
+    const row = source.cardId === null ? undefined : printedCatalog?.(source.cardId);
+    const printedEnergy = row?.energy ?? source.energy;
+    if (printedEnergy === null || printedEnergy! > energy) return false;
+    const requiredPower = row === undefined ? (source.power ?? []).length : row.power ?? 0;
+    if (requiredPower === 0) return true;
+    const allowed = row?.domains ?? source.power ?? [];
+    return power.filter(source => allowed.includes(source) || source === "universal" ||
+      source === "any" || source === "universal-power").length >= requiredPower;
+  };
   const explicitPermissions = (source: ObjectSnapshot) => playPermissions(chain.layers.registry, source);
+  // `undefined` means the trusted ability has no direct target requirement.
+  // `null` means this exact play is unavailable because a mandatory group has
+  // no visible, legal candidate. No hidden zone or opponent hand can enter.
+  const targetRequirements = (source: ObjectSnapshot): V2PlayOption["targetRequirements"] | null | undefined => {
+    if (!hasTargets(source)) return undefined;
+    if (binding === undefined) return null;
+    let draft: ReturnType<typeof binding.describePlay>;
+    try {
+      draft = binding.describePlay({ type: "play", object: source.ref, player: viewer }, source);
+    } catch { return null; }
+    const requirements = draft.targets === undefined
+      ? draft.body.flatMap(instruction => (instruction.targets ?? []).map(requirement => ({ requirement })))
+      : [...draft.targets];
+    if (requirements.length === 0) return undefined;
+    const context = host.context(source, viewer, "chain-item-finalize");
+    const projected: V2PlayTargetRequirement[] = [];
+    for (const entry of requirements) {
+      const requirement: TargetRequirement = entry.requirement;
+      const selection = requirement.selection ?? "one";
+      const min = requirement.min ?? (selection === "one" ? 1 : 0);
+      const candidates = queryTargetCandidates(context, requirement, {
+        ruleRegistry: chain.layers.registry, rulePlayer: viewer,
+      });
+      const visible = candidates.flatMap(ref => {
+        const object = host.object(ref);
+        if (object === null) return [];
+        const candidate = projectedObject(object, viewer, host.visibility());
+        if (candidate.faceDown || object.zone === "hand" || object.zone === "deck" || object.zone === "rune-deck" ||
+            ruleRestrictions(chain.layers.registry, "target", ref, object, viewer).length > 0 ||
+            ruleRestrictions(chain.layers.registry, "choose-as-target", ref, object, viewer).length > 0) return [];
+        return [{ id: candidate.objectId, label: candidate.name ?? candidate.cardId ?? candidate.objectId,
+          value: candidate.objectId, objectRef: { objectId: candidate.objectId, zoneEntryId: ref.zoneEntryId } }];
+      });
+      if (visible.length === 0 && min > 0) return null;
+      if (visible.length === 0) continue;
+      const max = requirement.max === null || requirement.max === undefined
+        ? selection === "one" ? 1 : Math.max(min, visible.length) : requirement.max;
+      projected.push({ id: requirement.id, label: requirement.id, kind: "object",
+        min, max: Math.min(max, visible.length), options: visible });
+    }
+    return projected.length === 0 ? undefined : projected;
+  };
   if (!chain.items.length) {
     for (const source of objects) {
       if (source.controller !== viewer || source.zone !== "hand" || source.cardId === null ||
-          source.energy === null || source.energy > energy ||
+          !canPay(source) ||
           (!waitingForFutureCommand && !chain.canAct(viewer, source.types.includes("spell") || source.types.includes("gear") ? "action" : "normal", source.ref, source))) continue;
-      if (!source.types.some(type => ["unit", "gear"].includes(type.toLowerCase()))) continue;
+      const requirements = targetRequirements(source);
+      if (requirements === null) continue;
+      const permanent = source.types.some(type => ["unit", "gear"].includes(type.toLowerCase()));
+      if (!permanent) {
+        plays.push({ cardObjectId: source.ref.id, destination: { kind: "base", playerId: viewer },
+          requiresDestination: false, ...(requirements === undefined ? {} : { targetRequirements: requirements }) });
+        continue;
+      }
       const view = playLocations(chain.layers.registry, source.ref, source, viewer);
       if (view.restrictions.some(rule => ["no-base", "cannot-base", "cannot-play-base"].includes(rule.name.toLowerCase()))) continue;
       if (explicitPermissions(source).length === 0) {
-        plays.push({ cardObjectId: source.ref.id, destination: { kind: "base", playerId: viewer } });
+        plays.push({ cardObjectId: source.ref.id, destination: { kind: "base", playerId: viewer },
+          requiresDestination: true, ...(requirements === undefined ? {} : { targetRequirements: requirements }) });
       }
       for (const field of battlefields) {
         if (view.restrictions.some(rule => ["no-battlefield", "cannot-battlefield", "cannot-play-battlefield"].includes(rule.name.toLowerCase()))) continue;
@@ -206,7 +286,8 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
             objects,
           });
         if (!objectLocationMatches) continue;
-        plays.push({ cardObjectId: source.ref.id, destination: { kind: "battlefield", battlefieldId: field.id } });
+        plays.push({ cardObjectId: source.ref.id, destination: { kind: "battlefield", battlefieldId: field.id },
+          requiresDestination: true, ...(requirements === undefined ? {} : { targetRequirements: requirements }) });
       }
     }
   }

@@ -455,7 +455,7 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
           duelRuntimeMode
         )))
         .catch(error => {
-          sendError(send, error);
+          sendError(send, error, maybeV2CommandId(raw));
         });
     });
 
@@ -603,22 +603,30 @@ async function handleInbound(
     }
     const session = context.session;
     if (!session) {
-      send({ type: "error", code: "command-rejected", message: "No room session is attached to this socket" });
+      sendError(
+        send,
+        new RoomError("No room session is attached to this socket", "command-rejected"),
+        parsed.command.commandId
+      );
       return;
     }
     const room = await requireRoom(roomStore, rooms, session.roomId);
-    await runRoomTransaction(
-      room,
-      context,
-      send,
-      roomStore,
-      transactionSend => room.submitEngineV2(
-        session,
-        context.connectionId,
-        parsed.command,
-        transactionSend as unknown as (message: unknown) => void
-      )
-    );
+    try {
+      await runRoomTransaction(
+        room,
+        context,
+        send,
+        roomStore,
+        transactionSend => room.submitEngineV2(
+          session,
+          context.connectionId,
+          parsed.command,
+          transactionSend as unknown as (message: unknown) => void
+        )
+      );
+    } catch (caught) {
+      sendError(send, caught, parsed.command.commandId);
+    }
     return;
   }
 
@@ -1175,6 +1183,20 @@ function sendError(
   const message = caught instanceof Error ? caught.message : "Request failed";
   const code = caught instanceof RoomError ? caught.code : "command-rejected";
   send({ type: "error", ...(requestId ? { requestId } : {}), code, message });
+}
+
+function maybeV2CommandId(raw: unknown): string | undefined {
+  try {
+    const value = JSON.parse(String(raw)) as {
+      readonly type?: unknown;
+      readonly command?: { readonly commandId?: unknown };
+    };
+    return value.type === "command" && typeof value.command?.commandId === "string" &&
+      value.command.commandId.length > 0 && value.command.commandId.length <= 256
+      ? value.command.commandId : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function roomRevision(room: GameRoom): string {
