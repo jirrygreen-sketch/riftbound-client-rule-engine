@@ -36,7 +36,8 @@ const OFFICIAL_EVIDENCE = Object.freeze({
       dated: "2026-10-09",
       effective: "2026-10-16",
       url: CORE_URL,
-      localSha256: "94d41fee86f88b61c4157c0389c0595d990b98e5b42555c99d9f649ee64d1fec"
+      pdfSha256: "94d41fee86f88b61c4157c0389c0595d990b98e5b42555c99d9f649ee64d1fec",
+      extractedTextSha256: "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2"
     }),
     radianceRulings: Object.freeze({
       published: "2026-10-09",
@@ -70,7 +71,7 @@ const OFFICIAL_EVIDENCE = Object.freeze({
         "here matcher: a Battlefield with null location self-anchors by ObjectRef id; another field still fails closed"
       ]),
       productionTestNames: Object.freeze([
-        "sfd-220-221 Treasure Hoard production golden: default setup Conquers, pays at Finalize, creates Gold, and exposes the exhausted-entry failure",
+        "sfd-220-221 Treasure Hoard production golden: default setup Conquers, pays at Finalize, and plays an exhausted Gold to Base",
         "sfd-220-221 Treasure Hoard production counterexample: conquering another battlefield does not fire here",
         "sfd-220-221 Treasure Hoard production boundary: default setup and MatchCommandAdapter bind the Board Battlefield exactly once"
       ]),
@@ -85,19 +86,20 @@ const OFFICIAL_EVIDENCE = Object.freeze({
       canonicalCardId: CANONICAL,
       goldCanonicalCardId: goldProgram.canonicalCardId,
       ruleRefs: Object.freeze(["135.2.e.5.a", "135.2.e.5.b", "184.1", "185.2.a", "185.2.d", "187.5", "350.2", "354", "383.3.a", "405.1", "405.2", "440.2.c"]),
+      setup: "CR 133.6.a.1 / 170.2.a-b establish the selected Battlefield without playing it; CR 199.1 makes it the Game Object at its own Location.",
       timeline: Object.freeze([
         "Play/Pending: Conquer creates the triggered ability as a Pending Item.",
         "Finalize: the leading may is selected, then the printed one Energy is paid; declining or an unpayable cost removes the trigger without a free Gold.",
         "Resolve: effect.token creates the canonical Gold on the Chain with exhausted=true, then plays that same token to the controller's Base.",
-        "Current failure: the nested Play is hard-coded by TurnFlow to ready the Gear before entering the Base, overriding the creating effect's required exhausted entry."
+        "The Gear Play resolves as its own Chain item; the stipulated exhausted entry survives and the token reaches the controller's Base exhausted."
       ]),
       productionAssertions: Object.freeze([
-        "production golden: accepted Finalize emits exactly one pay event, reduces Energy, and creates a complete canonical Gold receipt",
+        "production golden: accepted Finalize pays one Energy and creates one complete canonical Gold receipt",
         "production counterexamples: declining and insufficient-Energy cases pay nothing and create no substitute Token",
-        "Gold entry boundary: the produced Gold is on the controller's Base but is ready, so the printed exhausted requirement is not carried through nested Play"
+        "Gold entry golden: the produced Gold resolves as its own Chain item, enters the controller's Base, and is exhausted"
       ]),
       productionTestNames: Object.freeze([
-        "sfd-220-221 Treasure Hoard production golden: default setup Conquers, pays at Finalize, creates Gold, and exposes the exhausted-entry failure",
+        "sfd-220-221 Treasure Hoard production golden: default setup Conquers, pays at Finalize, and plays an exhausted Gold to Base",
         "sfd-220-221 Treasure Hoard production counterexample: declining Finalize pays nothing and creates no token",
         "sfd-220-221 Treasure Hoard production counterexample: insufficient Energy removes the trigger without a free Gold",
         "sfd-220-221 Treasure Hoard production boundary: Gold's canonical intrinsic ability pays Kill this + Exhaust and adds Universal Power"
@@ -105,32 +107,29 @@ const OFFICIAL_EVIDENCE = Object.freeze({
       priorityFocus: "CR 383.3.a makes the leading may a Finalize decision. Paying the one Energy follows CR 405.1; CR 430.2.a is not applicable to this Energy payment, and this card cannot pass Priority or Focus during Finalize.",
       responseWindow: "Other players respond to the finalized triggered ability through the ordinary Chain (CR 338.1.a.2). The optional payment itself creates no separate response window.",
       replacement: "No replacement effect is involved in the choice or Energy payment. CR 405.2 governs declining an incurred triggered-ability cost: remove the Pending Ability without paying or resolving it.",
-      layers: "Gold's required exhausted entry is set by the creating effect (CR 184.1 / 185.2.d) and is not a continuous-effect layer. The current Chain Play incorrectly readies it under CR 359.2.d.",
+      layers: "Gold's required exhausted entry is set by the creating effect (CR 184.1 / 185.2.d) and is not a continuous-effect layer. It overrides the otherwise applicable Gear entry default for this token.",
       lki: "The template, payment, and entry state do not depend on LKI. Gold's intrinsic ability belongs to the created token incarnation and is not synthesized by Treasure Hoard."
     }),
     goldIntrinsicAbility: Object.freeze({
       canonicalCardId: goldProgram.canonicalCardId,
       sourceCanonicalCardId: CANONICAL,
-      ruleRefs: Object.freeze(["135.2.e.5.a", "135.2.e.5.b", "187.5", "357.2", "430.2.a", "430.3", "813.1.c.2"]),
+      ruleRefs: Object.freeze(["135.2.e.5.a", "135.2.e.5.b", "187.5", "357.2", "415.4", "430.2.a", "430.3", "813.1.c.2"]),
       timeline: Object.freeze([
         "Gold is a Reaction Add, so its ordinary legality is evaluated without a separate card-created response window.",
-        "Finalize pays Exhaust this and Kill this from the created token incarnation.",
+        "Finalize checks and pays Exhaust this and Kill this from the created token incarnation; an already exhausted Gold cannot complete the Exhaust cost (CR 415.4).",
         "The Add resolves immediately under CR 430.2.a and places one Universal Power lot in the controller's Rune Pool."
       ]),
+      productionAssertions: Object.freeze([
+        "production boundary: a ready Gold pays Exhaust then Kill and adds Universal Power",
+        "production counterexample: the created Gold remains exhausted, fails the 187.5 Exhaust cost with cannot-pay-cost, and rolls back Board, events and Power"
+      ]),
       productionTestNames: Object.freeze([
-        "sfd-220-221 Treasure Hoard production boundary: Gold's canonical intrinsic ability pays Kill this + Exhaust and adds Universal Power"
+        "sfd-220-221 Treasure Hoard production boundary: Gold's canonical intrinsic ability pays Kill this + Exhaust and adds Universal Power",
+        "sfd-220-221 Treasure Hoard production counterexample: the exhausted Gold cannot pay its Exhaust cost"
       ])
     })
   })
 });
-
-// ProgramRegistry rejects judge-required programs. This transparent lift keeps
-// the authored IR unchanged while allowing the production binder, TurnFlow,
-// ChainEngine, Finalize and Resolve to execute the exact card body. The engine
-// boundary below remains a live failure, so the production definition of this
-// card stays judge-required.
-const admitted = { ...program, status: "executable" };
-delete admitted.judgeReason;
 
 function card(id, type = "unit") {
   return {
@@ -244,7 +243,7 @@ function productionMatch({ accepted = true, energy = 1 } = {}) {
     testTrigger: (registration) => kernel.test(registration.spec.condition)
   });
   host.player = (id) => kernel.player(id);
-  const binding = createProgramBinding({ cardPrograms: [admitted, goldProgram] });
+  const binding = createProgramBinding({ cardPrograms: [program, goldProgram] });
   const match = createMatch({
     host,
     decks: [deck({ treasure: true }), deck()],
@@ -274,42 +273,19 @@ function productionMatch({ accepted = true, energy = 1 } = {}) {
   };
 }
 
-test("sfd-220-221 Treasure Hoard: validates, is registered and names the current exhausted-entry blocker", () => {
+test("sfd-220-221 Treasure Hoard: executable program validates and is registered", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.issues));
   assert.deepEqual(result.issues, []);
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(program.status, "judge-required");
+  assert.equal(program.status, "executable");
+  assert.equal(Object.hasOwn(program, "judgeReason"), false);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 
-  assert.match(program.judgeReason, /chain\/engine\.ts:1593-1595/);
-  assert.match(program.judgeReason, /184\.1/);
-  assert.match(program.judgeReason, /185\.2\.d/);
-  assert.match(program.judgeReason, /187\.5/);
-  assert.match(program.judgeReason, /RIFT-987/);
-  assert.match(program.judgeReason, /Universal Power/);
-  assert.match(program.judgeReason, /entersExhausted=true/);
-  assert.match(program.judgeReason, /ready/);
-  assert.match(program.judgeReason, /exhausted/);
-  assert.match(program.judgeReason, /默认 Match.*Board/);
-  assert.match(program.judgeReason, /自锚/);
-  assert.match(program.judgeReason, /Finalize/);
-  assert.match(program.judgeReason, /mode=play/);
   assert.equal(goldProgram.status, "executable");
   assert.equal(Object.hasOwn(goldProgram, "judgeReason"), false);
-  // These diagnoses were disproved by the current sources and must not return.
-  assert.doesNotMatch(program.judgeReason, /仍为 abilityBinding="blocked"/);
-  assert.doesNotMatch(program.judgeReason, /effect\.token\.ts:340-342/);
-  assert.doesNotMatch(program.judgeReason, /unverified Add shape/);
-  assert.doesNotMatch(program.judgeReason, /仍无生产 Add 路径/);
-  assert.doesNotMatch(program.judgeReason, /Unsupported filter field here/);
-  assert.doesNotMatch(program.judgeReason, /entry overrides? are not supported/i);
-  assert.doesNotMatch(program.judgeReason, /Gold.*absent from the frozen/i);
-  assert.doesNotMatch(program.judgeReason, /game\/lifecycle\.ts:250-258/);
-  assert.doesNotMatch(program.judgeReason, /events\/pipeline-match\.ts/);
-  assert.doesNotMatch(program.judgeReason, /显式生产 move-zone/);
 });
 
 test("sfd-220-221 Treasure Hoard: official CR, Radiance, SFD and processing evidence is pinned", () => {
@@ -318,7 +294,8 @@ test("sfd-220-221 Treasure Hoard: official CR, Radiance, SFD and processing evid
     dated: "2026-10-09",
     effective: "2026-10-16",
     url: CORE_URL,
-    localSha256: "94d41fee86f88b61c4157c0389c0595d990b98e5b42555c99d9f649ee64d1fec"
+    pdfSha256: "94d41fee86f88b61c4157c0389c0595d990b98e5b42555c99d9f649ee64d1fec",
+    extractedTextSha256: "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2"
   });
   assert.equal(OFFICIAL_EVIDENCE.canonicalCardId, program.canonicalCardId);
   assert.equal(OFFICIAL_EVIDENCE.sources.radianceRulings.effective, "2026-10-16");
@@ -330,6 +307,7 @@ test("sfd-220-221 Treasure Hoard: official CR, Radiance, SFD and processing evid
   assert.equal(OFFICIAL_EVIDENCE.interactions.conquerHere.canonicalCardId, program.canonicalCardId);
   assert.equal(OFFICIAL_EVIDENCE.interactions.optionalPaymentAndGold.canonicalCardId, program.canonicalCardId);
   assert.equal(OFFICIAL_EVIDENCE.interactions.optionalPaymentAndGold.goldCanonicalCardId, goldProgram.canonicalCardId);
+  assert.match(OFFICIAL_EVIDENCE.interactions.optionalPaymentAndGold.setup, /133\.6\.a\.1.*170\.2\.a-b.*199\.1/);
   assert.match(OFFICIAL_EVIDENCE.interactions.conquerHere.priorityFocus, /311-313/);
   assert.match(OFFICIAL_EVIDENCE.interactions.conquerHere.responseWindow, /338\.1\.a\.2/);
   assert.match(OFFICIAL_EVIDENCE.interactions.conquerHere.replacement, /383\.4\.c\.2\.c/);
@@ -346,10 +324,21 @@ test("sfd-220-221 Treasure Hoard: official CR, Radiance, SFD and processing evid
     "Play/Pending: Conquer creates the triggered ability as a Pending Item.",
     "Finalize: the leading may is selected, then the printed one Energy is paid; declining or an unpayable cost removes the trigger without a free Gold.",
     "Resolve: effect.token creates the canonical Gold on the Chain with exhausted=true, then plays that same token to the controller's Base.",
-    "Current failure: the nested Play is hard-coded by TurnFlow to ready the Gear before entering the Base, overriding the creating effect's required exhausted entry."
+    "The Gear Play resolves as its own Chain item; the stipulated exhausted entry survives and the token reaches the controller's Base exhausted."
   ]);
+  assert.deepEqual(OFFICIAL_EVIDENCE.interactions.optionalPaymentAndGold.productionAssertions, [
+    "production golden: accepted Finalize pays one Energy and creates one complete canonical Gold receipt",
+    "production counterexamples: declining and insufficient-Energy cases pay nothing and create no substitute Token",
+    "Gold entry golden: the produced Gold resolves as its own Chain item, enters the controller's Base, and is exhausted"
+  ]);
+  assert.equal(OFFICIAL_EVIDENCE.interactions.optionalPaymentAndGold.ruleRefs.includes("415.4"), false,
+    "CR 415.4 belongs to Gold's Exhaust cost, not Treasure Hoard's Energy payment");
   assert.deepEqual(OFFICIAL_EVIDENCE.interactions.goldIntrinsicAbility.ruleRefs, [
-    "135.2.e.5.a", "135.2.e.5.b", "187.5", "357.2", "430.2.a", "430.3", "813.1.c.2"
+    "135.2.e.5.a", "135.2.e.5.b", "187.5", "357.2", "415.4", "430.2.a", "430.3", "813.1.c.2"
+  ]);
+  assert.deepEqual(OFFICIAL_EVIDENCE.interactions.goldIntrinsicAbility.productionAssertions, [
+    "production boundary: a ready Gold pays Exhaust then Kill and adds Universal Power",
+    "production counterexample: the created Gold remains exhausted, fails the 187.5 Exhaust cost with cannot-pay-cost, and rolls back Board, events and Power"
   ]);
   for (const interaction of Object.values(OFFICIAL_EVIDENCE.interactions)) {
     assert.ok(interaction.productionTestNames.length > 0);
@@ -421,7 +410,7 @@ test("sfd-220-221 Treasure Hoard: here matches the source Battlefield by explici
   assert.equal(matchesTriggerEvent(translated, { ...selfConquer, details: { battlefieldId: "bf1" } }, "A", selfLocated), false);
 });
 
-test("sfd-220-221 Treasure Hoard production golden: default setup Conquers, pays at Finalize, creates Gold, and exposes the exhausted-entry failure", () => {
+test("sfd-220-221 Treasure Hoard production golden: default setup Conquers, pays at Finalize, and plays an exhausted Gold to Base", () => {
   const f = productionMatch();
   assert.deepEqual(f.lifecycleErrors, []);
   assert.equal(f.kernel.player("A").energy, 1);
@@ -455,8 +444,8 @@ test("sfd-220-221 Treasure Hoard production golden: default setup Conquers, pays
   assert.equal(gold.isToken, true);
   assert.deepEqual(gold.types, ["gear"]);
   assert.deepEqual(gold.location, { type: "base", player: "A" });
-  assert.equal(gold.exhausted, false,
-    "current production failure: the creating effect required exhausted, but TurnFlow readies played Gear");
+  assert.equal(gold.exhausted, true,
+    "the created token's stipulated exhausted entry survives its production Chain Play");
   const goldDraft = f.binding.describeActivate(gold, "A", 0);
   assert.equal(goldDraft.kind, "add");
   assert.equal(goldDraft.speed, "reaction");
@@ -471,6 +460,9 @@ test("sfd-220-221 Treasure Hoard production golden: default setup Conquers, pays
   assert.ok(f.match.flow.chain.trace.some((entry) => entry.step === "finalized" && entry.item === "trigger:1"));
   assert.ok(f.match.flow.chain.trace.some((entry) => entry.step === "resolved" && entry.item === "trigger:1"));
   const trace = f.match.flow.chain.trace.filter((entry) => entry.step === "focus-granted" || entry.step === "pass");
+  assert.ok(f.match.flow.chain.trace.some((entry) =>
+    entry.step === "resolved" && String(entry.item).startsWith(`play:${gold.ref.id}:`)),
+  "the played Gold resolves as its own Chain item");
   assert.deepEqual(trace.slice(-4), [
     { step: "focus-granted", player: "A" },
     { step: "focus-granted", player: "B" },
@@ -566,6 +558,31 @@ test("sfd-220-221 Treasure Hoard production boundary: Gold's canonical intrinsic
 
 });
 
+test("sfd-220-221 Treasure Hoard production counterexample: the exhausted Gold cannot pay its Exhaust cost", () => {
+  const f = productionMatch();
+  const raider = addRaider(f.kernel, { id: "exhausted-gold-raider" });
+  f.match.flow.move("A", raider, f.hoard.ref.id);
+  f.settle();
+  const receipt = f.kernel.linked("treasure-hoard.create.goldToken");
+  const gold = f.kernel.getObject(receipt.createdObjects[0].id);
+  assert.equal(gold.location.type, "base");
+  assert.equal(gold.location.player, "A");
+  assert.equal(gold.exhausted, true);
+  const before = f.kernel.snapshot();
+  const eventsBefore = structuredClone(f.kernel.events);
+  const draft = f.binding.describeActivate(gold, "A", 0);
+  assert.throws(
+    () => f.match.flow.chain.execute(draft),
+    (error) => error?.name === "CostPlanError" && error.reason === "cannot-pay-cost"
+  );
+  assert.deepEqual(f.kernel.snapshot(), before,
+    "the rejected Gold activation rolls back the whole Finalize transaction");
+  assert.deepEqual(f.kernel.events, eventsBefore);
+  assert.deepEqual(f.kernel.player("A").power, []);
+  assert.equal(f.kernel.getObject(gold.ref.id).zone, "board");
+  assert.equal(f.kernel.getObject(gold.ref.id).exhausted, true);
+});
+
 test("sfd-220-221 Treasure Hoard production counterexample: finalize order is Conquer -> Pending -> Finalize -> Resolve", () => {
   const f = productionMatch();
   const raider = addRaider(f.kernel, { id: "order-raider" });
@@ -654,7 +671,7 @@ test("sfd-220-221 Treasure Hoard production boundary: default setup and MatchCom
   const host = Object.assign(Object.create(Object.getPrototypeOf(pipelineHost)), pipelineHost, {
     player: (id) => kernel.player(id)
   });
-  const binding = createProgramBinding({ cardPrograms: [admitted] });
+  const binding = createProgramBinding({ cardPrograms: [program] });
   const match = createMatch({
     decks: [deck({ treasure: true }), deck()],
     seed: "treasure-hoard-setup",

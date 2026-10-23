@@ -2,9 +2,9 @@
 //
 // The public TurnFlow performs a real Move and Showdown close, publishes the
 // exact Conquer payload, and lets ProgramBinding/ChainEngine Finalize and
-// Resolve the authored trigger. RIFT-987's canonical Gold program is registered
-// alongside it, so the effect really creates and plays Gold on the Chain and the
-// resulting token owns its executable Reaction Add ability.
+// Resolve the authored trigger. RIFT-987's canonical Gold program and RIFT-1005's
+// entry-state carry are used together, so the effect really creates and plays
+// Gold on the Chain and the resulting token owns its executable Reaction Add.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -15,9 +15,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 import { getTokenDefinition } from "../../../../engine-core/dist/effects/tokens/definitions.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
-import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
-import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -34,10 +32,10 @@ const SFD_ERRATA_URL =
 
 const PRODUCTION_TEST_NAMES = Object.freeze({
   golden: "sfd-069-221 Plundering Poro production golden: exact Unit Conquer creates and plays bound Gold",
-  add: "sfd-069-221 Plundering Poro production boundary: bound Gold Add produces Universal Power",
+  add: "sfd-069-221 Plundering Poro production boundary: exhausted Gold waits for Awakening, then its bound Add produces Universal Power",
   wrongUnit: "sfd-069-221 Plundering Poro production counterexample: another friendly Unit Conquer never triggers",
   opponent: "sfd-069-221 Plundering Poro production counterexample: an opponent Unit Conquer never triggers",
-  noRepeat: "sfd-069-221 Plundering Poro production boundary: subsequent Conquer without this Unit creates no Gold"
+  secondBattlefield: "sfd-069-221 Plundering Poro production boundary: the same Unit Conquering another Battlefield creates another Gold"
 });
 
 // Official evidence is pinned to the reviewed snapshots named by the repository
@@ -92,11 +90,12 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
       replacement: "No replacement effect is supplied. CR 383.4.c.2.c only preserves the trigger if the point gain itself is replaced; this test does not invent that event.",
       layers: "The trigger uses the Conquer payload identity, not a continuous-effect layer.",
       lki: "No leaving-zone look-back is needed; the exact current Unit incarnation is present at the Conquered Battlefield.",
+      simultaneousTriggers: "This production scene creates one Conquer Effect at a time. If independent Conquer Effects triggered simultaneously, their controller chooses their order under 383.3.d and multiple controllers order in Turn Order under 303.2.a; no array position is treated as priority.",
       productionTestNames: Object.freeze([
         PRODUCTION_TEST_NAMES.golden,
         PRODUCTION_TEST_NAMES.wrongUnit,
         PRODUCTION_TEST_NAMES.opponent,
-        PRODUCTION_TEST_NAMES.noRepeat
+        PRODUCTION_TEST_NAMES.secondBattlefield
       ])
     }),
     Object.freeze({
@@ -113,16 +112,17 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
       ]),
       timeline: Object.freeze([
         "Resolve starts the Limited Play: effect.token creates the canonical CR 187.5 Gold token on the Chain at zero rule-level cost.",
-        "The created Gold enters the ordinary Finalize path, but current ChainEngine Resolve applies generic Gear-ready entry instead of the creating effect's exhausted stipulation. The production test pins this fail-closed mismatch.",
-        "The played Gear reaches its controller's Base on the Board and is bound to Gold's executable canonical card program; its catalog energy/power/might remain null.",
-        "The production probe confirms the token's [Reaction][>] Kill this, [E] Add is executable and yields one Universal Power source. The current ready-entry mismatch makes that ability reachable too early and therefore keeps the card judge-required.",
+        "The created Gold is the operand of its own Play Chain item. Finalize has no choices or printed payment; Resolve moves that exact incarnation to the controller's Base and preserves the creating effect's exhausted entry stipulation.",
+        "The played Gear is bound to Gold's executable canonical card program; its catalog energy/power/might remain null. While exhausted, Gold's [E] cost cannot be paid; the controller's next Awakening readies it ordinarily.",
+        "After Awakening, the token's [Reaction][>] Kill this, [E]: [Add] [A] is executable through the ordinary Chain and yields one Universal Power source.",
         "CR 135.2.e.5.a/b and 163.2.b allow that Universal source to pay a later named-Domain or [A] requirement; no named Domain is fabricated into the token itself."
       ]),
       priorityFocus: "The Conquer trigger's Resolve starts a Limited Play. Gold's Add is an immediate Add ability whose own Finalize/Resolve neither passes Priority nor Focus (430.2.a).",
-      responseWindow: "Players may respond to the Conquer trigger before its Resolve. After the Limited Play is created, its ordinary Play Finalize precedes Resolve; the later Gold Add has no reaction window of its own.",
-      replacement: "No replacement or prevention is authored for this clause. Current generic Gear-ready entry is the identified engine gap; a later Exhaust action would not be equivalent.",
+      responseWindow: "Players may respond to the Conquer trigger before its Resolve. The created token enters as its own Play Chain item with ordinary Finalize/Resolve boundaries; Gold's later Add itself resolves immediately without passing Priority or Focus.",
+      replacement: "No replacement or prevention is authored for this clause. CR 184.1's exhausted stipulation is preserved by the Play entry transition, while an unstipulated Gear keeps the ready default under 359.2.d.",
       layers: "The exhausted entry state is a Play entry stipulation, not a later Exhaust action or a continuous layer.",
       lki: "Gold is a new token incarnation bound on Board entry. Its Kill cost later moves that exact token to Trash; no unrelated carrier or stale incarnation is reused.",
+      simultaneousTriggers: "The token Play is one Limited Action initiated by the resolving instruction. This scene supplies no competing simultaneous trigger, so it does not assign a numeric priority to the Gold chain item.",
       productionTestNames: Object.freeze([PRODUCTION_TEST_NAMES.golden, PRODUCTION_TEST_NAMES.add])
     })
   ])
@@ -190,7 +190,7 @@ function productionFixture(scenario = "self", { turnPlayer = "A" } = {}) {
       bindResolveContext(kernel, { source, controller, timingPoint, choose }),
     testTrigger: registration => kernel.test(registration.spec.condition)
   });
-  const binding = createProgramBinding({ cardPrograms: admittedGoldPrograms() });
+  const binding = createProgramBinding({ cardPrograms: productionPrograms() });
   const flow = new TurnFlow({
     host,
     player: id => kernel.player(id),
@@ -213,7 +213,7 @@ function productionFixture(scenario = "self", { turnPlayer = "A" } = {}) {
   };
   flow.start();
   const move = (id, battlefieldId, controller = "A") => flow.execute({
-    id: `${turnPlayer}-${id}-move-${requests.length}`,
+    id: `${turnPlayer}-${id}-move-${flow.turn}-${requests.length}`,
     controller,
     source: kernel.getObject(id),
     kind: "activated",
@@ -250,30 +250,19 @@ function goldTokens(kernel) {
   return kernel.objects.filter(object => object.isToken && object.cardId === GOLD_ID);
 }
 
-// ProgramRegistry intentionally rejects judge-required cards. This lift changes
-// only the admission gate; the authored trigger and token instruction remain
-// byte-for-byte unchanged and every test still enters through productionPlay's
-// or TurnFlow's Create ProgramBinding + ChainEngine + lifecycle path.
-const admitted = { ...program, status: "executable", judgeReason: undefined };
-
-function admittedGoldPrograms() {
-  return [admitted, goldProgram];
+function productionPrograms() {
+  return [program, goldProgram];
 }
 
-test("sfd-069-221 Plundering Poro: validates, is registered and names the current entry-state gap", () => {
+test("sfd-069-221 Plundering Poro: validates and is registered as executable", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.deepEqual(result.issues, []);
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /engine\.ts:423-442 \/ 1578-1600/);
-  assert.match(program.judgeReason, /carried entersExhausted/);
-  assert.match(program.judgeReason, /CR 184\.1 and 185\.2\.a/);
-  assert.match(program.judgeReason, /149\.1 \/ 359\.2\.d/);
-  assert.match(program.judgeReason, /Universal Power source/);
-  assert.doesNotMatch(program.judgeReason, /effect\.resources\.ts:126-170|unverified Add shape/);
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.equal(cardRegistryById.get(CARD_ID), program);
   assert.equal(goldProgram.status, "executable");
   assert.equal(getTokenDefinition("gold")?.abilityBinding, "canonical-card-program");
@@ -306,6 +295,7 @@ test("sfd-069-221 Plundering Poro: official sources and production timelines are
     assert.ok(interaction.timeline.length >= 3);
     assert.match(interaction.priorityFocus, /Priority/);
     assert.match(interaction.responseWindow, /Reaction|Resolve|response/i);
+    assert.match(interaction.simultaneousTriggers, /383\.3\.d|303\.2\.a|no competing|does not assign/i);
     assert.ok(interaction.productionTestNames.every(name => productionNames.has(name)));
   }
   assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.interactions[1].goldCanonicalCardId, GOLD_ID);
@@ -358,11 +348,7 @@ test(PRODUCTION_TEST_NAMES.golden, () => {
   assert.equal(enteredGold.isToken, true);
   assert.deepEqual(enteredGold.types, ["gear"]);
   assert.equal(enteredGold.zone, "board");
-  // The reference state host currently lets ChainEngine apply its generic
-  // Gear-ready entry (359.2.d) after Play rather than the token instruction's
-  // exhausted stipulation. Reachability below proves this remains a production
-  // blocker under the current engine.
-  assert.equal(enteredGold.exhausted, false);
+  assert.equal(enteredGold.exhausted, true, "the creating effect's entry stipulation survives the token's own Play");
   assert.deepEqual(enteredGold.location, BASE_A);
   assert.equal(enteredGold.energy, null);
   assert.equal(enteredGold.power, null);
@@ -414,19 +400,43 @@ test(PRODUCTION_TEST_NAMES.add, () => {
   const f = productionFixture();
   f.move("poro", "bf1");
   f.settle();
-  assert.equal(goldTokens(f.kernel).length, 1);
-  const [gold] = goldTokens(f.kernel);
-  const playedGold = f.kernel.getObject(gold.ref.id);
+  const [firstGold] = goldTokens(f.kernel);
+  assert.ok(firstGold);
+  assert.equal(firstGold.zone, "board");
+  assert.deepEqual(firstGold.location, BASE_A);
+  assert.equal(firstGold.exhausted, true);
+  const playedGold = f.kernel.getObject(firstGold.ref.id);
   assert.equal(playedGold.zone, "board");
-  assert.equal(playedGold.exhausted, false, "current ChainEngine does not carry the token's exhausted entry stipulation");
+  assert.equal(playedGold.exhausted, true, "an exhausted Gold cannot satisfy its Exhaust cost");
   assert.equal(f.binding.activationAbilities(playedGold).length, 1, "the created carrier is bound to canonical Gold");
-  const draft = f.binding.describeActivate(f.kernel.getObject(gold.ref.id), "A", 0);
+  const draft = f.binding.describeActivate(f.kernel.getObject(firstGold.ref.id), "A", 0);
   assert.equal(draft.kind, "add");
   assert.equal(draft.speed, "reaction");
-  f.flow.chain.execute(draft);
+  assert.throws(
+    () => f.flow.chain.execute(draft),
+    error => error?.name === "CostPlanError" && error.reason === "cannot-pay-cost"
+  );
+  assert.deepEqual(f.kernel.player("A").power, []);
+  assert.equal(f.kernel.getObject(firstGold.ref.id).zone, "board");
+  assert.equal(f.kernel.getObject(firstGold.ref.id).exhausted, true);
+
+  while (f.flow.chain.items.length) f.flow.pass(f.flow.chain.priority);
+  f.flow.endTurn("A");
+  f.settle();
+  assert.equal(f.flow.turnPlayer, "B");
+  f.flow.endTurn("B");
+  f.settle();
+  assert.equal(f.flow.turnPlayer, "A");
+  const readiedGold = f.kernel.getObject(firstGold.ref.id);
+  assert.equal(readiedGold.exhausted, false, "the next Awakening Phase readies the Gear");
+
+  const readiedDraft = f.binding.describeActivate(readiedGold, "A", 0);
+  assert.equal(readiedDraft.kind, "add");
+  assert.equal(readiedDraft.speed, "reaction");
+  f.flow.chain.execute(readiedDraft);
   f.settle();
   assert.deepEqual(f.kernel.player("A").power, ["universal"]);
-  assert.equal(f.kernel.getObject(gold.ref.id).zone, "trash");
+  assert.equal(f.kernel.getObject(firstGold.ref.id).zone, "trash");
   const actions = f.kernel.events.map(event => event.action).filter(Boolean);
   assert.deepEqual(actions.slice(-3), ["exhaust", "kill", "gain-power"]);
   const timeline = f.flow.chain.pipeline.events.map(event => event.timingPoint);
@@ -456,20 +466,34 @@ for (const [name, scenario] of [
   });
 }
 
-test(PRODUCTION_TEST_NAMES.noRepeat, () => {
+test(PRODUCTION_TEST_NAMES.secondBattlefield, () => {
   const f = productionFixture();
   f.move("poro", "bf1");
   f.settle();
-  assert.equal(goldTokens(f.kernel).length, 1);
+  const [firstGold] = goldTokens(f.kernel);
+  assert.ok(firstGold);
+  assert.equal(firstGold.zone, "board");
+  assert.deepEqual(firstGold.location, BASE_A);
+  assert.equal(firstGold.exhausted, true);
 
-  const translated = translateTriggerFilter(ability.trigger.filter, "poro", "conquer");
-  const [conquer] = conquers(f);
-  assert.equal(matchesTriggerEvent(translated, conquer, "A"), true);
-  const laterConquer = { ...conquer, object: f.kernel.getObject("poro"), source: f.kernel.getObject("poro"), it: f.kernel.getObject("poro") };
-  assert.equal(matchesTriggerEvent(translated, laterConquer, "A"), true);
-  // CR 472/473.2.c: scoring the same Battlefield again this turn emits no new
-  // Conquer event, so the earlier event cannot be replayed into a free token.
-  assert.equal(conquers(f).length, 1);
-  assert.equal(goldTokens(f.kernel).length, 1);
-  assert.deepEqual(f.kernel.pendingItems, []);
+  f.flow.endTurn("A");
+  f.settle();
+  assert.equal(f.flow.turnPlayer, "B");
+  f.flow.endTurn("B");
+  f.settle();
+  assert.equal(f.flow.turnPlayer, "A");
+  assert.equal(f.kernel.getObject("poro").exhausted, false);
+  f.move("poro", "bf2");
+  f.settle();
+
+  assert.equal(conquers(f).length, 2);
+  assert.deepEqual(conquers(f).map(event => event.details.battlefieldId), ["bf1", "bf2"]);
+  const tokens = goldTokens(f.kernel);
+  assert.equal(tokens.length, 2);
+  assert.equal(tokens[0].ref.id, firstGold.ref.id);
+  assert.equal(tokens[0].exhausted, false, "the first Gold was readied by A's intervening Awakening Phase");
+  assert.equal(tokens[1].zone, "board");
+  assert.deepEqual(tokens[1].location, BASE_A);
+  assert.equal(tokens[1].exhausted, true, "the newly produced second Gold enters exhausted");
+  assert.deepEqual(f.errors, []);
 });

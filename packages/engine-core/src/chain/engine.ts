@@ -28,6 +28,7 @@ import { controlNodeTargetRequirements, finalizeCostPlanInput, finalizeInstructi
 import { collectTargetTaxes } from '../target/tax/index.js';
 import { boundTargetTaxes, ignoresTargetTax, staticCostSources } from '../programs/static-adapters/capabilities.js';
 import { finalizeCostPlan, type CostDiscountSources, type FinalizedCardPlay, type StaticCostAbility } from '../cost/discounts/index.js';
+import { bindWeaponmasterNoEquipPolicy } from '../effects/instructions/cost.modify.js';
 
 function chainDraftPrefix(item: ChainDraft, turn: number): string {
   const source = item.trigger?.source.ref ?? item.source.ref;
@@ -362,6 +363,28 @@ export interface ChainEngineOptions {
    * The Chain keeps the actual checkpoint privately for its own journal replay.
    */
   readonly paymentContinuation?: PaymentContinuationHostPort;
+}
+
+/**
+ * The only Resolve failure Chain can turn into a no-attachment completion.
+ * Requiring the exact expanded Weaponmaster body plus its locked target keeps
+ * ordinary cannot-pay failures exceptional.
+ */
+function isWeaponmasterUnpayableResolve(item: ChainItem, error: unknown): boolean {
+  return error instanceof CostPlanError && error.reason === 'cannot-pay-cost' && isWeaponmasterResolveShape(item);
+}
+
+function isWeaponmasterResolveShape(item: ChainItem): boolean {
+  if (item.source.cardId !== 'card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef' ||
+      item.kind !== 'triggered' || item.body.length !== 1 || item.body[0]?.op !== 'sequence' ||
+      !item.targetPlans.some(plan => plan.requirement.id === 'weaponmaster-equipment' && plan.selected.length === 1)) {
+    return false;
+  }
+  const body = item.body[0].args.body;
+  if (body === undefined || (body.kind !== 'constant' && body.kind !== 'literal') || !Array.isArray(body.value)) return false;
+  return body.value.some(candidate => candidate.id === 'weaponmaster-cost' && candidate.op === 'cost.modify') &&
+    body.value.some(candidate => candidate.id === 'weaponmaster-pay' && candidate.op === 'cost.pay') &&
+    body.value.some(candidate => candidate.id === 'weaponmaster-attach' && candidate.op === 'effect.attach');
 }
 
 /** RIFT-999 debug: report the first field where a cached layered view differs from a fresh pass. */
@@ -1732,7 +1755,19 @@ export class ChainEngine {
             : {})
         };
       const beforeMight = this.layerObjects();
-      const result = resolveChainBody(item.body, context, { ...conditionInputs, targetPlans: item.targetPlans });
+      let result: ExecutionOutcome;
+      try {
+        if (isWeaponmasterResolveShape(item)) {
+          bindWeaponmasterNoEquipPolicy(context.contractActions);
+        }
+        result = resolveChainBody(item.body, context, { ...conditionInputs, targetPlans: item.targetPlans });
+      } catch (error) {
+        if (!isWeaponmasterUnpayableResolve(item, error)) throw error;
+        // CR 821.1.c.5 is a no-attachment result, not a zero-cost payment. The
+        // inner transaction rolled back resources/events. The Chain item
+        // completes without a payment receipt, so linkedTo never attaches.
+        result = { status: 'executed', results: [], linkedValues: {}, events: [] };
+      }
       this.publishMightChanges(beforeMight, item.source, `resolve:${item.id}`);
       if (item.kind === 'spell' || item.kind === 'unit' || item.kind === 'gear') {
         const playedObject = this.options.host.objects().find(object => object.ref.id === item.source.ref.id) ?? item.source;
