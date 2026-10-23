@@ -13,6 +13,7 @@ import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
+import orbOfRegret from "../../../dist/cards/ogn/orb-of-regret.js";
 
 const IDS = {
   forgottenMonument: "card.hash-b6280b20779b152b78ff7c32ddd405d6d7c490bb00b2e8939b821030dffcab90",
@@ -111,18 +112,29 @@ const rows = [
     },
   },
   {
-    name: "Ornn's Forge · published first non-token gear discount enters the lifecycle",
+    name: "Ornn's Forge · the first non-token Gear costs 1 Energy less",
     canonicalCardId: IDS.ornnsForge,
     program: program(IDS.ornnsForge),
     scenario: {
-      objects: [{ id: "forge", cardId: IDS.ornnsForge, types: ["battlefield"], zone: "board", location: { type: "battlefield", id: "bf-1" } }],
-      operations: [],
-      expect: {},
+      players: { A: { energy: 3 } },
+      objects: [
+        { id: "forge", cardId: IDS.ornnsForge, types: ["battlefield"], zone: "board", location: { type: "battlefield", id: "bf-1" }, controller: "A" },
+        { id: "gear-1", program: orbOfRegret, cardId: orbOfRegret.canonicalCardId, types: ["gear"], zone: "hand", energy: 1, power: null },
+        { id: "gear-2", program: orbOfRegret, cardId: orbOfRegret.canonicalCardId, types: ["gear"], zone: "hand", energy: 1, power: null },
+      ],
+      operations: [
+        { type: "play", object: "gear-1", player: "A" },
+        { type: "play", object: "gear-2", player: "A" },
+      ],
+      expect: {
+        objects: {
+          forge: { zone: "board" },
+          "gear-1": { zone: "board" },
+          "gear-2": { zone: "board" },
+        },
+        players: { A: { energy: 2 } },
+      },
     },
-    // RIFT-1023 promoted the rule after the first-Gear window and Finalize
-    // consumer landed. Its dedicated production golden covers the discount;
-    // this lifecycle row verifies the source itself enters as executable.
-    executable: true,
   },
   {
     name: "Purifier · your Equipment gains Assault",
