@@ -6,7 +6,7 @@ import { evaluateCondition } from '../effects/interpreter/condition.js';
 import { evaluateExpression } from '../effects/interpreter/expr.js';
 import { queryObjects } from '../effects/interpreter/selectors.js';
 import { ContinuousEffectRegistry } from '../layers/duration.js';
-import { LayerEngine } from '../layers/engine.js';
+import { LayerEngine, bumpDerivedLayerEpoch } from '../layers/engine.js';
 import { matchesObjectFilter } from '../layers/filter.js';
 import { refKey, sameRef, type LayeredObjectSnapshot, type RegisteredContinuousEffect, type TimingEvent } from '../layers/types.js';
 import { ProgramBindingError } from './errors.js';
@@ -211,12 +211,22 @@ export interface KeywordGrantLayerOptions {
  */
 export class KeywordGrantLayerEngine extends LayerEngine {
   private readonly generated = new Set<string>();
-  private view = new Map<string, LayeredObjectSnapshot>();
-  private expansions = new Map<string, EffectiveKeywordExpansion>();
-  private grantedAbilities = new Map<string, readonly GrantedKeywordAbilityEntry[]>();
+  // RIFT-999: every write to the derived view state bumps the shared derived
+  // layer epoch, which keys ChainEngine's stable layered-view cache.
+  private viewState = new Map<string, LayeredObjectSnapshot>();
+  private expansionState = new Map<string, EffectiveKeywordExpansion>();
+  private grantedAbilityState = new Map<string, readonly GrantedKeywordAbilityEntry[]>();
+  private get view(): Map<string, LayeredObjectSnapshot> { return this.viewState; }
+  private set view(value: Map<string, LayeredObjectSnapshot>) { this.viewState = value; bumpDerivedLayerEpoch(); }
+  private get expansions(): Map<string, EffectiveKeywordExpansion> { return this.expansionState; }
+  private set expansions(value: Map<string, EffectiveKeywordExpansion>) { this.expansionState = value; bumpDerivedLayerEpoch(); }
+  private get grantedAbilities(): Map<string, readonly GrantedKeywordAbilityEntry[]> { return this.grantedAbilityState; }
+  private set grantedAbilities(value: Map<string, readonly GrantedKeywordAbilityEntry[]>) { this.grantedAbilityState = value; bumpDerivedLayerEpoch(); }
   private readonly priorGrantedRefs = new Map<string, ObjectRef>();
   private readonly lifecycleKeywords: Set<string>;
   private refreshing = false;
+  private batchDepth = 0;
+  private batchRevision: number | undefined;
 
   constructor(objects: readonly ObjectSnapshot[], private readonly options: KeywordGrantLayerOptions) {
     super(objects, options.registry);
@@ -247,8 +257,20 @@ export class KeywordGrantLayerEngine extends LayerEngine {
   }
 
   override setObjects(objects: Parameters<LayerEngine['setObjects']>[0]): void {
+    this.batchRevision = undefined;
     this.clearGenerated();
     super.setObjects(objects);
+  }
+  /**
+   * RIFT-999: within one synchronous sweep (fixed host objects) reuse the last
+   * completed refresh while the shared registry revision is unchanged, instead
+   * of re-deriving every keyword expansion once per queried object.
+   */
+  withBatch<T>(run: () => T): T {
+    this.batchDepth++;
+    try { return run(); } finally {
+      if (--this.batchDepth === 0) this.batchRevision = undefined;
+    }
   }
   override addContinuous(effect: ContinuousEffectSpec, duration: Duration, timestamp?: number): RegisteredContinuousEffect {
     this.clearGenerated();
@@ -522,6 +544,8 @@ export class KeywordGrantLayerEngine extends LayerEngine {
 
   private refresh(): void {
     if (this.refreshing) return;
+    if (this.batchDepth > 0 && this.batchRevision !== undefined && this.batchRevision === this.registry.revision) return;
+    this.batchRevision = undefined;
     this.refreshing = true;
     this.clearGenerated();
     try {
@@ -572,6 +596,7 @@ export class KeywordGrantLayerEngine extends LayerEngine {
             this.generated.add(effect.id);
           }
           this.reconcileGrantedAbilities(grantedAbilities);
+          if (this.batchDepth > 0) this.batchRevision = this.registry.revision;
           return;
         }
         previous = signature;
@@ -583,6 +608,7 @@ export class KeywordGrantLayerEngine extends LayerEngine {
       this.clearGenerated();
       this.view.clear();
       this.expansions.clear();
+      bumpDerivedLayerEpoch();
       this.reconcileGrantedAbilities(new Map());
       throw error;
     } finally {

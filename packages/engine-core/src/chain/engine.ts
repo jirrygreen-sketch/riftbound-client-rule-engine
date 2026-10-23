@@ -9,7 +9,7 @@ import { buildCostPlan } from '../cost/cost-plan.js';
 import { assessCostPayment, payCostPlan } from '../cost/payment.js';
 import { CostPlanError, type CostComponentInput, type CostPlan, type CostPlanInput, type CostPaymentReceipt } from '../cost/plan-types.js';
 import { finalizeTargetPlan, resolveTargetPlan, TargetSelectionError, type TargetFinalizeOptions, type TargetPlan, type TargetRequirement } from '../target/target-plan.js';
-import { LayerEngine } from '../layers/engine.js';
+import { LayerEngine, derivedLayerEpoch } from '../layers/engine.js';
 import { matchesObjectFilter } from '../layers/filter.js';
 import { actionTimings, canAct as canActByRules, playLocations, restrictions as ruleRestrictions } from '../layers/rules/query.js';
 import type { RegisteredContinuousEffect } from '../layers/types.js';
@@ -364,6 +364,35 @@ export interface ChainEngineOptions {
   readonly paymentContinuation?: PaymentContinuationHostPort;
 }
 
+/** RIFT-999 debug: report the first field where a cached layered view differs from a fresh pass. */
+function assertSameLayerView(kind: string, memo: readonly ObjectSnapshot[], fresh: readonly ObjectSnapshot[]): void {
+  const index = (view: readonly ObjectSnapshot[]) => new Map(view.map(object => [`${object.ref.id}:${object.ref.zoneEntryId}`, object]));
+  const a = index(memo); const b = index(fresh);
+  for (const key of new Set([...a.keys(), ...b.keys()])) {
+    const x = a.get(key) as Record<string, unknown> | undefined; const y = b.get(key) as Record<string, unknown> | undefined;
+    if (!x || !y) throw new Error(`RIFT-999 ${kind} layer memo drifted: object ${key} ${x ? 'missing from fresh' : 'missing from memo'}`);
+    for (const field of new Set([...Object.keys(x), ...Object.keys(y)])) {
+      if (JSON.stringify(x[field]) !== JSON.stringify(y[field])) {
+        throw new Error(`RIFT-999 ${kind} layer memo drifted: ${key}.${field} memo=${JSON.stringify(x[field])?.slice(0, 200)} fresh=${JSON.stringify(y[field])?.slice(0, 200)}`);
+      }
+    }
+  }
+}
+
+/**
+ * RIFT-999: monotonic epoch bumped around every host write or rollback routed
+ * through a ChainEngine (execute, contract execution, restore, atomic
+ * rollback). Module-level so an Object.assign rollback of engine fields can
+ * never rewind it and revive a stale cached layered view.
+ */
+let hostWriteEpoch = 0;
+
+/** Debug switch for RIFT-999's stable layered-view cache; inert outside Node. */
+function layerMemoCheck(): boolean {
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+  return env?.RIFT_LAYER_MEMO_CHECK === '1';
+}
+
 /** The new rules layer. Legacy duel runtimes deliberately do not call it yet. */
 export class ChainEngine {
   readonly pipeline: EventPipeline;
@@ -411,12 +440,18 @@ export class ChainEngine {
     } = {
       ...options.host,
       checkpoint: () => options.host.checkpoint(),
-      restore: checkpoint => options.host.restore(checkpoint),
+      restore: checkpoint => { hostWriteEpoch++; options.host.restore(checkpoint); },
       choose: request => options.host.choose(request),
       objects: () => this.layerObjects(),
       context: (source, controller, at) => this.hostObjectContext(source, controller, at),
       finalizedCardPlaysThisTurn: () => this.finalizedPlaysThisTurn,
       execute: action => this.executeStateAction(action),
+      ...(options.host.executeContract === undefined ? {} : {
+        executeContract: (action: Parameters<NonNullable<PipelineHost['executeContract']>>[0]) => {
+          hostWriteEpoch++;
+          try { return options.host.executeContract!(action); } finally { hostWriteEpoch++; }
+        },
+      }),
     };
     this.chainHost = chainHost;
     this.pipeline = new EventPipeline(this.chainHost, options.turnOrder, options.turnPlayer);
@@ -561,6 +596,32 @@ export class ChainEngine {
       event.timingPoint === 'control-established' ? event.player ?? null : null);
   }
   private layerPassInFlight = false;
+  private stableLayerDepth = 0;
+  private stableLayerView: {
+    readonly revision: number; readonly mutations: number; readonly epoch: number; readonly view: readonly ObjectSnapshot[];
+  } | undefined;
+
+  /**
+   * RIFT-999: lifecycle and keyword re-expansion sweep every object and read
+   * the layered host view once per object. Inside one synchronous sweep the
+   * host objects do not change; only registrations do. Reuse the last complete
+   * top-level layered view while neither the shared registry revision nor any
+   * host write routed through this engine has changed, so a sweep costs one
+   * layer pass instead of one per object. A registry write (a static bound
+   * during the sweep) or a host write (an effect resolving inside an event
+   * handler) invalidates the view immediately, and so does any change to
+   * derived keyword-grant state (derivedLayerEpoch), which this view reads
+   * while a keyword refresh is in progress.
+   * Target planning and Resolve-time target revalidation use the same window:
+   * enumerating legal candidates reads each candidate through the host but
+   * changes neither objects nor registry.
+   */
+  withStableLayers<T>(run: () => T): T {
+    this.stableLayerDepth++;
+    try { return run(); } finally {
+      if (--this.stableLayerDepth === 0) this.stableLayerView = undefined;
+    }
+  }
   private layerObjects(): readonly ObjectSnapshot[] {
     // RIFT-927: static/keyword adapters resolve live sources through the
     // pipeline host, which is this layered view. Re-entering it while a layered
@@ -572,10 +633,38 @@ export class ChainEngine {
     // cycle restart) then supplies the layered characteristics that conditions
     // and filters depend on, exactly as a direct nested evaluation does.
     if (this.layerPassInFlight) return this.layers.evaluateAll();
+    // Any other read nested inside this engine's own evaluation keeps the
+    // pre-memo reentrant semantics.
+    if (this.layers.inEvaluation) return this.freshLayerObjects();
+    const stable = this.stableLayerDepth > 0 ? this.stableLayerView : undefined;
+    if (stable !== undefined && stable.revision === this.layers.registry.revision &&
+        stable.mutations === hostWriteEpoch && stable.epoch === derivedLayerEpoch()) {
+      if (layerMemoCheck()) assertSameLayerView('stable', stable.view, this.freshLayerObjects());
+      return stable.view;
+    }
+    const view = this.freshLayerObjects();
+    if (this.stableLayerDepth > 0) {
+      this.stableLayerView = { revision: this.layers.registry.revision, mutations: hostWriteEpoch, epoch: derivedLayerEpoch(), view };
+    }
+    return view;
+  }
+  /** One complete top-level layered pass over the current host objects. */
+  private freshLayerObjects(): readonly ObjectSnapshot[] {
+    return this.layeredPass(() => this.layers.evaluateAll());
+  }
+  /**
+   * Run a read against this engine's layers as one layered pass: set the
+   * objects once at the top level, and let reads nested inside the pass
+   * (live sources resolved through the pipeline host) evaluate on the
+   * in-flight engine instead of resetting it (RIFT-927, RIFT-999).
+   */
+  private layeredPass<T>(read: () => T): T {
+    if (this.layerPassInFlight) return read();
     this.layerPassInFlight = true;
     this.hostReadSnapshot = this.options.host.objects();
     try {
-      this.layers.setObjects(this.hostObjects()); return this.layers.evaluateAll();
+      this.layers.setObjects(this.hostObjects());
+      return read();
     } finally {
       this.layerPassInFlight = false;
       this.hostReadSnapshot = undefined;
@@ -584,7 +673,9 @@ export class ChainEngine {
   private executeStateAction(action: GameAction) {
     const key = (object: ObjectSnapshot) => JSON.stringify(object.ref);
     const before = new Map(this.layerObjects().map(object => [key(object), object]));
+    hostWriteEpoch++;
     const execution = this.options.host.execute(action);
+    hostWriteEpoch++;
     const after = new Map(this.layerObjects().map(object => [key(object), object]));
     const snapshot = (object: ObjectSnapshot | undefined, previous = false) => object ? (previous ? before.get(key(object)) : after.get(key(object))) ?? before.get(key(object)) ?? object : undefined;
     return { ...execution, emissions: execution.emissions.map(event => ({ ...event, object: snapshot(event.object, event.timingPoint.startsWith('object-leaves-') || event.timingPoint === 'object-killed'), source: snapshot(event.source, true), target: snapshot(event.target) })) };
@@ -668,7 +759,7 @@ export class ChainEngine {
       const suspendedHandle = this.paymentSuspended ? this.paymentContinuation : null;
       const suspendedCheckpoint = this.paymentSuspended ? this.paymentContinuationCheckpoint : null;
       const pendingFinalizeAnswers = error instanceof AwaitChoice ? new Map(this.finalizeAnswers) : undefined;
-      this.options.host.restore(host); this.pipeline.restore(events); Object.assign(this, saved);
+      hostWriteEpoch++; this.options.host.restore(host); this.pipeline.restore(events); Object.assign(this, saved);
       this.choiceMemory.restore(saved.choiceMemorySnapshot);
       if (pendingFinalizeAnswers !== undefined) this.finalizeAnswers = new Map([...saved.finalizeAnswers, ...pendingFinalizeAnswers]);
       this.layers.registry.clear();
@@ -690,8 +781,7 @@ export class ChainEngine {
     // usable even before an extra continuous grant is registered.
     const grants = new Set<string>(speed === 'normal' ? [] : [speed]);
     if (ref !== undefined) {
-      this.layers.setObjects(this.hostObjects());
-      const snapshot = object === undefined ? this.layers.evaluate(ref) : object;
+      const snapshot = object === undefined ? this.layeredPass(() => this.layers.evaluate(ref)) : object;
       for (const timing of actionTimings(this.layers.registry, ref, snapshot, player)) grants.add(timing);
     }
     return canActByRules({
@@ -812,16 +902,15 @@ export class ChainEngine {
       },
       targets: id => targets.get(id) ?? [],
       picks: id => lockedOrderedPicks((item as Partial<ChainItem>).pickPlans ?? [], id) ?? base.picks(id),
-      object: ref => { this.layers.setObjects(this.hostObjects()); return this.layers.evaluate(ref); },
-      query: filter => {
-        this.layers.setObjects(this.hostObjects());
+      object: ref => this.layeredPass(() => this.layers.evaluate(ref)),
+      query: filter => this.layeredPass(() => {
         const normalized = { ...filter };
         for (const key of ['controller', 'owner']) if (normalized[key] === 'self') normalized[key] = item.controller;
         return this.layers.evaluateAll().filter(object => {
           for (const key of ['controller', 'owner'] as const) if (normalized[key] === 'opponent' && object[key] === item.controller) return false;
           return matchesObjectFilter({ ...normalized, ...(normalized.controller === 'opponent' ? { controller: 'any' } : {}), ...(normalized.owner === 'opponent' ? { owner: 'any' } : {}) }, object);
         });
-      },
+      }),
       perform: action => this.commit(action.type === 'create-token' && action.to === undefined ? { ...action, to: 'board' } : action),
       addContinuous: (effect, duration) => { this.layers.addContinuous(effect, duration); this.requestCleanup('continuous-effect'); },
       registerDelayedTrigger: (spec, body) => this.pipeline.registerTrigger({ id: `delayed:${++this.delayedSequence}`, source, controller: item.controller, spec: spec as unknown as TriggerSnapshot['registration']['spec'], body, delayed: true })
@@ -832,8 +921,7 @@ export class ChainEngine {
     } });
     for (const plan of targetPlans) {
       if (repeatExecution !== undefined && plan.repeatIndex !== repeatExecution) continue;
-      const resolution = resolveTargetPlan(context, plan, {
-        isPending: ref => this.isPending(ref),
+      const resolution = resolveTargetPlan(context, plan, { stableReads: run => this.withStableLayers(run), isPending: ref => this.isPending(ref),
         isLegal: snapshot => this.targetIsLegal(snapshot, item.controller),
       });
       const existing = targets.get(plan.requirement.id) ?? [];
@@ -923,8 +1011,7 @@ export class ChainEngine {
           }
           for (const planned of plannedTargets) {
             const configured = item.targets?.find(target => target.requirement.id === planned.requirement.id);
-            const finalized = finalizeTargetPlan(context, planned.requirement, {
-              ...(configured?.options ?? {}),
+            const finalized = finalizeTargetPlan(context, planned.requirement, { stableReads: run => this.withStableLayers(run), ...(configured?.options ?? {}),
               ...(planned.selected === undefined ? {} : { selected: planned.selected }),
               mode: planned.mode,
               repeatIndex: planned.repeatIndex,
@@ -950,8 +1037,7 @@ export class ChainEngine {
           const targetSpecs = item.targets ?? item.body.flatMap(instruction => (instruction.targets ?? []).map(requirement => ({ requirement })));
           for (const target of targetSpecs) {
             const explicitTargetTax = target.requirement.id;
-            const plan = finalizeTargetPlan(context, target.requirement, {
-              ...('options' in target ? target.options : {}),
+            const plan = finalizeTargetPlan(context, target.requirement, { stableReads: run => this.withStableLayers(run), ...('options' in target ? target.options : {}),
               isPending: ref => this.isPending(ref),
               isLegal: (snapshot, phase) => {
                 const existing = 'options' in target ? target.options?.isLegal : undefined;
@@ -1037,8 +1123,7 @@ export class ChainEngine {
             const targetSpecs = item.targets ?? item.body.flatMap(instruction =>
               (instruction.targets ?? []).map(requirement => ({ requirement })));
             for (const target of targetSpecs) {
-              item.targetPlans.push(finalizeTargetPlan(context, target.requirement, {
-                ...('options' in target ? target.options : {}),
+              item.targetPlans.push(finalizeTargetPlan(context, target.requirement, { stableReads: run => this.withStableLayers(run), ...('options' in target ? target.options : {}),
                 repeatIndex: 0,
                 isPending: ref => this.isPending(ref),
                 isLegal: (snapshot, phase) => {
@@ -1071,8 +1156,7 @@ export class ChainEngine {
           for (let repeatIndex = 1; repeatIndex <= paidRepeatCount; repeatIndex++) {
             for (const original of originals) {
               const configured = item.targets?.find(target => target.requirement.id === original.requirement.id);
-              const selected = finalizeTargetPlan(context, original.requirement, {
-                ...(configured?.options ?? {}),
+              const selected = finalizeTargetPlan(context, original.requirement, { stableReads: run => this.withStableLayers(run), ...(configured?.options ?? {}),
                 repeatIndex,
                 isPending: ref => this.isPending(ref),
                 isLegal: snapshot => {
@@ -1496,8 +1580,7 @@ export class ChainEngine {
   }
   private assertFinalizedTargetsLegal(item: ChainItem, boundary: 'before Pay Costs' | 'after the Reaction Add'): void {
     for (const plan of item.targetPlans) {
-      const resolution = resolveTargetPlan(this.context(item, 'chain-item-finalize', [], item.choicePlan, plan.repeatIndex), plan, {
-        isPending: ref => this.isPending(ref), isLegal: snapshot => this.targetIsLegal(snapshot, item.controller),
+      const resolution = resolveTargetPlan(this.context(item, 'chain-item-finalize', [], item.choicePlan, plan.repeatIndex), plan, { stableReads: run => this.withStableLayers(run), isPending: ref => this.isPending(ref), isLegal: snapshot => this.targetIsLegal(snapshot, item.controller),
       });
       if (resolution.invalid.length > 0 || resolution.status !== 'resolved' ||
           resolution.selected.length !== plan.selected.length) {
