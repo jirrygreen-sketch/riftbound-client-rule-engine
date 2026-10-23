@@ -18,7 +18,6 @@ const { bindResolveContext, createActionPipelineHost } = await import(new URL("e
 const { TurnFlow } = await import(new URL("turn/flow.js", engineCore));
 const { productionPlay } = await import("../../fixtures/production-play.mjs");
 
-const admitted = { ...program, status: "executable", judgeReason: undefined };
 const CARD_ID = "card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef";
 const SOURCE_TEXT =
   "[Weaponmaster] (When you play me, you may [Equip] one of your Equipment to me for :rb_rune_rainbow: less, even if it's already attached.)\n" +
@@ -38,14 +37,18 @@ const PRODUCTION_TEST_NAMES = Object.freeze({
     "production golden: Weaponmaster commits a Universal `any` Power lot for the remaining [A]",
   reattach:
     "production golden: Weaponmaster may reattach an Equipment already attached to another Unit",
+  friendlyOnly:
+    "production boundary: Weaponmaster offers only Equipment controlled by Lucian's controller",
   conquerOnce:
     "production golden: a second real Conquer in the same turn cannot trigger `ready me` again",
   resolveCost:
     "production golden: Weaponmaster resolves its Equip cost before attaching",
-  noEquipCostBlocker:
-    "production blocker: selecting Equipment without an Equip cost raises judge-required instead of leaving it unattached",
-  unpayableEquipBlocker:
-    "production blocker: an unpayable selected Equip cost aborts Resolve instead of leaving the Equipment unattached"
+  noEquipCost:
+    "production boundary: Equipment without an Equip ability stays in place and Resolve completes",
+  unpayableEquip:
+    "production boundary: an unpayable Equip cost preserves resources and the old attachment while Resolve completes",
+  malformedEquipCost:
+    "production boundary: malformed Equip data fails closed without payment or attachment"
 });
 
 const equipmentKeywords = (ability) => ({
@@ -133,22 +136,15 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
         "CR 303.2.a supplies no universal queue or numeric priority. This card contributes one card-played trigger here; a separate Weaponmaster instance would trigger separately under 821.1.c.7, while no simultaneous instances are created by this production scene.",
       lki:
         "The selected Equipment is locked by exact current incarnation. Neither payment nor attachment moves it to a non-Board Zone, so Resolve reads its current Board snapshot and preserves its controller. No guessed last-known cost is needed.",
-      currentBlocker:
-        Object.freeze({
-          references: Object.freeze([
-            "engine-core/src/effects/instructions/cost.pay.ts:192-230",
-            "engine-core/src/chain/engine.ts:1612",
-            "engine-core/src/effects/instructions/cost.modify.ts:435-443"
-          ]),
-          effect: "A legal no-Equip-cost or insufficient-cost selection throws instead of resolving to a retained, unattached Equipment."
-        }),
       productionTestNames: Object.freeze([
         PRODUCTION_TEST_NAMES.namedPower,
         PRODUCTION_TEST_NAMES.universalPower,
         PRODUCTION_TEST_NAMES.reattach,
+        PRODUCTION_TEST_NAMES.friendlyOnly,
         PRODUCTION_TEST_NAMES.resolveCost,
-        PRODUCTION_TEST_NAMES.noEquipCostBlocker,
-        PRODUCTION_TEST_NAMES.unpayableEquipBlocker
+        PRODUCTION_TEST_NAMES.noEquipCost,
+        PRODUCTION_TEST_NAMES.unpayableEquip,
+        PRODUCTION_TEST_NAMES.malformedEquipCost
       ])
     }),
     Object.freeze({
@@ -206,29 +202,14 @@ test("program passes validateCardProgram", () => {
   assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
 });
 
-test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () => {
+test("identity: canonicalCardId, ruleset, executable status and sourceText", () => {
   assert.equal(
     program.canonicalCardId,
     "card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef"
   );
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /Weaponmaster/);
-  assert.match(program.judgeReason, /Universal Power/);
-  assert.match(program.judgeReason, /204\.3\.a/);
-  assert.match(program.judgeReason, /can't-pay-cost|cannot-pay-cost/);
-  assert.match(program.judgeReason, /cost\.pay\.ts:192-230/);
-  assert.match(program.judgeReason, /engine\.ts:1612/);
-  assert.match(program.judgeReason, /821\.1\.c\.4\/\.c\.5/);
-  assert.match(program.judgeReason, /cost\.modify\.ts:435-443/);
-  assert.doesNotMatch(program.judgeReason, /missing authoritative Equip-cost binding/);
-  assert.doesNotMatch(program.judgeReason, /resolve-start/);
-  assert.doesNotMatch(program.judgeReason, /383\.3\.b\.1 \/ 404\.1\.b\.1 \/ 405\.1/);
-  assert.doesNotMatch(program.judgeReason, /Universal Power 资源提交/);
-  assert.doesNotMatch(program.judgeReason, /PlayerSnapshot\.power 仍只有六域/);
-  assert.doesNotMatch(program.judgeReason, /test-kernel\.ts:572-592/);
-  assert.doesNotMatch(program.judgeReason, /host\.ts:760-771/);
-  assert.doesNotMatch(program.judgeReason, /ObjectSnapshot 没有权威/);
+  assert.equal(program.status, "executable");
+  assert.equal(Object.hasOwn(program, "judgeReason"), false);
   assert.ok(program.sourceText.includes("[Weaponmaster]"));
   assert.ok(program.sourceText.includes("The first time I conquer each turn, ready me."));
 });
@@ -265,9 +246,11 @@ test("official effect-order evidence binds every card production assertion", () 
     PRODUCTION_TEST_NAMES.namedPower,
     PRODUCTION_TEST_NAMES.universalPower,
     PRODUCTION_TEST_NAMES.reattach,
+    PRODUCTION_TEST_NAMES.friendlyOnly,
     PRODUCTION_TEST_NAMES.resolveCost,
-    PRODUCTION_TEST_NAMES.noEquipCostBlocker,
-    PRODUCTION_TEST_NAMES.unpayableEquipBlocker
+    PRODUCTION_TEST_NAMES.noEquipCost,
+    PRODUCTION_TEST_NAMES.unpayableEquip,
+    PRODUCTION_TEST_NAMES.malformedEquipCost
   ]);
   assert.deepEqual(conquer.productionTestNames, [PRODUCTION_TEST_NAMES.conquerOnce]);
   for (const rule of ["135.2.e.5.a", "163.2.b", "204.3", "204.3.a", "821.1.c.5"]) {
@@ -279,7 +262,7 @@ test("official effect-order evidence binds every card production assertion", () 
   assert.match(weaponmaster.priorityFocus, /neither passes Priority nor grants Focus/u);
   assert.match(weaponmaster.responseWindow, /430\.3/u);
   assert.match(weaponmaster.cardTextControl, /CR 002 and 051/u);
-  assert.match(weaponmaster.currentBlocker.effect, /throws instead/u);
+  assert.equal(Object.hasOwn(weaponmaster, "currentBlocker"), false);
   assert.match(conquer.timeline[3], /frequency key/u);
   assert.match(conquer.lki, /same Unit incarnation/u);
 });
@@ -402,8 +385,7 @@ function conquerFixture({ includeLucian = true, extraParticipant = false, lucian
     battlefields: [{ id: "bf1", controller: null }, { id: "bf2", controller: null }],
     victoryScore: 20
   });
-  const admitted = { ...program, status: "executable", judgeReason: undefined };
-  const binding = createProgramBinding({ cardPrograms: [admitted] });
+  const binding = createProgramBinding({ cardPrograms: [program] });
   const registrations = binding.registerProgramTriggers(flow.chain, kernel.getObject("lucian"));
   const fired = [];
   const append = flow.chain.pipeline.onTrigger;
@@ -505,7 +487,7 @@ test(PRODUCTION_TEST_NAMES.conquerOnce, () => {
     battlefields: [{ id: "bf1", controller: null }, { id: "bf2", controller: null }],
     victoryScore: 20
   });
-  const binding = createProgramBinding({ cardPrograms: [admitted] });
+  const binding = createProgramBinding({ cardPrograms: [program] });
   binding.attachLifecycle(flow.chain, (error) => { throw error; });
   binding.registerProgramTriggers(flow.chain, kernel.getObject("lucian"));
   const fired = [];
@@ -571,7 +553,7 @@ test(PRODUCTION_TEST_NAMES.conquerOnce, () => {
 
 test("production golden: Weaponmaster pays the chosen equipment's named Equip cost and attaches", () => {
   const f = productionPlay({
-    programs: [admitted, longSword],
+    programs: [program, longSword],
     answers: { "target:weaponmaster-equipment": ["sword"] },
     build: (w) => w.player("A", { energy: 3, power: ["Fury"] }).player("B")
       .object("lucian", {
@@ -617,7 +599,7 @@ test("production golden: Weaponmaster reduces one original [A], then pays the re
     } }
   };
   const f = productionPlay({
-    programs: [admitted],
+    programs: [program],
     answers: { "target:weaponmaster-equipment": ["sword"] },
     build: (w) => w.player("A", { energy: 3, power: ["Body"] }).player("B")
       .object("lucian", {
@@ -650,7 +632,7 @@ test("production golden: one original [A] is reduced to zero with no payment pro
     } }
   };
   const f = productionPlay({
-    programs: [admitted],
+    programs: [program],
     answers: { "target:weaponmaster-equipment": ["sword"] },
     build: (w) => w.player("A", { energy: 3 }).player("B")
       .object("lucian", {
@@ -685,7 +667,7 @@ test(PRODUCTION_TEST_NAMES.universalPower, () => {
     } }
   };
   const f = productionPlay({
-    programs: [admitted],
+    programs: [program],
     answers: { "target:weaponmaster-equipment": ["sword"] },
     build: (w) => w.player("A", { energy: 3, power: ["any"] }).player("B")
       .object("lucian", {
@@ -714,7 +696,7 @@ test(PRODUCTION_TEST_NAMES.universalPower, () => {
 
 test(PRODUCTION_TEST_NAMES.reattach, () => {
   const f = productionPlay({
-    programs: [admitted, longSword],
+    programs: [program, longSword],
     answers: { "target:weaponmaster-equipment": ["sword"] },
     build: (w) => w.player("A", { energy: 3, power: ["Fury"] }).player("B")
       .unit("old-host", {
@@ -750,9 +732,43 @@ test(PRODUCTION_TEST_NAMES.reattach, () => {
   );
 });
 
+test(PRODUCTION_TEST_NAMES.friendlyOnly, () => {
+  const equip = {
+    keyword: "equip", value: 1, costDomain: "Fury",
+    params: { cost: {
+      kind: "activated",
+      payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["Fury"] }]
+    } }
+  };
+  const f = productionPlay({
+    programs: [program],
+    answers: { "target:weaponmaster-equipment": ["friendly"] },
+    build: (w) => w.player("A", { energy: 3, power: ["Fury"] }).player("B")
+      .object("lucian", {
+        owner: "A", controller: "A", cardId: program.canonicalCardId, types: ["unit"],
+        tags: ["Lucian", "Demacia", "Sentinel", "Champion"], zone: "hand",
+        energy: 3, power: null, might: 3
+      })
+      .object("friendly", {
+        ...weaponmasterEquipment(equip), owner: "A", controller: "A", cardId: "test:friendly-equipment"
+      })
+      .object("enemy", {
+        ...weaponmasterEquipment(equip), owner: "B", controller: "B", cardId: "test:enemy-equipment"
+      })
+  });
+  f.play("lucian");
+  const request = f.requests.find((entry) => entry.id === "target:weaponmaster-equipment");
+  assert.deepEqual(request.options.map((ref) => ref.id), ["friendly"],
+    "CR 821.1.b/.c chooses an Equipment you control");
+  assert.deepEqual(f.kernel.getObject("friendly").attachedTo, f.kernel.getObject("lucian").ref);
+  assert.equal(f.kernel.getObject("enemy").attachedTo, null);
+  assert.deepEqual(f.kernel.player("A").power, []);
+  assert.deepEqual(f.engine.items, []);
+});
+
 test(PRODUCTION_TEST_NAMES.resolveCost, () => {
   const f = productionPlay({
-    programs: [admitted, longSword],
+    programs: [program, longSword],
     answers: { "target:weaponmaster-equipment": ["sword"] },
     build: (w) => w.player("A", { energy: 3, power: ["Fury"] }).player("B")
       .object("lucian", {
@@ -797,7 +813,7 @@ test("production boundary: no selected Equipment skips payment and attachment", 
     } }
   };
   const declined = productionPlay({
-    programs: [admitted],
+    programs: [program],
     answers: { "target:weaponmaster-equipment": [] },
     build: (w) => w.player("A", { energy: 3, power: ["Fury"] }).player("B")
       .object("lucian", {
@@ -818,7 +834,7 @@ test("production boundary: no selected Equipment skips payment and attachment", 
   assert.equal(declined.engine.pipeline.events.some((event) => event.timingPoint === "object-attached"), false);
 });
 
-test(PRODUCTION_TEST_NAMES.unpayableEquipBlocker, () => {
+test(PRODUCTION_TEST_NAMES.unpayableEquip, () => {
   const equip = {
     keyword: "equip", value: 1, costDomain: "Fury",
     params: { cost: {
@@ -826,10 +842,14 @@ test(PRODUCTION_TEST_NAMES.unpayableEquipBlocker, () => {
       payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["Fury"] }]
     } }
   };
-  const payable = productionPlay({
-    programs: [admitted],
+  const f = productionPlay({
+    programs: [program],
     answers: { "target:weaponmaster-equipment": ["sword"] },
     build: (w) => w.player("A", { energy: 3 }).player("B")
+      .unit("old-host", {
+        owner: "A", controller: "A", cardId: "test:old-host", types: ["unit"], tags: [],
+        zone: "board", location: { type: "base", player: "A" }, energy: null, power: null, might: 2
+      })
       .object("lucian", {
         owner: "A", controller: "A", cardId: program.canonicalCardId, types: ["unit"],
         tags: ["Lucian", "Demacia", "Sentinel", "Champion"], zone: "hand",
@@ -837,23 +857,64 @@ test(PRODUCTION_TEST_NAMES.unpayableEquipBlocker, () => {
       })
       .object("sword", weaponmasterEquipment(equip))
   });
-  let triggerResolveStarted = false;
-  const resolve = payable.engine.resolve;
-  payable.engine.resolve = function (item) {
-    if (item.id === "trigger:1") triggerResolveStarted = true;
-    return resolve.call(this, item);
-  };
-  assert.throws(() => payable.play("lucian"), /insufficient matching Power/);
-  assert.equal(triggerResolveStarted, true,
-    "the unpayable selected Equip cost is reached only after the trigger Resolve begins");
-  assert.equal(payable.kernel.player("A").energy, 0, "the successful Unit play remains paid");
-  assert.equal(payable.kernel.getObject("sword").attachedTo, null);
-  assert.equal(payable.engine.pipeline.events.some((event) => event.timingPoint === "object-attached"), false);
+  assert.equal(f.kernel.perform({
+    type: "attach", object: f.kernel.ref("sword"), host: f.kernel.ref("old-host")
+  }).status, "done");
+  const oldHost = f.kernel.ref("old-host");
+  assert.deepEqual(f.kernel.getObject("sword").attachedTo, oldHost);
+
+  f.play("lucian");
+  assert.equal(f.targetRequests().filter((request) => request.id === "target:weaponmaster-equipment").length, 1,
+    "the target is locked once during Finalize");
+  assert.equal(f.kernel.player("A").energy, 0, "only the Unit play cost was paid");
+  assert.deepEqual(f.kernel.player("A").power, [], "Energy funded the Unit cost; the unsupported Equip Power is not invented");
+  assert.deepEqual(f.kernel.getObject("sword").attachedTo, oldHost,
+    "CR 821.1.c.5 preserves the existing attachment");
+  assert.notDeepEqual(f.kernel.getObject("sword").attachedTo, f.kernel.getObject("lucian").ref);
+  assert.equal(f.engine.pipeline.events.some((event) => event.timingPoint === "object-attached"), false);
+  const triggerTrace = f.engine.trace.filter((entry) => entry.item === "trigger:1").map((entry) => entry.step);
+  assert.deepEqual(triggerTrace.slice(-4), ["finalized", "resolve-start", "resolved", "removed"],
+    "the unpayable branch reaches Resolve completion without aborting the Chain");
+  assert.equal(f.kernel.linked("weaponmaster-choice/weaponmaster-pay.payment"), undefined,
+    "the rolled-back payment leaves no successful receipt");
+  assert.deepEqual(f.engine.items, []);
 });
 
-test(PRODUCTION_TEST_NAMES.noEquipCostBlocker, () => {
+test("production boundary: unpayable Equip rolls back every attempted resource action", () => {
+  const equip = {
+    keyword: "equip", value: 1, costDomain: "Fury",
+    params: { cost: {
+      kind: "activated",
+      energy: { kind: "constant", value: 1 },
+      payments: [
+        { kind: "power", amount: { kind: "constant", value: 2 }, allowedDomains: ["Fury"] }
+      ]
+    } }
+  };
   const f = productionPlay({
-    programs: [admitted],
+    programs: [program],
+    answers: { "target:weaponmaster-equipment": ["sword"] },
+    build: (w) => w.player("A", { energy: 4, power: ["Fury"] }).player("B")
+      .object("lucian", {
+        owner: "A", controller: "A", cardId: program.canonicalCardId, types: ["unit"],
+        tags: ["Lucian", "Demacia", "Sentinel", "Champion"], zone: "hand",
+        energy: 3, power: null, might: 3
+      })
+      .object("sword", weaponmasterEquipment(equip))
+  });
+  f.play("lucian");
+  assert.equal(f.kernel.player("A").energy, 1,
+    "the Unit play's 3 Energy remains paid while the failed Equip's attempted 1 Energy rolls back");
+  assert.deepEqual(f.kernel.player("A").power, ["Fury"],
+    "the failed Equip plan cannot consume its partial Power payment");
+  assert.equal(f.kernel.getObject("sword").attachedTo, null);
+  assert.equal(f.engine.pipeline.events.some((event) => event.timingPoint === "object-attached"), false);
+  assert.deepEqual(f.engine.items, []);
+});
+
+test(PRODUCTION_TEST_NAMES.noEquipCost, () => {
+  const f = productionPlay({
+    programs: [program],
     answers: { "target:weaponmaster-equipment": ["sword"] },
     build: (w) => w.player("A", { energy: 3, power: ["Fury"] }).player("B")
       .object("lucian", {
@@ -862,18 +923,52 @@ test(PRODUCTION_TEST_NAMES.noEquipCostBlocker, () => {
         energy: 3, power: null, might: 3
       })
       .object("sword", {
-        owner: "A", controller: "A", cardId: "test:no-equip-cost", types: ["gear"],
+        owner: "A", controller: "A", cardId: "test:no-equip-ability", types: ["gear"],
         tags: ["Equipment"], zone: "board", location: { type: "base", player: "A" },
         energy: null, power: null, might: null,
         keywords: []
       })
+  });
+  const beforeRef = f.kernel.getObject("sword").ref;
+  f.play("lucian");
+  assert.equal(f.targetRequests().filter((request) => request.id === "target:weaponmaster-equipment").length, 1,
+    "CR 821.1.c.1 permits selecting an Equipment with no Equip ability");
+  assert.equal(f.kernel.player("A").energy, 0, "only the Unit play cost was paid");
+  assert.deepEqual(f.kernel.player("A").power, ["Fury"], "the no-cost branch pays no invented resource");
+  const sword = f.kernel.getObject("sword");
+  assert.deepEqual(sword.ref, beforeRef);
+  assert.equal(sword.zone, "board");
+  assert.deepEqual(sword.location, { type: "base", player: "A" });
+  assert.equal(sword.attachedTo, null);
+  assert.equal(f.engine.pipeline.events.some((event) => event.timingPoint === "object-attached"), false);
+  const triggerTrace = f.engine.trace.filter((entry) => entry.item === "trigger:1").map((entry) => entry.step);
+  assert.deepEqual(triggerTrace.slice(-4), ["finalized", "resolve-start", "resolved", "removed"],
+    "the no-cost branch reaches Resolve completion instead of aborting");
+  assert.deepEqual(f.engine.items, []);
+});
+
+test(PRODUCTION_TEST_NAMES.malformedEquipCost, () => {
+  const equip = {
+    keyword: "equip", value: 1, costDomain: "Fury",
+    params: {}
+  };
+  const f = productionPlay({
+    programs: [program],
+    answers: { "target:weaponmaster-equipment": ["sword"] },
+    build: (w) => w.player("A", { energy: 3, power: ["Fury"] }).player("B")
+      .object("lucian", {
+        owner: "A", controller: "A", cardId: program.canonicalCardId, types: ["unit"],
+        tags: ["Lucian", "Demacia", "Sentinel", "Champion"], zone: "hand",
+        energy: 3, power: null, might: 3
+      })
+      .object("sword", weaponmasterEquipment(equip))
   });
   assert.throws(
     () => f.play("lucian"),
     /821\.1\.c\.2: missing authoritative Equip-cost binding for sword/
   );
   assert.equal(f.kernel.player("A").energy, 0);
-  assert.deepEqual(f.kernel.player("A").power, ["Fury"], "missing Equip cost never becomes a free attachment");
+  assert.deepEqual(f.kernel.player("A").power, ["Fury"], "malformed Equip data never becomes free attachment");
   assert.equal(f.kernel.getObject("sword").attachedTo, null);
   assert.equal(f.engine.pipeline.events.some((event) => event.timingPoint === "object-attached"), false);
 });
