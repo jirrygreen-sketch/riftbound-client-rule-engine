@@ -261,18 +261,21 @@ test("sfd-195-221 Blade Dancer: the mixed rainbow/exhaust cost plan executes thr
   ]);
 });
 
-test("sfd-195-221 Blade Dancer: the production chain cannot literalize the declared cost pair", () => {
-  // 383.3.b.1: the leading cost must be payable at Finalize. programs/triggers.ts
-  // extracts none, and the chain's own Expr envelope cannot literalize
-  // cost.modify's `id`, so the declared pair fails closed instead of silently
-  // charging at Resolve.
+test("sfd-195-221 Blade Dancer: the production interpreter literalizes and pays the cost pair", () => {
+  // 383.3.b.1: the merged interpreter decodes cost.modify's captured id and
+  // cost, then resolves the linked cost.pay through the real allocator.
   const kernel = legendWorld();
   kernel.addPlayer("A", { power: ["Fury"] });
-  assert.throws(
-    () => resolveChainBody(optionalBody.slice(0, 2), kernel),
-    error => error instanceof TypeError && /cost\.modify id/.test(error.message)
-  );
-  assert.equal(kernel.getObject("blade-dancer").exhausted, false);
+  const outcome = resolveChainBody(optionalBody.slice(0, 2), kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["blade-dancer.prepare-cost", "executed"],
+    ["blade-dancer.pay-cost", "executed"]
+  ]);
+  const payment = outcome.linkedValues["blade-dancer.pay-cost.payment"];
+  assert.equal(payment.paid, true);
+  assert.deepEqual(payment.power.power, [{ requirementIndex: 0, from: "Fury", amount: 1 }]);
+  assert.equal(kernel.getObject("blade-dancer").exhausted, true);
 });
 
 test("sfd-195-221 Blade Dancer: the printed exhaust cost is charged as a real exhaust payment", () => {
@@ -327,12 +330,7 @@ test.todo(
     "ObjectSelector vocabulary has no event-object selector and the TargetSpec is only a fresh target"
 );
 
-test("sfd-195-221 Blade Dancer: the merged trigger registration still carries no ability cost", () => {
-  // The card models both printed costs with cost.modify/cost.pay, and the
-  // golden above really pays them. What is still missing is the contract side:
-  // TriggeredAbility has no top-level CostSpec and the merged registration does
-  // not forward one, so Finalize cannot lock/pay the ability cost from the
-  // program alone. The registry also refuses the shipped judge-required card.
+test("sfd-195-221 Blade Dancer: trigger registration lifts the leading may and nested target", () => {
   assert.equal(program.abilities[0].cost, undefined);
   assert.equal(program.abilities[1].cost, undefined);
 
@@ -342,8 +340,8 @@ test("sfd-195-221 Blade Dancer: the merged trigger registration still carries no
     (error) => error.name === "ProgramBindingError" && error.code === "judge-required"
   );
 
-  // registration shape: only the trigger spec/body/optional/activeZones are
-  // produced, so there is no field through which an ability cost could travel.
+  // Registration lifts the leading may and its nested target. The cost remains
+  // expressed through the card's cost.modify/cost.pay instructions.
   const executionProgram = {
     ...program,
     status: "executable",
@@ -357,10 +355,22 @@ test("sfd-195-221 Blade Dancer: the merged trigger registration still carries no
   const source = kernel.getObject("blade-dancer");
   const registrations = triggerRegistrations(new ProgramRegistry([executionProgram]), source);
   assert.equal(registrations.length, 2);
-  for (const registration of registrations) {
-    assert.equal(registration.cost, undefined);
-    assert.equal(registration.mayAtFinalize, undefined);
-  }
+  assert.equal(registrations.every(registration => registration.mayAtFinalize === true), true);
+  assert.equal(registrations.every(registration => registration.cost === undefined), true);
+  assert.deepEqual(registrations[0].targets, [{
+    requirement: {
+      id: "blade-dancer.chosen-unit",
+      filter: { type: "unit", controller: "self", zone: "board" },
+      min: 1,
+      max: 1,
+      selection: "one"
+    }
+  }]);
+  assert.deepEqual(registrations[0].body.map(instruction => instruction.id), [
+    "blade-dancer.prepare-cost",
+    "blade-dancer.pay-cost",
+    "blade-dancer.ready-chosen"
+  ]);
 
   // The translated specs really pass the closed vocabulary, so the remaining
   // blocker is the ability cost (above) and the legend zone, not the trigger.
@@ -371,24 +381,46 @@ test("sfd-195-221 Blade Dancer: the merged trigger registration still carries no
   ]);
 });
 
-test("sfd-195-221 Blade Dancer: the real chain blocks the nested chosen-unit target before Finalize", () => {
-  // 355.6/355.7: "ready it" re-selects through a TargetSpec nested inside the
-  // optional body. assertFinalizationSurface only collects top-level targets, so
-  // the production chain refuses the item instead of resolving the chosen unit.
-  const f = fixture({ cards: [{ id: "blade-dancer", cardId: CARD_ID, types: ["legend", "unit"] }] });
-  assert.throws(
-    () => f.engine.execute({
-      id: "blade-dancer.choose",
-      controller: "A",
-      source: f.kernel.getObject("blade-dancer"),
-      kind: "triggered",
-      speed: "action",
-      body: targetingEffect.body
-    }),
-    error => error instanceof ChainContractBlockedError &&
-      /Nested\/repeated targets require an interpreter target-selection lifecycle adapter/.test(error.message)
+test("sfd-195-221 Blade Dancer: Finalize accepts the optional body and locks its chosen unit", () => {
+  // 355.6/355.7: the optional decision unlocks the nested target plan.
+  const f = fixture({
+    cards: [{ id: "blade-dancer", cardId: CARD_ID, types: ["legend", "unit"] }],
+    choose: request => {
+      if (request.type === "optional") return true;
+      if (request.type === "select-objects") return [request.options.find(ref => ref.id === "chosen-unit")];
+      return undefined;
+    }
+  });
+  f.kernel.addObject(world().unit("chosen-unit", {
+    owner: "A", controller: "A", exhausted: true, location: { type: "base", player: "A" }
+  }).build().getObject("chosen-unit"), "board");
+  const [registration] = triggerRegistrations(
+    new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]),
+    f.kernel.getObject("blade-dancer")
   );
-  assert.equal(optionalBody[2].targets.length, 1);
+  f.engine.execute({
+    id: "blade-dancer.choose",
+    controller: "A",
+    source: f.kernel.getObject("blade-dancer"),
+    kind: "triggered",
+    speed: "action",
+    body: registration.body,
+    mayAtFinalize: true,
+    targets: registration.targets
+  });
+  const [item] = f.engine.items;
+  assert.equal(item.status, "finalized");
+  assert.deepEqual(item.targetPlans.map(plan => ({
+    requirement: plan.requirement.id,
+    selected: plan.selected.map(ref => ref.id),
+    retestAtResolve: plan.retestAtResolve
+  })), [{
+    requirement: "blade-dancer.chosen-unit",
+    selected: ["chosen-unit"],
+    retestAtResolve: true
+  }]);
+  assert.equal(f.engine.trace.some(record => record.step === "targets-finalized"), true);
+  assert.equal(program.status, "judge-required");
 });
 
 test("sfd-195-221 Blade Dancer: the merged exhaust payment still requires a Board or Rune-Zone object", () => {

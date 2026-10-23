@@ -10,8 +10,9 @@ import costModify from "../../../../engine-core/dist/effects/instructions/cost.m
 import { DUEL_DOMAINS } from "../../../../engine-core/dist/cost/resources.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
-import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { createEngineStaticBinder, staticCostSources } from "../../../../engine-core/dist/programs/statics.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CARD_ID = "card.hash-f53634b94e6fae93d877ca3bb7f92c97c1f881953a9d82fc5a297b398f35d3ad";
 const SOURCE_TEXT =
@@ -46,6 +47,26 @@ const vexWorld = () => {
     .build();
   return kernel;
 };
+
+function productionStaticFixture() {
+  const kernel = vexWorld();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => {
+      kernel.restore(checkpoint.state);
+      kernel.copyLinkedFrom(checkpoint.links);
+    },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => { throw new Error("Unexpected choice"); },
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  });
+  return { engine, kernel };
+}
 
 test("sfd-146-221 Vex, Cheerless: program validates and is registered by canonicalCardId", () => {
   const result = validateCardProgram(program);
@@ -244,15 +265,21 @@ test("sfd-146-221 Vex, Cheerless: the merged cost collector rejects the in-comba
   assert.deepEqual(kernel.snapshot(), before, "a failed cost collection must not change state");
 });
 
-test("sfd-146-221 Vex, Cheerless: the default static binder still rejects the relative friendly/enemy appliesTo", () => {
-  const { engine, kernel } = fixture();
+test("sfd-146-221 Vex, Cheerless: the default static binder registers all four scoped cost declarations", () => {
+  const { engine, kernel } = productionStaticFixture();
   const binder = createEngineStaticBinder(engine);
-  for (const ordinal of [0, 1]) {
-    assert.throws(
-      () => binder.bindStatic(program.abilities[ordinal], kernel.getObject("source")),
-      (error) => /Unsupported static appliesTo/.test(String(error.message))
-    );
-  }
+  const source = kernel.getObject("vex");
+  const handles = program.abilities.map(ability => binder.bindStatic(ability, source));
+  const sources = staticCostSources(engine);
+  assert.equal(sources.length, 4);
+  assert.deepEqual(sources.map(({ ability }) => ability.effect.appliesTo), [
+    { type: "spell", controller: "caster" },
+    { type: "spell", controller: "caster" },
+    { type: "spell", controller: "caster-opponent" },
+    { type: "spell", controller: "caster-opponent" }
+  ]);
+  for (const handle of handles) handle.unbind();
+  assert.deepEqual(staticCostSources(engine), []);
 });
 
 test("sfd-146-221 Vex, Cheerless: the collector's arithmetic is correct once the condition is answerable", () => {

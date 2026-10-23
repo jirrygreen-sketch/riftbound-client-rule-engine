@@ -8,7 +8,8 @@ import score from "../../../../engine-core/dist/effects/instructions/effect.scor
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
-import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
@@ -165,13 +166,12 @@ test.todo(
     "any-domain Power of 809.1.c.1, and programs/statics.ts has no layer mapping for target.tax"
 );
 
-test("sfd-148-221 Draven, Audacious: the merged registries still lack the native player target", () => {
-  // 355.9.a: choosing an opponent is a Player selection. The refreshed reason
-  // names the missing primitive concretely, and the merged instruction
-  // registry has no target.player opcode for the card to declare.
-  assert.equal(instructionDefinitionsById.has("target.player"), false);
-  // The declared choose-opponent instruction is therefore unregistered.
-  assert.equal(instructionDefinitionsById.has(chooseOpponent.op), false);
+test("sfd-148-221 Draven, Audacious: the native player target and choose-opponent opcode are registered", () => {
+  // 355.9.a: choosing an opponent is a Player selection. The production
+  // registry exposes target.player, and the card's second instruction already
+  // uses the linked PlayerId as its scorer.
+  assert.equal(instructionDefinitionsById.has("target.player"), true);
+  assert.equal(instructionDefinitionsById.has(chooseOpponent.op), true);
 });
 
 test("sfd-148-221 Draven, Audacious: an in-combat death payload cannot match the declared filter", () => {
@@ -188,10 +188,9 @@ test("sfd-148-221 Draven, Audacious: an in-combat death payload cannot match the
   );
 });
 
-test("sfd-148-221 Draven, Audacious: the win-combat subscription is rejected by the production vocabulary", () => {
-  // Re-probed 2026-10-18 (468.3.a / 468.3.c): the declared `details` key is a
-  // valid EventPattern field, but combat-result is not an EVENT_PATTERN_TYPE, so
-  // the registration can never be scanned for.
+test("sfd-148-221 Draven, Audacious: the win-combat subscription is admitted by the production vocabulary", () => {
+  // 468.3.a / 468.3.c: combat-result is a closed EventPattern type and details
+  // remains a typed predicate field.
   const translated = translateTriggerFilter(
     winCombat.trigger.filter,
     "draven",
@@ -199,10 +198,8 @@ test("sfd-148-221 Draven, Audacious: the win-combat subscription is rejected by 
   );
   assert.deepEqual(translated, { event: "combat-result", player: "self", details: { winnerId: "self" } });
   const result = validateTriggerSpec({ at: "combat-result", filter: translated });
-  assert.equal(result.ok, false);
-  assert.deepEqual(result.issues.map(issue => [issue.code, issue.path]), [
-    ["invalid-event-type", "trigger.filter.event"]
-  ]);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.issues, []);
   // The death half's self anchor translates to the host snapshot; only the
   // in-combat payload is missing.
   assert.deepEqual(translateTriggerFilter(dieInCombat.trigger.filter, "draven", "object-killed"), {
@@ -210,33 +207,40 @@ test("sfd-148-221 Draven, Audacious: the win-combat subscription is rejected by 
     object: { objectId: "draven" },
     details: { inCombat: true }
   });
-  // A bare top-level `details` key would be treated as an object filter and
-  // rejected outright; the declared nested-filter shape is the translatable one.
-  assert.throws(
-    () => translateTriggerFilter(
+  assert.deepEqual(
+    translateTriggerFilter(
       { event: "combat-result", details: { winnerId: "self" }, player: "self" },
       "draven",
       "combat-result"
     ),
-    error => error.name === "ProgramBindingError" && /Unsupported filter field details/.test(error.message)
+    { event: "combat-result", details: { winnerId: "self" }, player: "self" }
   );
 });
 
-test("sfd-148-221 Draven, Audacious: the merged static binder still refuses the Deflect expansion", () => {
-  // 809.1: [Deflect] expands to a static target.tax effect. The production
-  // static binder has no layer mapping for that kind, so the tax never reaches
-  // the target plan (and the merged tax booking uses Energy, not the
-  // any-domain Power of 809.1.c.1).
+test("sfd-148-221 Draven, Audacious: the production binder registers the Deflect target tax", () => {
+  // 809.1: [Deflect] expands to a host-bound target.tax capability. The tax
+  // remains an ordinary caller-collected target-plan input; this test proves
+  // the card's grant is no longer rejected by the static binder.
   const definition = keywordDefinitionsById.get("Deflect");
   assert.ok(definition, "effects/keywords/Deflect.ts must be registered");
   const [expansion] = definition.expand({ value: undefined, host: { canonicalCardId: CARD_ID } });
   assert.equal(expansion.effect.kind, "target.tax");
 
   const kernel = world().unit("draven", { cardId: CARD_ID, location: { type: "base", player: "A" } }).build();
-  const binder = createEngineStaticBinder({ layers: createLayerEngine(kernel.objects) });
-  assert.throws(
-    () => binder.bindStatic(expansion, kernel.getObject("draven")),
-    (error) => error.name === "ProgramBindingError" &&
-      /Static ability kind target\.tax has no layer mapping/.test(error.message)
-  );
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error(`Unexpected choice: ${request.id}`); },
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const handle = createEngineStaticBinder(engine).bindStatic(expansion, kernel.getObject("draven"));
+  const [registration] = engine.layers.registry.list();
+  assert.equal(registration.effect.effect.capabilityKind, "target-tax");
+  assert.equal(registration.effect.effect.ability.effect.kind, "target.tax");
+  handle.unbind();
+  assert.deepEqual(engine.layers.registry.list(), []);
 });

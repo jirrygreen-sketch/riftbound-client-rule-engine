@@ -17,6 +17,8 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
+import { createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import {
   OBJECT_FILTER_ZONES,
@@ -97,15 +99,11 @@ test("ogs-017-024 Dark Child, Starter: turn-end trigger with a 2-rune ready body
   // "At the end of your turn" is the closed turn-end timing point (317.1.a).
   assert.equal(ability.trigger.at, "turn-end");
   assert.deepEqual(ability.trigger.filter, { event: "turn-end", player: "self" });
-  // The declared filter is rejected by the merged trigger validator. The
-  // spellings that would pass it cannot express "your turn": ObjectFilter has
-  // no player key, so a bare {} fires on both players' turn-end; `controller`
-  // applies to an event object and turn-end carries none (CR 317.1.a).
+  // The declared event/player pattern is accepted by the merged trigger
+  // validator and matches only the source controller's turn (CR 317.1.a).
   const validated = validateTriggerSpec(ability.trigger);
-  assert.equal(validated.ok, false);
-  assert.deepEqual(validated.issues.map(issue => [issue.path, issue.code]), [
-    ["trigger.filter.event", "invalid-event-type"]
-  ]);
+  assert.deepEqual(validated.issues, []);
+  assert.equal(validated.ok, true);
   assert.equal(validateTriggerSpec({ at: "turn-end", filter: { player: "self" } }).ok, false);
   assert.equal(validateTriggerSpec({ at: "turn-end", filter: {} }).ok, true);
   assert.equal(matchesTriggerEvent({}, { timingPoint: "turn-end", player: "B" }, "A"), true);
@@ -221,22 +219,34 @@ test.todo(
     "registration's default activeZones is ['board']"
 );
 
-test("ogs-017-024 Dark Child, Starter golden: the real registration path raises TriggerSpecValidationError for this filter", () => {
-  // CR 317.1.a's timing point is emitted by turn/flow.ts endTurn and the card
-  // program registration path is merged, but pipeline.registerTrigger runs
-  // assertTriggerSpec first. These are the two live failures, not the stale
-  // "registration not wired" wording.
-  const { engine, kernel } = fixture({ turnOrder: ["A", "B"], turnPlayer: "A", cards: [{ id: "legend", cardId: CANONICAL_ID, types: ["legend"], might: null }] });
-  assert.throws(
-    () => engine.pipeline.registerTrigger({
-      id: "dark-child.turn-end",
-      source: kernel.getObject("legend"),
-      controller: "A",
-      spec: ability.trigger,
-      body: ability.body,
-      activeZones: ["board"]
-    }),
-    (error) => error.name === "TriggerSpecValidationError" && /trigger\.filter\.event/.test(error.message)
-  );
+test("ogs-017-024 Dark Child, Starter golden: the real registration path binds both turn-end events but matches only its controller", () => {
+  // CR 317.1.a: turn/flow.ts emits the closed turn-end timing point with the
+  // ending player. Register the card's own trigger through EventPipeline and
+  // exercise both player emissions: only A's turn-end may queue the body.
+  const { kernel } = fixture({ turnOrder: ["A", "B"], turnPlayer: "A" });
+  const source = kernel.getObject("source");
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error(`Unexpected choice: ${request.id}`); }
+  });
+  const pipeline = new EventPipeline(host, ["A", "B"], "A");
+  const fired = [];
+  pipeline.onTrigger = snapshot => fired.push(snapshot.event.player);
+  pipeline.registerTrigger({
+    id: "dark-child.turn-end",
+    source,
+    controller: "A",
+    spec: ability.trigger,
+    body: ability.body,
+    activeZones: ["board"]
+  });
+
+  pipeline.emit({ timingPoint: "turn-end", player: "A" });
+  pipeline.emit({ timingPoint: "turn-end", player: "B" });
+
+  assert.deepEqual(fired, ["A"]);
 });
 

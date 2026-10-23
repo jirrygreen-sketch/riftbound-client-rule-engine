@@ -216,10 +216,9 @@ test("sfd-178-221 Blade of the Ruined King: the shipped program cannot reach act
   );
 });
 
-test("sfd-178-221 Blade of the Ruined King: an Equip expansion with the printed cost still fails closed", () => {
-  // Contract 3.8 item 3 would let the printed cost travel through
-  // KeywordDef.params.cost. The merged Equip.expand ignores params entirely,
-  // so the payment kind is the same unsupported "equip" for every input.
+test("sfd-178-221 Blade of the Ruined King: Equip.expand preserves the supplied printed cost", () => {
+  // Contract 3.8 item 3: a printed cost supplied through KeywordDef.params.cost
+  // is authoritative and survives the expansion.
   const definition = keywordDefinitionsById.get("Equip");
   assert.ok(definition);
   const withPrintedCost = definition.expand({
@@ -227,19 +226,27 @@ test("sfd-178-221 Blade of the Ruined King: an Equip expansion with the printed 
     host: { canonicalCardId: CANONICAL },
     params: { cost: { kind: "activated", power: { kind: "constant", value: 1 } } }
   });
-  assert.deepEqual(withPrintedCost[0].cost.payments.map((payment) => payment.kind), ["equip"]);
-  assert.throws(
-    () => buildCostPlan(bladeWorld(), { id: "cost:blade", cost: withPrintedCost[0].cost }),
-    (error) => error instanceof CostPlanError &&
-      error.reason === "judge-required" &&
-      /Unsupported payment kind: equip/.test(error.message)
-  );
+  assert.deepEqual(withPrintedCost[0].cost, {
+    kind: "activated",
+    power: { kind: "constant", value: 1 }
+  });
+  const context = bladeWorld();
+  context.addPlayer("A", { power: ["Order"] });
+  const plan = buildCostPlan(context, {
+    id: "cost:blade",
+    cost: withPrintedCost[0].cost,
+    domains: ["Order"]
+  });
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Order"] }]);
+  const receipt = payCostPlan(context, plan);
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.power.power, [{ requirementIndex: 0, from: "Order", amount: 1 }]);
 });
 
 test.todo(
-  "sfd-178-221 Blade of the Ruined King: the printed mixed Equip cost (1 Order Power + Kill a " +
-    "friendly unit, CR 818.1.c.2/818.1.c.3) needs the card's cost passed through KeywordDef.expand " +
-    "params.cost and consumed by Equip.expand so both halves survive activation."
+  "sfd-178-221 Blade of the Ruined King: pass the card's printed mixed Equip cost (1 Order Power + " +
+    "Kill a friendly unit) through KeywordDef.expand params.cost and consume both halves at activation " +
+    "Finalize (CR 818.1.c.2/818.1.c.3)"
 );
 test.todo(
   "sfd-178-221 Blade of the Ruined King: add an Equip payment kind to cost/plan-values.ts and consume the " +

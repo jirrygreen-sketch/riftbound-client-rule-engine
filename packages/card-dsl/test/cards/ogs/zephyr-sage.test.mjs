@@ -180,7 +180,7 @@ test("ogs-005-024 Zephyr Sage golden: the production lifecycle refuses the judge
   handle.detach();
 });
 
-test("ogs-005-024 Zephyr Sage regression: a real combatRole snapshot remains unmapped and grants no Shield bonus", () => {
+test("ogs-005-024 Zephyr Sage golden: designation maps to a real Defender combatRole and grants Shield", () => {
   const f = fixture();
   play(f);
   const source = f.kernel.getObject("zephyr");
@@ -194,8 +194,8 @@ test("ogs-005-024 Zephyr Sage regression: a real combatRole snapshot remains unm
   assert.equal(snapshot.combatRole, "defender");
   assert.equal(snapshot.designation, undefined);
   const [entry] = f.engine.layers.registry.list();
-  assert.equal(entry.effect.effect.condition(snapshot), false);
-  assert.equal(f.engine.layers.evaluate(ref).might, 6);
+  assert.equal(entry.effect.effect.condition(snapshot), true);
+  assert.equal(f.engine.layers.evaluate(ref).might, 7);
   handle.unbind();
 });
 
@@ -229,7 +229,7 @@ test("ogs-005-024 Zephyr Sage golden control: pointing the expansion at combatRo
   assert.deepEqual(measured, { defender: 7, attacker: 6, null: 6 });
 });
 
-test("ogs-005-024 Zephyr Sage: designation resolves only in the merged expr-ext evaluator, not in the production interpreter", () => {
+test("ogs-005-024 Zephyr Sage: designation resolves to combatRole in the production expression evaluator", () => {
   // RIFT-711 merged evaluateExtendedExpression, which maps both
   // object-property("designation") and object-designation to combatRole. Its
   // README records the integration boundary explicitly: the default
@@ -245,11 +245,7 @@ test("ogs-005-024 Zephyr Sage: designation resolves only in the merged expr-ext 
     isIgnored: () => false
   };
   const designation = { kind: "object-property", object: "self", property: "designation" };
-  assert.throws(() => evaluateExpression(designation, environment), error => {
-    assert.ok(error instanceof MissingInformation);
-    assert.match(error.message, /Unavailable characteristic: designation/);
-    return true;
-  });
+  assert.equal(evaluateExpression(designation, environment), "defender");
   assert.equal(context.object(kernel.ref("zephyr")).combatRole, "defender");
   assert.equal(evaluateExtendedExpression(designation, environment), "defender");
   assert.equal(evaluateExtendedExpression({ kind: "object-designation", object: "self" }, environment), "defender");

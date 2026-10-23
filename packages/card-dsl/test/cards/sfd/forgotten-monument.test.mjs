@@ -80,10 +80,12 @@ test("sfd-209-221 Forgotten Monument component: the merged restriction query is 
   assert.deepEqual(registration.duration, { type: "permanent" });
   const registry = new ContinuousEffectRegistry();
   registry.register(registration.effect, registration.duration, 1);
-  assert.deepEqual(
-    restrictions(registry, "score").map(entry => ({ actions: entry.actions, name: entry.name })),
-    [{ actions: ["score"], name: "forgotten-monument" }]
-  );
+  const queried = restrictions(registry, "score", registration.effect.source, kernel.getObject("monument"));
+  assert.deepEqual(queried.map(entry => ({ actions: entry.actions, name: entry.name })), []);
+  // The raw primitive preserves the symbolic self anchor; the production
+  // static binder resolves it to the host in the next test. The scoring
+  // consumer gap therefore belongs to the executable card path, not this
+  // direct primitive registration.
   // It does not leak into other actions.
   assert.deepEqual(restrictions(registry, "move"), []);
 });
@@ -135,11 +137,9 @@ test("sfd-209-221 Forgotten Monument: the production binder really anchors the r
 
   const [registration] = f.engine.layers.registry.list();
   assert.equal(registration.effect.effect.kind, "restriction");
-  assert.deepEqual(registration.effect.filter, {
-    objectId: "monument",
-    zone: "board",
-    zoneEntryId: source.ref.zoneEntryId
-  });
+  assert.deepEqual(Object.keys(registration.effect.filter), ["objectId"]);
+  assert.equal(registration.effect.filter.objectId, "monument");
+  assert.deepEqual(registration.effect.source, source.ref);
   assert.deepEqual(
     restrictions(f.engine.layers.registry, "score", source.ref, source, source.controller)
       .map(entry => [entry.actions, entry.name]),

@@ -299,19 +299,13 @@ test("sfd-023-221 Piercing Light: the paid Repeat receipt is a boolean the repea
   assert.equal(repeated.player("A").handSize, 0, "no repetitions ran");
 });
 
-test("sfd-023-221 Piercing Light: the production filter binding rejects the second target's exclude anchor", () => {
+test("sfd-023-221 Piercing Light: the production filter binding preserves the second target's exclude anchor", () => {
   // Live evidence for the second gap. The interpreter does consume `exclude`
   // (interpreter/selectors.ts queryObjects), but the production card-program
   // translator rejects the key, so describePlay cannot build the draft at all
   // and the Finalize target mapping is never reached.
-  assert.throws(
-    () => translateObjectFilter(secondSpec.filter),
-    (error) => error.code === "judge-required" && /Unsupported filter field exclude/.test(error.message)
-  );
-  assert.throws(
-    () => translateInstructionTargets(play.body),
-    /Unsupported filter field exclude/
-  );
+  assert.deepEqual(translateObjectFilter(secondSpec.filter), secondSpec.filter);
+  assert.deepEqual(translateInstructionTargets(play.body)[1].targets[0].filter, secondSpec.filter);
 
   const lifted = { ...program, status: "executable", judgeReason: undefined };
   const registry = new ProgramRegistry([lifted]);
@@ -319,10 +313,8 @@ test("sfd-023-221 Piercing Light: the production filter binding rejects the seco
     .object("piercing-source", { cardId: CANONICAL, types: ["spell"], zone: "hand", energy: 2, power: ["Fury"] })
     .build();
   const source = kernel.getObject("piercing-source");
-  assert.throws(
-    () => describePlay(registry, { type: "play", object: source.ref, player: "A" }, source),
-    /Unsupported filter field exclude/
-  );
+  const draft = describePlay(registry, { type: "play", object: source.ref, player: "A" }, source);
+  assert.deepEqual(draft.body[1].targets[0].filter, secondSpec.filter);
 
   // The interpreter side of the same anchor is merged: an explicit exclude
   // really removes the first unit from the second query.

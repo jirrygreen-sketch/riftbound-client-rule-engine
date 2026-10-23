@@ -213,18 +213,18 @@ test("ogs-006-024 Lux, Illuminated golden: CR 206 uses the printed cost when the
   }
 });
 
-test("ogs-006-024 Lux, Illuminated evidence: a second same-turn grant collides on settlement-1 (blocker: shared settlement identity)", () => {
+test("ogs-006-024 Lux, Illuminated evidence: same-turn grants stack with distinct settlement identities", () => {
   const game = productionGame({ count: 2 });
   playCard(game, "probe-0");
   assert.equal(game.engine.layers.evaluate(game.kernel.ref("lux")).might, 8);
-  // 负向证据：continuous.might 的 settlement 计数写读键不一致，第二次触发注册同一 id。
-  // This pins the current failure; when the shared interpreter persists the
-  // settlement counter across resolutions this must become the stacking test:
-  // probe-1 resolves, both grants expire together at turn-end (11 -> 5).
-  assert.throws(
-    () => playCard(game, "probe-1"),
-    /Continuous effect already registered: continuous\.might:settlement-1/
-  );
-  assert.equal(game.engine.layers.evaluate(game.kernel.ref("lux")).might, 8);
+  // CR 478.1/814.2: each trigger resolution is its own settlement, so the
+  // second +3 stacks independently and both expire together at turn-end.
+  playCard(game, "probe-1");
+  assert.equal(game.engine.layers.evaluate(game.kernel.ref("lux")).might, 11);
+  assert.equal(game.engine.layers.registry.list().length, 2);
+  const ids = game.engine.layers.registry.list().map(entry => entry.effect.id);
+  assert.equal(new Set(ids).size, 2);
   assert.equal(game.kernel.getObject("lux").might, 5, "printed Might remains unchanged");
+  game.engine.layers.expireAt("turn-end");
+  assert.equal(game.engine.layers.evaluate(game.kernel.ref("lux")).might, 5);
 });

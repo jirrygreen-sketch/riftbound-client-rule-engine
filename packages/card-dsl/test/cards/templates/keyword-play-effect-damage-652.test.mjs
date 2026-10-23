@@ -281,18 +281,23 @@ test(`Cannon Barrage [${cannonBarrage.canonicalCardId}]: the printed 2 applies p
   assert.deepEqual(empty.result, { status: "ignored", reason: "mistargeted" });
 });
 
-test(`Cannon Barrage [${cannonBarrage.canonicalCardId}]: the authored non-target set is rejected at resolution`, () => {
-  assert.throws(
-    () => runCardScenario(scenarioView(cannonBarrage), {
-      players: { A: { energy: 2, power: ["Body"] } },
-      objects: [
-        { id: "spell", cardId: cannonBarrage.canonicalCardId, types: ["spell"], zone: "hand", energy: 2, power: ["Body"] },
-        { id: "enemy-attacker", owner: "B", types: ["unit"], zone: "board", location: battlefieldOne, might: 4, combatRole: "attacker" },
-      ],
-      operations: playAndResolve,
-    }),
-    { message: "effect.damage args.target must be a TargetSpec id string" },
-  );
+test(`Cannon Barrage [${cannonBarrage.canonicalCardId}]: the authored non-target set deals 2 in production without targeting`, () => {
+  const result = runCardScenario(scenarioView(cannonBarrage), {
+    players: { A: { energy: 2, power: ["Body"] } },
+    objects: [
+      { id: "spell", cardId: cannonBarrage.canonicalCardId, types: ["spell"], zone: "hand", energy: 2, power: ["Body"] },
+      { id: "enemy-attacker", owner: "B", types: ["unit"], zone: "board", location: battlefieldOne, might: 4, combatRole: "attacker" },
+      { id: "ally", owner: "A", types: ["unit"], zone: "board", location: battlefieldOne, might: 3 },
+    ],
+    operations: playAndResolve,
+    expect: {
+      objects: { spell: { zone: "trash" }, "enemy-attacker": { damage: 2 }, ally: { damage: 0 } },
+      players: { A: { energy: 0 } },
+    },
+  });
+  result.asserts();
+  assert.deepEqual(result.events.filter(event => event.timingPoint === "became-target"), []);
+  assert.equal(result.events.filter(event => event.timingPoint === "damage-dealt").length, 1);
 });
 
 test(`Flurry of Blades [${flurryOfBlades.canonicalCardId}]: the printed 1 hits each locked battlefield unit; an empty lock is ignored`, () => {
@@ -320,18 +325,23 @@ test(`Flurry of Blades [${flurryOfBlades.canonicalCardId}]: the printed 1 hits e
   assert.deepEqual(empty.result, { status: "ignored", reason: "mistargeted" });
 });
 
-test(`Flurry of Blades [${flurryOfBlades.canonicalCardId}]: the authored non-target set is rejected at resolution`, () => {
-  assert.throws(
-    () => runCardScenario(scenarioView(flurryOfBlades), {
-      players: { A: { energy: 1 } },
-      objects: [
-        { id: "spell", cardId: flurryOfBlades.canonicalCardId, types: ["spell"], zone: "hand", energy: 1, power: null },
-        { id: "bf-unit", owner: "B", types: ["unit"], zone: "board", location: battlefieldOne, might: 3 },
-      ],
-      operations: playAndResolve,
-    }),
-    { message: "effect.damage args.target must be a TargetSpec id string" },
-  );
+test(`Flurry of Blades [${flurryOfBlades.canonicalCardId}]: the authored non-target set hits battlefield units in production`, () => {
+  const result = runCardScenario(scenarioView(flurryOfBlades), {
+    players: { A: { energy: 1 } },
+    objects: [
+      { id: "spell", cardId: flurryOfBlades.canonicalCardId, types: ["spell"], zone: "hand", energy: 1, power: null },
+      { id: "bf-unit", owner: "B", types: ["unit"], zone: "board", location: battlefieldOne, might: 3 },
+      { id: "base-unit", owner: "B", types: ["unit"], zone: "board", location: baseB, might: 3 },
+    ],
+    operations: playAndResolve,
+    expect: {
+      objects: { spell: { zone: "trash" }, "bf-unit": { damage: 1 }, "base-unit": { damage: 0 } },
+      players: { A: { energy: 0 } },
+    },
+  });
+  result.asserts();
+  assert.deepEqual(result.events.filter(event => event.timingPoint === "became-target"), []);
+  assert.equal(result.events.filter(event => event.timingPoint === "damage-dealt").length, 1);
 });
 
 test(`Scorched Earth [${scorchedEarth.canonicalCardId}]: no unit at a battlefield is rejected at Finalize`, () => {

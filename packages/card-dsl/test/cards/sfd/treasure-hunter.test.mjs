@@ -81,45 +81,46 @@ test.todo(
 // Live evidence for the refreshed reason: the declared trigger cannot register,
 // the declared token arguments fail the frozen schema, and the Gold definition
 // itself is absent from the merged token table.
-test("sfd-130-221 Treasure Hunter: the object-moved trigger cannot register (EventPattern vocabulary)", () => {
+test("sfd-130-221 Treasure Hunter: the object-moved trigger registers in the production pipeline", () => {
   const lifted = { ...program, status: "executable", judgeReason: undefined };
   const binding = createProgramBinding({ cardPrograms: [lifted] });
   const { engine, kernel } = fixture({ cards: [{ id: "hunter", cardId: CANONICAL, types: ["unit"], might: 1 }] });
   engine.commit({ type: "move-zone", object: kernel.ref("hunter"), to: "battlefield", location: { type: "battlefield", id: "bf-1" } });
-  assert.throws(
-    () => binding.registerProgramTriggers(engine, kernel.getObject("hunter")),
-    (error) => {
-      assert.equal(error.name, "TriggerSpecValidationError");
-      assert.deepEqual([...new Set(error.issues.map((issue) => issue.code))], ["invalid-event-type"]);
-      assert.equal(error.issues[0].path, "trigger.filter.event");
-      return true;
-    }
-  );
-  assert.equal(engine.pipeline.checkpoint().triggers.size, 0);
+  const ids = binding.registerProgramTriggers(engine, kernel.getObject("hunter"));
+  assert.equal(ids.length, 1);
+  const registration = engine.pipeline.checkpoint().triggers.get(ids[0]);
+  assert.equal(registration.spec.at, "object-moved");
+  assert.deepEqual(registration.spec.filter, { event: "object-moved", object: { objectId: "hunter" } });
 });
 
-test("sfd-130-221 Treasure Hunter: the printed token arguments are not accepted by effect.token", () => {
-  for (const key of ["location", "entersExhausted"]) {
-    assert.throws(
-      () => token.argsSchema.parse({ token: instruction.args.token, [key]: instruction.args[key] }),
-      new RegExp(`Invalid effect\\.token argument: ${key}`)
-    );
-  }
-  // A schema-legal spelling reaches the frozen definition table and records the
-  // missing Gold definition instead of inventing one.
+test("sfd-130-221 Treasure Hunter: the printed token arguments reach the Gold definition", () => {
+  const args = token.argsSchema.parse({
+    token: instruction.args.token,
+    amount: instruction.args.amount,
+    mode: instruction.args.mode,
+    location: instruction.args.location,
+    entersExhausted: instruction.args.entersExhausted,
+    linkKey: instruction.args.linkKey
+  });
+  assert.deepEqual(args.location, instruction.args.location);
+  assert.deepEqual(args.entersExhausted, instruction.args.entersExhausted);
   const kernel = world().player("A", { energy: 5 }).unit("hunter", { might: 1, location: { type: "base", player: "A" } }).build();
   const run = runInstruction(
     token,
     {
-      token: instruction.args.token,
-      amount: instruction.args.amount,
-      mode: instruction.args.mode,
+      token: args.token,
+      amount: args.amount,
+      mode: { kind: "constant", value: "create" },
       location: { kind: "constant", value: { type: "base", player: "A" } },
-      linkKey: instruction.args.linkKey
+      entersExhausted: args.entersExhausted,
+      linkKey: args.linkKey
     },
     { world: kernel }
   );
-  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
-  assert.equal(run.linked.goldToken.blockedReason, "token-definition-or-abilities-judge-required");
-  assert.equal(run.linked.goldToken.amount, 0);
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.goldToken.amount, 1);
+  const created = kernel.objects.find(object => object.isToken);
+  assert.equal(created.cardId, "card.hash-6249df4367d0a2e088c8eb1117ef59430f0d7dad4bf0fcf8a01d7f0415f4d511");
+  assert.equal(created.zone, "board");
+  assert.equal(created.exhausted, true);
 });

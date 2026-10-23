@@ -13,7 +13,7 @@ import costModify from "../../../../engine-core/dist/effects/instructions/cost.m
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createEngineStaticBinder, hiddenPermissionFor } from "../../../../engine-core/dist/programs/statics.js";
 
 const CANONICAL_ID = "card.hash-783f18a4ad28b8126f59f285304bee0b93c1e76fb7a557f8e9fee60bebf1f609";
 const SOURCE_TEXT =
@@ -318,11 +318,7 @@ test("sfd-111-221 Here to Help evidence: a flat FinalizedCostPlan derived from t
   assert.equal(kernel.events.filter((event) => event.action === "play").length, 1);
 });
 
-test("sfd-111-221 Here to Help evidence: the chain adapter cannot decode a cost.modify body, so the card cannot author the plan at all", () => {
-  // chain/interpreter-adapter.ts unwraps literal fields only for the ops listed
-  // in LITERAL_FIELDS; cost.modify is absent, so a card body's Expr-wrapped `id`
-  // reaches the primitive as an object and is rejected. The body below is
-  // valid CardProgram IR (asserted first) — the failure is the adapter seam.
+test("sfd-111-221 Here to Help evidence: the chain adapter executes a cost.modify body", () => {
   const instructions = [
     {
       id: "here-to-help.build-cost",
@@ -345,18 +341,15 @@ test("sfd-111-221 Here to Help evidence: the chain adapter cannot decode a cost.
 
   const kernel = world().hand("unit-card", { types: ["unit"], owner: "A", energy: 4, power: ["Body"] }).build();
   kernel.setPicks("here-to-help.unit", [kernel.ref("unit-card")]);
-  assert.throws(
-    () => resolveChainBody(instructions, productionQuery(kernel)),
-    /cost\.modify id must be a non-empty string/
-  );
-  assert.equal("cost" in kernel.linkedSnapshot(), false);
+  const outcome = resolveChainBody(instructions, productionQuery(kernel));
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(outcome.linkedValues["here-to-help.build-cost.cost"].finalized, true);
+  assert.equal(outcome.linkedValues["here-to-help.build-cost.cost"].total.energy, 1);
 });
 
-test("sfd-111-221 Here to Help evidence: [Hidden]'s cost.hidden static has no production binding layer", () => {
-  // 811.1.b: the keyword expansion and buildHiddenCostPlan are merged, but the
-  // merged static binder refuses the printed permission outright, and no chain
-  // path turns it into a Hide Discretionary Action, facedown storage or the
-  // next-turn Reaction play (811.1.c / 811.6).
+test("sfd-111-221 Here to Help evidence: [Hidden]'s cost.hidden static binds a production permission", () => {
+  // The permission capability is live. Its Hide action, facedown storage and
+  // next-turn Reaction play remain separate judge-required consumers.
   const kernel = world().hand("subject", {
     types: ["spell"],
     owner: "A",
@@ -379,11 +372,10 @@ test("sfd-111-221 Here to Help evidence: [Hidden]'s cost.hidden static has no pr
     kind: "static",
     effect: { kind: "cost.hidden" }
   }]);
-  assert.throws(
-    () => binder.bindStatic(keywordDefinitionsById.get("Hidden").expand({ host: hostRef })[0], source),
-    /no layer mapping/,
-    "[Hidden]'s cost.hidden must stay unconsumed"
-  );
+  const hiddenHandle = binder.bindStatic(keywordDefinitionsById.get("Hidden").expand({ host: hostRef })[0], source);
+  assert.equal(hiddenPermissionFor(engine, source), "present");
+  hiddenHandle.unbind();
+  assert.equal(hiddenPermissionFor(engine, source), "absent");
   // [Action]'s Showdown permission is delivered by the declaration
   // (programs/keywords.ts abilitySpeed), but its own continuous.timing
   // expansion is likewise still refused by the static binder.

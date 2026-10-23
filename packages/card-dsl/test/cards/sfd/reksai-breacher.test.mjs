@@ -153,7 +153,7 @@ test("sfd-029-221 Rek'Sai, Breacher golden: the merged grant primitive really gi
   assert.equal(context.continuousEffects[0].effect.effect.keyword, "accelerate");
   const layers = layerAfter(context);
   // 478.1.a ability layer: only the matching friendly unit gains the keyword.
-  assert.deepEqual(layers.evaluate(context.ref("friendly-poro")).keywords, [{ id: "accelerate", value: undefined }]);
+  assert.deepEqual(layers.evaluate(context.ref("friendly-poro")).keywords, [{ id: "accelerate" }]);
   assert.deepEqual(layers.evaluate(context.ref("rekai")).keywords, []);
   assert.deepEqual(layers.evaluate(context.ref("enemy-poro")).keywords, []);
 });
@@ -248,7 +248,7 @@ test.todo(
 // (the default binder used by attachProgramLifecycle) translates the grant
 // through staticFilter, whose whitelist rejects the card's playedFromZoneNot
 // placeholder with a judge-required ProgramBindingError.
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createEngineStaticBinder, staticCostSources } from "../../../../engine-core/dist/programs/statics.js";
 import { ProgramBindingError } from "../../../../engine-core/dist/programs/errors.js";
 import { translateCost } from "../../../../engine-core/dist/programs/play.js";
 
@@ -279,39 +279,31 @@ test("sfd-029-221 Rek'Sai, Breacher: the production static binder rejects the gr
   );
 });
 
-test("sfd-029-221 Rek'Sai, Breacher: no consumer turns the Accelerate expansion into CostPlanInput", () => {
-  // Evidence for the [Accelerate] cost gap: the merged keyword expansion
-  // declares accelerate.cost, but the production static binder has no layer
-  // mapping for that effect kind and the play-cost translator rejects the
-  // authored additional-cost shape instead of approximating the charge.
-  const kernel = world()
-    .unit("breacher", { might: 3, zone: "board", location: { type: "battlefield", id: "bf-1" } })
-    .build();
-  const binder = createEngineStaticBinder({
-    layers: createLayerEngine(kernel.objects, []),
-    pipeline: {
-      host: {
-        objects: () => kernel.objects,
-        context: (snapshot) => kernel.clone({ sourceSnapshot: snapshot, source: snapshot.ref })
-      }
-    }
+test("sfd-029-221 Rek'Sai, Breacher: the production binder exposes the Accelerate declaration as a Finalize cost source", () => {
+  // The static binder now registers accelerate.cost as a cost capability. The
+  // selected optional component still remains unavailable until the play
+  // adapter consumes this binding, so only the binding is claimed here.
+  const { engine, kernel } = fixture({
+    cards: [{ id: "breacher", cardId: CARD_ID, types: ["unit"], might: 3, keywords: [{ id: "Frenzy" }] }]
   });
+  const binder = createEngineStaticBinder(engine);
   const [declaration] = keywordDefinitionsById.get("Accelerate").expand({ host: { canonicalCardId: CARD_ID } });
   assert.equal(declaration.kind, "static");
   assert.equal(declaration.effect.kind, "accelerate.cost");
-  assert.throws(
-    () => binder.bindStatic(declaration, kernel.getObject("breacher")),
-    /Static ability kind accelerate\.cost has no layer mapping/
-  );
-  assert.throws(
-    () => translateCost(declaration.effect.cost, "reksai-breacher.accelerate", "play"),
-    /Unsupported play cost field optional/
-  );
-  // 805.6.a: the merged entry replacement really readies the paid unit when the
-  // cost decision is supplied by a caller (the missing piece is the binding from
-  // the keyword declaration).
+  const handle = binder.bindStatic(declaration, kernel.getObject("breacher"));
+  const [source] = staticCostSources(engine);
+  assert.equal(source.ability.effect.kind, "cost.additional");
+  assert.equal(source.ability.effect.optional, true);
+  assert.deepEqual(source.ability.effect.payments, [
+    { kind: "energy", amount: c(1) },
+    { kind: "power", amount: c(1) }
+  ]);
+  // Inspect the optional play component without substituting an Accelerate
+  // decision; the shipped program's play adapter remains the consumer gap.
+  assert.throws(() => translateCost(declaration.effect.cost, "reksai-breacher.accelerate", "play"), /Additional costs require the program cost adapter/);
   const [replacement] = keywordDefinitionsById.get("Accelerate").expand({ host: { canonicalCardId: CARD_ID } }).slice(1);
   assert.equal(replacement.kind, "replacement");
   assert.deepEqual(replacement.with.map((instruction) => instruction.op), ["effect.ready"]);
+  handle.unbind();
 });
 

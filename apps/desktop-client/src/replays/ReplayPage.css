@@ -188,9 +188,15 @@
 }
 
 .replay-record-meta,
-.replay-record-saved {
+.replay-record-saved,
+.replay-record-protocol,
+.replay-record-source {
   font-size: 0.7rem;
   color: var(--text-muted, #a6a29a);
+}
+
+.replay-record-source {
+  margin: 0;
 }
 
 .replay-record-delete {
@@ -352,6 +358,136 @@
   /* The board fills the layer height; it scrolls inside itself on a short
      window instead of pushing a page scrollbar onto the body. */
   overflow: auto;
+}
+
+/* Stored V2 projections use an internal read-only presentation. */
+.replay-v2-frame {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.replay-v2-header,
+.replay-v2-player h4,
+.replay-v2-zone h4,
+.replay-v2-clock,
+.replay-v2-zones {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.replay-v2-header h3,
+.replay-v2-player h4,
+.replay-v2-zone h4 {
+  margin: 0;
+}
+
+.replay-v2-kicker,
+.replay-v2-clock,
+.replay-v2-zone p,
+.replay-v2-events p {
+  color: var(--text-muted, #a6a29a);
+}
+
+.replay-v2-kicker {
+  margin: 0 0 0.2rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.replay-v2-clock {
+  flex-wrap: wrap;
+  margin: 0;
+  font-size: 0.72rem;
+}
+
+.replay-v2-clock div {
+  display: grid;
+  gap: 0.1rem;
+  text-align: right;
+}
+
+.replay-v2-clock dd {
+  margin: 0;
+  color: #f3f0ea;
+  font-weight: 700;
+}
+
+.replay-v2-winner,
+.replay-v2-readonly {
+  margin: 0;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid rgba(55, 200, 187, 0.4);
+  border-radius: 0.45rem;
+  background: rgba(55, 200, 187, 0.1);
+  color: var(--primary-strong, #37c8bb);
+}
+
+.replay-v2-players {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.6rem;
+}
+
+.replay-v2-player,
+.replay-v2-zone,
+.replay-v2-status,
+.replay-v2-events {
+  min-width: 0;
+  padding: 0.65rem;
+  border: 1px solid var(--line, #3a3a40);
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.replay-v2-player dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+  margin: 0.55rem 0 0;
+}
+
+.replay-v2-player dt {
+  font-size: 0.68rem;
+  color: var(--text-muted, #a6a29a);
+}
+
+.replay-v2-player dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.replay-v2-zones {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  align-items: stretch;
+}
+
+.replay-v2-zone h4 span {
+  color: var(--text-muted, #a6a29a);
+  font-size: 0.75rem;
+}
+
+.replay-v2-zone ul,
+.replay-v2-events ol,
+.replay-v2-status ol {
+  margin: 0.5rem 0 0;
+  padding-left: 1.15rem;
+  line-height: 1.55;
+}
+
+.replay-v2-status h4,
+.replay-v2-events h4 {
+  margin: 0 0 0.4rem;
+}
+
+.replay-v2-status p,
+.replay-v2-events p {
+  margin: 0.25rem 0;
 }
 
 @media (max-width: 1100px) {

@@ -7,7 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createEngineStaticBinder, hiddenPermissionFor } from "../../../../engine-core/dist/programs/statics.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -184,12 +184,13 @@ test("Guards! golden: production adapter creates the Sand Soldier on the Chain, 
     outcome.linkedValues["guards.may-ready/guards.pay-order-rune.payment"].total.power[0].allowedDomains[0],
     "Order"
   );
-  // 415.3 / 416.1.c: the token is already ready, so the merged ready primitive
-  // completes without emitting a second ready action and reports a 0 count.
-  assert.equal(outcome.events.filter((event) => event.action === "ready").length, 0);
+  // 415.3 / 416.1.c: the played Sand Soldier enters exhausted. The paid ready
+  // branch therefore performs one real ready action rather than fabricating a
+  // second state change.
+  assert.equal(outcome.events.filter((event) => event.action === "ready").length, 1);
   assert.deepEqual(
     outcome.linkedValues["guards.may-ready/guards.ready-sand-soldier.readied"],
-    { count: 0, objects: [] }
+    { count: 1, objects: [soldier.ref] }
   );
 });
 
@@ -224,7 +225,7 @@ test("Guards! golden: the paid ready really readies the exhausted Sand Soldier h
     outcome.linkedValues["guards.ready-sand-soldier.readied"],
     { count: 1, objects: [soldier.ref] }
   );
-  assert.deepEqual(kernel.player("A").power, ["Order"]);
+  assert.deepEqual(kernel.player("A").power, []);
   assert.equal(
     outcome.linkedValues["guards.pay-order-rune.payment"].total.power[0].allowedDomains[0],
     "Order"
@@ -259,7 +260,7 @@ test("Guards! golden: an unpayable Order rune fails closed instead of readying f
     (error) => error.name === "CostPlanError" && error.reason === "cannot-pay-cost"
   );
   assert.deepEqual(kernel.player("A").power, []);
-  assert.deepEqual(playedTokens(kernel).map((token) => token.exhausted), [false]);
+  assert.deepEqual(playedTokens(kernel).map((token) => token.exhausted), [true]);
   assert.equal(kernel.events.filter((event) => event.action === "ready").length, 0);
 });
 
@@ -333,9 +334,9 @@ test("Guards! golden: the Finalize location provider offers the controlled Battl
   assert.equal(playedTokens(illegal).length, 0);
 });
 
-test("Guards! boundary: the merged Hidden expansion cannot be bound by the production static binder", () => {
-  // 811.1.b/811.6: the expansion exists, but programs/statics.ts has no layer
-  // for cost.hidden, so the Hide action / facedown / free play cannot run.
+test("Guards! boundary: the merged Hidden expansion binds a live production permission", () => {
+  // 811.1.b/811.6: the production binder installs the permission capability;
+  // Hide/facedown/free-play remain the whole-card consumers in judgeReason.
   const definition = keywordDefinitionsById.get("Hidden");
   assert.ok(definition, "effects/keywords/Hidden.ts must be registered");
   assert.deepEqual(definition.expand({ host: { canonicalCardId: CANONICAL } }), [
@@ -356,10 +357,10 @@ test("Guards! boundary: the merged Hidden expansion cannot be bound by the produ
   });
   const binder = createEngineStaticBinder(engine);
   const source = { ...kernel.getObject("guards-source"), cardId: CANONICAL, types: ["spell"] };
-  assert.throws(
-    () => binder.bindStatic({ kind: "static", effect: { kind: "cost.hidden" } }, source),
-    /Static ability kind cost\.hidden has no layer mapping/
-  );
+  const handle = binder.bindStatic({ kind: "static", effect: { kind: "cost.hidden" } }, source);
+  assert.equal(hiddenPermissionFor(engine, source), "present");
+  handle.unbind();
+  assert.equal(hiddenPermissionFor(engine, source), "absent");
 });
 
 test.todo(

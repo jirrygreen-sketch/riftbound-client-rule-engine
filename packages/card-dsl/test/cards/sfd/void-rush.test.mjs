@@ -236,50 +236,38 @@ test("Void Rush primitive subpath: cost.pay consumes the plan produced by cost.m
   assert.deepEqual(kernel.events.map(event => event.action), ["pay"]);
 });
 
-test("Void Rush chain: the original cost-plan IR is still blocked by the adapter's literal decoding", () => {
+test("Void Rush chain: the production adapter executes the original cost-plan IR on the Chain source", () => {
   const f = fixture();
   f.engine.advance();
-  // Measured production behavior for the authored IR: without a LITERAL_FIELDS
-  // entry the constant-wrapped id itself reaches the primitive's schema.
-  assert.throws(() => resolveChainBody([costPlan], f.kernel), /cost\.modify id must be a non-empty string \(or supply source\)/);
-  // Unwrapping only the id (the natural first adapter fix) then fails on the
-  // constant-wrapped modifier envelope.
-  const idUnwrapped = { ...costPlan, args: { ...costPlan.args, id: costPlan.args.id.value } };
-  assert.throws(() => resolveChainBody([idUnwrapped], f.kernel), /Invalid cost\.modify modifier argument: value/);
-  // A hand-written full unwrap does freeze a plan on the *chain source* (the
-  // fixture's base), which is exactly why it cannot stand in for the printed
-  // gap: the plan describes the wrong card. Reported here as measured evidence.
-  const fullyUnwrapped = { ...costPlan, args: { id: costPlan.args.id.value, modifier: costPlan.args.modifier.value } };
-  const outcome = resolveChainBody([fullyUnwrapped], f.kernel);
+  const outcome = resolveChainBody([costPlan], f.kernel);
   assert.equal(outcome.results[0].result.status, "executed");
   const plan = outcome.linkedValues["void-rush.cost-plan.cost"];
   assert.equal(plan.finalized, true);
   assert.equal(plan.source.id, "source");
   assert.notEqual(plan.source.id, "void-rush");
+  assert.equal(plan.total.energy, 0);
+  assert.deepEqual(plan.discounts.map(({ before, after }) => ({ before, after })), [{ before: 1, after: 0 }]);
 });
 
-test("Void Rush chain: the decode failure aborts the whole Finalize, so the reveal never resolves and nothing is played", () => {
+test("Void Rush chain: the production adapter resolves the reveal and cost plan together", () => {
   // Feed the card's real reveal + cost-plan body through the production chain
-  // adapter. The adapter fails to decode cost.modify inside the Finalize
-  // transaction, so the locked reveal is rolled back; no play, draw, or
-  // discarded card from this card may be claimed.
+  // adapter. Both instructions now execute in order; the selected-card Play
+  // handoff remains a separate judge-required gap.
   const f = fixture();
   f.engine.advance();
-  assert.throws(
-    () => {
-      f.engine.enqueue({
-        id: "void-rush-body", kind: "triggered", controller: "A",
-        source: f.kernel.getObject("source"), body: [revealInstruction, costPlan]
-      });
-      f.engine.advance();
-      while (f.engine.items.length) f.engine.pass(f.engine.priority);
-    },
-    /cost\.modify id must be a non-empty string \(or supply source\)/
-  );
-  assert.equal(f.kernel.linked("void-rush.reveal.revealed"), undefined);
-  assert.equal(f.engine.pipeline.events.some((event) => event.timingPoint === "card-revealed"), false);
+  f.engine.enqueue({
+    id: "void-rush-body", kind: "triggered", controller: "A",
+    source: f.kernel.getObject("source"), body: [revealInstruction, costPlan]
+  });
+  f.engine.advance();
+  while (f.engine.items.length) f.engine.pass(f.engine.priority);
+  assert.deepEqual(f.kernel.linked("void-rush.reveal.revealed").map(({ id }) => id), ["A:deck:1", "A:deck:2"]);
+  assert.equal(f.engine.pipeline.events.filter((event) => event.timingPoint === "card-revealed").length, 2);
   assert.equal(f.kernel.zone("A", "deck").length, 4);
   assert.equal(f.kernel.player("A").handSize, 0);
+  const plan = f.kernel.linked("void-rush.cost-plan.cost");
+  assert.equal(plan.source.id, "source");
+  assert.equal(plan.total.energy, 0);
 });
 
 test("Void Rush direct execution: the optional play cannot bind the reveal and the pending move-to-hand is not Draw", () => {

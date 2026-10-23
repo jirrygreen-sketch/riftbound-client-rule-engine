@@ -9,7 +9,6 @@ import { translateObjectFilter } from "../../../../engine-core/dist/programs/fil
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
-import { ChainContractBlockedError } from "../../../../engine-core/dist/chain/engine.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -193,7 +192,7 @@ test("sfd-125-221 Fae Porter golden: a unit already at the source battlefield is
   assert.equal(run.linked.moved.count, 0);
 });
 
-test("sfd-125-221 Fae Porter: the moved trigger binds structurally but fails closed at production validation", () => {
+test("sfd-125-221 Fae Porter: production binding lifts the leading cost and nested target", () => {
   const source = world()
     .unit("fae", { cardId: program.canonicalCardId, location: { type: "battlefield", id: "field-1" } })
     .build()
@@ -203,38 +202,86 @@ test("sfd-125-221 Fae Porter: the moved trigger binds structurally but fails clo
     source
   );
   assert.equal(registration.spec.at, "object-moved");
-  assert.equal(registration.cost, undefined);
-  assert.equal(registration.mayAtFinalize, undefined);
-  assert.throws(
-    () => assertTriggerSpec(registration.spec),
-    error => error.name === "TriggerSpecValidationError" &&
-      /trigger\.filter\.event/.test(error.message)
-  );
+  assert.doesNotThrow(() => assertTriggerSpec(registration.spec));
+  assert.deepEqual(registration.body.map(instruction => instruction.id), [
+    "fae-porter.read-battlefield",
+    "fae-porter.move-unit"
+  ]);
+  assert.deepEqual(registration.cost, {
+    id: "cost:fae:1:fae-porter.may-pay",
+    cost: {
+      payments: [{
+        kind: "power",
+        amount: { kind: "constant", value: 1 },
+        allowedDomains: ["Chaos"]
+      }]
+    }
+  });
+  assert.equal(registration.mayAtFinalize, true);
+  assert.deepEqual(registration.targets, [{
+    requirement: {
+      id: "fae-porter.friendly-unit",
+      filter: { type: "unit", controller: "self", zone: "board" },
+      min: 1,
+      max: 1,
+      selection: "one"
+    }
+  }]);
+  assert.equal(program.status, "judge-required");
 });
 
 test.todo(
-  "sfd-125-221 Fae Porter: admit object-moved into EVENT_PATTERN_TYPES and bind the moved source/" +
-    "battlefield restriction to the existing producer (449.1/449.2, Recall excluded by 458)"
+  "sfd-125-221 Fae Porter: bind object-moved's source/battlefield restriction to the existing " +
+    "producer and verify the full emitted-trigger path (449.1/449.2, Recall excluded by 458)"
 );
 
-test("sfd-125-221 Fae Porter: the real chain blocks the nested friendly-unit target before Finalize", () => {
-  // 355.9.a.1/355.10: "move a unit you control" is a TargetSpec inside the
-  // optional body. assertFinalizationSurface only collects top-level targets, so
-  // the production chain refuses the item instead of resolving the selection.
-  const f = fixture({ cards: [{ id: "fae-porter", cardId: CANONICAL, types: ["unit"] }] });
-  assert.throws(
-    () => f.engine.execute({
-      id: "fae-porter.moved",
-      controller: "A",
-      source: f.kernel.getObject("fae-porter"),
-      kind: "triggered",
-      speed: "action",
-      body: ability.body
-    }),
-    error => error instanceof ChainContractBlockedError &&
-      /Nested\/repeated targets require an interpreter target-selection lifecycle adapter/.test(error.message)
+test("sfd-125-221 Fae Porter: production binding pays Chaos and locks the nested friendly target", () => {
+  const f = fixture({
+    cards: [{ id: "fae", cardId: CANONICAL, types: ["unit"], power: ["Chaos"] }],
+    choose: request => {
+      if (request.type === "optional") return true;
+      if (request.type === "select-objects") return [request.options.find(ref => ref.id === "ally")];
+      return undefined;
+    }
+  });
+  const source = f.kernel.getObject("fae");
+  f.kernel.addObject(world().unit("ally", {
+    owner: "A", controller: "A", location: { type: "base", player: "A" }
+  }).build().getObject("ally"), "board");
+  f.kernel.addPlayer("A", { power: ["Chaos"] });
+  const [registration] = triggerRegistrations(
+    new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]),
+    source
   );
-  assert.equal(body[2].targets.length, 1);
+
+  f.engine.execute({
+    id: "fae-porter.moved",
+    controller: "A",
+    source,
+    kind: "triggered",
+    speed: "action",
+    body: registration.body,
+    mayAtFinalize: true,
+    cost: { ...registration.cost, domains: source.power },
+    targets: registration.targets
+  });
+
+  const [item] = f.engine.items;
+  assert.equal(item.status, "finalized");
+  assert.equal(item.payment.paid, true);
+  assert.deepEqual(item.payment.total.power, [{ amount: 1, allowedDomains: ["Chaos"] }]);
+  assert.deepEqual(item.payment.power.power, [{ requirementIndex: 0, from: "Chaos", amount: 1 }]);
+  assert.deepEqual(item.targetPlans.map(plan => ({
+    requirement: plan.requirement.id,
+    selected: plan.selected.map(ref => ref.id),
+    retestAtResolve: plan.retestAtResolve
+  })), [{
+    requirement: "fae-porter.friendly-unit",
+    selected: ["ally"],
+    retestAtResolve: true
+  }]);
+  assert.equal(f.engine.trace.some(record => record.step === "targets-finalized"), true);
+  assert.equal(program.status, "judge-required");
 });
 
 test.todo(

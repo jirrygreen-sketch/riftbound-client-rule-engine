@@ -154,7 +154,7 @@ test("sfd-034-221 Feral Strength golden: the chosen unit gains +2 Might and the 
   assert.equal(layers.evaluate(kernel.ref("chosen")).might, 3);
 });
 
-test("sfd-034-221 Feral Strength: play binding rejects the printed Repeat additional cost", () => {
+test("sfd-034-221 Feral Strength: play binding exposes the printed Repeat additional cost", () => {
   const kernel = world()
     .card("feral", {
       cardId: program.canonicalCardId,
@@ -168,17 +168,15 @@ test("sfd-034-221 Feral Strength: play binding rejects the printed Repeat additi
     .build();
   const source = kernel.getObject("feral");
   const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
-  assert.throws(
-    () => describePlay(registry, { type: "play", object: source.ref, player: "A" }, source),
-    error => error.code === "judge-required" && /Unsupported play cost field optional/.test(error.message)
-  );
+  const draft = describePlay(registry, { type: "play", object: source.ref, player: "A" }, source);
+  assert.equal(draft.cost.optionalAdditional.length, 1);
+  assert.equal(draft.cost.optionalAdditional[0].kind, "repeat");
+  assert.deepEqual(draft.cost.optionalAdditional[0].cost.payments, [
+    { kind: "energy", amount: { kind: "constant", value: 2 } }
+  ]);
 });
 
-test("sfd-034-221 Feral Strength: the prod keyword expansion drops the printed Repeat cost", () => {
-  // Live evidence for gap (2): programs/keywords.ts only forwards
-  // keyword/value/host to KeywordDef.expand, so the merged Repeat expansion is
-  // authored without the card's printed cost and can only declare a 0-Energy
-  // instance. Nothing consumes the printed `kind: "additional"` declaration.
+test("sfd-034-221 Feral Strength: the production play draft carries the printed Repeat cost", () => {
   const kernel = world()
     .card("feral", { cardId: program.canonicalCardId, types: ["spell"], zone: "hand", energy: 2, power: null })
     .build();
@@ -186,9 +184,11 @@ test("sfd-034-221 Feral Strength: the prod keyword expansion drops the printed R
   const expanded = expandProgram({ ...program, status: "executable", judgeReason: undefined }, source).expanded;
   const repeatStatic = expanded.find((ability) => ability.kind === "static" && ability.effect.kind === "repeat.cost");
   assert.ok(repeatStatic, "the merged Repeat keyword expands to a repeat.cost static");
-  // The printed 2 Energy is nowhere in the expansion.
-  assert.deepEqual(repeatStatic.effect.cost, { energy: 0 });
-  assert.equal(JSON.stringify(repeatStatic.effect).includes('"value":2'), false);
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const draft = describePlay(registry, { type: "play", object: source.ref, player: "A" }, source);
+  assert.deepEqual(draft.cost.optionalAdditional[0].cost.payments, [
+    { kind: "energy", amount: { kind: "constant", value: 2 } }
+  ]);
 });
 
 test("sfd-034-221 Feral Strength: the paid Repeat receipt is a boolean the repeat node cannot consume", () => {

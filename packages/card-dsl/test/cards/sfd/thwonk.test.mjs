@@ -9,7 +9,7 @@ import stun from "../../../../engine-core/dist/effects/instructions/effect.stun.
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createEngineStaticBinder, staticCostSources } from "../../../../engine-core/dist/programs/statics.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { translateCost } from "../../../../engine-core/dist/programs/play.js";
@@ -155,18 +155,18 @@ test.todo(
 // Live evidence for both halves of the refreshed reason: the shipped play cost
 // cannot be translated at all, and the merged Repeat keyword expansion is itself
 // rejected by the production static binder.
-test("sfd-040-221 Thwonk!: programs/play.ts still refuses the printed [Repeat] additional cost (820.1.c.1)", () => {
+test("sfd-040-221 Thwonk!: translateCost rejects the direct additional wrapper and delegates it to the play binder (820.1.c.1)", () => {
   assert.throws(
     () => translateCost(play.cost, "thwonk", "play"),
     (error) => {
       assert.equal(error.code, "judge-required");
-      assert.match(error.message, /Unsupported play cost field optional/);
+      assert.match(error.message, /Additional costs require the program cost adapter on thwonk/);
       return true;
     }
   );
 });
 
-test("sfd-040-221 Thwonk!: the merged Repeat expansion has no layer mapping in the static binder", () => {
+test("sfd-040-221 Thwonk!: the merged Repeat expansion registers as a Finalize cost source", () => {
   const expansion = repeatKeyword.expand({ host: { canonicalCardId: CANONICAL_ID }, cost: { energy: 2 } })[0];
   assert.equal(expansion.kind, "static");
   assert.equal(expansion.effect.kind, "repeat.cost");
@@ -183,14 +183,13 @@ test("sfd-040-221 Thwonk!: the merged Repeat expansion has no layer mapping in t
   });
   const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host });
   const binder = createEngineStaticBinder(engine);
-  assert.throws(
-    () => binder.bindStatic(expansion, kernel.getObject("thwonk")),
-    (error) => {
-      assert.match(error.message, /repeat\.cost has no layer mapping/);
-      return true;
-    }
-  );
-  assert.deepEqual(engine.layers.registry.list(), []);
+  const handle = binder.bindStatic(expansion, kernel.getObject("thwonk"));
+  const [source] = staticCostSources(engine);
+  assert.equal(source.ability.effect.kind, "cost.additional");
+  assert.equal(source.ability.effect.optional, true);
+  assert.deepEqual(source.ability.effect.payments, []);
+  handle.unbind();
+  assert.deepEqual(staticCostSources(engine), []);
 });
 
 test.todo(

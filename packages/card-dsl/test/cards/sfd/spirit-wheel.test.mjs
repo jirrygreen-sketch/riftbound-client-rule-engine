@@ -173,12 +173,21 @@ test("sfd-144-221 Spirit Wheel: the merged CardProgram binding registers through
     target: { type: "unit", controller: "self" },
     player: "self"
   });
-  assert.equal(registrations[0].optional, true);
-  // The live gap: the binding leaves the leading base cost and the Finalize
-  // "you may" decision (383.3.a/b) unbound even though the registration type
-  // carries both fields.
+  // A leading optional moves to Finalize; the nested cost.modify/cost.pay pair
+  // remains in Resolve because only a direct cost.pay is recognized as the
+  // leading base-cost shape.
+  assert.equal(registrations[0].optional, false);
+  // The production registration lifts the outer "you may" to Finalize. It
+  // cannot lift the nested cost.modify/cost.pay pair as a base cost (only a
+  // direct leading cost.pay is recognized), so those instructions remain in
+  // Resolve and no cost plan is registered here.
   assert.equal(registrations[0].cost, undefined);
-  assert.equal(registrations[0].mayAtFinalize, undefined);
+  assert.equal(registrations[0].mayAtFinalize, true);
+  assert.deepEqual(registrations[0].body.map(instruction => instruction.id), [
+    "spirit-wheel.prepare-payment",
+    "spirit-wheel.pay",
+    "spirit-wheel.draw-1"
+  ]);
 });
 
 test("sfd-144-221 Spirit Wheel golden: the card's own cost.modify + cost.pay pair really pays 1 Energy and exhausts the host", () => {
@@ -232,28 +241,22 @@ test("sfd-144-221 Spirit Wheel golden: the card's own cost pair fails closed on 
   assert.deepEqual(kernel.events, []);
 });
 
-test("sfd-144-221 Spirit Wheel: the production chain body cannot literalize the declared cost.modify yet", () => {
-  // Live evidence for the judgeReason gap: chain/interpreter-adapter.ts wraps
-  // primitive arguments and only decodes the declared LITERAL_FIELDS, which do
-  // not include cost.modify. The card's own leading instruction therefore
-  // reaches the primitive schema with the id still wrapped in an Expr and fails
-  // closed with a TypeError instead of silently paying nothing.
+test("sfd-144-221 Spirit Wheel: the production chain body literalizes and pays the declared cost.modify", () => {
+  // chain/interpreter-adapter.ts now unwraps cost.modify's id and cost fields.
   const base = world()
     .player("A", { energy: 3 })
     .unit("wheel", { types: ["gear"], might: 0, location: { type: "base", player: "A" } })
     .build();
   const kernel = base.clone({ sourceSnapshot: base.getObject("wheel") });
 
-  assert.throws(
-    () => resolveChainBody([preparePayment, pay], kernel),
-    (error) => error instanceof TypeError && /cost\.modify id must be a non-empty string/.test(error.message)
-  );
-  assert.equal(kernel.player("A").energy, 3);
-  assert.equal(kernel.getObject("wheel").exhausted, false);
-  assert.deepEqual(kernel.events, []);
+  const outcome = resolveChainBody([preparePayment, pay], kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.events.map(event => event.action), ["pay", "exhaust"]);
+  assert.equal(kernel.player("A").energy, 2);
+  assert.equal(kernel.getObject("wheel").exhausted, true);
 });
 
-test("sfd-144-221 Spirit Wheel: accepting the optional never draws without a real payment (383.3.b)", () => {
+test("sfd-144-221 Spirit Wheel: accepting the optional requires the real payment path (383.3.b)", () => {
   // 383.3.b/383.3.b.1: the printed "pay 1 energy and exhaust this" is the
   // ability's base cost, so accepting the printed optional may never produce
   // the draw for free. The whole declared body fails closed while the finalize
@@ -268,15 +271,12 @@ test("sfd-144-221 Spirit Wheel: accepting the optional never draws without a rea
   const kernel = base.clone({ sourceSnapshot: base.getObject("wheel") });
   kernel.setAnswers({ [OPTIONAL_ID]: true });
 
-  assert.throws(
-    () => resolveChainBody(optional.args.body.value, kernel),
-    (error) => error instanceof TypeError && /cost\.modify id must be a non-empty string/.test(error.message)
-  );
-  // Nothing was approximated: no draw, no charge, no exhaust.
-  assert.equal(kernel.player("A").handSize, 0);
-  assert.equal(kernel.player("A").energy, 3);
-  assert.equal(kernel.getObject("wheel").exhausted, false);
-  assert.deepEqual(kernel.events, []);
+  const outcome = resolveChainBody(optional.args.body.value, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.events.map(event => event.action), ["pay", "exhaust", "draw"]);
+  assert.equal(kernel.player("A").handSize, 1);
+  assert.equal(kernel.player("A").energy, 2);
+  assert.equal(kernel.getObject("wheel").exhausted, true);
 });
 
 test.todo(

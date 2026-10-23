@@ -11,8 +11,10 @@ import { translateObjectFilter } from "../../../../engine-core/dist/programs/fil
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createEngineStaticBinder, hiddenPermissionFor } from "../../../../engine-core/dist/programs/statics.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CARD_ID = "card.hash-75f4edacd5ddc4bb087703bc231650c3942cea51f1bdb7b370bd27a6da6fd390";
 const SOURCE_TEXT =
@@ -176,20 +178,18 @@ test("sfd-138-221 Windsinger: Hidden expands through the real keyword registry",
   assert.equal(expansion.effect.kind, "cost.hidden");
 });
 
-test("sfd-138-221 Windsinger: the printed target filter is refused by the production translator", () => {
-  // 355.9.c/740.1.a's "another" is the contract 3.6 exclude anchor; the merged
-  // production translator rejects it outright, so the Finalize target plan can
-  // never lock the printed candidate set.
-  assert.throws(
-    () => translateObjectFilter({ type: "unit", zone: "board", location: "battlefield", exclude: "source", mightLte: 3 }),
-    error => error.code === "judge-required" && /Unsupported filter field exclude/.test(error.message)
+test("sfd-138-221 Windsinger: the production translator preserves exclude and the Might cap", () => {
+  // 355.9.c/740.1.a and 143.2.a: both predicates are now in the closed filter
+  // vocabulary and reach the shared candidate matcher unchanged.
+  assert.deepEqual(
+    translateObjectFilter({ type: "unit", zone: "board", location: "battlefield", exclude: "source", mightLte: 3 }),
+    { type: "unit", zone: "board", location: "battlefield", exclude: "source", mightLte: 3 }
   );
 });
 
-test("sfd-138-221 Windsinger: the Might cap has no consumer and a 7-Might unit passes the filter", () => {
-  // 143.2.a's effective-Might threshold is not a supported ObjectFilter
-  // predicate: the merged layer matcher silently ignores the unknown key, so a
-  // 7-Might battlefield unit would be a legal target for "3 Might or less".
+test("sfd-138-221 Windsinger: the Might cap rejects a 7-Might battlefield unit", () => {
+  // 143.2.a: the shared matcher consumes mightLte as an effective-Might
+  // threshold, so the printed "3 Might or less" excludes the larger unit.
   const sevenMight = {
     ref: { id: "big-unit", zoneEntryId: 1 },
     cardId: "card:big-unit",
@@ -213,7 +213,7 @@ test("sfd-138-221 Windsinger: the Might cap has no consumer and a 7-Might unit p
     faceDown: false,
     isToken: false
   };
-  assert.equal(matchesObjectFilter({ type: "unit", zone: "board", mightLte: 3 }, sevenMight), true);
+  assert.equal(matchesObjectFilter({ type: "unit", zone: "board", mightLte: 3 }, sevenMight), false);
 });
 
 test("sfd-138-221 Windsinger: production trigger binding never sets mayAtFinalize", () => {
@@ -245,18 +245,28 @@ test("sfd-138-221 Windsinger: production trigger binding never sets mayAtFinaliz
   assert.equal(registration.mayAtFinalize, undefined);
 });
 
-test("sfd-138-221 Windsinger: the merged Hidden expansion is refused by the production static binder", () => {
-  // 811.1: [Hidden] expands to static cost.hidden, whose only merged pieces are
-  // the cost plan helpers (811.1.b). The production layer binder has no mapping
-  // for that kind and fails closed instead of granting a pretend Hide.
+test("sfd-138-221 Windsinger: the merged Hidden expansion binds a live production permission", () => {
+  // 811.1: [Hidden] expands to static cost.hidden and the production binder
+  // installs it as a host-bound capability. The Hide action itself remains a
+  // separate whole-card gap recorded in judgeReason/TODO.
   const kernel = world().unit("windsinger", { cardId: CARD_ID, types: ["spell"], zone: "hand", location: null }).build();
   const source = kernel.getObject("windsinger");
-  const binder = createEngineStaticBinder({ layers: createLayerEngine([source]) });
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error(`Unexpected choice: ${request.id}`); },
+    context: (snapshot, controller, timingPoint) =>
+      bindResolveContext(kernel, { source: snapshot, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const binder = createEngineStaticBinder(engine);
   const [expansion] = keywordDefinitionsById.get("Hidden").expand({ host: { canonicalCardId: CARD_ID } });
-  assert.throws(
-    () => binder.bindStatic(expansion, source),
-    /Static ability kind cost\.hidden has no layer mapping/
-  );
+  const handle = binder.bindStatic(expansion, source);
+  assert.equal(hiddenPermissionFor(engine, source), "present");
+  handle.unbind();
+  assert.equal(hiddenPermissionFor(engine, source), "absent");
 });
 
 test.todo(

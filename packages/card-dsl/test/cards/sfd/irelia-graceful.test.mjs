@@ -15,7 +15,10 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/irelia-graceful.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { staticCostSources } from "../../../../engine-core/dist/programs/statics.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -50,25 +53,26 @@ test("sfd-141-221 Irelia, Graceful: one static cost reduction scoped to spells t
   assert.equal(ability.condition, undefined);
 });
 
-test("sfd-141-221 Irelia, Graceful: the production binder refuses the declared discount twice", () => {
-  // 355.6 / 356.4.c: the merged binder refuses the authored appliesTo shape, and
-  // with the "self" shorthand it still has no layer for the kind, so the discount
-  // can never reach CostPlanInput.discounts.
+test("sfd-141-221 Irelia, Graceful: the production binder registers the targeted discount source", () => {
   const kernel = world()
     .unit("irelia", { cardId: CARD_ID, location: { type: "battlefield", id: "bf-1" } })
     .build();
   const source = kernel.getObject("irelia");
-  const layers = createLayerEngine([source]);
-  const binder = createEngineStaticBinder({ layers });
-  assert.throws(
-    () => binder.bindStatic(ability, source),
-    /Unsupported static appliesTo \{"type":"spell","object":"self"\}/
-  );
-  assert.throws(
-    () => binder.bindStatic({ ...ability, effect: { ...ability.effect, appliesTo: "self" } }, source),
-    /Static ability kind continuous\.cost-modification has no layer mapping/
-  );
-  assert.deepEqual(layers.registry.list(), []);
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => { throw new Error("A static binding must not ask for a choice"); },
+    context: (value, controller, timingPoint) => bindResolveContext(kernel, { source: value, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host });
+  const handle = createEngineStaticBinder(engine).bindStatic(ability, source);
+  const [costSource] = staticCostSources(engine);
+  assert.deepEqual(costSource.ability.effect.appliesTo, { type: "spell", object: "self" });
+  assert.deepEqual(costSource.ability.effect.alternative, { resource: "power", universal: true, amount: 1 });
+  handle.unbind();
+  assert.deepEqual(staticCostSources(engine), []);
 });
 
 test("sfd-141-221 Irelia, Graceful: the merged cost collector honors the locked target and Universal Power choice", () => {
