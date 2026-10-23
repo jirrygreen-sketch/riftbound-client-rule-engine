@@ -149,13 +149,12 @@ test.todo(
     "their own abilities stay blocked with receipts naming the missing definition"
 );
 
-test("Satchel Charge: effect.token still rejects the dynamic LocationExpr argument", () => {
-  // 355.4/355.4.a: the authored destination is a runtime location choice, but
-  // the merged effect.token argsSchema has no location-Expr bridge yet and
-  // reject it instead of placing the Bomb at a made-up location.
+test("Satchel Charge: effect.token accepts the dynamic LocationExpr without inventing a destination", () => {
+  // 355.4/355.4.a: the authored destination is a runtime location choice. The
+  // dynamic form is accepted, while the missing Bomb definition still negates
+  // the request before any token is created.
   const kernel = world().unit("occupant", { location: { type: "battlefield", id: "battlefield-2" } }).build();
-  assert.throws(
-    () => runInstruction(
+  const run = runInstruction(
       token,
       {
         token: { kind: "constant", value: "recruit" },
@@ -169,7 +168,8 @@ test("Satchel Charge: effect.token still rejects the dynamic LocationExpr argume
         linkKey: { kind: "constant", value: "bombToken" }
       },
       { world: kernel, answers: { "satchel-charge.battlefield-destination": { type: "battlefield", id: "battlefield-2" } } }
-    ),
-    /Invalid effect\.token argument: location/
   );
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.linked.bombToken.amount, 0);
+  assert.equal(kernel.objects.filter(object => object.isToken).length, 0);
 });

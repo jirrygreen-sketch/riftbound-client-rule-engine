@@ -150,7 +150,7 @@ function bindStaticAbility(kernel, ability, sourceId = "jarvan") {
   return { engine, bind: () => binder.bindStatic(ability, kernel.getObject(sourceId)) };
 }
 
-test("rad-091-167 Jarvan IV, Martial Paragon boundary: the merged binder rejects the “has [Deploy]” filter field", () => {
+test("rad-091-167 Jarvan IV, Martial Paragon: the production filter preserves the “has [Deploy]” predicate", () => {
   // CR 830.3: whether a card has Deploy is a checkable characteristic. The
   // merged filter vocabulary has no field for it, so the grant cannot be bound
   // honestly: layers/filter.ts silently ignores an unknown key (which would
@@ -160,16 +160,18 @@ test("rad-091-167 Jarvan IV, Martial Paragon boundary: the merged binder rejects
     { ref: { id: "deploy-gear", zoneEntryId: 1 }, types: ["gear"], tags: [], zone: "board", controller: "A", owner: "A" },
     { ref: { id: "plain-gear", zoneEntryId: 2 }, types: ["gear"], tags: [], zone: "board", controller: "A", owner: "A" }
   ];
-  assert.deepEqual(
-    ignored.filter(object => matchesObjectFilter({ type: "gear", keyword: "Deploy" }, object)).map(object => object.ref.id),
-    ["deploy-gear", "plain-gear"],
-    "an unknown keyword filter key still matches every gear"
-  );
-  assert.throws(() => translateObjectFilter(grant.effect.filter), /Unsupported filter field keyword/);
+  assert.deepEqual(translateObjectFilter(grant.effect.filter), {
+    type: "gear",
+    controller: "self",
+    zone: "board",
+    keyword: "Deploy"
+  });
 
   const kernel = world().unit("jarvan", { might: 4 }).unit("friendly-gear", { types: ["gear"], might: null }).build();
   const { bind } = bindStaticAbility(kernel, grant);
-  assert.throws(bind, /Unsupported static filter field keyword/);
+  const handle = bind();
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
 });
 
 test("rad-091-167 Jarvan IV, Martial Paragon boundary: the Action expansion's appliesTo cannot bind to an object", () => {
@@ -195,17 +197,20 @@ test("rad-091-167 Jarvan IV, Martial Paragon boundary: the Action expansion's ap
   assert.deepEqual(actionTimings(engine.layers.registry, kernel.ref("friendly-gear"), gear, "A"), ["showdown"]);
 });
 
-test("rad-091-167 Jarvan IV, Martial Paragon boundary: the trigger condition's count cannot exclude non-Deploy gear", () => {
+test("rad-091-167 Jarvan IV, Martial Paragon boundary: the production filter retains the Deploy keyword predicate", () => {
   // 383.2 / 830.3: the gate counts friendly gear with [Deploy] here. The merged
   // trigger filter translation rejects the same predicate, so the condition
   // cannot be evaluated safely against the merged query path.
   const condition = program.abilities[1].trigger.condition;
   assert.equal(condition.left.kind, "count");
   assert.equal(condition.left.filter.keyword, "Deploy");
-  assert.throws(
-    () => translateObjectFilter(condition.left.filter),
-    /Unsupported filter field keyword/
-  );
+  assert.deepEqual(translateObjectFilter(condition.left.filter), {
+    type: "gear",
+    controller: "self",
+    zone: "board",
+    sameLocationAs: "self",
+    keyword: "Deploy"
+  });
   // The trigger filter itself still compiles (384.4.c style source binding),
   // which is why the conquer trigger shape is kept as the executable half.
   assert.deepEqual(
