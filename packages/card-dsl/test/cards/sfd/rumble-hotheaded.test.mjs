@@ -93,16 +93,16 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = {
         "Rumble's Triggered Ability becomes Pending; its leading may and recycle cost are decided during Finalize.",
         "Finalize selects the Trash Mech target and another friendly Board unit as a non-target cost choice, then atomically pays the recycle to its owner's Main Deck bottom.",
         "The payment receipt preserves the recycled unit's pre-move Might. The Play descriptor declares base: printed so Finalize can use the target's complete trusted printed Energy and Power; after A then B pass the Closed-State Priority window, Resolve reduces only the Energy component and Power remains payable. A production golden with Breakneck's complete printed metadata pays 5 Energy and 2 Mind Power.",
-        "RIFT-985 resolves the selected target's canonicalCardId through an explicit ProgramBinding printedCatalog after Finalize targets lock and before the recycle leaves Board. The card IR therefore carries no fixed target projection, but the default server currently omits that catalog lookup and still fails closed.",
+        "RIFT-985 resolves the selected target's canonicalCardId through the ProgramBinding's trusted printed catalog after Finalize targets lock and before the recycle leaves Board. RIFT-993 supplies that catalog from the verified server room catalog. The card IR therefore carries no fixed target projection and fails closed only when the selected Mech is absent.",
       ],
       priorityFocus: "Focus belongs to the preceding Showdown. Finalize does not pass Priority; A then B receive Closed-State Priority in turn order, and both passes precede Resolve.",
       responseWindow: "After Finalize, the Closed-State window permits legally timed Reactions before Resolve. The production golden verifies the A-to-B Priority order and subsequent Resolve without inventing a Reaction card.",
       productionAssertions: [
         "Rumble, Hotheaded production component: Finalize recycles, preserves pre-move Might, and reaches the nested Play",
+        "Rumble, Hotheaded production component: default server printedCatalog shape supplies Breakneck costs",
         "Rumble, Hotheaded production golden: binding catalog plays real Breakneck for 5 Energy plus 2 Mind Power",
         "Rumble, Hotheaded cost-plan boundary: missing numeric Power provenance fails closed",
         "Rumble, Hotheaded production boundary: missing binding catalog stays fail-closed",
-        "Rumble, Hotheaded production boundary: default server binding has no printed catalog lookup",
       ],
     },
   ],
@@ -271,15 +271,13 @@ function withCatalogProgram(program, run) {
   }
 }
 
-test("Rumble, Hotheaded: validates and remains registered as judge-required", () => {
+test("Rumble, Hotheaded: validates and remains registered as executable", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.issues));
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /apps\/game-server\/src\/room\.ts:252-276/u);
-  assert.match(program.judgeReason, /apps\/game-server\/src\/engine-runtime\/runtime\.ts:269-273/u);
-  assert.match(program.judgeReason, /printedCatalog/u);
+  assert.equal(program.status, "executable");
+  assert.equal("judgeReason" in program, false);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -308,9 +306,9 @@ test("Rumble, Hotheaded: official effect-order evidence names the exact source, 
   assert.ok(conquer.timeline.some((line) => /pre-move Might/u.test(line)));
   assert.ok(conquer.timeline.some((line) => /Energy component/u.test(line)));
   assert.ok(conquer.timeline.some((line) => /Power remains payable/u.test(line)));
-  assert.ok(conquer.timeline.some((line) => /explicit ProgramBinding printedCatalog/u.test(line)));
-  assert.ok(conquer.timeline.some((line) => /default server currently omits/u.test(line)));
-  assert.ok(conquer.timeline.some((line) => /fails closed/u.test(line)));
+  assert.ok(conquer.timeline.some((line) => /RIFT-985.*ProgramBinding.*printed catalog/u.test(line)));
+  assert.ok(conquer.timeline.some((line) => /RIFT-993 supplies/u.test(line)));
+  assert.ok(conquer.timeline.some((line) => /fails closed only/u.test(line)));
   assert.match(conquer.priorityFocus, /A then B/u);
   assert.match(conquer.responseWindow, /Reaction/u);
   assert.ok(conquer.productionAssertions.some((line) => /pre-move Might/u.test(line)));
@@ -543,6 +541,24 @@ test("Rumble, Hotheaded production golden: binding catalog plays real Breakneck 
   }
 });
 
+test("Rumble, Hotheaded production component: default server printedCatalog shape supplies Breakneck costs", () => {
+  const serverPrintedCatalog = [{
+    ...BREAKNECK_CATALOG_PRINTED,
+    canonicalCardId: breakneckMech.canonicalCardId,
+  }];
+  const binding = createProgramBinding({
+    cardPrograms: [admitted, breakneckMech],
+    printedCatalog: serverPrintedCatalog,
+  });
+  assert.deepEqual(binding.printedCatalog(breakneckMech.canonicalCardId), {
+    id: "sfd-071-221",
+    cardType: "Unit",
+    domains: ["Mind"],
+    energy: 8,
+    power: 2,
+  }, "RIFT-993 room/runtime supplies this canonical projection to the default binding option");
+});
+
 test("Rumble, Hotheaded production boundary: missing binding catalog stays fail-closed", () => {
   const withoutPlayCost = {
     ...breakneckMech,
@@ -595,12 +611,6 @@ test("Rumble, Hotheaded production boundary: absent binding catalog cannot inven
   } finally {
     fixture.restoreCatalogProgram();
   }
-});
-
-test("Rumble, Hotheaded production boundary: default server binding has no printed catalog lookup", () => {
-  const serverEquivalent = createProgramBinding({ cardPrograms: [admitted, breakneckMech] });
-  assert.equal(serverEquivalent.printedCatalog(breakneckMech.canonicalCardId), undefined,
-    "room.ts/runtime.ts currently provide only cardPrograms and staticBinder");
 });
 
 test("Rumble, Hotheaded production golden: recycle uses control, then places the Unit in its owner's Main Deck", () => {
