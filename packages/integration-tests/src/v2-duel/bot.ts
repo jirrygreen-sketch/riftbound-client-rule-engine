@@ -113,6 +113,11 @@ export function botCommand(
   const stalledPrograms = new Set(["Forecaster", "Gem Jammer"]);
   const runtimeSafe = (option: V2Projection["actionOptions"]["plays"][number]) =>
     !stalledPrograms.has(cardName(option) ?? "");
+  const targetPrograms = new Set(["Dangerous Duo", "Pit Rookie"]);
+  const targetSafe = (option: V2Projection["actionOptions"]["plays"][number]) => {
+    if (!targetPrograms.has(cardName(option) ?? "")) return true;
+    return friendlyBoardUnits.length > 0;
+  };
   // There are no non-permanent Action/Reaction cards in the V2 action surface.
   // Use a whole Main Phase to Channel Runes or play an affordable permanent;
   // ending first would otherwise close every turn with zero resources.
@@ -175,7 +180,8 @@ export function botCommand(
   }
   const safeOptions = projection.actionOptions.plays.filter(option =>
     !rejectedPlayIds.has(option.cardObjectId) && payable(option) &&
-    avoidsEquipmentChoice(option) && avoidsEmptyTriggerTarget(option) && runtimeSafe(option));
+    avoidsEquipmentChoice(option) && avoidsEmptyTriggerTarget(option) && runtimeSafe(option) &&
+    targetSafe(option));
   const safeUnit = safeOptions
     .filter(option => factFor(option)?.kind === "unit")
     .sort((left, right) => (factFor(left)?.energy ?? Infinity) - (factFor(right)?.energy ?? Infinity))[0];

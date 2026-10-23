@@ -338,12 +338,22 @@ async function runV2DuelInternal(options: V2DuelRunOptions, deadline: number): P
         min: authoritativeView.pendingChoice.min,
         max: authoritativeView.pendingChoice.max
       } : null;
+      const playerDebug = authoritativeView.players.find(player => player.playerId === actor);
+      const handDebug = authoritativeView.zones.find(zone =>
+        zone.zone === "hand" && zone.ownerPlayerId === actor)?.objects ?? [];
       debugProgress(options.seed, { action: actionCount, viewer: authoritativeView.viewerPlayerId,
         stateVersion: current.stateVersion,
         phase: current.phase, turn: current.turnNumber, actor, command: command?.type ?? null,
         cardName: cardNameFor(authoritativeView, command),
         chain: { phase: authoritativeView.chain.phase, priority: authoritativeView.chain.priorityPlayerId },
-        choice: choiceDebug });
+        choice: choiceDebug,
+        resource: playerDebug === undefined ? null : {
+          energy: playerDebug.energy,
+          power: playerDebug.power
+        },
+        hand: handDebug.flatMap(object => object.cardId === undefined || object.name === undefined
+          ? [] : [{ objectId: object.objectId, cardId: object.cardId, name: object.name }]),
+        plays: authoritativeView.actionOptions.plays });
       if (command === null) {
         const choice = current.pendingChoice;
         blockedReason = choice.status === "pending"
