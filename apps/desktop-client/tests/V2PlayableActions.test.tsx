@@ -11,7 +11,7 @@ import {
   buildV2RuneCommand,
   V2MatchBoard
 } from "../src/full-product/v2/V2MatchBoard";
-import { buildV2PreconSubmission, validateV2PreconShape } from "../src/full-product/v2/m1-precons";
+import { buildV2PreconSubmission, printingForCanonical, validateV2PreconShape } from "../src/full-product/v2/m1-precons";
 import { createV2ChoiceUiState, createV2ClientState, type V2ClientState } from "../src/state/v2";
 import type { CatalogCard } from "../src/net/CardCatalogClient";
 import type { V2PendingChoice, V2Projection } from "../../../../packages/protocol/src/v2/index.js";
@@ -245,6 +245,21 @@ describe("V2 playable action surface", () => {
     expect(built.missing).toEqual([]);
     expect([total("legend"), total("champion"), total("mainDeck"), total("battlefields"), total("runes")])
       .toEqual([1, 1, 39, 3, 12]);
+  });
+
+  it("submits the SFD printing the server preset uses when a card is reprinted in another set", () => {
+    // RIFT-1027: Yone, Blademaster has standard printings in RAD and SFD; the
+    // server preset uses sfd-116-221, so picking rad-181-167 broke the digest.
+    const yone = "card.hash-yone-blademaster";
+    const printings = [
+      { id: "rad-181-167", canonicalCardId: yone, setCode: "rad", variant: "standard" },
+      { id: "sfd-116-221", canonicalCardId: yone, setCode: "sfd", variant: "standard" },
+      { id: "sfd-116a-221", canonicalCardId: yone, setCode: "sfd", variant: "alternate-art" },
+    ];
+    expect(printingForCanonical(printings, yone)).toBe("sfd-116-221");
+    expect(printingForCanonical(printings.filter(card => card.setCode !== "sfd" || card.variant !== "standard"), yone))
+      .toBe("rad-181-167");
+    expect(printingForCanonical([{ ...printings[1], available: false }, printings[0]], yone)).toBe("rad-181-167");
   });
 });
 
