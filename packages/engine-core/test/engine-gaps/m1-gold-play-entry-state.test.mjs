@@ -64,8 +64,11 @@ function setup({ goldEntry }) {
     choose,
     context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
   });
-  const body = goldEntry === undefined ? wagesPlay.body : wagesPlay.body.map(instruction => instruction.op !== 'effect.token' ? instruction : {
-    ...instruction, args: { ...instruction.args, entersExhausted: { kind: 'constant', value: goldEntry === 'exhausted' } },
+  // 'unstipulated' drops the entry-state field so 359.2.d's Gear default applies.
+  const body = goldEntry === undefined ? wagesPlay.body : wagesPlay.body.map(instruction => {
+    if (instruction.op !== 'effect.token') return instruction;
+    const { entersExhausted: _entersExhausted, entersReady: _entersReady, ...args } = instruction.args;
+    return { ...instruction, args };
   });
   const binding = createProgramBinding({ cardPrograms: [{ ...wagesCarrier, abilities: [{ ...wagesCarrier.abilities[0], body }] }, goldProgram] });
   const engine = new ChainEngine({
@@ -105,8 +108,8 @@ test('RIFT-1005: Wages of Pain plays its Gold exhausted through the production C
   assert.equal(f.engine.items.length, 0);
 });
 
-test('RIFT-1005: a Gold played without an exhausted stipulation keeps the ready Gear default', () => {
-  const f = setup({ goldEntry: 'ready' });
+test('RIFT-1005: a Gold Play with no stipulated entry state keeps the ready Gear default (359.2.d)', () => {
+  const f = setup({ goldEntry: 'unstipulated' });
   playWages(f);
   assert.deepEqual(f.errors, []);
   const [gold] = golds(f.kernel);
