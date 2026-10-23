@@ -206,23 +206,27 @@ test("sfd-101-221 Fae Dragon golden: an already-buffed unit is not buffed again 
   assert.equal(outcome.events.filter(event => event.action === "buff").length, 1);
 });
 
-test("sfd-101-221 Fae Dragon golden: the printed body resolves the Base, then Gold fails closed", () => {
+test("sfd-101-221 Fae Dragon golden: the printed body resolves the Base then plays Gold", () => {
   // 187.5 / 440.2.b.1: the card's own two instructions run for real. The Base
-  // resolves to the ability controller's seat, and the Gold definition reports
-  // its measured blocked outcome instead of creating a substitute token.
+  // resolves to the ability controller's seat and the canonical Gold is played
+  // there through the shared token handoff.
   const kernel = world().player("A").build();
   const outcome = resolveChainBody(spendTrigger.body, kernel);
-  assert.equal(outcome.status, "partial");
+  assert.equal(outcome.status, "executed");
   assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
     ["fae-dragon.read-base", "executed"],
-    ["fae-dragon.play-gold-token", "negated"]
+    ["fae-dragon.play-gold-token", "executed"]
   ]);
   assert.deepEqual(outcome.linkedValues["fae-dragon.read-base.base"], { type: "base", player: "A" });
-  assert.equal(
-    outcome.linkedValues["fae-dragon.play-gold-token.goldToken"].blockedReason,
-    "token-definition-or-abilities-judge-required"
-  );
-  assert.equal(kernel.objects.filter(object => object.isToken).length, 0);
+  const receipt = outcome.linkedValues["fae-dragon.play-gold-token.goldToken"];
+  assert.equal(receipt.blockedReason, undefined);
+  assert.equal(receipt.amount, 1);
+  assert.equal(receipt.createdAmount, 1);
+  const golds = kernel.objects.filter(object => object.isToken);
+  assert.equal(golds.length, 1);
+  assert.equal(golds[0].name, "Gold");
+  assert.deepEqual(golds[0].types, ["gear"]);
+  assert.deepEqual(golds[0].location, { type: "base", player: "A" });
 });
 
 test("sfd-101-221 Fae Dragon: the controller Base really follows the ability controller", () => {
@@ -256,9 +260,8 @@ test("sfd-101-221 Fae Dragon: the real buff-spent trigger is rejected by the eve
 });
 
 test.todo(
-  "sfd-101-221 Fae Dragon: create/play Gold with exhausted entry (187.5/184.1/185.2.d); " +
-    "this needs a Gold definition and an entry-state override on the create/play actions " +
-    "(the controller-base destination is merged)"
+  "sfd-101-221 Fae Dragon: play the authored exhausted Gold token through the production buff-spent " +
+    "trigger lifecycle (187.5 / 184.1 / 185.2.d), preserving the real primitive coverage above"
 );
 
 test.todo(

@@ -173,8 +173,6 @@ test("unl-073-219 Deadly Flourish golden: the merged token primitive accepts the
 
 test("unl-073-219 Deadly Flourish: the declared trigger.delayed op is unregistered and fails closed", () => {
   // 390/391.2/392: the delayed ability needs a card-usable registration op.
-  // ResolveContext.registerDelayedTrigger exists, but no registered
-  // instruction consumes it, so the authored body cannot execute.
   assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
   const kernel = world().player("A").unit("victim", { owner: "B", might: 5 }).build();
   const context = kernel.clone({ source: kernel.getObject("victim"), controller: "A" });
@@ -184,10 +182,9 @@ test("unl-073-219 Deadly Flourish: the declared trigger.delayed op is unregister
   );
 });
 
-test("unl-073-219 Deadly Flourish: the Gold gear token is not in the merged token definition table", () => {
-  // 187.5: Gold carries its own "[Reaction][>] Kill this, [E]: [Add] [A]"
-  // ability, so effect.token deliberately excludes it. The primitive must
-  // return negated/impossible rather than inventing an ability-free token.
+test("unl-073-219 Deadly Flourish: the Gold play creates the canonical exhausted token", () => {
+  // 187.5: the merged definition carries Gold's intrinsic ability through its
+  // canonical card program; the authored entry override keeps it exhausted.
   const kernel = world().player("A").build();
   const context = kernel.clone({ source: kernel.getObject("A:deck:1"), controller: "A" });
   const outcome = resolveChainBody(
@@ -198,30 +195,41 @@ test("unl-073-219 Deadly Flourish: the Gold gear token is not in the merged toke
         token: { kind: "constant", value: "gold" },
         amount: { kind: "constant", value: 1 },
         mode: { kind: "constant", value: "play" },
-        location: { kind: "constant", value: { type: "base", player: "A" } }
+        location: { kind: "constant", value: { type: "base", player: "A" } },
+        entersExhausted: { kind: "constant", value: true }
       }
     }],
     context
   );
   assert.deepEqual(
     outcome.results.map((entry) => [entry.result.status, entry.result.reason ?? null]),
-    [["negated", "impossible"]]
+    [["executed", null]]
   );
-  assert.deepEqual(kernel.objectsInZone("A", "board"), []);
+  const golds = context.objects.filter((object) => object.isToken && object.zone === "board");
+  assert.equal(golds.length, 1);
+  assert.equal(golds[0].name, "Gold");
+  assert.deepEqual(golds[0].types, ["gear"]);
+  assert.deepEqual(golds[0].location, { type: "base", player: "A" });
+  assert.equal(golds[0].exhausted, true);
 });
 
-test("unl-073-219 Deadly Flourish: create-token rejects the 'exhausted' entry override", () => {
-  // 143.4 / 184.1 / 185.2.d: entering exhausted is an entry stipulation. The
-  // merged argsSchema has no override field, so the shape fails closed instead
-  // of being approximated by a later effect.exhaust (a wrong became-exhausted
-  // event).
+test("unl-073-219 Deadly Flourish: create-token accepts the canonical exhausted entry field", () => {
+  // The canonical entry key is `entersExhausted`; it is accepted and applied to
+  // the token action rather than being replaced by a later exhaust effect.
+  const parsed = tokenPrimitive.argsSchema.parse({
+    token: { kind: "constant", value: "recruit" },
+    mode: { kind: "constant", value: "play" },
+    location: { kind: "constant", value: { type: "base", player: "A" } },
+    entersExhausted: { kind: "constant", value: true }
+  });
+  assert.deepEqual(parsed.entersExhausted, { kind: "constant", value: true });
   assert.throws(
-    () => tokenPrimitive.argsSchema.parse({
+    () => runInstruction(tokenPrimitive, {
       token: { kind: "constant", value: "recruit" },
       mode: { kind: "constant", value: "play" },
       location: { kind: "constant", value: { type: "base", player: "A" } },
-      entersExhausted: { kind: "constant", value: true }
-    }),
-    (error) => /Invalid effect\.token argument: entersExhausted/.test(error.message)
+      exhausted: { kind: "constant", value: true }
+    }, { world: world().player("A").build() }),
+    /Invalid effect\.token argument: exhausted/
   );
 });

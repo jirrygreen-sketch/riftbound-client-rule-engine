@@ -6,6 +6,7 @@ import program from "../../../dist/cards/unl/bloodharbor-ripper.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { getTokenDefinition } from "../../../../engine-core/dist/effects/tokens/definitions.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
@@ -155,9 +156,8 @@ test("unl-185-219 Bloodharbor Ripper: the return half runs the program's own bod
 
 test("unl-185-219 Bloodharbor Ripper: mode \"play\" really creates on the Chain and hands the token to play", () => {
   // 440.2.c / 185.2.a / 350.2 / 354: the merged effect.token creates the token
-  // on the Chain and then performs the play for that ref. The Gold definition
-  // itself is still missing (CR 187.5), so the merged handoff is exercised with
-  // a token the frozen table does define — never substituted into the card.
+  // on the Chain and then performs the play for that ref. This independent
+  // definition checks the shared handoff without substituting it into the card.
   const kernel = world().player("A", { energy: 0 }).build();
   const scoped = kernel.clone({ controller: "A" });
   const outcome = resolveChainBody(
@@ -202,10 +202,8 @@ test("unl-185-219 Bloodharbor Ripper: a stale locked target makes the return ign
   assert.deepEqual(outcome.events, []);
 });
 
-test("unl-185-219 Bloodharbor Ripper: playing the Gold token is blocked, not approximated", () => {
-  // effect.token has no Gold definition (CR 187.5 carries its own ability) and
-  // mode "play" needs chain creation; the primitive must negate instead of
-  // creating a board token as a stand-in.
+test("unl-185-219 Bloodharbor Ripper: playing the Gold token creates the canonical carrier", () => {
+  // The printed `play` path now uses the CR 187.5 canonical Gold definition.
   const kernel = world().build();
   const run = runInstruction(
     token,
@@ -217,24 +215,31 @@ test("unl-185-219 Bloodharbor Ripper: playing the Gold token is blocked, not app
     },
     { world: kernel }
   );
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  assert.equal(run.linked.token.amount, 0);
-  assert.equal(run.linked.token.blockedReason, "token-definition-or-abilities-judge-required");
-  assert.deepEqual(
-    kernel.query({ zone: "board", type: "gear" }),
-    [],
-    "no substitute gear token may be created"
-  );
-  assert.deepEqual(kernel.events, []);
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.token.amount, 1);
+  assert.equal(run.linked.token.createdAmount, 1);
+  assert.equal(run.linked.token.blockedReason, undefined);
+  const golds = run.world.query({ zone: "board", type: "gear" }).filter(object => object.isToken);
+  assert.equal(golds.length, 1);
+  assert.equal(golds[0].name, "Gold");
+  assert.deepEqual(golds[0].types, ["gear"]);
+  assert.deepEqual(golds[0].location, { type: "base", player: "A" });
+  assert.deepEqual(run.events.map(event => [event.action, event.timingPoint]), [
+    ["create-token", "chain-item-pending"],
+    ["pay", "main-start"],
+    ["play", "card-played"]
+  ]);
 });
 
-test("unl-185-219 Bloodharbor Ripper: the Gold definition is absent from the frozen token table (187.5)", () => {
-  // 187.5's Gold gear token carries its own "[Reaction][>] Kill this, [E]: [Add]
-  // [A]" ability. effect.token's frozen DEFINITIONS table has no gold entry, so
-  // the card's own token id is rejected with the blocked reason instead of a
-  // substitute. The exact id/key pair is asserted so the gap is visible.
+test("unl-185-219 Bloodharbor Ripper: the Gold definition is present with its canonical card id (187.5)", () => {
+  // 187.5's Gold is present in the token table and points to the canonical
+  // ability-bearing card program rather than an ability-free substitute.
   const kernel = world().player("A", { energy: 0 }).build();
+  const definition = getTokenDefinition("gold");
+  assert.ok(definition);
+  assert.equal(definition.spec.cardId, "card.hash-6249df4367d0a2e088c8eb1117ef59430f0d7dad4bf0fcf8a01d7f0415f4d511");
+  assert.equal(definition.abilityBinding, "canonical-card-program");
+  assert.equal(definition.defaultEntry, "ready");
   const run = runInstruction(
     token,
     {
@@ -245,10 +250,10 @@ test("unl-185-219 Bloodharbor Ripper: the Gold definition is absent from the fro
     },
     { world: kernel }
   );
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.linked.token.blockedReason, "token-definition-or-abilities-judge-required");
-  assert.equal(run.linked.token.createdAmount, 0);
-  assert.deepEqual(kernel.events, []);
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.token.blockedReason, undefined);
+  assert.equal(run.linked.token.createdAmount, 1);
+  assert.equal(run.world.query({ zone: "board", type: "gear" }).filter(object => object.isToken).length, 1);
 });
 
 test("unl-185-219 Bloodharbor Ripper: effect.token has no exhausted entry override argument (143.4 / 184.1)", () => {
@@ -266,7 +271,8 @@ test("unl-185-219 Bloodharbor Ripper: effect.token has no exhausted entry overri
 });
 
 test.todo(
-  "unl-185-219 Bloodharbor Ripper: Gold gear token definition with its printed ability (CR 187.5) — effect.token's frozen table has no gold entry"
+  "unl-185-219 Bloodharbor Ripper: play the authored exhausted Gold through the production activation " +
+    "lifecycle (CR 187.5 / 184.1 / 185.2.d / 440.2.c / 185.2.a)"
 );
 test.todo(
   "unl-185-219 Bloodharbor Ripper: exhausted entry override on the created token (CR 143.4 / 184.1 / 185.2.d)"
