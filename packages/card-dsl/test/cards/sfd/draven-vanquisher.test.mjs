@@ -134,57 +134,20 @@ test.todo(
 );
 
 test.todo(
-  "sfd-020-221 Draven, Vanquisher: play the original Gold token exhausted with a controller-relative Base destination " +
-    "once effect.token supports the Gold ability, entry stipulation and relative LocationRef (187.5/184.1)"
+  "sfd-020-221 Draven, Vanquisher: connect the execution trigger and play the original Gold token exhausted " +
+    "with its cost-bearing intrinsic ability (187.5/184.1/468.3)"
 );
 
-test("sfd-020-221 Draven, Vanquisher: the merged token primitive still refuses the printed Gold body", () => {
-  // The refreshed judgeReason must be reproducible against merged source.
+test("sfd-020-221 Draven, Vanquisher: the merged token primitive executes the printed Gold body", () => {
   const kernel = world().player("A").build();
-  // 184.1 / 185.2.d: the exhausted entry stipulation is not an accepted
-  // argument, so the printed body cannot even be parsed.
-  assert.throws(
-    () => runInstruction(token, playGold.args, { world: kernel }),
-    (error) => error instanceof TypeError && /Invalid effect\.token argument: entersExhausted/.test(error.message)
-  );
-  // 187.5: with that argument removed, Gold is still absent from the merged
-  // token definitions, so the body negates instead of playing the token. The
-  // printed relative location is not resolved either, so an absolute Base is
-  // supplied to reach the definition lookup itself.
-  const { entersExhausted: _dropped, ...acceptedArgs } = playGold.args;
-  const gold = runInstruction(
-    token,
-    { ...acceptedArgs, location: { kind: "constant", value: { type: "base", player: "A" } } },
-    { world: kernel }
-  );
-  assert.equal(gold.result.status, "negated");
-  assert.equal(gold.result.reason, "impossible");
-  assert.equal(gold.linked.token.blockedReason, "token-definition-or-abilities-judge-required");
-
-  // The printed relative destination is refused by the same primitive because
-  // it performs no controller-relative resolution: it negates before any
-  // definition lookup, with no event and no token created.
-  const relative = runInstruction(
-    token,
-    { ...acceptedArgs, token: { kind: "constant", value: "recruit" } },
-    { world: world().player("A").build() }
-  );
-  assert.equal(relative.result.status, "negated");
-  assert.equal(relative.result.reason, "impossible");
-  assert.equal(relative.linked.token.blockedReason, undefined);
-  // A relative-controller Base needs runtime resolution; the primitive only
-  // accepts a constant LocationRef, so the selector expression is refused.
-  assert.throws(
-    () => runInstruction(
-      token,
-      {
-        token: { kind: "constant", value: "recruit" },
-        amount: { kind: "constant", value: 1 },
-        mode: { kind: "constant", value: "play" },
-        location: { kind: "location", value: { kind: "relative", relation: "ability-controller-base" } }
-      },
-      { world: kernel }
-    ),
-    (error) => error instanceof TypeError && /Invalid effect\.token argument: location/.test(error.message)
-  );
+  const run = runInstruction(token, playGold.args, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  const gold = kernel.query({ type: "gear", zone: "board" }).filter(object => object.isToken);
+  assert.equal(gold.length, 1);
+  assert.equal(gold[0].name, "Gold");
+  assert.equal(gold[0].exhausted, true);
+  assert.deepEqual(gold[0].location, { type: "base", player: "A" });
+  assert.equal(gold[0].energy, null);
+  assert.equal(gold[0].power, null);
+  assert.equal(run.linked.token.blockedReason, undefined);
 });
