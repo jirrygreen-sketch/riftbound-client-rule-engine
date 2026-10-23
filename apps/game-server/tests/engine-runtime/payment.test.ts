@@ -113,13 +113,13 @@ describe("EngineRuntimeHost Power payment", () => {
     expect(state.player("A")).toMatchObject({ energy: 3, power: ["Order"] });
   });
 
-  it("rejects malformed counts and Universal Power without any partial debit", () => {
+  it("rejects malformed counts and missing Universal Power without any partial debit", () => {
     const state = host();
     state.perform({ type: "gain-energy", player: "A", amount: 5 });
     givePower(state, ["Order"]);
     expect(pay(state, { finalized: true, energy: Number.NaN }).status).toBe("prevented");
     expect(pay(state, { finalized: true, power: ["Fury", "Fury", "Fury"] }).status).toBe("prevented");
-    expect(pay(state, { finalized: true, universalPower: 1 }).status).toBe("prevented");
+    expect(pay(state, { finalized: true, universalPower: 2 }).status).toBe("prevented");
     expect(state.player("A")).toMatchObject({ energy: 5, power: ["Order"] });
   });
 

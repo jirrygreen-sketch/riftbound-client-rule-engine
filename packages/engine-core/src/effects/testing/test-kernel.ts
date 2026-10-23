@@ -7,7 +7,6 @@ import {
   type BatchAction,
   type ChoiceRequest,
   type ContinuousEffectSpec,
-  type Domain,
   type Duration,
   type GameAction,
   type ContractGameAction,
@@ -18,6 +17,7 @@ import {
   type ObjectSnapshot,
   type PlayerId,
   type PlayerSnapshot,
+  type PowerPaymentSource,
   type ResolveContext,
   type RecallAction,
   type TokenSpec,
@@ -62,7 +62,7 @@ type MutableObject = { -readonly [Key in keyof ObjectSnapshot]: ObjectSnapshot[K
 interface MutablePlayer {
   id: PlayerId;
   energy: number;
-  power: Domain[];
+  power: PowerPaymentSource[];
   runes: string[];
   xp: number;
   score: number;
@@ -86,7 +86,6 @@ interface WorldState {
 }
 
 const ZONES: readonly ZoneId[] = ["hand", "deck", "rune-deck", "trash", "banishment", "board", "rune-zone", "chain", "legend"];
-const DOMAINS: readonly Domain[] = ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"];
 function emptyZones(): Record<ZoneId, string[]> { return { hand: [], deck: [], "rune-deck": [], trash: [], banishment: [], board: [], "rune-zone": [], chain: [], legend: [] }; }
 const cloneRef = (ref: ObjectRef): ObjectRef => ({ id: ref.id, zoneEntryId: ref.zoneEntryId });
 const refKey = (ref: ObjectRef): string => `${ref.id}:${ref.zoneEntryId}`;
@@ -593,11 +592,13 @@ export class TestWorld implements ResolveContext {
         if (!player || !action.plan.finalized) return fail();
         const energy = action.plan.energy ?? 0;
         const xp = action.plan.xp ?? 0;
+        const universalPower = action.plan.universalPower ?? 0;
         const requestedPower = action.plan.power;
-        if (!Number.isSafeInteger(energy) || energy < 0 || !Number.isSafeInteger(xp) || xp < 0) return fail();
+        if (!Number.isSafeInteger(energy) || energy < 0 || !Number.isSafeInteger(xp) || xp < 0 ||
+            !Number.isSafeInteger(universalPower) || universalPower < 0) return fail();
         if (requestedPower !== undefined && !Array.isArray(requestedPower)) return fail();
         const power = requestedPower === undefined ? [] : [...requestedPower];
-        if (power.some(domain => !DOMAINS.includes(domain))) return fail();
+        if (power.some(domain => !["Fury", "Calm", "Mind", "Body", "Chaos", "Order"].includes(domain))) return fail();
         if (player.energy < energy || player.xp < xp) return fail("prevented");
         const remainingPower = [...player.power];
         for (const domain of power) {
@@ -605,10 +606,17 @@ export class TestWorld implements ResolveContext {
           if (index < 0) return fail("prevented");
           remainingPower.splice(index, 1);
         }
+        let remainingUniversal = universalPower;
+        for (let index = remainingPower.length - 1; index >= 0 && remainingUniversal > 0; index--) {
+          if (!["universal", "any", "universal-power"].includes(remainingPower[index]!)) continue;
+          remainingPower.splice(index, 1);
+          remainingUniversal--;
+        }
+        if (remainingUniversal !== 0) return fail("prevented");
         player.energy -= energy;
         player.power = remainingPower;
         player.xp -= xp;
-        return done(undefined, { energy, power, xp });
+        return done(undefined, { energy, power, ...(universalPower === 0 ? {} : { universalPower }), xp });
       }
       case "gain-xp": { const player = this.state.players.get(action.player); if (!player || action.amount < 0) return fail(); player.xp += action.amount; return done(action.amount as Value); }
       case "spend-xp": { const player = this.state.players.get(action.player); if (!player || action.amount < 0 || player.xp < action.amount) return fail("prevented"); player.xp -= action.amount; return done(action.amount as Value); }

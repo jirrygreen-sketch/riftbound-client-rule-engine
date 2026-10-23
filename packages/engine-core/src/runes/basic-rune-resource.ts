@@ -6,6 +6,7 @@ import type {
   ObjectSnapshot,
   PlayerId,
   PlayerSnapshot,
+  PowerPaymentSource,
 } from '../effects/contract.js';
 
 export const BASIC_RUNE_RESOURCE_PLAN_CONTRACT = 'riftbound.engine.basic-rune-resource-plan.v1' as const;
@@ -259,14 +260,21 @@ function assertStillLegal(binding: PlanBinding, plan: BasicRuneResourcePlan): Ob
   return source;
 }
 
-function addedPower(before: readonly Domain[], after: readonly Domain[]): Domain[] {
+function addedPower(before: readonly PowerPaymentSource[], after: readonly PowerPaymentSource[]): Domain[] {
   const remaining = [...before];
-  return after.filter(domain => {
-    const index = remaining.indexOf(domain);
-    if (index < 0) return true;
-    remaining.splice(index, 1);
-    return false;
-  });
+  const added: Domain[] = [];
+  for (const source of after) {
+    const index = remaining.indexOf(source);
+    if (index >= 0) {
+      remaining.splice(index, 1);
+      continue;
+    }
+    if (!BASIC_RUNE_DOMAINS.includes(source as Domain)) {
+      fail('resource-mismatch', `Basic Rune activation produced unsupported Power source ${String(source)}`);
+    }
+    added.push(source as Domain);
+  }
+  return added;
 }
 
 /**

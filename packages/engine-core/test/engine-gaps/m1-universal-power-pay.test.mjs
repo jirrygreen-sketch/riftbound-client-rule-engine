@@ -167,7 +167,7 @@ test('a Domainless [C] becomes [A] and consumes actual Power of any Domain', () 
   assert.deepEqual(context.player('A').power, []);
 });
 
-test('a domainless any Power source prepares a named Order requirement without becoming Order', () => {
+test('a domainless any Power source pays a named Order requirement without becoming Order', () => {
   const program = {
     canonicalCardId: 'synthetic:RIFT-929:universal-source', rulesetVersion: 'core-1.5', status: 'executable',
     sourceText: 'Synthetic Universal source witness.',
@@ -183,14 +183,15 @@ test('a domainless any Power source prepares a named Order requirement without b
     id: 'cost:universal-source',
     cost: { payments: [{ kind: 'power', amount: constant(1), allowedDomains: ['Order'] }] },
   });
-  const before = context.stateForTest();
-  assert.throws(() => payCostPlan(context, plan, {
+  const receipt = payCostPlan(context, plan, {
     transaction(run) {
       const saved = context.snapshot();
       try { return run(); } catch (error) { context.restore(saved); throw error; }
     },
-  }), cannotPay, 'the integration test kernel does not consume universalPower');
-  assert.deepEqual(context.stateForTest(), before);
+  });
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.power.power, [{ requirementIndex: 0, from: 'any', amount: 1 }]);
+  assert.deepEqual(context.player('A').power, []);
 });
 
 test('a host that ignores domainless Power fails closed and rolls back even named Power', () => {
@@ -204,14 +205,21 @@ test('a host that ignores domainless Power fails closed and rolls back even name
       { kind: 'power', amount: constant(1), allowedDomains: DUEL_DOMAINS },
     ] },
   });
-  const before = context.stateForTest();
+  const beforeFirstAttempt = context.stateForTest();
+  const originalPerform = context.perform.bind(context);
+  context.perform = action => action.type === 'pay'
+    ? originalPerform({ ...action, plan: { ...action.plan, universalPower: undefined } })
+    : originalPerform(action);
   assert.throws(() => payCostPlan(context, plan, {
     transaction(run) {
       const saved = context.snapshot();
       try { return run(); } catch (error) { context.restore(saved); throw error; }
     },
   }), cannotPay);
-  assert.deepEqual(context.stateForTest(), before);
+  assert.deepEqual(context.stateForTest(), beforeFirstAttempt);
+  context.perform = originalPerform;
+  assert.equal(payCostPlan(context, plan).paid, true);
+  assert.deepEqual(context.player('A').power, []);
 });
 
 test('Rumble recycle accepts another friendly Board unit and rejects enemy or non-controlled alternatives atomically', () => {

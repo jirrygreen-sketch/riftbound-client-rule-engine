@@ -1,6 +1,6 @@
 import type { Condition } from '@riftbound/card-dsl';
 import type { LocationFilter } from '@riftbound/card-dsl';
-import type { ActionOutcome, ContractGameAction, Domain, GameAction, Instruction, ObjectRef, ObjectSnapshot, PlayerId, ResolveContext, Value } from '../effects/contract.js';
+import type { ActionOutcome, ContractGameAction, GameAction, Instruction, ObjectRef, ObjectSnapshot, PlayerId, PowerPaymentSource, ResolveContext, Value } from '../effects/contract.js';
 import { AwaitChoice } from '../effects/contract.js';
 import { CONTRACT_ACTION_CAPABILITY_VERSION } from '../effects/contract.js';
 import type { ExecutionOutcome } from '../effects/interpreter.js';
@@ -121,10 +121,10 @@ export interface PaymentContinuationResult {
 export interface PaymentReactionAddReceipt {
   readonly itemId: string;
   readonly outcome: ExecutionOutcome;
-  readonly resources: { readonly energy: number; readonly power: readonly Domain[] };
+  readonly resources: { readonly energy: number; readonly power: readonly PowerPaymentSource[] };
   readonly receipt: {
     readonly instructionId: string;
-    readonly value: { readonly energy: number; readonly power: readonly Domain[] };
+    readonly value: { readonly energy: number; readonly power: readonly PowerPaymentSource[] };
   };
   readonly cost: CostPaymentReceipt;
 }
@@ -300,10 +300,10 @@ function paymentReactionAddReceipt(
       power.some(value => typeof value !== 'string')) {
     throw new Error('Reaction Add resource receipt is malformed');
   }
-  const actual = { energy, power: power as readonly Domain[] };
+  const actual = { energy, power: power as readonly PowerPaymentSource[] };
   const linkedEnergy = typeof links?.energy === 'number' && Number.isSafeInteger(links.energy) ? links.energy : null;
   const linkedPower = Array.isArray(links?.power)
-    ? links.power.filter((value): value is Domain => typeof value === 'string') as readonly Domain[] : null;
+    ? links.power.filter((value): value is PowerPaymentSource => typeof value === 'string') as readonly PowerPaymentSource[] : null;
   const linkedMatches = linkedEnergy === null || linkedPower === null
     ? false
     : linkedEnergy === actual.energy && linkedPower.length === actual.power.length &&
