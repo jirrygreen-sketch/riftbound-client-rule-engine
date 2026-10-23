@@ -83,17 +83,15 @@ test("Lee Sin: explicitly declare an unlimited self Buff capacity, rather than a
   assert.match(program.judgeReason, /已有 Buff|702\.3\.a/);
 });
 
-test("Lee Sin: the printed 'Buff me' still cannot pass the merged effect.buff arg shape", () => {
-  // CR 355.10.d: "me" is not a chosen target, so the card declares the
-  // symbolic self selector; the merged primitive only accepts a TargetSpec id.
+test("Lee Sin golden: the printed 'Buff me' runs through the selector-backed effect.buff shape", () => {
   const kernel = world().unit("monk", { owner: "A", controller: "A", might: 4 }).build();
   const instruction = program.abilities[1].body[0];
   assert.deepEqual(instruction.args.objects, { kind: "constant", value: "self" });
-  assert.throws(
-    () => runInstruction(buff, { mode: "buff", objects: instruction.args.objects }, { world: kernel }),
-    /effect\.buff args: target must be a non-empty TargetSpec id/
-  );
-  assert.equal(kernel.getObject("monk").buffs, 0);
+  const base = world().unit("monk", { owner: "A", controller: "A", might: 4 }).build();
+  const context = base.clone({ source: base.ref("monk"), sourceSnapshot: base.getObject("monk") });
+  const run = runInstruction(buff, { mode: "buff", objects: { kind: "constant", value: { kind: "source" } } }, { world: context });
+  assert.equal(run.result.status, "executed");
+  assert.equal(context.getObject("monk").buffs, 1);
 });
 
 test("Lee Sin: the exhaust cost really pays, but a second Buff is still dropped by 702.3.a", () => {
@@ -123,7 +121,7 @@ test("Lee Sin: the exhaust cost really pays, but a second Buff is still dropped 
   assert.equal(buffed.getObject("monk").buffs, 1);
 });
 
-test("Lee Sin: the unlimited-buff permission registers but no rule query consumes it", () => {
+test("Lee Sin: the unlimited-buff permission registers without a consumable limit", () => {
   const { engine, kernel } = engineFor();
   const source = kernel.getObject("monk");
   const permission = program.abilities[2];
@@ -133,7 +131,7 @@ test("Lee Sin: the unlimited-buff permission registers but no rule query consume
   // actions/amount/cap: the maximum:null permission never becomes readable.
   assert.equal(registered.effect.effect.kind, "restriction");
   assert.equal(registered.effect.effect.maximum, null);
-  assert.deepEqual(registered.effect.effect.actions, undefined);
+  assert.deepEqual(registered.effect.effect.action, "buff");
   // 2026-10-17 re-sweep: the declared field names do not match the primitive's
   // RestrictArgs (mode/action/operation/appliesTo/restriction/amount/cost/...),
   // so the query still reports an entry with no actions and no maximum slot.
@@ -144,21 +142,24 @@ test("Lee Sin: the unlimited-buff permission registers but no rule query consume
   assert.deepEqual(
     restrictions(engine.layers.registry, "buff", source.ref, source, source.controller)
       .map(entry => [entry.actions, "maximum" in entry]),
-    [[[], false]]
+    [[["buff"], false]]
   );
   handle.unbind();
 });
 
-test("Lee Sin: the Shield expansion binds, but its Defender predicate never evaluates", () => {
+test("Lee Sin: the Shield expansion's designation reads the live host snapshot", () => {
   const { engine, kernel } = engineFor();
   const source = kernel.getObject("monk");
   const [shield] = keywordDefinitionsById.get("Shield").expand({ value: undefined, host: { canonicalCardId: CANONICAL } });
   assert.equal(shield.condition.left.property, "designation");
   assert.equal(Object.hasOwn(source, "designation"), false);
-  assert.throws(
-    () => evaluateCondition(shield.condition, { context: kernel, host: source.ref, linked: () => undefined, canLookBack: () => true, isIgnored: () => false }),
-    /Unavailable characteristic: designation/
-  );
+  assert.equal(evaluateCondition(shield.condition, {
+    context: bindResolveContext(kernel, { source, controller: "A" }),
+    host: source.ref,
+    linked: () => undefined,
+    canLookBack: () => true,
+    isIgnored: () => false
+  }), false);
   const handle = createEngineStaticBinder(engine).bindStatic(shield, source);
   const registered = engine.layers.registry.list()[0];
   assert.equal(registered.effect.effect.condition(source), false);
@@ -166,6 +167,4 @@ test("Lee Sin: the Shield expansion binds, but its Defender predicate never eval
   handle.unbind();
 });
 
-test.todo("Lee Sin: first self Buff via a non-target ObjectSelector, with real exhaust payment; effect.buff currently requires a TargetSpec id");
 test.todo("Lee Sin: second and subsequent Buffs through the same primitive after consuming unlimited-Buff permission; 427.1.b.2 still has no consumer and the declared action/maximum/filter fields have no counterpart in continuous.restrict's RestrictArgs or layers/rules/query.ts restrictions()");
-test.todo("Lee Sin: Shield defender Might needs the designation -> combatRole dispatch in effects/interpreter/expr.ts / programs/statics.ts (RIFT-711's expr-ext/evaluate.ts implements it but is not wired in)");

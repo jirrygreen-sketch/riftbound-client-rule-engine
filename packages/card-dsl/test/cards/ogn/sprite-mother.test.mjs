@@ -148,8 +148,8 @@ test("ogn-106-298 Sprite Mother golden: the supported token primitive creates a 
   assert.equal(created[0].power, null);
 });
 
-test("ogn-106-298 Sprite Mother: an entry-readiness override is rejected by the primitive (current gap)", () => {
-  for (const key of ["entersReady", "ready", "entryState"]) {
+test("ogn-106-298 Sprite Mother: effect.token accepts its supported entry-state override and rejects aliases", () => {
+  for (const key of ["ready", "entryState"]) {
     assert.throws(
       () => runInstruction(token, {
         token: { kind: "constant", value: "mech" },
@@ -164,6 +164,16 @@ test("ogn-106-298 Sprite Mother: an entry-readiness override is rejected by the 
       }
     );
   }
+  const kernel = world().build();
+  const created = runInstruction(token, {
+    token: { kind: "constant", value: "mech" },
+    amount: { kind: "constant", value: 1 },
+    mode: { kind: "constant", value: "create" },
+    location: { kind: "constant", value: { type: "base", player: "A" } },
+    entersReady: { kind: "constant", value: true }
+  }, { world: kernel });
+  assert.equal(created.result.status, "executed");
+  assert.equal(kernel.query({ zone: "board", type: "unit" }).find(object => object.isToken).exhausted, false);
 });
 
 test("ogn-106-298 Sprite Mother: a forged executable program still fails to register the Temporary trigger", () => {

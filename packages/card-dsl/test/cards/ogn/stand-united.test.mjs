@@ -116,7 +116,7 @@ test("Stand United: the merged layers engine applies an arithmetic Might modifie
   assert.equal(engine.evaluateAll()[0].might, 2);
 });
 
-test("Stand United golden: continuous.might registers the +1 for every friendly buffed unit (CR 703 rewritten)", () => {
+test("Stand United golden: the class bonus stacks with each Buff's intrinsic +1 (CR 703)", () => {
   const base = world()
     .unit("spell-source", { types: ["spell"], zone: "chain", owner: "A", controller: "A" })
     .unit("buffed-ally", { might: 2, buffs: 1, owner: "A", controller: "A" })
@@ -154,12 +154,17 @@ test("Stand United golden: continuous.might registers the +1 for every friendly 
   assert.deepEqual(base.continuousEffects[0].duration, { type: "end-of-turn" });
 
   const layers = createLayerEngine(base.objects, base.continuousEffects);
-  assert.equal(layers.evaluate(base.ref("buffed-ally")).might, 3);
+  // Printed 2 + the Buff's intrinsic +1 + this card's additional +1 = 4.
+  assert.equal(layers.evaluate(base.ref("buffed-ally")).might, 4);
   assert.equal(layers.evaluate(base.ref("plain-ally")).might, 2);
-  assert.equal(layers.evaluate(base.ref("enemy-buffed")).might, 2);
+  // CR 703 applies to every Buffed Unit; this card's extra class bonus is the
+  // only friendly-only part, so the enemy keeps just its Buff's +1.
+  assert.equal(layers.evaluate(base.ref("enemy-buffed")).might, 3);
   // The end-of-turn lifetime is real: expiring it removes the +1.
   assert.equal(layers.expireAt("turn-end").length, 1);
-  assert.equal(layers.evaluate(base.ref("buffed-ally")).might, 2);
+  // Expiration removes only this card's additional +1; the Buff remains and
+  // keeps its intrinsic +1 (CR 703).
+  assert.equal(layers.evaluate(base.ref("buffed-ally")).might, 3);
 });
 
 test("Stand United golden: with no friendly buffed unit the Might instruction is a skipped negation", () => {

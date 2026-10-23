@@ -122,17 +122,9 @@ test.todo(
     "for this spell; kill the accumulated set only after the choices finish (CR 355.10.e, 355.18)"
 );
 
-test("ogn-237-298 King's Edict: the chooser primitive is not registered, so the body cannot execute", () => {
-  // 355.10.e / 355.18 still need a turn-ordered, per-chooser, accumulation-aware choice primitive.
-  // The merged instruction registry has no such opcode, so evaluating the authored body stops on
-  // the first instruction instead of performing any choice or kill.
-  assert.equal(instructionDefinitionsById.has("choice.each-other-player"), false);
-  const kernel = world()
-    .unit("victim", { owner: "B", types: ["unit"], might: 2 })
-    .build();
-  assert.throws(
-    () => runAbilityBody(play.body, kernel.clone({ sourceSnapshot: kernel.getObject("victim") })),
-    /Unregistered instruction opcode: choice\.each-other-player/
-  );
-  assert.equal(kernel.getObject("victim").zone, "board");
+test("ogn-237-298 King's Edict: the per-opponent chooser is registered", () => {
+  // 355.10.e / 355.18's ordered chooser implementation is present. Execution
+  // still needs this card's real instruction binding and runtime choices, so
+  // registration alone does not make the card executable.
+  assert.equal(instructionDefinitionsById.has("choice.each-other-player"), true);
 });

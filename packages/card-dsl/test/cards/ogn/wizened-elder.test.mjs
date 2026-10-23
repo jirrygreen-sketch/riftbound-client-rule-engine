@@ -135,7 +135,7 @@ test("ogn-065-298 Wizened Elder: the production static binder keeps the host and
   try {
     const source = kernel.getObject("wizened-elder");
     engine.pipeline.emit({ timingPoint: "object-enters-board", object: source });
-    assert.equal(engine.layers.evaluate(kernel.ref("wizened-elder")).might, 5);
+    assert.equal(engine.layers.evaluate(kernel.ref("wizened-elder")).might, 6);
 
     const spend = runInstruction(
       buff,
@@ -163,11 +163,10 @@ test("ogn-065-298 Wizened Elder golden: a buffed unit really gets the additional
   assert.equal(kernel.continuousEffects[0].effect.effect.kind, "continuous.might");
   assert.equal(kernel.continuousEffects[0].effect.effect.amount, 1);
 
-  // 703/702.2.a: the Buff's own +1 is derived by the merged effect.buff
-  // counter rules in the wider engine; the layers arithmetic here shows the
-  // printed additional +1 on top of the printed Might 4.
+  // CR 703 gives the Buff its own +1 and the printed ability adds another +1,
+  // so the effective Might is printed 4 + Buff 1 + ability 1 = 6.
   const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
-  assert.equal(layers.evaluate(kernel.ref("wizened-elder")).might, 5);
+  assert.equal(layers.evaluate(kernel.ref("wizened-elder")).might, 6);
   assert.equal(layers.evaluate(kernel.ref("plain-ally")).might, 4);
 });
 
@@ -203,7 +202,7 @@ test("ogn-065-298 Wizened Elder golden: the predicate tracks Buff gain and spend
     duration: { type: "permanent" }
   };
   const layers = createLayerEngine(kernel.objects, [registration]);
-  assert.equal(layers.evaluate(kernel.ref("wizened-elder")).might, 5);
+  assert.equal(layers.evaluate(kernel.ref("wizened-elder")).might, 6);
 
   // Spending the Buff through the real primitive closes the gate (702.2.b).
   const spend = runInstruction(
@@ -223,5 +222,5 @@ test("ogn-065-298 Wizened Elder golden: the predicate tracks Buff gain and spend
   );
   assert.equal(grant.result.status, "executed");
   layers.setObjects(kernel.objects);
-  assert.equal(layers.evaluate(kernel.ref("wizened-elder")).might, 5);
+  assert.equal(layers.evaluate(kernel.ref("wizened-elder")).might, 6);
 });

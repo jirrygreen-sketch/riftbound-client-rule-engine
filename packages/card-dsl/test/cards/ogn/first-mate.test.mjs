@@ -143,41 +143,22 @@ test("golden: the interpreter resolves exclude:'self' against the host, so 'anot
   );
 });
 
-test("current gap: the production binder rejects the exclude anchor, so the trigger never registers", () => {
-  // programs/filters.ts translateObjectFilter allows a fixed key set that does
-  // not include the object anchors, and programs/triggers.ts runs it over every
-  // instruction target when a card program is bound.
-  assert.throws(
-    () => translateObjectFilter(targetSpec.filter),
-    error => error instanceof Error && /Unsupported filter field exclude/.test(error.message)
-  );
+test("golden: the production binder preserves the 'another unit' exclude anchor and registers the trigger", () => {
+  assert.deepEqual(translateObjectFilter(targetSpec.filter), {
+    type: "unit",
+    zone: "board",
+    exclude: "self"
+  });
 
   const state = fixture({ cards: [{ id: "first-mate", cardId: CANONICAL, types: ["unit"], might: 3 }] });
   const errors = [];
   createProgramBinding({ cardPrograms: [forged] }).attachLifecycle(state.engine, error => errors.push(String(error && error.message)));
   state.engine.commit({ type: "move-zone", object: state.kernel.ref("first-mate"), to: "board", location: { type: "base", player: "A" } });
 
-  assert.deepEqual(errors, ["Unsupported filter field exclude"]);
+  assert.deepEqual(errors, []);
   let registered = 0;
   for (const key of ["triggers", "registrations"]) if (state.engine.pipeline[key] instanceof Map) registered += state.engine.pipeline[key].size;
-  assert.equal(registered, 0);
-  // The same card without the anchor does register, isolating the anchor as the
-  // blocker rather than the trigger shape.
-  const withoutAnchor = {
-    ...forged,
-    abilities: [{
-      ...playedTrigger,
-      body: [{
-        ...readyInstruction,
-        targets: [{ ...targetSpec, filter: { type: "unit", zone: "board" } }]
-      }]
-    }]
-  };
-  const control = fixture({ cards: [{ id: "first-mate", cardId: CANONICAL, types: ["unit"], might: 3 }] });
-  const controlErrors = [];
-  createProgramBinding({ cardPrograms: [withoutAnchor] }).attachLifecycle(control.engine, error => controlErrors.push(String(error && error.message)));
-  control.engine.commit({ type: "move-zone", object: control.kernel.ref("first-mate"), to: "board", location: { type: "base", player: "A" } });
-  assert.deepEqual(controlErrors, []);
+  assert.equal(registered, 1);
 });
 
 test.todo(

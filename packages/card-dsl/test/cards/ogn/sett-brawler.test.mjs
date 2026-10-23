@@ -142,7 +142,7 @@ test("golden: the cost cannot be paid without a Buff (702.2.b.1)", () => {
   assert.equal(kernel.getObject("sett").buffs, 0);
 });
 
-test("golden: the activated +4 Might registers an end-of-turn arithmetic effect on the source and expires at turn-end", () => {
+test("golden: the activated +4 stacks with the Buff's intrinsic +1 and expires at turn-end (CR 703)", () => {
   const kernel = settWorld({ buffs: 1 });
   const outcome = resolveChainBody(spendBuff.body, kernel);
 
@@ -160,17 +160,16 @@ test("golden: the activated +4 Might registers an end-of-turn arithmetic effect 
   assert.equal(registration.effect.filter.objectId, "sett");
   assert.deepEqual(registration.duration, { type: "end-of-turn" });
 
-  // The layer engine applies the +4 on top of the printed Might. CR 703 notes
-  // a Buff contributes its own +1 Might as a layers derivation; the merged
-  // layers/engine.ts moves only the Buff counter, so this assertion pins the
-  // modification itself (4 -> 8) rather than the separate 703 derivation.
+  // CR 703 makes the Buff contribute its own +1, then the activated ability
+  // adds +4: printed 4 + Buff 1 + ability 4 = 9.
   const registrations = kernel.continuousEffects.map((entry) => ({ effect: entry.effect, duration: entry.duration, timestamp: 1 }));
-  assert.equal(createLayerEngine(kernel.objects, registrations).evaluate(kernel.ref("sett")).might, 8);
+  assert.equal(createLayerEngine(kernel.objects, registrations).evaluate(kernel.ref("sett")).might, 9);
 
-  // Expiry: the effect is gone at turn-end, so the Might returns to printed.
+  // Expiry removes the +4 ability modifier; the unspent Buff remains and keeps
+  // its intrinsic +1 (CR 703).
   const registry = createContinuousEffectRegistry(registrations);
   assert.equal(expireContinuousEffectsAt(registry, "turn-end", (ref) => kernel.object(ref)).length, 1);
-  assert.equal(createLayerEngine(kernel.objects, registry.list()).evaluate(kernel.ref("sett")).might, 4);
+  assert.equal(createLayerEngine(kernel.objects, registry.list()).evaluate(kernel.ref("sett")).might, 5);
 });
 
 test.todo(

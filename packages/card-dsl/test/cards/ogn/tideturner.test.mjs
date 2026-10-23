@@ -160,15 +160,11 @@ test("tideturner golden: declining performs no move", () => {
 test("tideturner: the merged trigger adapter binds only this card's play event", async () => {
   const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
   assert.deepEqual(translateTriggerFilter(triggered.trigger.filter, "tideturner", "card-played"), {
-    event: "card-played", object: { objectId: "tideturner" }
+    objectId: "tideturner"
   });
 });
 
-test("Tideturner boundary: the Hidden expansion's cost.hidden has no production layer (CR 811.1.b–d / 811.5)", () => {
-  // Re-probed 2026-10-17: the keyword really expands, but the production static
-  // binder refuses the declaration, and cost/kinds/hidden.ts only locks and pays
-  // a plan while explicitly leaving Hide/play permission and the facedown zone
-  // to the zone/timing owners. ZoneId has no facedown member either.
+test("Tideturner golden: the Hidden expansion registers as a hidden capability (CR 811.1.b–d / 811.5)", () => {
   const kernel = world().unit("tideturner", { cardId: program.canonicalCardId }).build();
   const expanded = expandProgram(program, kernel.getObject("tideturner"));
   assert.deepEqual(expanded.expanded.map(ability => [ability.kind, ability.effect.kind]), [
@@ -176,19 +172,16 @@ test("Tideturner boundary: the Hidden expansion's cost.hidden has no production 
   ]);
 
   const f = fixture({ cards: [{ id: "tideturner", cardId: program.canonicalCardId, types: ["unit"], energy: 2, power: ["Mind"], might: 2 }] });
-  assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic(expanded.expanded[0], f.kernel.getObject("tideturner")),
-    (error) => error.code === "judge-required" && /cost\.hidden/.test(error.message) && /no layer mapping/.test(error.message)
-  );
-  assert.deepEqual(f.engine.layers.registry.list(), []);
+  const handle = createEngineStaticBinder(f.engine).bindStatic(expanded.expanded[0], f.kernel.getObject("tideturner"));
+  assert.equal(f.engine.layers.registry.list()[0].effect.effect.capabilityKind, "hidden");
+  handle.unbind();
 });
 
-test("Tideturner boundary: the real chain refuses the nested friendly-unit target lifecycle (CR 355.5 / 355.12)", async () => {
-  // Re-probed 2026-10-17: the trigger itself registers, but Finalize rejects the
-  // TargetSpec nested inside choice.optional's body, so the swap can never be
-  // reached through the card's real play path. The test drives the production
-  // lifecycle and reads the actual blocked error rather than restating prose.
-  const { ChainContractBlockedError } = await import(new URL("chain/engine.js", engineCore));
+test("Tideturner boundary: the real chain reaches the optional Finalize choice for the nested target (CR 355.5 / 355.12)", async () => {
+  // The trigger registers and the production lifecycle reaches the optional
+  // Finalize choice. Supplying that choice and resolving the nested target is
+  // the remaining engine gap; do not replace this boundary with the ignored
+  // reference-rule body above.
   const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
   const f = fixture({ cards: [{ id: "tideturner", cardId: program.canonicalCardId, types: ["unit"], energy: 2, power: ["Mind"], might: 2 }] });
   binding.attachLifecycle(f.engine, () => {});
@@ -199,7 +192,7 @@ test("Tideturner boundary: the real chain refuses the nested friendly-unit targe
       f.engine.pipeline.emit({ timingPoint: "card-played", object: f.kernel.getObject("tideturner"), source: f.kernel.getObject("tideturner"), player: "A", fromZone: "hand" });
       f.engine.advance();
     },
-    (error) => error instanceof ChainContractBlockedError && /Nested\/repeated targets/.test(error.message)
+    (error) => error.name === "AwaitChoice" && error.request.id === "finalize:trigger:1:optional"
   );
   // The declared target really is nested inside the optional body, which is why
   // the surface check fires; both moves keep reading locked original locations.

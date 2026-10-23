@@ -37,14 +37,11 @@ test("ogn-152-298 Mistfall: identity, version and verbatim source text", () => {
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
 
-test("ogn-152-298 Mistfall: the buff-added trigger is still rejected by the closed event list", () => {
+test("ogn-152-298 Mistfall: the buff-added trigger validates with its unit and controller filters", () => {
   const [ability] = program.abilities;
   const translated = translateTriggerFilter(ability.trigger.filter, "mistfall", ability.trigger.at);
   assert.deepEqual(translated, { event: "buff-added", object: { type: "unit" }, player: "self" });
-  assert.throws(
-    () => assertTriggerSpec({ at: ability.trigger.at, filter: translated }),
-    error => error.name === "TriggerSpecValidationError" && /trigger\.filter\.event/.test(String(error.message))
-  );
+  assert.doesNotThrow(() => assertTriggerSpec({ at: ability.trigger.at, filter: translated }));
 });
 
 test("ogn-152-298 Mistfall: cost.pay still cannot construct the trigger's pay-and-exhaust cost", () => {
@@ -65,7 +62,7 @@ test("ogn-152-298 Mistfall: cost.pay still cannot construct the trigger's pay-an
   assert.equal(coaster.getObject("mistfall").exhausted, false);
 });
 
-test("ogn-152-298 Mistfall: a nested trigger body target is refused by the production finalize surface", () => {
+test("ogn-152-298 Mistfall: production Finalize asks for the nested optional-body target", () => {
   const kernel = world()
     .player("A", { energy: 20 })
     .player("B", { energy: 20 })
@@ -99,9 +96,9 @@ test("ogn-152-298 Mistfall: a nested trigger body target is refused by the produ
       return thrown;
     }
   })();
-  assert.ok(error, "the production finalize surface must still refuse nested target specs");
-  assert.equal(error.name, "ChainContractBlockedError");
-  assert.match(error.message, /Nested\/repeated targets require an interpreter target-selection lifecycle adapter/);
+  assert.equal(error.name, "AwaitChoice");
+  assert.equal(error.request.id, "mistfall.may-pay/optional");
+  assert.equal(error.request.type, "optional");
 });
 
 test("ogn-152-298 Mistfall: buff-added trigger with optional pay+exhaust body", () => {

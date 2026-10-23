@@ -203,22 +203,24 @@ test("Dragon's Rage golden: the mutual damage reads both Might values and attrib
   ]);
 });
 
-test("Dragon's Rage current gap 1: trigger.reflexive has no executor", () => {
-  assert.equal(instructionDefinitionsById.has("trigger.reflexive"), false);
+test("Dragon's Rage current gap 1: trigger.reflexive is registered but still requires a real trigger context", () => {
+  assert.equal(instructionDefinitionsById.has("trigger.reflexive"), true);
   const kernel = world().unit("unit", {}).build();
   assert.throws(
     () => runAbilityBody([{ id: "rage.reflexive", op: "trigger.reflexive", args: {} }], kernel),
-    /Unregistered instruction opcode: trigger\.reflexive/
+    /trigger\.reflexive requires body/
   );
 });
 
-test("Dragon's Rage current gap 2: the production binder rejects the sameLocationAs anchor, so the card cannot be described for play", () => {
+test("Dragon's Rage current gap 2: the production binder preserves the represented sameLocationAs anchor", () => {
   const state = fixture({ cards: [{ id: "rage", cardId: CANONICAL, types: ["spell"], energy: 4 }] });
   const binding = createProgramBinding({ cardPrograms: [forged] });
-  assert.throws(
-    () => binding.describePlay({ type: "play", object: state.kernel.ref("rage"), player: "A" }, state.kernel.getObject("rage")),
-    error => error instanceof Error && /Unsupported filter field sameLocationAs/.test(error.message)
+  const draft = binding.describePlay(
+    { type: "play", object: state.kernel.ref("rage"), player: "A" },
+    state.kernel.getObject("rage")
   );
+  assert.equal(draft.body[1].targets[0].filter.sameLocationAs.target, "moved-unit");
+  assert.equal(draft.body[1].targets[0].filter.exclude.target, "moved-unit");
 });
 
 test("Dragon's Rage current gap 3: combat cannot designate an Attacker yet, so no real attack-declared exists for a reflexive item", () => {

@@ -82,7 +82,7 @@ test("Leona: the state:ready replacement really rewrites the chain→board entry
   assert.equal(engine.pipeline.events.filter(event => event.timingPoint === "object-readied").length, 0);
 });
 
-test("Leona: the opponent/Victory Score condition is not a real player predicate", () => {
+test("Leona: the opponent/Victory Score condition fails closed in the generic evaluator", () => {
   const { engine, kernel } = engineFor();
   const source = kernel.getObject("leona");
   const context = engine["context"]?.({ id: "leona.probe", controller: "A", source, kind: "triggered", speed: "normal", body: [], object: source.ref, status: "pending", targetPlans: [] });
@@ -92,28 +92,17 @@ test("Leona: the opponent/Victory Score condition is not a real player predicate
     relation: "opponent",
     scoreAtLeast: { relativeTo: "victory-score", offset: -3 }
   });
-  // The merged evaluator only counts a set (expr.ts count -> queryObjects),
-  // so the players/relation/scoreAtLeast predicates are not interpreted at all.
-  // The measured outcome is "a count of board objects", not a score check:
-  // false with no unrelated board object and true once one is added, whatever
-  // the scores are.
+  // The generic evaluator has no player-score subject consumer. It must not
+  // derive victory from unrelated visible objects.
   const environment = context === undefined
     ? { context: null, host: source.ref, linked: () => undefined, canLookBack: () => true, isIgnored: () => false }
     : { context, host: source.ref, linked: () => undefined, canLookBack: () => true, isIgnored: () => false };
   assert.notEqual(environment.context, null, "the production chain context must be constructible for this probe");
   assert.equal(kernel.player("B").score, 0);
-  // The world holds the Leona card itself, and the query has no zone/location
-  // restriction to exclude it, so the count is already 1 here; the point is
-  // that the scores are never read.
-  assert.equal(evaluateCondition(condition, environment), true);
-  const noObjects = world().player("A", { energy: 20, score: 0 }).player("B", { energy: 20, score: 0 }).build();
-  assert.equal(evaluateCondition(condition, {
-    context: noObjects, host: null, linked: () => undefined, canLookBack: () => true,
-    isIgnored: () => false, query: filter => noObjects.query(filter)
-  }), false);
+  assert.equal(evaluateCondition(condition, environment), false);
 });
 
-test("Leona: the same condition flips on an unrelated board object regardless of scores", () => {
+test("Leona: unrelated board objects cannot satisfy the Victory Score condition", () => {
   const condition = program.abilities[0].condition;
   for (const [opponentScore, boardUnits] of [[8, 0], [0, 0], [8, 1], [1, 1], [8, 2]]) {
     const kernel = world()
@@ -132,25 +121,16 @@ test("Leona: the same condition flips on an unrelated board object regardless of
       context: kernel, host: null, linked: () => undefined, canLookBack: () => true,
       isIgnored: () => false, query: filter => kernel.query(filter)
     });
-    assert.equal(observed, boardUnits > 0, `opponentScore=${opponentScore} boardUnits=${boardUnits}`);
+    assert.equal(observed, false, `opponentScore=${opponentScore} boardUnits=${boardUnits}`);
   }
 });
 
-test("Leona: the relative-opponent aura filter is still refused by the static binder", () => {
+test("Leona: the static binder accepts the relative-opponent aura filter", () => {
   const { engine, kernel } = engineFor();
   const source = kernel.getObject("leona");
-  const error = (() => {
-    try {
-      createEngineStaticBinder(engine).bindStatic(program.abilities[1], source);
-      return null;
-    } catch (thrown) {
-      return thrown;
-    }
-  })();
-  assert.ok(error, "the merged static binder must still refuse the aura filter while the gap is open");
-  assert.equal(error.code, "judge-required");
-  assert.match(error.message, /controller:opponent filter needs a relative-player query/);
-  assert.deepEqual(engine.layers.registry.list(), []);
+  const handle = createEngineStaticBinder(engine).bindStatic(program.abilities[1], source);
+  assert.equal(engine.layers.registry.list()[0].effect.effect.kind, "continuous.might");
+  handle.unbind();
 });
 
 test("Leona: the merged engine still lacks per-effect minimum:1 clamping", () => {
@@ -183,4 +163,4 @@ test("Leona: permanent -8 Might applies only to stunned enemies here with printe
 });
 
 test.todo("Leona: entry replacement evaluates any opponent against current Victory Score at distances 3/4, including non-eight modes; never emit ready-after-entry");
-test.todo("Leona: the continuous -8 aura first needs programs/statics.ts to bind controller: \"opponent\" (currently ProgramBindingError: Static controller:opponent filter needs a relative-player query); then real Might 1/8/9/10, friendly/unstunned/other-location preservation, and per-effect minimum:1 clamping through the layer engine (only the layers/ops applyMightMinimums helper has it)");
+test.todo("Leona: production layers need the per-effect minimum:1 clamp for the continuous -8 aura, followed by real Might 1/8/9/10 and friendly/unstunned/other-location preservation");

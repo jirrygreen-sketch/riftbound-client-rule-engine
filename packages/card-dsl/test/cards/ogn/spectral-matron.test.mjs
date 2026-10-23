@@ -156,22 +156,27 @@ test("ogn-226-298 Spectral Matron: declining the may-clause leaves the Trash uni
   assert.deepEqual(kernel.events, []);
 });
 
-test("ogn-226-298 Spectral Matron: the production filter binder rejects the printed-cost cap (current gap)", () => {
-  // 356.1.c 的印刷费用上限在 programs/filters.ts 里没有词表条目；这里真实调用生产
-  // 绑定函数证明整卡目前 fail-closed，而不是靠注释断定。
-  for (const key of ["printedEnergyMax", "printedPowerMax", "printedPowerAnyDomain"]) {
-    assert.throws(
-      () => translateObjectFilter({ type: "unit", zone: "trash", [key]: 1 }),
-      (error) => {
-        assert.equal(String(error.message), "Unsupported filter field " + key);
-        return true;
-      }
-    );
-  }
+test("ogn-226-298 Spectral Matron: the production filter binder preserves printed-cost caps", () => {
+  assert.deepEqual(translateObjectFilter({
+    type: "unit",
+    zone: "trash",
+    printedEnergyMax: 3,
+    printedPowerMax: 1
+  }), {
+    type: "unit",
+    zone: "trash",
+    printedEnergyMax: 3,
+    printedPowerMax: 1
+  });
+  // The any-domain power spelling has no field in the current contract, so it
+  // remains fail-closed instead of becoming an unrestricted cost predicate.
+  assert.throws(
+    () => translateObjectFilter({ type: "unit", zone: "trash", printedPowerAnyDomain: 1 }),
+    error => error instanceof Error && /Unsupported filter field printedPowerAnyDomain/.test(error.message)
+  );
 });
 
-test("ogn-226-298 Spectral Matron: a forged executable program still fails closed in production binding", () => {
-  // 同一份声明在 executable 形态下也会在生产绑定处失败：这不是 status 抖动能绕过的缺口。
+test("ogn-226-298 Spectral Matron: a forged executable program retains supported caps and fails closed on the unknown power-domain predicate", () => {
   const forged = { ...program, status: "executable" };
   delete forged.judgeReason;
   assert.equal(validateCardProgram(forged).ok, true);
@@ -179,10 +184,7 @@ test("ogn-226-298 Spectral Matron: a forged executable program still fails close
   assert.equal(spec.filter.printedEnergyMax, 3);
   assert.throws(
     () => translateObjectFilter(spec.filter),
-    (error) => {
-      assert.equal(String(error.message), "Unsupported filter field printedEnergyMax");
-      return true;
-    }
+    error => error instanceof Error && /Unsupported filter field printedPowerAnyDomain/.test(error.message)
   );
 });
 
