@@ -77,7 +77,7 @@ test("ogn-171-298 Mystic Poro: declared keyword resolves to the merged Vision de
   assert.equal(ability.optional, false);
 });
 
-test("ogn-171-298 Mystic Poro: production binding keeps the unmigrated Vision trigger judge-required for either controller", () => {
+test("ogn-171-298 Mystic Poro: production binding translates the Vision self-entry trigger for either controller", () => {
   const binding = createProgramBinding({ cardPrograms: [mysticPoro] });
   for (const controller of ["A", "B"]) {
     const kernel = world()
@@ -91,9 +91,9 @@ test("ogn-171-298 Mystic Poro: production binding keeps the unmigrated Vision tr
     const triggered = inspection.abilities.filter(ability => ability.kind === "triggered");
     assert.equal(triggered.length, 1);
     assert.equal(triggered[0].trigger.at, "object-enters-board");
-    assert.throws(
-      () => translateTriggerFilter(triggered[0].trigger.filter, source.ref.id, triggered[0].trigger.at),
-      { name: "ProgramBindingError", code: "judge-required", message: "Unsupported filter field object.id" }
+    assert.deepEqual(
+      translateTriggerFilter(triggered[0].trigger.filter, source.ref.id, triggered[0].trigger.at),
+      { objectId: source.ref.id }
     );
     // The normal registry must continue refusing execution of the whole card.
     assert.throws(

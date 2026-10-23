@@ -161,18 +161,11 @@ test("ogn-151-298 Lee Sin, Centered: the characteristics predicate really identi
   assert.equal(matchesObjectFilter({ type: "unit", characteristics: { buffs: 1 } }, byId.get("enemy")), true);
 });
 
-test.todo(
-  "ogn-151-298 Lee Sin, Centered: apply +2 Might only to other buffed friendlies at my battlefield " +
-    "once the production layer resolves sameLocationAs and the self-relative exclusion (359.3.f.2 / 478.1)"
-);
-
-test("Lee Sin: the actual static binder blocks the aura's unsupported other anchor", () => {
+test("Lee Sin golden: the actual static binder accepts the aura's relative other anchor", () => {
   const f = fixture({ cards: [{ id: "lee", cardId: CANONICAL, types: ["unit"], might: 6 }] });
   f.engine.commit({ type: "move-zone", object: f.kernel.ref("lee"), to: "battlefield", location: { type: "battlefield", id: "battlefield-1" } });
   f.engine.advance();
-  assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic(program.abilities[1], f.kernel.getObject("lee")),
-    /Static exclude anchor needs a dynamic relative filter/
-  );
-  assert.deepEqual(f.engine.layers.registry.list(), []);
+  const handle = createEngineStaticBinder(f.engine).bindStatic(program.abilities[1], f.kernel.getObject("lee"));
+  assert.equal(f.engine.layers.registry.list()[0].effect.effect.kind, "continuous.might");
+  handle.unbind();
 });

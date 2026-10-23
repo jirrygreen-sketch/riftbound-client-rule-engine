@@ -133,7 +133,15 @@ test("ogn-035-298 Vayne, Hunter golden: the merged entry replacement rewrites th
   // the rewrite is applied to the chain-zone permanent so the move carries it
   // to the Board (no separate becomes-ready timing happens on Board).
   const kernel = world()
+    .player("A")
+    .player("B")
     .unit("vayne", { zone: "hand", location: null, might: 2 })
+    .unit("opponent-battlefield", {
+      types: ["battlefield"],
+      owner: "B",
+      controller: "B",
+      location: { type: "battlefield", id: "opponent-field" }
+    })
     .build();
   const hostRef = kernel.ref("vayne");
   const registrations = [];
@@ -275,21 +283,21 @@ test("ogn-035-298 Vayne, Hunter: the entry rewrite ignores the printed battlefie
   };
   assert.equal(
     evaluateExpression(program.abilities[1].condition.left, environment),
-    0,
-    "the count subject is not evaluated and no snapshot object carries battlefield control"
+    1,
+    "the live object set is counted"
   );
   // The printed condition is therefore false here, so a correct implementation
   // would leave the default exhausted entry untouched.
-  assert.equal(evaluateCondition(program.abilities[1].condition, environment), false);
+  assert.equal(evaluateCondition(program.abilities[1].condition, environment), true);
   assert.equal(
     evaluateExpression({ kind: "count", subject: "some-other-subject", filter: { controller: "opponent" } }, environment),
-    0,
+    1,
     "the subject string is ignored: the filter alone decides the count"
   );
 });
 
-test("ogn-035-298 Vayne, Hunter: a battle with no opponent battlefield still rewrites the entry to ready (364.3.a / 371.1)", () => {
-  const kernel = world().unit("vayne", { zone: "hand", location: null, might: 2 }).build();
+test("ogn-035-298 Vayne, Hunter: no opponent battlefield leaves the entry exhausted (364.3.a / 371.1)", () => {
+  const kernel = world().player("A").player("B").unit("vayne", { zone: "hand", location: null, might: 2 }).build();
   const registrations = [];
   bindReplacement(program.abilities[1], kernel.ref("vayne"), {
     host: {
@@ -308,8 +316,8 @@ test("ogn-035-298 Vayne, Hunter: a battle with no opponent battlefield still rew
     location: { type: "battlefield", id: "battlefield-1" }
   };
   assert.equal(kernel.objects.filter((object) => object.controller === "B").length, 0);
-  assert.equal(registrations[0].matches(entering, entering), true);
-  assert.deepEqual(registrations[0].apply(entering, entering).actions.map((action) => action.type), ["ready", "move-zone"]);
+  assert.equal(registrations[0].matches(entering, entering), false);
+  assert.throws(() => registrations[0].apply(entering, entering), /called without a matching event/);
 });
 
 test("ogn-035-298 Vayne, Hunter: the merged conquer filter binds self, but production lacks the participant object (383.4.c.2.a)", () => {
@@ -334,15 +342,10 @@ test("ogn-035-298 Vayne, Hunter: the merged conquer filter binds self, but produ
   );
 });
 
-test("ogn-035-298 Vayne, Hunter: the production binding rejects the optional body's nested TargetSpec", async () => {
-  // The body's TargetSpec filter { source: "self" } is not a filter field the
-  // program adapter understands, so trigger registration fails before the chain
-  // can even see the item; the chain's own Finalize surface independently
-  // refuses nested targets.
-  assert.throws(
-    () => translateInstructionTargets(program.abilities[2].body),
-    (error) => error.name === "ProgramBindingError" && /Unsupported filter field source/.test(error.message)
-  );
+test("ogn-035-298 Vayne, Hunter: the production binding preserves the optional body's self TargetSpec", async () => {
+  const [translatedMay] = translateInstructionTargets(program.abilities[2].body);
+  const [, translatedReturn] = translatedMay.args.body.value;
+  assert.deepEqual(translatedReturn.targets[0].filter, { source: "self" });
 
   const { createProgramBinding } = await import("../../../../engine-core/dist/programs/index.js");
   const lifted = { ...program, status: "executable" };
@@ -351,9 +354,8 @@ test("ogn-035-298 Vayne, Hunter: the production binding rejects the optional bod
   const f = fixture({
     cards: [{ id: "vayne", cardId: CARD_ID, types: ["unit"], energy: 4, power: ["Fury"], might: 2 }]
   });
-  assert.throws(
-    () => binding.registerProgramTriggers(f.engine, f.kernel.getObject("vayne")),
-    (error) => error.name === "ProgramBindingError" && /Unsupported filter field source/.test(error.message)
+  assert.doesNotThrow(
+    () => binding.registerProgramTriggers(f.engine, f.kernel.getObject("vayne"))
   );
 });
 

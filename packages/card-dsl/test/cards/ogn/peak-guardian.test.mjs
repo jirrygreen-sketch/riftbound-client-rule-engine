@@ -22,25 +22,6 @@ const OTHERS_ID = "peak-guardian.buff-others-here";
 const bodyForExecution = () =>
   program.abilities[0].body.map(({ targets, ...rest }) => rest);
 
-const targetContext = kernel => new Proxy(kernel, {
-  get(target, key) {
-    if (key === "query") {
-      return filter => queryObjects(
-        filter.controller === "controller" ? { ...filter, controller: "A" } : filter,
-        {
-          context: target,
-          host: target.source.ref,
-          linked: id => target.linked(id),
-          canLookBack: () => true,
-          isIgnored: () => false
-        }
-      );
-    }
-    const value = Reflect.get(target, key);
-    return typeof value === "function" ? value.bind(target) : value;
-  }
-});
-
 test("ogn-223-298 Peak Guardian: program validates and has expected identity", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
@@ -125,11 +106,23 @@ test("ogn-223-298 Peak Guardian: TargetSpec.location gates the peer set to battl
     .build();
   const battlefieldContext = battlefield.clone({
     source: battlefield.ref("peak-guardian"),
-    sourceSnapshot: battlefield.getObject("peak-guardian")
+    sourceSnapshot: battlefield.getObject("peak-guardian"),
+    controller: "A"
+  });
+  const runtimeContext = new Proxy(battlefieldContext, {
+    get(target, key) {
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    }
   });
   assert.deepEqual(
-    queryTargetCandidates(targetContext(battlefieldContext), program.abilities[0].body[1].targets[0])
-      .map(ref => ref.id),
+    queryObjects(program.abilities[0].body[1].targets[0].filter, {
+      context: runtimeContext,
+      host: runtimeContext.source.ref,
+      linked: id => runtimeContext.linked(id),
+      canLookBack: () => true,
+      isIgnored: () => false
+    }).map(object => object.ref.id),
     ["ally-here"]
   );
 
@@ -140,15 +133,17 @@ test("ogn-223-298 Peak Guardian: TargetSpec.location gates the peer set to battl
     .build();
   const baseContext = atBase.clone({
     source: atBase.ref("peak-guardian"),
-    sourceSnapshot: atBase.getObject("peak-guardian")
+    sourceSnapshot: atBase.getObject("peak-guardian"),
+    controller: "A"
   });
+  assert.equal(baseContext.getObject("peak-guardian").location.type, "base");
   assert.deepEqual(
-    queryTargetCandidates(targetContext(baseContext), program.abilities[0].body[1].targets[0]),
+    queryTargetCandidates(baseContext, program.abilities[0].body[1].targets[0]),
     []
   );
 });
 
-test("ogn-223-298 Peak Guardian: trigger-side binding works while instruction target translation rejects the self anchor", () => {
+test("ogn-223-298 Peak Guardian: trigger-side and instruction-target binding preserve the relative anchors", () => {
   const [ability] = program.abilities;
   // The merged translateTriggerFilter accepts the "When you play me" pattern and
   // binds the event object to this source ref (383/420.4.a trigger side).
@@ -156,15 +151,18 @@ test("ogn-223-298 Peak Guardian: trigger-side binding works while instruction ta
     translateTriggerFilter(ability.trigger.filter, "peak-guardian-source", "card-played"),
     { event: "card-played", object: { objectId: "peak-guardian-source" } }
   );
-  // The buff-me instruction target uses the object:"self" anchor, which the
-  // production instruction-target translator still rejects; the peer filter's
-  // sameLocationAs anchor is rejected for the same reason.
-  for (const target of ability.body.flatMap((instruction) => instruction.targets ?? [])) {
-    assert.throws(
-      () => translateObjectFilter(target.filter),
-      /Unsupported filter field (object|exclude|sameLocationAs)/
-    );
-  }
+  assert.deepEqual(translateObjectFilter(ability.body[0].targets[0].filter), {
+    object: "self",
+    type: "unit",
+    zone: "board"
+  });
+  assert.deepEqual(translateObjectFilter(ability.body[1].targets[0].filter), {
+    type: "unit",
+    zone: "board",
+    controller: "self",
+    exclude: "self",
+    sameLocationAs: "self"
+  });
 });
 
 test("ogn-223-298 Peak Guardian: the Buff primitive rejects a non-target query instead of a TargetSpec id", () => {

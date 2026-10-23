@@ -78,18 +78,15 @@ test("ogn-162-298 Miss Fortune, Captain: judgeReason cites the move timing and t
   assert.match(program.judgeReason, /permission\.routes/);
 });
 
-test("ogn-162-298 Miss Fortune, Captain: the object-moved trigger is still rejected by the closed event list", () => {
-  // 383.1/449.1: the timing point exists, but the card's EventPattern is not in
-  // the closed EVENT_PATTERN_TYPES vocabulary, so registration fails outright.
+test("ogn-162-298 Miss Fortune, Captain: the object-moved trigger validates and preserves its self filter", () => {
   const translated = translateTriggerFilter(moveTrigger.trigger.filter, "miss-fortune", moveTrigger.trigger.at);
   assert.deepEqual(translated, { event: "object-moved", object: { objectId: "miss-fortune" } });
-  assert.throws(
-    () => assertTriggerSpec({ at: moveTrigger.trigger.at, filter: translated, once: moveTrigger.trigger.once }),
-    error => error.name === "TriggerSpecValidationError" && /trigger\.filter\.event/.test(String(error.message))
+  assert.doesNotThrow(
+    () => assertTriggerSpec({ at: moveTrigger.trigger.at, filter: translated, once: moveTrigger.trigger.once })
   );
 });
 
-test("ogn-162-298 Miss Fortune, Captain: the expanded Accelerate cost is unmappable and Ganking stays inert", () => {
+test("ogn-162-298 Miss Fortune, Captain: the expanded Accelerate cost registers while raw Ganking still needs normalization", () => {
   const { engine, kernel } = engineFor();
   const source = kernel.getObject("miss-fortune");
   const expanded = createProgramBinding({ cardPrograms: [program] }).inspect(source).abilities;
@@ -98,17 +95,10 @@ test("ogn-162-298 Miss Fortune, Captain: the expanded Accelerate cost is unmappa
   assert.ok(accelerateCost && gankingPermission, "both keyword expansions must exist");
 
   const binder = createEngineStaticBinder(engine);
-  const error = (() => {
-    try {
-      binder.bindStatic(accelerateCost, source);
-      return null;
-    } catch (thrown) {
-      return thrown;
-    }
-  })();
-  assert.ok(error, "the merged layer binder must still refuse accelerate.cost");
-  assert.equal(error.code, "judge-required");
-  assert.match(error.message, /accelerate\.cost has no layer mapping/);
+  const costHandle = binder.bindStatic(accelerateCost, source);
+  const costEntry = engine.layers.registry.list().find(candidate => candidate.effect.effect.kind === "static.capability");
+  assert.equal(costEntry.effect.effect.capabilityKind, "cost");
+  costHandle.unbind();
 
   const handle = binder.bindStatic(gankingPermission, source);
   const entry = engine.layers.registry.list().find(candidate => candidate.effect.effect.kind === "continuous.movement");

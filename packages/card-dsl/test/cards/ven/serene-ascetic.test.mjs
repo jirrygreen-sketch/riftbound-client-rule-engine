@@ -273,42 +273,34 @@ test("ven-030-166 Serene Ascetic gap: the printed 3 Energy Empower cost is not c
   );
 });
 
-test("ven-030-166 Serene Ascetic gap: the granted Deflect cannot become a target tax in production", () => {
-  // Measured evidence for judgeReason point 3: Deflect expands to a target.tax
-  // static ability, and the production binder has no layer mapping for it —
-  // so no Deflect tax can ever be attached to an opponent's target Finalize.
+test("ven-030-166 Serene Ascetic golden: the granted Deflect registers as a target-tax capability", () => {
   const [deflectAbility] = deflect.expand({ value: 1, host: { canonicalCardId: CANONICAL_ID } });
   assert.equal(deflectAbility.effect.kind, "target.tax");
   const f = fixture({ cards: [{ id: "serene-ascetic", cardId: CANONICAL_ID, types: ["unit"] }] });
   const source = f.kernel.getObject("serene-ascetic");
-  assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic(deflectAbility, source),
-    error => error.code === "judge-required" && /target\.tax has no layer mapping/.test(error.message)
-  );
+  const handle = createEngineStaticBinder(f.engine).bindStatic(deflectAbility, source);
+  assert.equal(f.engine.layers.registry.list()[0].effect.effect.capabilityKind, "target-tax");
+  handle.unbind();
 });
 
-test("ven-030-166 Serene Ascetic gap: the Shield expansion reads a designation no snapshot publishes", () => {
-  // Measured evidence for judgeReason point 3: 814.1.d gates Shield on the
-  // defender designation, but the merged expression evaluator has no such
-  // characteristic on a contract-shaped snapshot, so the +3 Might cannot be
-  // evaluated even though the grant itself installs.
+test("ven-030-166 Serene Ascetic golden: the Shield expansion reads combatRole as designation", () => {
   const [shieldAbility] = shield.expand({ value: 3, host: { canonicalCardId: CANONICAL_ID } });
   assert.deepEqual(shieldAbility.condition.left, {
     kind: "object-property",
     object: "self",
     property: "designation"
   });
-  const kernel = world().unit("host", { cardId: CANONICAL_ID, might: 3 }).build();
+  const kernel = world().unit("host", { cardId: CANONICAL_ID, might: 3, combatRole: "defender" }).build();
   const source = kernel.getObject("host");
   assert.equal(Object.hasOwn(source, "designation"), false);
-  assert.throws(
-    () => evaluateExpression(shieldAbility.condition.left, {
+  assert.equal(
+    evaluateExpression(shieldAbility.condition.left, {
       context: kernel,
       host: source.ref,
       linked: () => undefined,
       canLookBack: () => true,
       isIgnored: () => false
     }),
-    error => /Unavailable characteristic: designation/.test(error.message)
+    "defender"
   );
 });
