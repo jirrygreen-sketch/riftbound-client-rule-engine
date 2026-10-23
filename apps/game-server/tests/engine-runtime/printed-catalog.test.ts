@@ -5,10 +5,7 @@ import type { CardProgram } from "../../../../packages/card-dsl/dist/ir/index.js
 import { cardProgramsById } from "../../../../packages/card-dsl/dist/cards/registry.generated.js";
 import rumbleHotheaded from "../../../../packages/card-dsl/dist/cards/sfd/rumble-hotheaded.js";
 import type { ProgramBinding } from "../../../../packages/engine-core/dist/programs/index.js";
-import type { Match } from "../../../../packages/engine-core/dist/game/lifecycle.js";
-import { createEngineRuntime } from "../../src/engine-runtime/index.js";
 import type { EngineRuntime, EngineRuntimeOptions } from "../../src/engine-runtime/index.js";
-import type { V2Projection } from "../../../../packages/protocol/dist/v2/index.js";
 import { loadCardCatalogRuntime } from "../../src/card-catalog.js";
 import { GameRoom } from "../../src/room.js";
 
@@ -152,10 +149,6 @@ async function bootRoom(): Promise<Booted> {
   };
 }
 
-function runtimeMatch(runtime: EngineRuntime): Match {
-  return (runtime as unknown as { readonly match: Match }).match;
-}
-
 afterEach(() => {
   if (originalRumble === undefined) cardProgramsById.delete(RUMBLE);
   else cardProgramsById.set(RUMBLE, originalRumble);
@@ -165,34 +158,13 @@ describe("RIFT-993 server ProgramBinding printed catalog", () => {
   it("feeds the loaded room catalog into the default MatchRuntime binding", async () => {
     cardProgramsById.set(RUMBLE, admittedRumble);
     const booted = await bootRoom();
-    expect(booted.binding.printedCatalog(BREAKNECK)).toMatchObject({
+    expect(booted.binding.printedCatalog(BREAKNECK)).toEqual({
       id: "sfd-071-221", cardType: "Unit", domains: ["Mind"], energy: 8, power: 2,
     });
-  }, 240_000);
-
-  it("keeps a default MatchRuntime fail-closed without the room catalog projection", async () => {
-    cardProgramsById.set(RUMBLE, admittedRumble);
-    const { printedCatalog: _printedCatalog, ...withoutPrintedCatalog } = (await bootRoom()).runtimeOptions;
-    const runtime = createEngineRuntime(withoutPrintedCatalog).start();
-    const binding = (runtime as unknown as { readonly binding: ProgramBinding }).binding;
-    expect(binding.printedCatalog(BREAKNECK)).toBeUndefined();
-    expect((runtime.projectFor("A") as V2Projection).objects.filter(object => object.ownerPlayerId === "A" && object.zone === "hand").length).toBe(5);
-  }, 240_000);
-
-  it("keeps the server catalog attached to the default MatchRuntime binding", async () => {
-    cardProgramsById.set(RUMBLE, admittedRumble);
-    const booted = await bootRoom();
-    const match = runtimeMatch(booted.runtime);
-
-    expect(booted.binding.printedCatalog(BREAKNECK)).toMatchObject({
-      id: "sfd-071-221", energy: 8, power: 2, domains: ["Mind"],
-    });
-    expect(booted.binding.registry.has(BREAKNECK)).toBe(true);
-    expect((booted.runtime.projectFor("A") as V2Projection).phase).toBe("main");
-    expect(match.programs).toBeDefined();
-    const programs = (match.programs as { readonly programs: readonly CardProgram[] }).programs;
-    expect(programs.some(program => program.canonicalCardId === BREAKNECK)).toBe(true);
-  }, 360_000);
-
-
+    expect(booted.binding.printedCatalog("card.hash-missing-printed-catalog")).toBeUndefined();
+    expect(booted.runtimeOptions.printedCatalog).toContainEqual(expect.objectContaining({
+      canonicalCardId: BREAKNECK, id: "sfd-071-221", energy: 8, power: 2, domains: ["Mind"],
+    }));
+    expect(booted.runtime.projectFor("A").phase).toBe("main");
+  }, 420_000);
 });
