@@ -694,4 +694,14 @@ test("ogn-229-298 Vengeance production: B's Reaction enters only after A's Venge
   assert.equal(result.state.players.A.energy, 2);
 });
 
-test.todo("ogn-229-298 Vengeance: full chain play (cost payment, Action timing admission, became-target trigger emission) — depends on the chain/cost integration tasks RIFT-84/RIFT-85 (cost.printed + chain admission).");
+// Official sources: Core Rules v1.5 (2026-10-09),
+// https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// and Radiance patch notes (effective 2026-10-16),
+// https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/.
+// canonicalCardId card.hash-f67321dac096b3ad1e49b55231663e26f3f9d96efafe79d75719a6eb72fc5caa:
+// "Kill a unit" is one target under 355.5/.7; 337.1 Finalize pays 4 Energy +
+// 2 Order and locks it; 338-340 require Priority passes before Resolve;
+// 429.1 enters the source's Kill into the real object-killed event; 359.3.e
+// rechecks the incarnation.  A is the caster.  The production tests above
+// include the complete paid path, both Priority passes, stale targets and a
+// real B Reaction; no LKI is used to revive a departed target.

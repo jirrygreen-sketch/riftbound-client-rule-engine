@@ -7,6 +7,10 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine, matchesObjectFilter } from "../../../../engine-core/dist/layers/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import premonition from "../../../dist/cards/sfd/premonition.js";
 
 const CARD_ID = "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d";
 const SOURCE_TEXT =
@@ -271,4 +275,133 @@ test("sfd-206-221 Riposte golden: the grant follows the ability controller, not 
   assert.equal(outcome.status, "executed");
   assert.equal(kernel.continuousEffects[0].effect.effect.amount, 3);
   assert.equal(effectiveMight(kernel, "ally"), 5);
+});
+
+// Official sources: Core Rules v1.5 (2026-10-09),
+// https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// and Radiance patch notes (effective 2026-10-16),
+// https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/.
+// canonicalCardId card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d.
+// Timeline: B plays a spell and passes at Priority; the Chain is Closed; A plays
+// Reaction Riposte from ordinary Priority; Finalize locks the friendly Unit and
+// the B spell and pays 2 Energy + 2 Body; A escalates Priority to B; after B
+// passes, the newest Riposte Resolves first at 340.1.  effect.counter moves the
+// older spell to Trash under 426.1; the linked Energy read is frozen before the
+// grant; 478.1.a registers the Might and 468.7.c expires it at this turn's end.
+function riposteProductionFixture(energyCost) {
+  const kernel = world()
+    .player("A", { energy: 2, power: ["Body", "Body"] })
+    .player("B", { energy: 20, power: ["Mind", "Mind", "Mind"] })
+    .hand("riposte", {
+      cardId: CARD_ID,
+      types: ["spell"],
+      energy: 2,
+      power: ["Body"],
+      might: null
+    })
+    .hand("opener", {
+      cardId: premonition.canonicalCardId,
+      types: ["spell"],
+      energy: energyCost,
+      power: energyCost === 0 ? [] : ["Mind"],
+      might: null
+    })
+    .deck(["draw-one", "draw-two", "draw-three"], { owner: "B" })
+    .unit("ally", {
+      owner: "A",
+      controller: "A",
+      might: 2,
+      location: { type: "battlefield", id: "bf-1" }
+    })
+    .build();
+  const requests = [];
+  const choose = request => {
+    requests.push(request);
+    if (request.type === "select-objects" && request.id === "target:target-spell") {
+      return [kernel.ref("opener")];
+    }
+    if (request.type === "select-objects" && request.id === "target:target-unit") {
+      return [kernel.ref("ally")];
+    }
+    throw new Error(`Unexpected production choice ${request.type} ${request.id}`);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => {
+      kernel.restore(saved.state);
+      kernel.copyLinkedFrom(saved.links);
+    },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint, choose })
+  });
+  const binding = createProgramBinding({ cardPrograms: [program, premonition] });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "B",
+    phase: "main",
+    host,
+    cleanup: () => false,
+    describePlay: binding.describePlay
+  });
+  const errors = [];
+  binding.attachLifecycle(engine, error => errors.push(error));
+  return { kernel, engine, binding, errors, requests };
+}
+
+function resolveRiposte(f) {
+  const opener = f.kernel.getObject("opener");
+  f.engine.execute(f.binding.describePlay({ type: "play", player: "B", object: opener.ref }, opener));
+  f.engine.pass("B");
+  assert.equal(f.engine.turnState, "neutral-closed");
+  const source = f.kernel.getObject("riposte");
+  const draft = f.binding.describePlay({ type: "play", player: "A", object: source.ref }, source);
+  assert.equal(draft.speed, "reaction");
+  f.engine.execute(draft);
+  assert.deepEqual(f.engine.items.map(item => [item.object.id, item.status]), [
+    ["opener", "finalized"],
+    ["riposte", "finalized"]
+  ]);
+  assert.equal(f.kernel.getObject("opener").zone, "chain");
+  assert.equal(f.kernel.getObject("ally").damage, 0);
+  f.engine.pass("A");
+  assert.equal(f.engine.priority, "B");
+  assert.equal(f.kernel.getObject("opener").zone, "chain");
+  f.engine.pass("B");
+  assert.equal(f.kernel.getObject("opener").zone, "trash");
+  assert.equal(f.kernel.getObject("riposte").zone, "trash");
+  return draft;
+}
+
+test("sfd-206-221 Riposte production golden: a real Reaction counters the older spell and grants its printed Energy as temporary Might", () => {
+  // Premonition has printed Energy 2, so Riposte's amount is 2 here.
+  const f = riposteProductionFixture(2);
+  assert.deepEqual(f.errors, []);
+  resolveRiposte(f);
+  assert.deepEqual(f.requests.map(request => [request.id, request.options.map(option => option.id)]), [
+    ["target:target-spell", ["opener"]],
+    ["target:target-unit", ["ally"]]
+  ]);
+  assert.equal(f.kernel.player("A").energy, 0);
+  assert.deepEqual(f.kernel.player("A").power, []);
+  assert.equal(f.engine.layers.evaluate(f.kernel.ref("ally")).might, 4);
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "card-drawn").length, 0,
+    "the countered spell never executes its own effect");
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "chain-item-resolve").length, 1,
+    "Riposte resolves once; the countered spell is removed without Resolve under CR 426.1");
+  assert.deepEqual(f.engine.items, []);
+});
+
+test("sfd-206-221 Riposte production golden: end-of-turn expiry removes the Might grant", () => {
+  const f = riposteProductionFixture(2);
+  resolveRiposte(f);
+  assert.equal(f.engine.layers.evaluate(f.kernel.ref("ally")).might, 4);
+  const expired = f.engine.layers.advance({ id: "turn-end" });
+  assert.equal(expired.length, 1);
+  assert.match(expired[0], /continuous\.might:settlement-1:riposte:1:ally:1:1/);
+  assert.equal(f.engine.layers.evaluate(f.kernel.ref("ally")).might, 2);
 });
