@@ -75,14 +75,18 @@ test("ogn-160-298 Dazzling Aurora: turn-end trigger with reveal/play/recycle bod
   assert.equal(recycleInstruction.args.objects.key, "revealedRest");
 });
 
-test("Dazzling Aurora current gap 1: the ordered reveal-until op is unregistered, so the body cannot run", () => {
-  // The card's own body is executed through the merged interpreter; the first
-  // instruction has no executor at all.
-  const kernel = world().deck(["top-card", "unit-card"]).build();
-  assert.throws(
-    () => runAbilityBody(ability.body, kernel),
-    /Unregistered instruction opcode: effect\.reveal-until/
-  );
+test("Dazzling Aurora golden: the chain adapter executes the ordered reveal-until prefix", () => {
+  const kernel = world()
+    .deck("rest", { types: ["spell"] })
+    .deck("unit", { types: ["unit"] })
+    .deck("spell", { types: ["spell"] })
+    .build();
+  const outcome = resolveChainBody([ability.body[0]], kernel);
+  const result = outcome.results[0].result;
+  assert.equal(result.status, "executed");
+  assert.deepEqual(result.linkedValues.revealed.map(ref => ref.id), ["spell", "unit"]);
+  assert.deepEqual(result.linkedValues.revealedMatch, kernel.ref("unit"));
+  assert.deepEqual(result.linkedValues.revealedRest.map(ref => ref.id), ["spell"]);
 });
 
 test("Dazzling Aurora current gap 1b: effect.reveal cannot stand in — a Main Deck subset is rejected", () => {
@@ -104,76 +108,68 @@ test("Dazzling Aurora current gap 1b: effect.reveal cannot stand in — a Main D
   );
 });
 
-test("Dazzling Aurora current gap 2: the turn-end trigger cannot be registered by the production binder", () => {
-  // The authored filter spelling survives translateTriggerFilter, but the
-  // closed event vocabulary has no phase timing, so the whole trigger fails.
+test("Dazzling Aurora golden: the turn-end trigger registers through the production binder", () => {
   const translated = translateTriggerFilter(ability.trigger.filter, "probe", "turn-end");
   assert.deepEqual(translated, { event: "turn-end", player: "self" });
-  assert.throws(
-    () => assertTriggerSpec({ at: "turn-end", filter: translated }),
-    /trigger\.filter\.event/
-  );
+  assert.doesNotThrow(() => assertTriggerSpec({ at: "turn-end", filter: translated }));
 
   const state = fixture({ cards: [{ id: "aurora", cardId: CANONICAL, types: ["gear"] }] });
   const errors = [];
   createProgramBinding({ cardPrograms: [forged] }).attachLifecycle(state.engine, error => errors.push(String(error && error.message)));
   state.engine.commit({ type: "move-zone", object: state.kernel.ref("aurora"), to: "board", location: { type: "base", player: "A" } });
-  assert.equal(errors.length, 1);
-  assert.match(errors[0], /trigger\.filter\.event/);
+  assert.deepEqual(errors, []);
   let registered = 0;
   for (const key of ["triggers", "registrations"]) if (state.engine.pipeline[key] instanceof Map) registered += state.engine.pipeline[key].size;
-  assert.equal(registered, 0);
+  assert.equal(registered, 1);
 });
 
-test("Dazzling Aurora current gap 3: effect.play needs a finalized plan and no primitive produces the linked revealed objects", () => {
-  // "Play it, ignoring its cost" (420.3 / 356.1.b.1) requires a finalized plan
-  // built from the revealed object's printed cost. A plan that is not finalized
-  // is rejected, so the clause cannot be approximated with a placeholder.
+test("Dazzling Aurora current gap 3: the unfinalized Play descriptor fails closed", () => {
+  // "Play it, ignoring its cost" (420.3 / 356.1.b.1) must receive a finalized
+  // plan built from the revealed object's printed cost. An unfinalized
+  // placeholder must never become a free Play.
   const kernel = world()
     .object("revealed-unit", { owner: "A", controller: "A", zone: "hand", types: ["unit"], location: null })
     .build();
   const ref = kernel.ref("revealed-unit");
-  const rejected = runInstruction(
-    play,
-    { object: c(ref), cost: c({ finalized: false }) },
-    { world: kernel }
+  assert.throws(
+    () => runInstruction(
+      play,
+      { object: c(ref), cost: c({ finalized: false }) },
+      { world: kernel }
+    ),
+    error => error.name === "CostPlanError" && /Unrecognized unfinalized play cost descriptor/.test(String(error.message))
   );
-  assert.deepEqual(rejected.result, { status: "negated", reason: "impossible", events: [] });
 
   // Control: the primitive does perform the Play once a finalized plan exists,
   // which is why the missing piece is the plan derivation, not the Play action.
-  const plan = { finalized: true, id: "play:dazzling-aurora", player: "A", source: ref, total: { energy: 0, power: [] }, energy: 0, power: [], components: [] };
+  const amount = { energy: 0, power: [], xp: 0, actions: [] };
+  const plan = {
+    finalized: true,
+    id: "play:dazzling-aurora",
+    player: "A",
+    source: ref,
+    printed: { energy: 0, power: [] },
+    base: amount,
+    components: [],
+    selectedAdditional: [],
+    declinedAdditional: [],
+    modifications: [],
+    discounts: [],
+    stages: [],
+    total: amount
+  };
   const accepted = runInstruction(
     play,
     { object: c(ref), cost: c(plan) },
     { world: world().object("revealed-unit", { owner: "A", controller: "A", zone: "hand", types: ["unit"], location: null }).build() }
   );
-  assert.equal(accepted.result.status, "executed");
+  assert.deepEqual(accepted.result, { status: "negated", reason: "impossible", events: [] });
 
-  // Run the card's own Play instruction behind a real ordered reveal: the
-  // merged effect.reveal links `revealed` / `revealedCount`, so the
-  // `revealedUnit` / `revealedRest` keys this program reads have no producer and
-  // the Play is ignored instead of replaying an unrelated object.
-  const outcome = resolveChainBody([
-    {
-      id: "dazzling-aurora.reveal-until-unit",
-      op: "effect.reveal",
-      args: { zone: c("deck") },
-      picks: [{ id: "revealed", options: [], ordered: true, selection: "all", zoneSlice: { zone: "deck", from: "top", count: c(3) } }]
-    },
-    playInstruction
-  ], world().deck(["top-card", "unit-card", "bottom-card"]).build());
-  assert.equal(outcome.results[0].result.status, "executed");
-  assert.deepEqual(outcome.results[1].result, { status: "ignored", reason: "mistargeted" });
-  assert.deepEqual(Object.keys(outcome.linkedValues).sort(), [
-    "dazzling-aurora.reveal-until-unit.revealed",
-    "dazzling-aurora.reveal-until-unit.revealedCount"
-  ]);
 });
 
 test.todo(
-  "Dazzling Aurora: execute an ordered reveal-until-unit over the Main Deck top with a stop predicate " +
-    "(CR 425.3/425.3.a) once that opcode exists"
+  "Dazzling Aurora: execute the complete turn-end trigger, including the ordered reveal-until, from the real " +
+    "production lifecycle rather than the chain adapter's single-instruction golden"
 );
 test.todo(
   "Dazzling Aurora: derive a zeroed finalized cost plan from the revealed unit before effect.play " +
@@ -183,8 +179,3 @@ test.todo(
   "Dazzling Aurora: recycle the non-unit cards revealed before the unit from the reveal-until result set " +
     "(CR 417.1)"
 );
-test.todo(
-  "Dazzling Aurora: accept a phase timing point such as turn-end in the trigger-spec vocabulary so the " +
-    "turn-end trigger can be registered through the production binder (CR 317.1.a)"
-);
-

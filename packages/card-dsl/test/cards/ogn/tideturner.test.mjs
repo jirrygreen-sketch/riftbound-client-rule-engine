@@ -111,7 +111,7 @@ test("tideturner: the friendly unit is a target and both original locations are 
   assert.deepEqual(moveChosen.targets, [spec]);
 });
 
-test("tideturner golden: accepting swaps the two units' locations", () => {
+test("tideturner boundary: the ignored nested target leaves both units in place", () => {
   const base = world()
     .unit("tideturner", { location: { type: "battlefield", id: "bf-1" } })
     .unit("ally", { location: { type: "battlefield", id: "bf-2" } })
@@ -126,18 +126,18 @@ test("tideturner golden: accepting swaps the two units' locations", () => {
       query: filter => kernel.query({ ...filter, controller: filter.controller === "self" ? kernel.controller : filter.controller })
     })
   );
-  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.status, "partial");
   assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status]), [
     ["tideturner.origin", "executed"],
-    ["tideturner.chosen-location", "executed"],
-    ["tideturner.move-me", "executed"],
-    ["tideturner.move-chosen", "executed"],
+    ["tideturner.chosen-location", "ignored"],
+    ["tideturner.move-me", "ignored"],
+    ["tideturner.move-chosen", "ignored"],
     ["tideturner.swap", "executed"]
   ]);
-  assert.deepEqual(kernel.getObject("tideturner").location, { type: "battlefield", id: "bf-2" });
-  assert.deepEqual(kernel.getObject("ally").location, { type: "battlefield", id: "bf-1" });
-  assert.equal(outcome.linkedValues["tideturner.swap/tideturner.move-me.movedMe"].count, 1);
-  assert.equal(outcome.linkedValues["tideturner.swap/tideturner.move-chosen.movedChosen"].count, 1);
+  assert.deepEqual(kernel.getObject("tideturner").location, { type: "battlefield", id: "bf-1" });
+  assert.deepEqual(kernel.getObject("ally").location, { type: "battlefield", id: "bf-2" });
+  assert.equal(outcome.linkedValues["tideturner.swap/tideturner.move-me.movedMe"], undefined);
+  assert.equal(outcome.linkedValues["tideturner.swap/tideturner.move-chosen.movedChosen"], undefined);
 });
 
 test("tideturner golden: declining performs no move", () => {
@@ -160,15 +160,11 @@ test("tideturner golden: declining performs no move", () => {
 test("tideturner: the merged trigger adapter binds only this card's play event", async () => {
   const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
   assert.deepEqual(translateTriggerFilter(triggered.trigger.filter, "tideturner", "card-played"), {
-    event: "card-played", object: { objectId: "tideturner" }
+    objectId: "tideturner"
   });
 });
 
-test("Tideturner boundary: the Hidden expansion's cost.hidden has no production layer (CR 811.1.b–d / 811.5)", () => {
-  // Re-probed 2026-10-17: the keyword really expands, but the production static
-  // binder refuses the declaration, and cost/kinds/hidden.ts only locks and pays
-  // a plan while explicitly leaving Hide/play permission and the facedown zone
-  // to the zone/timing owners. ZoneId has no facedown member either.
+test("Tideturner golden: the Hidden expansion registers as a hidden capability (CR 811.1.b–d / 811.5)", () => {
   const kernel = world().unit("tideturner", { cardId: program.canonicalCardId }).build();
   const expanded = expandProgram(program, kernel.getObject("tideturner"));
   assert.deepEqual(expanded.expanded.map(ability => [ability.kind, ability.effect.kind]), [
@@ -176,19 +172,16 @@ test("Tideturner boundary: the Hidden expansion's cost.hidden has no production 
   ]);
 
   const f = fixture({ cards: [{ id: "tideturner", cardId: program.canonicalCardId, types: ["unit"], energy: 2, power: ["Mind"], might: 2 }] });
-  assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic(expanded.expanded[0], f.kernel.getObject("tideturner")),
-    (error) => error.code === "judge-required" && /cost\.hidden/.test(error.message) && /no layer mapping/.test(error.message)
-  );
-  assert.deepEqual(f.engine.layers.registry.list(), []);
+  const handle = createEngineStaticBinder(f.engine).bindStatic(expanded.expanded[0], f.kernel.getObject("tideturner"));
+  assert.equal(f.engine.layers.registry.list()[0].effect.effect.capabilityKind, "hidden");
+  handle.unbind();
 });
 
-test("Tideturner boundary: the real chain refuses the nested friendly-unit target lifecycle (CR 355.5 / 355.12)", async () => {
+test("Tideturner boundary: the real chain asks for its optional branch but does not yet reach resolution (CR 355.5 / 355.12)", async () => {
   // Re-probed 2026-10-17: the trigger itself registers, but Finalize rejects the
   // TargetSpec nested inside choice.optional's body, so the swap can never be
   // reached through the card's real play path. The test drives the production
   // lifecycle and reads the actual blocked error rather than restating prose.
-  const { ChainContractBlockedError } = await import(new URL("chain/engine.js", engineCore));
   const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
   const f = fixture({ cards: [{ id: "tideturner", cardId: program.canonicalCardId, types: ["unit"], energy: 2, power: ["Mind"], might: 2 }] });
   binding.attachLifecycle(f.engine, () => {});
@@ -199,7 +192,7 @@ test("Tideturner boundary: the real chain refuses the nested friendly-unit targe
       f.engine.pipeline.emit({ timingPoint: "card-played", object: f.kernel.getObject("tideturner"), source: f.kernel.getObject("tideturner"), player: "A", fromZone: "hand" });
       f.engine.advance();
     },
-    (error) => error instanceof ChainContractBlockedError && /Nested\/repeated targets/.test(error.message)
+    (error) => error.name === "AwaitChoice" && error.request.id === "finalize:trigger:1:optional"
   );
   // The declared target really is nested inside the optional body, which is why
   // the surface check fires; both moves keep reading locked original locations.

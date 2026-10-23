@@ -168,16 +168,14 @@ test("golden: an empty trash recycles nothing and does not fail the trigger", ()
   assert.deepEqual(outcome.events, []);
 });
 
-test("current gap 1: the arithmetic layer does not evaluate a count amount (CR 479.4)", () => {
-  // The merged continuous.might path is registered and works for a numeric
-  // amount; the count expression is what the layer engine cannot resolve.
+test("golden: the arithmetic layer evaluates and refreshes the trash-count amount (CR 479.4)", () => {
   const kernel = world().unit("mundo", { might: 6, owner: "A", controller: "A" }).build();
   kernel.addObject(trashCard("t1"), "deck");
   kernel.perform({ type: "move-zone", object: kernel.ref("t1"), to: "trash" });
   assert.equal(kernel.objectsInZone("A", "trash").length, 1);
 
   const counted = createLayerEngine(kernel.objects, mightEffect(kernel, staticAbility.effect.amount));
-  assert.equal(counted.evaluate(kernel.ref("mundo")).might, 6, "count amount falls back to 0, so no bonus applies");
+  assert.equal(counted.evaluate(kernel.ref("mundo")).might, 7);
 
   // Control: the same registration with a literal amount does apply, which
   // isolates the gap to count evaluation rather than to layer membership.
@@ -188,36 +186,26 @@ test("current gap 1: the arithmetic layer does not evaluate a count amount (CR 4
   // locked at entry: one more card in the trash must raise the bonus again.
   kernel.addObject(trashCard("t2"), "deck");
   kernel.perform({ type: "move-zone", object: kernel.ref("t2"), to: "trash" });
-  assert.equal(createLayerEngine(kernel.objects, mightEffect(kernel, staticAbility.effect.amount)).evaluate(kernel.ref("mundo")).might, 6);
+  assert.equal(createLayerEngine(kernel.objects, mightEffect(kernel, staticAbility.effect.amount)).evaluate(kernel.ref("mundo")).might, 8);
   assert.equal(createLayerEngine(kernel.objects, mightEffect(kernel, c(1), "mundo-static-literal")).evaluate(kernel.ref("mundo")).might, 7);
 });
 
-test("current gap 2: the Beginning Phase trigger cannot be registered by the production binder", () => {
-  // events/trigger-spec.ts accepts only the closed EVENT_PATTERN_TYPES list.
-  // `beginning-start` is a turn phase timing point, not an event pattern, so
-  // the whole registration fails and the trigger never fires.
+test("golden: the Beginning Phase trigger registers through the production binder", () => {
   const state = fixture({ cards: [{ id: "mundo", cardId: program.canonicalCardId, types: ["unit"], might: 6 }] });
   const errors = [];
   createProgramBinding({ cardPrograms: [forged] }).attachLifecycle(state.engine, error => errors.push(String(error && error.message)));
   state.engine.commit({ type: "move-zone", object: state.kernel.ref("mundo"), to: "board", location: { type: "base", player: "A" } });
 
-  assert.equal(errors.length, 1);
-  assert.match(errors[0], /trigger\.filter\.event/);
-  assert.match(errors[0], /beginning-start|值必须属于/);
+  assert.deepEqual(errors, []);
   let registered = 0;
   for (const key of ["triggers", "registrations"]) if (state.engine.pipeline[key] instanceof Map) registered += state.engine.pipeline[key].size;
-  assert.equal(registered, 0);
+  assert.equal(registered, 1);
 
   // The static half does register through the same lifecycle (it is a plain
   // continuous.might), so only the amount evaluation and the trigger are open.
   assert.equal(state.engine.layers.registry.list().length, 1);
 });
 
-test.todo(
-  "Dr. Mundo, Expert: evaluate the count amount in the arithmetic layer and re-apply it as the trash changes " +
-    "(CR 479.4), and register the Beginning Phase trigger once phase timing points are accepted by the trigger " +
-    "spec vocabulary"
-);
 test.todo(
   "Dr. Mundo, Expert: bind the static continuous.might count amount into the production LayerEngine from " +
     "the CardProgram adapter (CR 479.4)"

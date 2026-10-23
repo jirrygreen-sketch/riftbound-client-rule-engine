@@ -107,23 +107,18 @@ test("Yasuo: dynamic source Might damages exactly one enemy here, without artifi
   assert.equal(hit.condition, undefined);
 });
 
-test("Yasuo: the source-location filter anchor is still rejected by the production target binder (current gap)", () => {
-  // 缺口 (1)：programs/filters.ts 的 translateObjectFilter 不认 sameLocationAs。
-  assert.throws(
-    () => translateObjectFilter({ type: "unit", sameLocationAs: "source" }),
-    (error) => {
-      assert.equal(String(error.message), "Unsupported filter field sameLocationAs");
-      return true;
-    }
+test("Yasuo: the production target binder preserves the source-location anchor", () => {
+  assert.deepEqual(
+    translateObjectFilter({ type: "unit", sameLocationAs: "source" }),
+    { type: "unit", sameLocationAs: "source" }
   );
-  // 整卡的文案会把该字段送进同一个生产绑定函数。
-  assert.throws(
-    () => translateInstructionTargets([hit]),
-    (error) => {
-      assert.equal(String(error.message), "Unsupported filter field sameLocationAs");
-      return true;
-    }
-  );
+  const [translatedHit] = translateInstructionTargets([hit]);
+  assert.deepEqual(translatedHit.targets[0].filter, {
+    type: "unit",
+    zone: "board",
+    controller: "opponent",
+    sameLocationAs: "source"
+  });
 });
 
 test("Yasuo: the TargetSpec-level relative location selector is also rejected by the IR validator (current gap)", () => {

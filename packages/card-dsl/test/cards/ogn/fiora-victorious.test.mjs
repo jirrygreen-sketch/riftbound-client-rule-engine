@@ -79,7 +79,7 @@ test("Fiora's original static grant binds to layers at the Mighty threshold", ()
     // judge-required guard for the unimplemented granted-keyword behaviors.
     const handle = createEngineStaticBinder(f.engine).bindStatic(ability, f.kernel.getObject("fiora"));
     assert.deepEqual(f.engine.layers.snapshot(f.kernel.ref("fiora")).keywords,
-      might === 5 ? [{ id: "Deflect", value: 1 }, { id: "Ganking", value: undefined }, { id: "Shield", value: 1 }] : []);
+      might === 5 ? [{ id: "Deflect", value: 1 }, { id: "Ganking" }, { id: "Shield", value: 1 }] : []);
     assert.deepEqual(f.kernel.getObject("fiora").keywords, [], "grant comes from layers");
     assert.deepEqual(f.engine.layers.snapshot(f.kernel.ref("source")).keywords, [], "grant applies only to Fiora");
     handle.unbind();
@@ -107,7 +107,7 @@ test.todo("Fiora, Victorious: consume the dynamic Deflect/Ganking/Shield grants 
 // Bind the original static IR; no handwritten layer condition substitutes for
 // the production callback whose current-object lookup must be repaired.
 for (const [initial, amount, expectedKeywords] of [
-  [4, 1, [{ id: "Deflect", value: 1 }, { id: "Ganking", value: undefined }, { id: "Shield", value: 1 }]],
+  [4, 1, [{ id: "Deflect", value: 1 }, { id: "Ganking" }, { id: "Shield", value: 1 }]],
   [5, -1, []]
 ]) {
   test(`Fiora, Victorious: recheck conditional keywords after effective Might changes ${initial} to ${initial + amount} through continuous.might (CR 478.3/478.4)`, {
@@ -120,7 +120,7 @@ for (const [initial, amount, expectedKeywords] of [
     const handle = createEngineStaticBinder(f.engine).bindStatic(ability, f.kernel.getObject("fiora"));
     try {
       assert.deepEqual(f.engine.layers.snapshot(f.kernel.ref("fiora")).keywords,
-        initial === 5 ? [{ id: "Deflect", value: 1 }, { id: "Ganking", value: undefined }, { id: "Shield", value: 1 }] : []);
+        initial === 5 ? [{ id: "Deflect", value: 1 }, { id: "Ganking" }, { id: "Shield", value: 1 }] : []);
       f.engine.execute(f.draft("change-fiora-might", {
         source: f.kernel.getObject("fiora"),
         body: [{

@@ -22,7 +22,6 @@ test("ogn-052-298 Stalwart Poro: program passes validateCardProgram", () => {
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
 });
-
 test("ogn-052-298 Stalwart Poro: identity, status, and verbatim sourceText", () => {
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
@@ -78,9 +77,7 @@ test("ogn-052-298 Stalwart Poro: the expansion is gated on the Defender designat
   assert.deepEqual(expansion.condition.right, { kind: "constant", value: "defender" });
 });
 
-test("Stalwart Poro: Shield's designation condition is not evaluable against the snapshot (current gap)", () => {
-  // ObjectSnapshot 暴露 combatRole，Shield 展开读的是 designation；条件求值因此抛
-  // MissingInformation，+1 Might 不会生效（这是当前缺口，不是本卡可执行的证明）。
+test("Stalwart Poro: Shield's designation condition reads combatRole", () => {
   const [expansion] = shield.expand({ host: { canonicalCardId: program.canonicalCardId } });
   assert.equal(expansion.condition.left.property, "designation");
 
@@ -92,24 +89,16 @@ test("Stalwart Poro: Shield's designation condition is not evaluable against the
     source: kernel.getObject("poro"),
     sourceSnapshot: kernel.getObject("poro")
   });
-  assert.throws(
-    () => evaluateCondition(expansion.condition, {
+  assert.equal(evaluateCondition(expansion.condition, {
       context,
       host: kernel.ref("poro"),
       linked: () => undefined,
       canLookBack: () => false,
       isIgnored: () => false
-    }),
-    (error) => {
-      assert.match(String(error.message), /Unavailable characteristic: designation/);
-      return true;
-    }
-  );
+    }), true);
 });
 
-test("Stalwart Poro: the production static binder registers the arithmetic effect but the condition stays unevaluable", () => {
-  // 生产 static binder 确实注册出 continuous.might 的 arithmetic 层效果；失败点在条件求值，
-  // 因此图层不会给出 +1。
+test("Stalwart Poro: the production static binder registers an inactive Shield condition for a unit without a combat role", () => {
   // 以 executable 形态提交本体，才能走到 static binder（judge-required 会在 registry
   // 查找时先抛 judgeReason，够不到图层注册这一步）。
   const forged = { ...program, status: "executable" };
@@ -139,18 +128,14 @@ test("Stalwart Poro: the production static binder registers the arithmetic effec
   assert.equal(snapshot.combatRole, null);
 });
 
-test("Stalwart Poro: Shield stacking still sums at the keyword level (814.2), independent of the unevaluable condition", () => {
-  // 814.2 的求和由 KeywordDef 声明（stacking: sum），与 designation 条件求值是两个环节；
-  // 这里证明求和本身成立、失败点只在条件。
+test("Stalwart Poro: Shield stacking still sums at the keyword level (814.2)", () => {
   const registered = keywordDefinitionsById.get("Shield");
   assert.equal(registered.stacking, "sum");
   const [granted] = registered.expand({ value: 4, host: { canonicalCardId: program.canonicalCardId } });
   assert.deepEqual(granted.effect.amount, { kind: "constant", value: 4 });
 
-  // 生产路径把条件包在 try/catch 里（programs/statics.ts: bindStaticToLayers 的
-  // condition 求值失败返回 false），所以图层会静默跳过该效果——这正是本卡 +1 不生效的
-  // 表现（见上一条测试对生产绑定结果的断言）。下面用恒真条件证明求和路径本身可用。
-  // 相同效果在条件恒真时确实把 4 加到 Might 上，证明求和路径本身可用。
+  // Use a fixed true condition to isolate the keyword stacking sum from the
+  // combat-role predicate covered above.
   const kernel = world().unit("poro", { might: 2, combatRole: "defender" }).build();
   const ok = createLayerEngine(kernel.objects, [{
     effect: {
@@ -173,9 +158,3 @@ test("Stalwart Poro: Shield stacking still sums at the keyword level (814.2), in
   }]);
   assert.equal(ok.evaluate(kernel.ref("poro")).might, 6);
 });
-
-test.todo(
-  "Stalwart Poro: make Shield's Defender condition evaluable against the live snapshot (CR 814.1.c / " +
-    "814.1.d / 814.1.d.1) so +1 Might applies exactly while the unit holds the Defender designation, " +
-    "and then assert the 814.2 stacking sum in the layer engine"
-);

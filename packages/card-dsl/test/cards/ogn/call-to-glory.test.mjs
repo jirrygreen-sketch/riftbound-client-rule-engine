@@ -180,7 +180,7 @@ test("Call to Glory golden: a stale buff pick leaves the unit untouched", () => 
   assert.equal(kernel.getObject("buffed-unit").buffs, 1);
 });
 
-test("Call to Glory golden: the printed +3 Might executes through continuous.might and expires at end of turn", () => {
+test("Call to Glory golden: the printed +3 expires at end of turn (CR 703)", () => {
   const kernel = world()
     .unit("call-to-glory", { owner: "A", types: ["spell"], zone: "chain" })
     .unit("buffed-unit", { owner: "A", controller: "A", might: 2 })
@@ -203,6 +203,7 @@ test("Call to Glory golden: the printed +3 Might executes through continuous.mig
     kernel.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 }))
   );
   const ref = kernel.ref("buffed-unit");
+  // This unbuffed target receives only the printed +3.
   assert.equal(engine.evaluate(ref).might, 5);
   // 317.2.c: "this turn" expires at the end-of-turn cleanup.
   engine.advance({ id: "turn-end" });
@@ -215,17 +216,19 @@ test.todo(
     "Finalize-time buff-holder option set; measured in keyword-play-continuous-might-683.test.mjs."
 );
 
-test("Call to Glory: the original Might body resolves through the production interpreter adapter", () => {
+test("Call to Glory: the original Might body resolves with both Buff and printed bonuses (CR 703)", () => {
   const kernel = world().unit("chosen", { might: 2, buffs: 1 }).unit("other", { might: 4 }).build();
   kernel.setTargets(mightSpec.id, [kernel.ref("chosen")]);
   const result = resolveChainBody(play.body, kernel);
   assert.equal(result.status, "executed");
   const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
-  assert.equal(layers.evaluate(kernel.ref("chosen")).might, 5);
+  // Printed 2 + the Buff's intrinsic +1 + the card's +3 = 6.
+  assert.equal(layers.evaluate(kernel.ref("chosen")).might, 6);
   assert.equal(layers.evaluate(kernel.ref("other")).might, 4);
   assert.equal(kernel.getObject("chosen").buffs, 1);
   layers.advance({ id: "turn-end" });
-  assert.equal(layers.evaluate(kernel.ref("chosen")).might, 2);
+  // The temporary +3 expires, while the persisted Buff retains its intrinsic +1.
+  assert.equal(layers.evaluate(kernel.ref("chosen")).might, 3);
 });
 
 test("Call to Glory: the original body does not grant Might when its finalized target has left", () => {

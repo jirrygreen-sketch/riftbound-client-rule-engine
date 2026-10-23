@@ -111,45 +111,34 @@ test("ogn-150-298 Kraken Hunter: the merged Accelerate KeywordDef declares the o
   assert.equal(replacement.replaces.event, "object-enters-board");
 });
 
-test("ogn-150-298 Kraken Hunter: the expanded accelerate.cost still has no static layer mapping", () => {
+test("ogn-150-298 Kraken Hunter: the expanded accelerate.cost registers as a static cost capability", () => {
   const { engine, kernel } = engineFor();
   const source = kernel.getObject("kraken");
   const expanded = createProgramBinding({ cardPrograms: [program] }).inspect(source).abilities;
   const accelerateCost = expanded.find(ability => ability.kind === "static" && ability.effect.kind === "accelerate.cost");
   assert.ok(accelerateCost, "[Accelerate] must expand to the declared accelerate.cost static");
-  const error = (() => {
-    try {
-      createEngineStaticBinder(engine).bindStatic(accelerateCost, source);
-      return null;
-    } catch (thrown) {
-      return thrown;
-    }
-  })();
-  assert.ok(error, "the merged static binder must still refuse accelerate.cost while the gap is open");
-  assert.equal(error.code, "judge-required");
-  assert.match(error.message, /accelerate\.cost has no layer mapping/);
-  assert.deepEqual(engine.layers.registry.list(), []);
+  const handle = createEngineStaticBinder(engine).bindStatic(accelerateCost, source);
+  assert.equal(engine.layers.registry.list()[0].effect.effect.capabilityKind, "cost");
+  handle.unbind();
 });
 
-test("ogn-150-298 Kraken Hunter: the expanded Assault Might is inert because designation has no producer", () => {
+test("ogn-150-298 Kraken Hunter: the expanded Assault Might follows the attacker designation", () => {
   const { engine, kernel } = engineFor();
   const source = kernel.getObject("kraken");
   const assault = createProgramBinding({ cardPrograms: [program] }).inspect(source).abilities
     .find(ability => ability.kind === "static" && ability.effect.kind === "continuous.might");
   const handle = createEngineStaticBinder(engine).bindStatic(assault, source);
   const registered = engine.layers.registry.list()[0];
-  // The bundled condition evaluates against `designation`, which no merged
-  // producer writes; the snapshot only carries combatRole (contract 3.8).
-  assert.equal(registered.effect.effect.condition(kernel.getObject("kraken")), false);
+  // The condition reads the designating combatRole while the snapshot keeps
+  // its contract spelling (no synthetic `designation` field).
+  assert.equal(registered.effect.effect.condition(kernel.getObject("kraken")), true);
   assert.equal(kernel.getObject("kraken").combatRole, "attacker");
   assert.equal(Object.hasOwn(kernel.getObject("kraken"), "designation"), false);
-  assert.equal(engine.layers.evaluate(kernel.ref("kraken")).might, 5);
-  // 2026-10-17 re-sweep: the gap is dispatch, not the characteristic. The
-  // default evaluator throws MissingInformation for "designation" and the
-  // binder swallows it, while the merged expr-ext evaluator (RIFT-711) already
-  // resolves the same expression to combatRole.
-  assert.throws(
-    () => evaluateCondition(assault.condition, {
+  // Buff's printed +1 per counter (CR 703) and Assault's +1 are independent
+  // arithmetic layers: 5 + 2 + 1 = 8.
+  assert.equal(engine.layers.evaluate(kernel.ref("kraken")).might, 8);
+  assert.equal(
+    evaluateCondition(assault.condition, {
       context: bindResolveContext(kernel, { source, controller: "A", timingPoint: "main-start" }),
       host: source.ref,
       linked: () => undefined,
@@ -157,7 +146,7 @@ test("ogn-150-298 Kraken Hunter: the expanded Assault Might is inert because des
       isIgnored: () => false,
       query: filter => kernel.query(filter)
     }),
-    /Unavailable characteristic: designation/
+    true
   );
   assert.equal(
     evaluateExtendedExpression(assault.condition.left, {

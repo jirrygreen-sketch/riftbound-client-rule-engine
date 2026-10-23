@@ -120,35 +120,37 @@ test("ogn-239-298 Machine Evangel: the effect body executes through the ability 
   );
 });
 
-test("ogn-239-298 Machine Evangel: the Deathknell expansion's trigger.leave op is not registered anywhere", () => {
-  // 2026-10-17 re-sweep: the expansion's fire/filter shape now registers
-  // (cause/destination fold into the self identity), but its body still
-  // references an op no instruction module implements.
-  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
+test("ogn-239-298 Machine Evangel: the Deathknell expansion's trigger.leave op is registered", () => {
+  // The expansion's fire/filter shape and leave-body instruction are both
+  // present; recipe execution remains covered by the card's other boundaries.
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), true);
   const expansion = deathknell.expand({ host: { canonicalCardId: CANONICAL } });
   const [ability] = expansion;
   assert.equal(ability.body[0].op, "trigger.leave");
   assert.deepEqual(translateTriggerFilter(ability.trigger.filter, "SRC", "object-killed"), {
-    object: { objectId: "SRC" },
-    event: "object-killed"
+    objectId: "SRC"
   });
   assertTriggerSpec({ at: ability.trigger.at, filter: translateTriggerFilter(ability.trigger.filter, "SRC", "object-killed") });
 
   const kernel = world().unit("evangel", { cardId: CANONICAL, owner: "A", controller: "A", types: ["unit"] }).build();
   Object.defineProperty(kernel, "source", { value: kernel.getObject("evangel") });
+  // The registered opcode validates its own required cause argument rather
+  // than failing as an unknown instruction.
   assert.throws(
-    () => resolveChainBody(ability.body, kernel),
-    /Unregistered instruction opcode: trigger\.leave/
+    () => resolveChainBody([{ id: "missing-leave-cause", op: "trigger.leave", args: {} }], kernel),
+    /trigger\.leave requires a cause Expr/
   );
 });
 
-test("ogn-239-298 Machine Evangel: the declared controller-base placeholder resolves to negated/impossible", () => {
-  // CR 440.4: "your base" is the effect controller's Base. effect.token only
-  // takes a concrete LocationRef or a resolvable LocationSelector, so the
-  // declared { type: "base", player: "controller" } constant cannot be used.
+test("ogn-239-298 Machine Evangel: the declared controller-base placeholder resolves to the controller's Base", () => {
+  // CR 440.4: "your base" resolves through the LocationSelector's
+  // ability-controller base. The three Recruits are created and played.
   const kernel = world().player("A", { energy: 10 }).build();
   const run = runInstruction(token, tokenInstruction.args, { world: kernel });
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  assert.equal(kernel.objects.filter(object => object.isToken).length, 0);
+  assert.equal(run.result.status, "executed");
+  const recruits = kernel.objects.filter(object => object.isToken);
+  assert.equal(recruits.length, 3);
+  assert.equal(recruits.every(object => object.name === "Recruit"), true);
+  assert.equal(recruits.every(object => object.zone === "board"), true);
+  assert.equal(recruits.every(object => object.location?.type === "base" && object.location.player === "A"), true);
 });

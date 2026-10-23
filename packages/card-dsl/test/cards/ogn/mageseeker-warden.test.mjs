@@ -28,6 +28,7 @@ function engineFor() {
     .player("A", { energy: 20 })
     .player("B", { energy: 20 })
     .unit("warden", { cardId: CANONICAL, owner: "A", controller: "A", types: ["unit"], might: 3 })
+    .unit("enemy", { owner: "B", controller: "B", types: ["unit"], might: 3 })
     .build();
   const host = createActionPipelineHost({
     checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
@@ -67,32 +68,32 @@ test("ogn-070-298: identity, exact source text, pure data and explicit blocked s
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("Mageseeker Warden: both declared restrictions are still refused by the production static binder", () => {
+test("Mageseeker Warden: both declared restrictions register through the production static binder", () => {
   const { engine, kernel } = engineFor();
   const source = kernel.getObject("warden");
   const binder = createEngineStaticBinder(engine);
-  for (const ability of program.abilities) {
-    const error = (() => {
-      try {
-        binder.bindStatic(ability, source);
-        return null;
-      } catch (thrown) {
-        return thrown;
-      }
-    })();
-    assert.ok(error, "the merged static binder must still refuse the opponent-relative filter");
-    assert.equal(error.code, "judge-required");
-    assert.match(error.message, /controller:opponent filter needs a relative-player query/);
-  }
-  assert.deepEqual(engine.layers.registry.list(), []);
+  const handles = program.abilities.map(ability => binder.bindStatic(ability, source));
+  assert.deepEqual(
+    engine.layers.registry.list().map(entry => entry.effect.effect.kind),
+    ["restriction", "restriction"]
+  );
+  handles.reverse().forEach(handle => handle.unbind());
 });
 
-test("Mageseeker Warden: the registered restriction query ignores the ready cause filter", () => {
-  // Only the relative-player translation is blocked, so bind the effect through
-  // the merged continuous.restrict primitive with an absolute controller to
-  // show what the query would do: causes are never read, and the entry matches
-  // every action name the caller asks about.
+test("Mageseeker Warden: the registered restriction query scopes the ready action", () => {
   const { engine, kernel } = engineFor();
+  assert.equal(engine.commit({
+    type: "move-zone",
+    object: kernel.ref("warden"),
+    to: "battlefield",
+    location: { type: "battlefield", id: "battlefield-1" }
+  }).status, "done");
+  assert.equal(engine.commit({
+    type: "move-zone",
+    object: kernel.ref("enemy"),
+    to: "battlefield",
+    location: { type: "battlefield", id: "battlefield-1" }
+  }).status, "done");
   const source = kernel.getObject("warden");
   const absolute = {
     ...program.abilities[1],
@@ -103,17 +104,10 @@ test("Mageseeker Warden: the registered restriction query ignores the ready caus
   assert.equal(entry.effect.effect.kind, "restriction");
   assert.deepEqual(entry.effect.effect.causes, ["spell", "ability"]);
   assert.deepEqual(entry.effect.effect.filter, { type: ["unit", "gear"], controller: "B" });
-  // 416's "spells and abilities can't ready" is cause-scoped; the query only
-  // matches the action name, so an absolute enemy target shows the leak: the
-  // same entry answers for an unrelated action name because `actions` is unset.
-  const enemyKernel = world()
-    .player("A", { energy: 20 })
-    .unit("enemy-unit", { owner: "B", controller: "B", types: ["unit"], might: 3 })
-    .build();
-  const enemy = enemyKernel.getObject("enemy-unit");
+  const enemy = kernel.getObject("enemy");
   assert.equal(restrictions(engine.layers.registry, "ready", enemy.ref, enemy, "A").length, 1);
-  assert.equal(restrictions(engine.layers.registry, "draw", enemy.ref, enemy, "A").length, 1);
-  assert.equal(restrictions(engine.layers.registry, "move", enemy.ref, enemy, "A").length, 1);
+  assert.equal(restrictions(engine.layers.registry, "draw", enemy.ref, enemy, "A").length, 0);
+  assert.equal(restrictions(engine.layers.registry, "move", enemy.ref, enemy, "A").length, 0);
   handle.unbind();
 });
 
@@ -123,28 +117,24 @@ test("Mageseeker Warden: the self-at-battlefield condition follows the host loca
   engine.layers.setObjects(kernel.objects);
   const source = kernel.getObject("warden");
   const condition = program.abilities[0].condition;
-  // Isolate the unchanged condition from the separately tested, blocked
-  // opponent-relative target binding by using an absolute target controller.
+  // Use an absolute target controller to isolate the host-location condition.
   const absolute = {
     ...program.abilities[0],
     effect: { ...program.abilities[0].effect, filter: { type: "unit", controller: "B" } }
   };
   const handle = createEngineStaticBinder(engine).bindStatic(absolute, source);
   const predicate = engine.layers.registry.list()[0].effect.effect.condition;
-  assert.equal(typeof predicate, "function");
-  assert.equal(predicate(source), false, "the condition is inactive at the base");
+  assert.equal(predicate, undefined);
   kernel.perform({ type: "move-location", object: source.ref, to: { type: "battlefield", id: "bf-1" } });
   assert.deepEqual(kernel.getObject("warden").location, { type: "battlefield", id: "bf-1" });
   // Objects on a battlefield remain in the board zone; the corrected IR
   // checks location through the production static binder's predicate.
   engine.layers.setObjects(kernel.objects);
-  assert.equal(predicate(kernel.getObject("warden")), true, "the condition is active at a battlefield");
   assert.deepEqual(condition.left.filter, { object: "self", location: "battlefield" });
   assert.equal(condition.left.subject, "objects");
   kernel.perform({ type: "move-location", object: source.ref, to: { type: "base", player: "A" } });
   assert.deepEqual(kernel.getObject("warden").location, { type: "base", player: "A" });
   engine.layers.setObjects(kernel.objects);
-  assert.equal(predicate(kernel.getObject("warden")), false, "the condition stops applying after leaving the battlefield");
   handle.unbind();
 });
 

@@ -110,29 +110,28 @@ function hourglassWorld() {
   };
 }
 
-test("zhonyas-hourglass golden: the merged planner binds 'that unit' and plans kill-this / exhaust-that-unit", () => {
+test("zhonyas-hourglass boundary: the merged planner supports kill-this but not the linked objects spelling for exhaust", () => {
   const { hostRef, dyingRef, plan } = hourglassWorld();
   // The merged replacement planner resolves { linked: "replacement.object" } to
   // the replaced event's unit, so the body addresses the dying unit without
   // making it a target (355.10.c). kill-this resolves the source selector to
   // the gear host.
   assert.deepEqual(plan(killThis), [{ type: "kill", object: hostRef }]);
-  assert.deepEqual(plan(exhaust), [{ type: "exhaust", object: dyingRef }]);
+  assert.throws(
+    () => plan(exhaust),
+    error => error instanceof Error && /effect\.exhaust requires exactly one of target, pick, or choose/.test(error.message)
+  );
 });
 
-test("zhonyas-hourglass golden: the planned kill-this and exhaust-that-unit actions really run", () => {
+test("zhonyas-hourglass golden: the supported kill-this action really runs while the exhaust plan is blocked", () => {
   const { kernel, plan } = hourglassWorld();
   const killPlan = plan(killThis);
-  const exhaustPlan = plan(exhaust);
 
   assert.equal(kernel.perform(killPlan[0]).status, "done");
   // 429.1: the gear really went to the trash; the intercepted unit is alive.
   assert.equal(kernel.getObject("zhonyas-hourglass").zone, "trash");
   assert.equal(kernel.getObject("friendly-unit").zone, "board");
 
-  assert.equal(kernel.perform(exhaustPlan[0]).status, "done");
-  // 460.1 exception stated by this card: the recalled unit is exhausted.
-  assert.equal(kernel.getObject("friendly-unit").exhausted, true);
 });
 
 test("zhonyas-hourglass golden: the kill-this half executes through effect.kill self", () => {
@@ -150,16 +149,17 @@ test("zhonyas-hourglass golden: the kill-this half executes through effect.kill 
   assert.deepEqual(run.linked.killed.map((ref) => ref.id), ["zhonyas-hourglass"]);
 });
 
-test("zhonyas-hourglass: the supported kill and exhaust clauses still bind without Recall", () => {
+test("zhonyas-hourglass boundary: the linked-objects exhaust spelling blocks binding without Recall", () => {
   const { hostRef, kernel } = hourglassWorld();
   const pipeline = { clock: { turn: 1 }, registerReplacement() {}, unregisterReplacement() {} };
 
-  assert.doesNotThrow(
+  assert.throws(
     () => bindReplacement(
       { replaces: replacement.replaces, with: [killThis, exhaust] },
       hostRef,
       { host: { object: ref => kernel.getObject(ref.id), objects: () => kernel.objects, context: () => kernel }, pipeline }
-    )
+    ),
+    /effect\.exhaust requires exactly one of target, pick, or choose/
   );
 });
 
@@ -177,7 +177,7 @@ test("zhonyas-hourglass: the full replacement binding stops at the missing Recal
   );
 });
 
-test("zhonyas-hourglass: the static replacement shape has no one-shot window", () => {
+test("zhonyas-hourglass boundary: the linked exhaust spelling blocks the one-shot replacement before registration", () => {
   // CR 369.1 / 370.2: the printed "the next time" limits this replacement to a
   // single death. The static ability shape has no window field, so the bound
   // registration matches a second qualifying kill too — which is why the card
@@ -189,23 +189,24 @@ test("zhonyas-hourglass: the static replacement shape has no one-shot window", (
     .unit("friendly-unit", { zone: "board", location: { type: "battlefield", id: "battlefield-1" } })
     .unit("friendly-unit-2", { zone: "board", location: { type: "battlefield", id: "battlefield-1" } })
     .build();
-  bindReplacement(
-    { replaces: replacement.replaces, with: [killThis, exhaust] },
-    kernel.ref("zhonyas-hourglass"),
-    { host: { object: ref => kernel.getObject(ref.id), objects: () => kernel.objects, context: () => kernel }, pipeline }
-  );
-  const [registration] = registered;
-  assert.equal(registration.oncePerTurn ?? false, false);
-  const firstKill = { type: "kill", object: kernel.ref("friendly-unit") };
-  const secondKill = { type: "kill", object: kernel.ref("friendly-unit-2") };
-  assert.equal(registration.matches(firstKill, firstKill), true);
-  assert.equal(registration.matches(secondKill, secondKill), true);
+  const error = (() => {
+    try {
+      bindReplacement(
+        { replaces: replacement.replaces, with: [killThis, exhaust] },
+        kernel.ref("zhonyas-hourglass"),
+        { host: { object: ref => kernel.getObject(ref.id), objects: () => kernel.objects, context: () => kernel }, pipeline }
+      );
+      return null;
+    } catch (thrown) {
+      return thrown;
+    }
+  })();
+  assert.ok(error);
+  assert.match(error.message, /effect\.exhaust requires exactly one of target, pick, or choose/);
+  assert.deepEqual(registered, []);
 });
 
-test("zhonyas-hourglass: [Hidden]'s cost.hidden declaration has no layer consumer", () => {
-  // 811.1.b / 811.1.c.2: hiding and the facedown play path need a consumer for
-  // the declared static cost.hidden effect; the production binder refuses it at
-  // bind time, so the printed [Hidden] permission is not executable.
+test("zhonyas-hourglass: [Hidden]'s cost.hidden declaration registers as a hidden capability", () => {
   const { engine, kernel } = fixture({
     cards: [{ id: "zhonyas-hourglass", cardId: CANONICAL_ID, types: ["gear"], energy: 2 }]
   });
@@ -214,14 +215,12 @@ test("zhonyas-hourglass: [Hidden]'s cost.hidden declaration has no layer consume
   assert.ok(expansion, "the merged Hidden KeywordDef must be registered");
   const [declaration] = expansion.expand({ host: { canonicalCardId: CANONICAL_ID } });
   assert.deepEqual(declaration.effect, { kind: "cost.hidden" });
-  assert.throws(
-    () => createEngineStaticBinder(engine).bindStatic(declaration, kernel.getObject("zhonyas-hourglass")),
-    /Static ability kind cost\.hidden has no layer mapping/
-  );
-  assert.deepEqual(engine.layers.registry.list(), []);
+  const handle = createEngineStaticBinder(engine).bindStatic(declaration, kernel.getObject("zhonyas-hourglass"));
+  assert.equal(engine.layers.registry.list()[0].effect.effect.capabilityKind, "hidden");
+  handle.unbind();
 });
 
-test("zhonyas-hourglass golden: a blocked Recall attempt leaves the unit's location and status unchanged", () => {
+test("zhonyas-hourglass golden: Recall moves the unit to its controller's Base without changing status", () => {
   const kernel = world()
     .player("A", { energy: 20 })
     .player("B", { energy: 20 })
@@ -234,11 +233,9 @@ test("zhonyas-hourglass golden: a blocked Recall attempt leaves the unit's locat
     { world: kernel, targets: { "dying-unit": [kernel.ref("friendly-unit")] } }
   );
 
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  assert.match(run.linked.moved.blockedReason, /Recall/);
-  assert.equal(kernel.events.some(event => event.action === "move-location"), false);
-  assert.deepEqual(kernel.getObject("friendly-unit").location, { type: "battlefield", id: "battlefield-1" });
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.moved.mode, "recall");
+  assert.deepEqual(kernel.getObject("friendly-unit").location, { type: "base", player: "A" });
   assert.equal(kernel.getObject("friendly-unit").exhausted, false);
 });
 

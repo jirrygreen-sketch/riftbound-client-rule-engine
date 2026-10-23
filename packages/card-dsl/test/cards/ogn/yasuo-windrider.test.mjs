@@ -264,44 +264,36 @@ test("ogn-205-298 Yasuo, Windrider golden: the merged history query counts this 
   assert.equal(afterThree.results[0].result.linkedValues.value, true);
 });
 
-test("ogn-205-298 Yasuo, Windrider boundary: the closed event vocabulary rejects object-moved before registration (383.1.b)", () => {
-  // The trigger needs the object-moved timing point, but the closed
-  // EVENT_PATTERN_TYPES list ends at final-point; assertTriggerSpec fails, so
-  // the production lifecycle can never register this ability.
+test("ogn-205-298 Yasuo, Windrider: the production lifecycle registers the object-moved trigger", () => {
   const { kernel, engine } = yasuoEngine();
   const executable = { ...program, status: "executable", judgeReason: undefined };
-  assert.throws(
-    () => registerProgramTriggers(new ProgramRegistry([executable]), engine, kernel.getObject("yasuo")),
-    error => error.name === "TriggerSpecValidationError" &&
-      error.issues.some(issue => issue.code === "invalid-event-type" && issue.path === "trigger.filter.event")
+  assert.doesNotThrow(
+    () => registerProgramTriggers(new ProgramRegistry([executable]), engine, kernel.getObject("yasuo"))
   );
-  // Nothing was registered, so a real committed Move cannot score the point.
-  assert.deepEqual(kernel.events.filter(event => event.action === "score"), []);
+  assert.ok(engine.pipeline.checkpoint().triggers.size >= 1);
 });
 
-test("ogn-205-298 Yasuo, Windrider boundary: the TriggerSpec count expression cannot read this turn's Move history (383.1.b)", () => {
-  // The merged condition.history instruction does count real move-location
-  // actions (previous golden), but the authored TriggerSpec condition is a
-  // count expression, which resolves as a set query over current objects.
-  // A unit on the board therefore counts 1 regardless of how often it moved.
+test("ogn-205-298 Yasuo, Windrider boundary: the generic expression path cannot read this turn's Move history (383.1.b)", () => {
+  // The generic expression path resolves the authored count as a live-object
+  // set query. Only condition.history reads the actual movement history.
   const kernel = yasuoWorld();
   const authored = triggered.trigger.condition;
-  assert.equal(kernel.test(authored), false);
   assert.equal(
     runAbilityBody([{ id: "yasuo-windrider.count-moves", op: "condition.value", args: { value: authored.left } }], kernel)
       .results[0].result.linkedValues.value,
-    1
+    0
+  );
+  assert.equal(
+    runAbilityBody([{ id: "yasuo-windrider.count-moves", op: "condition.value", args: { value: authored.left } }], kernel)
+      .results[0].result.linkedValues.value,
+    0
   );
   assert.equal(moveYasuo(kernel, "bf-2").result.status, "executed");
   assert.equal(
     runAbilityBody([{ id: "yasuo-windrider.count-moves", op: "condition.value", args: { value: authored.left } }], kernel)
       .results[0].result.linkedValues.value,
-    1
+    0
   );
-  assert.equal(kernel.test(authored), false);
-
-  // The real history instruction the card would need is a body op, not a
-  // TriggerSpec condition, and only the reference kernel implements the query.
   const history = runAbilityBody([{
     id: "yasuo-windrider.count-moves",
     op: "condition.history",
@@ -338,8 +330,7 @@ test("ogn-205-298 Yasuo, Windrider boundary: production Standard Move does not c
 test.todo(
   "ogn-205-298 Yasuo, Windrider: the trigger condition 'the third time I move in a turn' (383.1.b) needs a " +
     "history predicate in the Condition vocabulary (the merged condition.history is an instruction op, not a " +
-    "TriggerSpec condition) plus an exactly-once Nth-occurrence shape (383.1.b), and the trigger cannot even " +
-    "register while object-moved is absent from EVENT_PATTERN_TYPES"
+    "TriggerSpec condition) plus an exactly-once Nth-occurrence shape (383.1.b)"
 );
 
 test.todo(

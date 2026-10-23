@@ -127,13 +127,19 @@ test("ogn-244-298 Divine Judgment structure: four per-player picks then the recy
   ]);
 });
 
-test("ogn-244-298 Divine Judgment current gap: neither declared op is registered, so the card's body cannot run", () => {
-  assert.equal(instructionDefinitionsById.has("choice.each-player"), false);
-  assert.equal(instructionDefinitionsById.has("effect.recycle-rest"), false);
-  const kernel = world().unit("unit", {}).build();
-  assert.throws(
-    () => runAbilityBody(play.body, kernel),
-    /Unregistered instruction opcode: choice\.each-player/
+test("ogn-244-298 Divine Judgment current gap: both declared ops are registered, while runtime picks remain unbound", () => {
+  assert.equal(instructionDefinitionsById.has("choice.each-player"), true);
+  assert.equal(instructionDefinitionsById.has("effect.recycle-rest"), true);
+  // Registration is not card execution: the static `dynamic:` pick strings are
+  // still not resolved into this card's per-player choices.
+  assert.deepEqual(
+    chooseInstruction.picks.map(pick => pick.options),
+    [
+      ["dynamic:units-on-board"],
+      ["dynamic:gear-on-board"],
+      ["dynamic:runes-in-rune-zone"],
+      ["dynamic:cards-in-hand"]
+    ]
   );
 });
 
@@ -228,14 +234,15 @@ test("ogn-244-298 Divine Judgment golden: effect.recycle routes mixed objects by
   assert.equal(kernel.getObject("rune-A").zone, "rune-deck");
 });
 
-test("ogn-244-298 Divine Judgment current gap: the program cannot be described for play by the production binder", () => {
+test("ogn-244-298 Divine Judgment: the production binder carries both registered opcodes", () => {
   const state = fixture({ cards: [{ id: "judgment", cardId: CARD_ID, types: ["spell"], energy: 7, power: ["Order"] }] });
   const binding = createProgramBinding({ cardPrograms: [forged] });
   const draft = binding.describePlay({ type: "play", object: state.kernel.ref("judgment"), player: "A" }, state.kernel.getObject("judgment"));
-  // describePlay itself only translates surfaces; the missing ops surface when
-  // the draft is executed, so the card can be put on the chain but never resolve.
+  // describePlay translates the surface and both underlying instruction
+  // definitions are present. The card stays judge-required because its dynamic
+  // per-player choices and complement binding are not supplied.
   assert.deepEqual(draft.body.map(instruction => instruction.op), ["choice.each-player", "effect.recycle-rest"]);
-  assert.equal(instructionDefinitionsById.has(draft.body[0].op), false);
+  assert.equal(draft.body.every(instruction => instructionDefinitionsById.has(instruction.op)), true);
 });
 
 test.todo(

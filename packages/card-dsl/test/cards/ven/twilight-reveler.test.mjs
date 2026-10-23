@@ -140,20 +140,18 @@ test("ven-020-166 golden: an ally that left the board makes the ready ignored (3
   assert.equal(kernel.getObject("ally").zone, "trash");
 });
 
-test("ven-020-166 Twilight Reveler probe: the exclude anchor is rejected by the production binder", () => {
-  // Executed evidence for judgeReason point 2: the interpreter's set query
-  // consumes OBJECT_FILTER_ANCHORS' exclude, but the production card binding
-  // translates TargetSpec filters with translateObjectFilter, which fails
-  // closed on the card's own authored filter before a trigger can register.
-  assert.throws(
-    () => translateInstructionTargets(ability.body),
-    (error) => error instanceof Error && /Unsupported filter field exclude/.test(error.message)
-  );
+test("ven-020-166 Twilight Reveler golden: the production binder preserves the 'another' exclude anchor", () => {
+  const [translated] = translateInstructionTargets(ability.body);
+  assert.deepEqual(translated.targets[0].filter, {
+    type: "unit",
+    zone: "board",
+    controller: "self",
+    exclude: "self"
+  });
   const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
   const kernel = world().player("A").unit("reveler", { cardId: CANONICAL_ID }).build();
-  assert.throws(
-    () => binding.registerProgramTriggers({ pipeline: { registerTrigger: () => {}, unregisterTrigger: () => {} } }, kernel.getObject("reveler")),
-    (error) => error instanceof Error && /Unsupported filter field exclude/.test(error.message)
+  assert.doesNotThrow(
+    () => binding.registerProgramTriggers({ pipeline: { registerTrigger: () => {}, unregisterTrigger: () => {} } }, kernel.getObject("reveler"))
   );
 });
 
