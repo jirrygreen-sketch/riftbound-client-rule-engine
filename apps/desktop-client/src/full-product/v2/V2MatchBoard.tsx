@@ -370,12 +370,23 @@ export function V2MatchBoard({
   });
   const destinationOptions = projectedMoveDestinations(projection);
   const setup = projection.phase === "setup";
+  const mulliganOpen = setup && projection.pendingChoice.status === "pending" &&
+    projection.pendingChoice.kind === "select-objects" &&
+    projection.pendingChoice.ownerPlayerId === projection.viewerPlayerId;
+  const mulliganSelection = setup && mulliganOpen ? projection.pendingChoice : null;
+  const selectedMulliganChoices = mulliganSelection?.status === "pending"
+    ? selectedMulliganIds.flatMap(id => {
+        const option = mulliganSelection.options?.find(candidate => candidate.id === id);
+        return option?.objectRef === undefined ? [] : [option.objectRef];
+      })
+    : [];
   const hasPriority = projection.priority.playerId === projection.viewerPlayerId;
   const choiceOpen = projection.pendingChoice.status === "none";
   const choiceExpired = state.choice.status === "expired";
   const canAct = state.connectionStatus === "connected" && projection.winnerPlayerId === null && !busy;
   const canPass = canAct && hasPriority && choiceOpen && !choiceExpired;
-  const canPlay = setup ? canAct && !choiceExpired : canAct && hasPriority && choiceOpen && !choiceExpired;
+  const canPlay = !setup && canAct && hasPriority && choiceOpen && !choiceExpired;
+  const canChooseMulligan = setup ? canAct && mulliganOpen && !choiceExpired : false;
   const canEndTurn = canAct && projection.actionOptions?.canEndTurn === true && choiceOpen && !choiceExpired;
   const canAdvance = canAct && projection.actionOptions?.canAdvance === true && choiceOpen && !choiceExpired;
   const combatDamage = projection.combat?.status === "active" && projection.combat.step === "damage" &&
@@ -433,14 +444,35 @@ export function V2MatchBoard({
         {ownHand.length === 0 ? <p className="v2-muted">手牌为空</p> : (
           <div className="v2-card-row">{ownHand.map(card => <button key={card.objectId} type="button"
             className={`v2-card${selectedMulliganIds.includes(card.objectId) || selectedCardId === card.objectId ? " is-selected" : ""}`}
-            disabled={!canPlay} onClick={() => {
-              if (setup) setSelectedMulliganIds(current => current.includes(card.objectId) ? current.filter(id => id !== card.objectId) : [...current, card.objectId]);
+            disabled={setup ? !canChooseMulligan : !canPlay} onClick={() => {
+              if (setup) {
+                const choice = mulliganSelection;
+                if (!choice || choice.status !== "pending") return;
+                const selected = choice.options?.find(option =>
+                  option.objectRef?.objectId === card.objectId &&
+                  option.objectRef.zoneEntryId === (card.zoneEntryId ?? 0));
+                if (!selected) return;
+                setSelectedMulliganIds(current => current.includes(selected.id) ? current.filter(id => id !== selected.id) :
+                  current.length < (choice.max ?? 2) ? [...current, selected.id] : current);
+              }
               else setSelectedCardId(current => current === card.objectId ? null : card.objectId);
             }} aria-label={setup ? `选择调度 ${card.name ?? card.cardId ?? card.objectId}` : `选择打出 ${card.name ?? card.cardId ?? card.objectId}`}>
             <strong>{card.name ?? card.cardId ?? "未知卡牌"}</strong><small>{card.faceDown ? "牌面朝下" : card.zone}</small>{card.might !== undefined ? <small>战力 {card.might}</small> : null}
           </button>)}</div>
         )}
-        {setup ? <button type="button" className="v2-primary-action" disabled={!canAct} onClick={() => submit(buildV2MulliganCommand(selectedMulliganIds))}>确认起手（调度 {selectedMulliganIds.length} 张）</button> : null}
+        {setup ? <div className="v2-action-panel" aria-label="起手换牌">
+          <p className="v2-muted">{mulliganOpen ? "选择至多 2 张换掉；不选择即保留全部起手。" : "等待服务端开放你的换牌窗口。"}</p>
+          <button type="button" className="v2-primary-action" disabled={!canAct || !mulliganOpen ||
+            selectedMulliganIds.length > (mulliganSelection?.status === "pending" ? mulliganSelection.max ?? 2 : 2)}
+            onClick={() => {
+              const choice = mulliganSelection;
+              if (!choice || choice.status !== "pending") return;
+              if (selectedMulliganChoices.length !== selectedMulliganIds.length) return;
+              submit(buildV2MulliganCommand(selectedMulliganChoices.map(ref => ref.objectId)));
+            }}>
+            {selectedMulliganIds.length === 0 ? "保留起手" : `换掉 ${selectedMulliganIds.length} 张`}
+          </button>
+        </div> : null}
       </section>
       {!setup ? <section className="v2-action-panel" aria-label="出牌目标" data-v2-ui-hook="play-card-placement-and-target-candidates">
         <div className="v2-section-heading"><h3>出牌</h3><span>{selectedCard?.name ?? "先选择手牌"}</span></div>
@@ -486,13 +518,13 @@ export function V2MatchBoard({
           if (command !== null) submit(command);
         }}>打出手牌</button>
       </section> : null}
-      <section className="v2-action-panel" aria-label="符文操作">
+      {!setup ? <section className="v2-action-panel" aria-label="符文操作">
         <div className="v2-section-heading"><h3>符文</h3><span>能量 {viewer?.energy ?? 0} · Power {formatPower(viewer?.power ?? {})}</span></div>
         {ownRunes.length === 0 ? <p className="v2-muted">没有公开的我方符文。符文区顺序由服务端隐藏，只显示投影对象。</p> : <div className="v2-choice-options">{ownRunes.map(rune => <div key={rune.objectId}><strong>{rune.name ?? rune.cardId ?? rune.objectId}</strong><button type="button" disabled={!canAct || rune.zoneEntryId === undefined || rune.exhausted === true} onClick={() => submit(buildV2RuneCommand("rune-energy", rune))}>取能量</button><button type="button" disabled={!canAct || rune.zoneEntryId === undefined || rune.exhausted === true} onClick={() => submit(buildV2RuneCommand("rune-power", rune))}>取 Power</button></div>)}</div>}
-      </section>
-      <section className="v2-action-panel" aria-label="战斗推进与伤害操作" data-v2-ui-hook="combat-advance-and-damage">
+      </section> : null}
+      {!setup ? <section className="v2-action-panel" aria-label="战斗推进与伤害操作" data-v2-ui-hook="combat-advance-and-damage">
         <div className="v2-section-heading"><h3>战斗</h3><span>{projection.combat?.status === "active" ? `${projection.combat.step ?? "active"}${combatDamageSide === null ? "" : ` · ${combatDamageSide}`}` : "无进行中的战斗"}</span></div>
-        <button type="button" disabled={!canAdvance} onClick={() => submit(buildV2AdvanceCommand())}>推进</button>
+        <button type="button" disabled={setup || !canAdvance} onClick={() => submit(buildV2AdvanceCommand())}>推进</button>
         {combatDamage === null ? null : <div aria-label="战斗伤害分配">
           <p>需分配 {combatDamageBudget} 点伤害；各目标金额合计必须相等。</p>
           {combatDamageTargets.length === 0 ? <p className="v2-muted">服务端未投影本场战斗的公开目标。</p> :
@@ -508,23 +540,23 @@ export function V2MatchBoard({
             setCombatDamageDrafts({});
           }}>提交战斗伤害</button>
         </div>}
-      </section>
-      <section className="v2-action-panel" aria-label="移动操作">
+      </section> : null}
+      {!setup ? <section className="v2-action-panel" aria-label="移动操作">
         <div className="v2-section-heading"><h3>移动</h3><span>{selectedUnitId ?? "选择单位与目的地"}</span></div>
-        <div className="v2-choice-options">{ownUnits.map(unit => <button key={unit.objectId} type="button" aria-pressed={selectedUnitId === unit.objectId} onClick={() => setSelectedUnitId(unit.objectId)}>{unit.name ?? unit.cardId ?? unit.objectId}</button>)}</div>
+        <div className="v2-choice-options">{ownUnits.map(unit => <button key={unit.objectId} type="button" aria-pressed={selectedUnitId === unit.objectId} disabled={setup} onClick={() => setSelectedUnitId(unit.objectId)}>{unit.name ?? unit.cardId ?? unit.objectId}</button>)}</div>
         <label>目的地 <select value={selectedDestination} onChange={event => setSelectedDestination(event.currentTarget.value)}><option value="">选择</option>{destinationOptions.map(destination => <option key={destination.id} value={destination.id}>{destination.label}</option>)}</select></label>
-        <button type="button" disabled={!canAct || selectedUnitId === null || selectedDestination === ""} onClick={() => {
+        <button type="button" disabled={setup || !canAct || selectedUnitId === null || selectedDestination === ""} onClick={() => {
           const destination = destinationOptions.find(value => value.id === selectedDestination);
           if (destination) submit(buildV2MoveCommand(selectedUnitId!, destination.value));
         }}>移动单位</button>
-      </section>
-      <section className="v2-action-row" aria-label="对局操作">
-        <button type="button" disabled={!canPass} onClick={() => submit(buildV2PassCommand())}>Pass</button>
-        <button type="button" disabled={!canEndTurn} onClick={() => submit(buildV2EndTurnCommand())}>结束回合</button>
-        {projection.winnerPlayerId === null ? <button type="button" disabled={!canAct} onClick={() => submit({ type: "concede" })}>认输</button> : <strong>胜者：{projection.players.find(player => player.playerId === projection.winnerPlayerId)?.name ?? projection.winnerPlayerId}</strong>}
+      </section> : null}
+      {!setup ? <section className="v2-action-row" aria-label="对局操作">
+        <button type="button" disabled={setup || !canPass} onClick={() => submit(buildV2PassCommand())}>Pass</button>
+        <button type="button" disabled={setup || !canEndTurn} onClick={() => submit(buildV2EndTurnCommand())}>结束回合</button>
+        {projection.winnerPlayerId === null ? <button type="button" disabled={setup || !canAct} onClick={() => submit({ type: "concede" })}>认输</button> : <strong>胜者：{projection.players.find(player => player.playerId === projection.winnerPlayerId)?.name ?? projection.winnerPlayerId}</strong>}
         {busy ? <span role="status">等待命令确认…</span> : null}
-      </section>
-      <ChoicePanel choice={state.choice} selectedIds={selectedChoiceIds} numberAnswer={numberAnswer} optionalAnswer={optionalChoiceAnswer} disabled={!canAct}
+      </section> : null}
+      {!setup ? <ChoicePanel choice={state.choice} selectedIds={selectedChoiceIds} numberAnswer={numberAnswer} optionalAnswer={optionalChoiceAnswer} disabled={!canAct}
         onNumberChange={setNumberAnswer}
         onOptionalAnswerChange={setOptionalChoiceAnswer}
         onToggle={id => setSelectedChoiceIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id])}
@@ -533,7 +565,7 @@ export function V2MatchBoard({
           if (answer === null) return;
           const command = buildV2ChooseCommand(state.choice, answer, `desktop-v2-choose-${state.choice.choice.status === "pending" ? `${state.choice.choice.choiceId}-${state.choice.choice.stateVersion}` : "none"}`);
           if (command) submit(command);
-        }} />
+        }} /> : null}
       <ChainPanel projection={projection} />
       <LogPanel projection={projection} events={state.events} />
     </section>
