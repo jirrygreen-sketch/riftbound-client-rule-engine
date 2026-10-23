@@ -6,11 +6,13 @@
  * Both Expr arguments (direct primitive calls) and evaluated values (ability
  * interpreter dispatch) are accepted. Full CostPlans are paid as locked.
  *
- * CR 203.3: an ordinary failed payment throws, including before the first
- * action. The exception stops the body and lets the enclosing transaction
- * discard every action, event and link. A legal missing Equip cost is handled
- * by cost.modify as Ignored before this primitive evaluates the forward link.
- * An actual insufficient-resource failure remains exceptional for ChainEngine.
+ * CR 203.3: failure MUST throw, including a failure before the first action.
+ * `negated` does not gate linked instructions in the frozen interpreter.
+ * Letting the error escape stops the body and lets the enclosing transaction
+ * discard every action, event and link. `payCostPlan` is not itself a
+ * transaction. Callers MUST supply that transaction; direct execution against
+ * a live context cannot roll back. See cost/kinds/README.md for the requested
+ * shared payment-scope/savepoint contract needed for graceful body skipping.
  */
 import type {
   Domain,
@@ -223,9 +225,8 @@ const execute: InstructionDef<CostPayArgs>["execute"] = (ctx, args): Instruction
     ...(args.nonstandardOrder !== undefined ? { nonstandardOrder: arg(args.nonstandardOrder) as unknown as CostPaymentOptions["nonstandardOrder"] } : {}),
     ...(ctx.transaction === undefined ? {} : { transaction: ctx.transaction })
   };
-  // An actual resource failure remains exceptional. ChainEngine owns the
-  // narrowed Weaponmaster CR 821.1.c.5 catch after this plan's transaction has
-  // rolled back, then completes the resolving trigger without attachment.
+  // Do not catch CostPlanError: even a later prevented action must abort the
+  // enclosing transaction instead of committing earlier resource payments.
   const receipt = payCostPlan(ctx, finalized, options);
   ctx.link(key, receipt as unknown as Value);
   return { status: "executed", events: [...receipt.events], linkedValues: { [key]: receipt as unknown as Value } };
