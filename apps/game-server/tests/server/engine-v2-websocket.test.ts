@@ -142,6 +142,10 @@ describe("protocol v2 engine runtime over WebSocket", () => {
     const resumedWithoutCursorRoom = await resumedWithoutCursor.wait(value => value !== null && typeof value === "object" &&
       (value as { type?: unknown }).type === "room");
     expect(resumedWithoutCursorRoom).toMatchObject({ room: { roomId: session.roomId, status: "waiting" } });
+    expect(resumedWithoutCursor.messages).toContainEqual(expect.objectContaining({
+      type: "owner-deck-confirmation", roomId: session.roomId,
+      playerId: session.playerId, deck: null
+    }));
 
     const bob = await connect(running.url);
     bob.send({ type: "join-room", requestId: "waiting-join", roomId: session.roomId, playerName: "Bob" });

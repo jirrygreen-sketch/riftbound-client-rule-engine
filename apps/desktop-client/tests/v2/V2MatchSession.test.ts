@@ -23,12 +23,12 @@ function sent(socket: FakeSocket, index = -1): any {
 }
 
 describe("V2 waiting-room resume cursor", () => {
-  it("omits cursor 0 before the game starts and sends the authoritative event cursor after events exist", async () => {
+  it("sends cursor 0 before the game starts and the authoritative event cursor after events exist", async () => {
     expect(buildV2Hello({ roomId: "room-1", playerId: "player-1", resumeToken: "resume-1" }))
-      .toEqual({ type: "hello", protocolVersion: "2.0.0", roomId: "room-1", resumeToken: "resume-1" });
+      .toEqual({ type: "hello", protocolVersion: "2.0.0", roomId: "room-1", resumeToken: "resume-1", afterEventSeq: 0 });
     expect(buildV2Hello({ roomId: "room-1", playerId: "player-1", resumeToken: "resume-1" }, {
       eventSeq: 0
-    })).not.toHaveProperty("afterEventSeq");
+    })).toMatchObject({ afterEventSeq: 0 });
     expect(buildV2Hello({ roomId: "room-1", playerId: "player-1", resumeToken: "resume-1" }, {
       eventSeq: 4
     })).toMatchObject({ afterEventSeq: 4 });
@@ -49,11 +49,18 @@ describe("V2 waiting-room resume cursor", () => {
     expect(sent(sockets[0]!)).toMatchObject({
       type: "hello", protocolVersion: "2.0.0", roomId: "room-1", resumeToken: "resume-1"
     });
-    expect(sent(sockets[0]!)).not.toHaveProperty("afterEventSeq");
+    expect(sent(sockets[0]!)).toMatchObject({ afterEventSeq: 0 });
 
     sockets[0]!.receive({ type: "welcome", protocolVersion: "2.0.0", resumed: true, session: {
       roomId: "room-1", playerId: "player-1", resumeToken: "resume-1"
     } });
+    sockets[0]!.receive({
+      type: "owner-deck-confirmation", schema: "owner-deck-confirmation-v1",
+      roomId: "room-1", playerId: "player-1", rulesetId: "riftbound-duel",
+      roomVersion: 1, roomEventSeq: 0,
+      catalog: { dataVersion: "test", digest: "sha256:test" }, deck: null
+    });
+    expect(controller.snapshot.error).toBeNull();
     const pending = controller.sendCommand({ type: "pass" });
     const command = sent(sockets[0]!);
     sockets[0]!.close();
@@ -74,6 +81,35 @@ describe("V2 waiting-room resume cursor", () => {
       type: "hello", protocolVersion: "2.0.0", roomId: "room-1",
       resumeToken: "resume-1", afterEventSeq: 1
     });
+    controller.stop();
+  });
+
+  it("accepts only the authenticated owner echo and rejects a mismatched owner", () => {
+    const sockets: FakeSocket[] = [];
+    const controller = new V2MatchSessionController({
+      serverUrl: "ws://example.test",
+      socketFactory: () => {
+        const socket = new FakeSocket();
+        sockets.push(socket);
+        return socket;
+      }
+    }, { roomId: "room-1", playerId: "player-1", resumeToken: "resume-1" });
+    controller.start();
+    sockets[0]!.open();
+    sockets[0]!.receive({ type: "welcome", protocolVersion: "2.0.0", resumed: true, session: {
+      roomId: "room-1", playerId: "player-1", resumeToken: "resume-1"
+    } });
+    const echo = {
+      type: "owner-deck-confirmation", schema: "owner-deck-confirmation-v1",
+      roomId: "room-1", playerId: "player-1", rulesetId: "riftbound-duel",
+      roomVersion: 1, roomEventSeq: 0,
+      catalog: { dataVersion: "test", digest: "sha256:test" }, deck: null
+    } as const;
+    sockets[0]!.receive(echo);
+    expect(controller.snapshot.error).toBeNull();
+
+    sockets[0]!.receive({ ...echo, playerId: "player-2" });
+    expect(controller.snapshot.error).toBe("V2 服务端返回了未识别数据包。");
     controller.stop();
   });
 });
