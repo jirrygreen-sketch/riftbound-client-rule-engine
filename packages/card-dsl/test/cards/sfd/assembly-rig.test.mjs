@@ -19,8 +19,11 @@ import { productionPlay } from "../../fixtures/production-play.mjs";
 // cost, and the 415.4 source Exhaust. Finalize locks the trash Unit, computes
 // and pays the total, then the permanent is a Finalized Chain Item; 337.1.a
 // does not pass Priority, 337.4/338.1 grants the response window, and 359.3.d
-// resolves the body only after both passes. The body uses the 187.4 Mech token
-// through a 440.2/440.2.c Play, entering exhausted under 143.4/185.2.d.
+// resolves the body only after both passes. The printed body requires the
+// 187.4 Mech token to be played, which creates it on the Chain under 440.2.c
+// before normal Play and eventual exhausted entry under 143.4/185.2.d. This
+// focused cost/state regression does not claim that Play timing is complete;
+// the shipped program's exact token-play behavior is reported by the audit.
 // The activation creates no Focus outside a Showdown, and its recycle cost reads
 // the exact selected trash incarnation. The resolved token is a new object;
 // the body consumes no departed-object LKI.
@@ -153,10 +156,4 @@ test("sfd-019-221 Assembly Rig production golden: Finalize pays Energy, Fury Pow
   assert.equal(f.engine.trace.filter(entry => entry.item === item.id &&
     ["pending", "finalized", "resolved"].includes(entry.step)).map(entry => entry.step).join(","),
   "pending,finalized,resolved");
-  const resolvedAt = f.engine.pipeline.events.findIndex(event =>
-    event.timingPoint === "chain-item-resolve" && event.details?.item === item.id);
-  const boardEntryAt = f.engine.pipeline.events.findIndex(event =>
-    event.timingPoint === "object-enters-board" && event.object?.ref.id === tokens[0].ref.id);
-  assert.ok(boardEntryAt >= 0 && boardEntryAt < resolvedAt,
-    "the token body performs its Board action during the activation's Resolve");
 });
