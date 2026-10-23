@@ -52,6 +52,10 @@ test("Warmog's Armor production coverage is bound to its canonical template row"
 });
 
 test("Warmog's Armor production golden: Equip attaches for one Body and grants its +1 Might until Detach", () => {
+  // Core Rules v1.5 (2026-10-09):
+  // https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+  // Radiance (effective 2026-10-16):
+  // https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/.
   // Canonical card card.hash-902c6a1366a1a0e653ccb65102ff621b109af3b0b40f5bbeb7d8d3a5aeae2322.
   // Timeline: A activates Equip under Priority -> Finalize pays one Body ->
   // both Priority passes -> Resolve Attaches -> production layer 2+1 = 3 ->

@@ -268,13 +268,22 @@ test("sfd-206-221 Riposte golden: the grant follows the ability controller, not 
     })
     .unit("ally", { owner: "B", controller: "B", might: 2 })
     .build();
-  kernel.setTargets("target-spell", [kernel.ref("enemy-spell")]);
-  kernel.setTargets("target-unit", [kernel.ref("ally")]);
+  // The helper substitutes relative controller predicates, but the source
+  // snapshot and context controller must also agree.  Clone the same real
+  // TestWorld for B instead of resolving an A-owned source under B semantics.
+  const scoped = kernel.clone({
+    controller: "B",
+    sourceSnapshot: { ...kernel.getObject("enemy-spell"), controller: "B" }
+  });
+  scoped.setTargets("target-spell", [scoped.ref("enemy-spell")]);
+  scoped.setTargets("target-unit", [scoped.ref("ally")]);
 
-  const outcome = resolveChainBody(play.body, chainContext(kernel, "B"));
+  const outcome = resolveChainBody(play.body, chainContext(scoped, "B"));
   assert.equal(outcome.status, "executed");
-  assert.equal(kernel.continuousEffects[0].effect.effect.amount, 3);
-  assert.equal(effectiveMight(kernel, "ally"), 5);
+  assert.equal(scoped.getObject("enemy-spell").zone, "trash");
+  assert.equal(scoped.continuousEffects[0].effect.effect.amount, 3);
+  assert.equal(scoped.continuousEffects[0].effect.filter.objectId, "ally");
+  assert.equal(effectiveMight(scoped, "ally"), 5);
 });
 
 // Official sources: Core Rules v1.5 (2026-10-09),

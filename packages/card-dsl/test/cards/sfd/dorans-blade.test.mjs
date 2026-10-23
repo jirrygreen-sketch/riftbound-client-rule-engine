@@ -52,6 +52,10 @@ test("Doran's Blade production coverage is bound to its canonical template row",
 });
 
 test("Doran's Blade production golden: Equip attaches for one Body and grants its +2 Might until Detach", () => {
+  // Core Rules v1.5 (2026-10-09):
+  // https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+  // Radiance (effective 2026-10-16):
+  // https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/.
   // Canonical card card.hash-a1ee07f71d453092ab7d54f9491684e972b735b22bb1f3fda73f2641bcedbfe1.
   // Timeline: Priority -> Equip Finalize (one Body) -> both passes -> Resolve
   // Attach -> effective Might 2+2; committed Detach restores 2.  CR v1.5

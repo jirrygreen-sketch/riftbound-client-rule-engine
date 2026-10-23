@@ -52,6 +52,10 @@ test("Sacred Shears production coverage is bound to its canonical template row",
 });
 
 test("Sacred Shears production golden: Equip attaches for one Order and grants its +1 Might until Detach", () => {
+  // Core Rules v1.5 (2026-10-09):
+  // https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+  // Radiance (effective 2026-10-16):
+  // https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/.
   // Canonical card card.hash-d3579e6825470471f5ce05c53533806a5244c5e84364fe57b2aab0b7cc0f14e0.
   // Timeline: Priority -> Equip Finalize (one Order) -> both passes -> Resolve
   // Attach -> effective Might 2+1; committed Detach restores 2.  CR v1.5

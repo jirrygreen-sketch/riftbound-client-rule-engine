@@ -59,6 +59,10 @@ test("B.F. Sword production coverage is bound to its canonical template row", ()
 });
 
 test("B.F. Sword production golden: Equip attaches for one Order and grants its +3 Might until Detach", () => {
+  // Core Rules v1.5 (2026-10-09):
+  // https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+  // Radiance (effective 2026-10-16):
+  // https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/.
   // Canonical card card.hash-959c19d68f06f8f929625bfde93a1132701da5a5d0b49e91583db341384f0bfe.
   // Timeline: A activates Equip under Priority -> Finalize locks the friendly
   // Unit and pays one Order -> A/B pass in order -> Resolve Attaches.  The

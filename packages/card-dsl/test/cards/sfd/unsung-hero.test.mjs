@@ -70,7 +70,7 @@ test("sfd-167-221 Unsung Hero: effect.draw body executes against the reference k
 });
 
 // Official sources: Core Rules v1.5 (2026-10-09),
-// https://cmsassets.rgpub.io/sanity/docs/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
 // and Radiance patch notes (effective 2026-10-16),
 // https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/.
 // Rules: 708/710 (current Board Might determines Mighty), 808.1.c through
