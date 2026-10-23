@@ -4,6 +4,7 @@ import {
   TIMING_POINT_ALIASES,
   type TimingPointId
 } from "./timing-points.js";
+import type { HistoryQuery } from "../effects/contract.js";
 
 export const TRIGGER_ONCE_SCOPES = [
   "per-turn",
@@ -223,6 +224,13 @@ export type Condition = Readonly<Record<string, unknown>> & {
 export interface TriggerSpec {
   readonly at: TimingPointId;
   readonly filter: ObjectFilter | EventPattern;
+  /**
+   * A condition-level history read, equivalent to the `condition.history`
+   * instruction. This binding is intentionally narrower than the full public
+   * query: only a current-turn card-Finalize history has a production event
+   * discriminator today.
+   */
+  readonly conditionHistory?: HistoryQuery;
   readonly condition?: Condition;
   readonly once?: TriggerOnceScope;
 }
@@ -525,7 +533,7 @@ export function validateTriggerSpec(value: unknown): ValidationResult<TriggerSpe
     addIssue(issues, "trigger", "invalid-object", "TriggerSpec 必须是普通对象。");
     return { ok: false, issues };
   }
-  const allowed = new Set(["at", "filter", "condition", "once"]);
+  const allowed = new Set(["at", "filter", "conditionHistory", "condition", "once"]);
   for (const key of Object.keys(value)) {
     if (!allowed.has(key)) addIssue(issues, `trigger.${key}`, "unknown-field", "TriggerSpec 不允许此字段。");
   }
@@ -546,12 +554,58 @@ export function validateTriggerSpec(value: unknown): ValidationResult<TriggerSpe
     validateObjectFilterInternal(value.filter, "trigger.filter", issues);
   }
   if (hasOwn(value, "condition")) validateConditionInternal(value.condition, "trigger.condition", issues, new Set());
+  if (hasOwn(value, "conditionHistory")) {
+    const query = value.conditionHistory;
+    if (!isPlainObject(query)) {
+      addIssue(issues, "trigger.conditionHistory", "invalid-history-query", "conditionHistory 必须是普通对象。");
+    } else {
+      const allowedQuery = new Set(["scope", "action", "timingPoint", "player", "object", "exclude", "objectFilter"]);
+      for (const key of Object.keys(query)) {
+        if (!allowedQuery.has(key)) addIssue(issues, `trigger.conditionHistory.${key}`, "unknown-field", "HistoryQuery 不允许此字段。");
+      }
+      if (query.scope !== undefined && !["turn", "combat", "game"].includes(String(query.scope))) {
+        addIssue(issues, "trigger.conditionHistory.scope", "invalid-history-scope", "scope 必须是 turn、combat 或 game。");
+      }
+      if (query.timingPoint !== undefined && (typeof query.timingPoint !== "string" || !isTimingPointId(query.timingPoint))) {
+        addIssue(issues, "trigger.conditionHistory.timingPoint", "invalid-timing-point", "conditionHistory.timingPoint 必须是封闭时点。");
+      }
+      for (const key of ["scope", "action", "timingPoint", "player", "object", "exclude", "objectFilter"] as const) {
+        if (hasOwn(query, key) && query[key] === undefined) {
+          addIssue(issues, `trigger.conditionHistory.${key}`, "invalid-undefined-field", "conditionHistory 字段不能是 undefined。");
+        }
+      }
+      if (query.player !== undefined) validateNonEmptyString(query.player, "trigger.conditionHistory.player", issues);
+      if (query.action !== undefined && typeof query.action !== "string") {
+        addIssue(issues, "trigger.conditionHistory.action", "invalid-history-action", "action 必须是动作字符串。");
+      }
+      if (query.object !== undefined) {
+        const ref = query.object;
+        if (!isPlainObject(ref) || !validateNonEmptyString(ref.id, "trigger.conditionHistory.object.id", issues) ||
+            typeof ref.zoneEntryId !== "number" || !Number.isSafeInteger(ref.zoneEntryId) || ref.zoneEntryId < 0) {
+          addIssue(issues, "trigger.conditionHistory.object", "invalid-object-ref", "object 必须是精确 ObjectRef。");
+        }
+      }
+      if (query.exclude !== undefined) validateHistorySelector(query.exclude, "trigger.conditionHistory.exclude", issues);
+      if (query.objectFilter !== undefined && !isPlainObject(query.objectFilter)) {
+        addIssue(issues, "trigger.conditionHistory.objectFilter", "invalid-object-filter", "objectFilter 必须是普通对象。");
+      }
+    }
+  }
   if (hasOwn(value, "once")) {
     validateEnumValue(value.once, TRIGGER_ONCE_SCOPES, "trigger.once", issues, "invalid-once-scope");
   }
   return issues.length === 0
     ? { ok: true, value: value as unknown as TriggerSpec, issues: [] }
     : { ok: false, issues };
+}
+
+function validateHistorySelector(value: unknown, path: string, issues: ValidationIssue[]): void {
+  if (value === "self" || value === "source") return;
+  if (!isPlainObject(value) || Object.keys(value).length !== 1 ||
+      !["target", "pick", "linked"].includes(Object.keys(value)[0]!) ||
+      !validateNonEmptyString(value[Object.keys(value)[0]!], `${path}.${Object.keys(value)[0]}`, issues)) {
+    addIssue(issues, path, "invalid-object-selector", "exclude 必须使用契约 ObjectSelector。");
+  }
 }
 
 export function isObjectFilter(value: unknown): value is ObjectFilter {

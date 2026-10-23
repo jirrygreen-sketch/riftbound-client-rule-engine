@@ -1,6 +1,6 @@
 import type { Condition } from '@riftbound/card-dsl';
 import type { LocationFilter } from '@riftbound/card-dsl';
-import type { ActionOutcome, ContractGameAction, Domain, GameAction, Instruction, ObjectRef, ObjectSnapshot, PlayerId, ResolveContext, Value } from '../effects/contract.js';
+import type { ActionOutcome, ContractGameAction, GameAction, Instruction, ObjectRef, ObjectSnapshot, PlayerId, PowerPaymentSource, ResolveContext, Value } from '../effects/contract.js';
 import { AwaitChoice } from '../effects/contract.js';
 import { CONTRACT_ACTION_CAPABILITY_VERSION } from '../effects/contract.js';
 import type { ExecutionOutcome } from '../effects/interpreter.js';
@@ -27,7 +27,7 @@ import { ChoiceMemory } from './finalize/choice-memory.js';
 import { controlNodeTargetRequirements, finalizeCostPlanInput, finalizeInstructionChoices, finalizeInstructionInstances, hasChoiceMemory, hasFinalizeChoices, instancePathKey, withFinalizePlanLinks } from './finalize/index.js';
 import { collectTargetTaxes } from '../target/tax/index.js';
 import { boundTargetTaxes, ignoresTargetTax, staticCostSources } from '../programs/static-adapters/capabilities.js';
-import { finalizeCostPlan, type CostDiscountSources, type StaticCostAbility } from '../cost/discounts/index.js';
+import { finalizeCostPlan, type CostDiscountSources, type FinalizedCardPlay, type StaticCostAbility } from '../cost/discounts/index.js';
 
 function chainDraftPrefix(item: ChainDraft, turn: number): string {
   const source = item.trigger?.source.ref ?? item.source.ref;
@@ -121,10 +121,10 @@ export interface PaymentContinuationResult {
 export interface PaymentReactionAddReceipt {
   readonly itemId: string;
   readonly outcome: ExecutionOutcome;
-  readonly resources: { readonly energy: number; readonly power: readonly Domain[] };
+  readonly resources: { readonly energy: number; readonly power: readonly PowerPaymentSource[] };
   readonly receipt: {
     readonly instructionId: string;
-    readonly value: { readonly energy: number; readonly power: readonly Domain[] };
+    readonly value: { readonly energy: number; readonly power: readonly PowerPaymentSource[] };
   };
   readonly cost: CostPaymentReceipt;
 }
@@ -145,6 +145,12 @@ interface PaymentContinuationBinding {
   readonly checkpoint: unknown;
   readonly owner: ChainEngine;
   state: 'suspended' | 'live' | 'consumed';
+}
+
+interface TurnFinalizeRecord extends FinalizedCardPlay {
+  readonly turn: number;
+  readonly sequence: number;
+  readonly finalizedAt: 'chain-item-finalize';
 }
 
 const PAYMENT_CONTINUATION_BINDINGS = new WeakMap<PaymentContinuation, PaymentContinuationBinding>();
@@ -294,10 +300,10 @@ function paymentReactionAddReceipt(
       power.some(value => typeof value !== 'string')) {
     throw new Error('Reaction Add resource receipt is malformed');
   }
-  const actual = { energy, power: power as readonly Domain[] };
+  const actual = { energy, power: power as readonly PowerPaymentSource[] };
   const linkedEnergy = typeof links?.energy === 'number' && Number.isSafeInteger(links.energy) ? links.energy : null;
   const linkedPower = Array.isArray(links?.power)
-    ? links.power.filter((value): value is Domain => typeof value === 'string') as readonly Domain[] : null;
+    ? links.power.filter((value): value is PowerPaymentSource => typeof value === 'string') as readonly PowerPaymentSource[] : null;
   const linkedMatches = linkedEnergy === null || linkedPower === null
     ? false
     : linkedEnergy === actual.energy && linkedPower.length === actual.power.length &&
@@ -378,6 +384,9 @@ export class ChainEngine {
   private triggerSequence = 0;
   private delayedSequence = 0;
   private transactionDepth = 0;
+  /** Successful card Finalizes in the pipeline's current turn (CR 420.4.b / 812.1.c). */
+  private finalizedPlaysThisTurn: TurnFinalizeRecord[] = [];
+  private finalizeSequence = 0;
   private readonly choiceMemory = new ChoiceMemory();
   private finalizeAnswers = new Map<string, unknown>();
   private paymentContinuation: PaymentContinuation | null = null;
@@ -397,15 +406,19 @@ export class ChainEngine {
   constructor(private readonly options: ChainEngineOptions) {
     this.phase = options.phase ?? 'main';
     this.layers = options.layers ?? new LayerEngine(this.hostObjects());
-    this.chainHost = {
+    const chainHost: PipelineHost & {
+      finalizedCardPlaysThisTurn: () => readonly FinalizedCardPlay[];
+    } = {
       ...options.host,
       checkpoint: () => options.host.checkpoint(),
       restore: checkpoint => options.host.restore(checkpoint),
       choose: request => options.host.choose(request),
       objects: () => this.layerObjects(),
       context: (source, controller, at) => this.hostObjectContext(source, controller, at),
+      finalizedCardPlaysThisTurn: () => this.finalizedPlaysThisTurn,
       execute: action => this.executeStateAction(action),
     };
+    this.chainHost = chainHost;
     this.pipeline = new EventPipeline(this.chainHost, options.turnOrder, options.turnPlayer);
     this.pipeline.routeAction = action => {
       if (action.type === 'play') {
@@ -439,6 +452,7 @@ export class ChainEngine {
     };
     this.pipeline.onTrigger = trigger => this.append({ id: `trigger:${++this.triggerSequence}`, controller: trigger.controller, source: trigger.source, kind: 'triggered', body: trigger.registration.body, cost: trigger.registration.cost, targets: trigger.registration.targets, mayAtFinalize: trigger.registration.mayAtFinalize, trigger });
     this.pipeline.onEvent = event => {
+      if (event.timingPoint === 'turn-start') this.finalizedPlaysThisTurn = [];
       this.observeCombatRoleEvent(event);
       this.observeBattlefieldControl(event);
       this.layers.setObjects(this.hostObjects());
@@ -459,6 +473,13 @@ export class ChainEngine {
   /** Whether setup state or a committed control event currently says this player controls the field. */
   controlsBattlefield(player: PlayerId, battlefieldId: string): boolean {
     return this.battlefieldControllers.get(battlefieldId) === player;
+  }
+  /** Authoritative successful card-Finalize history for the current pipeline turn. */
+  finalizedCardPlaysThisTurn(): readonly FinalizedCardPlay[] {
+    return Object.freeze(this.finalizedPlaysThisTurn.map(record => structuredClone({
+      object: record.object,
+      player: record.player,
+    })));
   }
   get items(): readonly ChainItem[] { return structuredClone(this.entries); }
   /** Apply only exact Unit combat roles held in this active Combat window. */
@@ -613,6 +634,8 @@ export class ChainEngine {
       cleanupNeeded: this.cleanupNeeded, priorityHolder: this.priorityHolder, focusHolder: this.focusHolder, showdown: this.showdown,
       origin: this.origin, priorityPasses: this.priorityPasses, focusPasses: this.focusPasses, triggerSequence: this.triggerSequence,
       delayedSequence: this.delayedSequence, phase: this.phase, busy: this.busy, choiceMemorySnapshot: this.choiceMemory.snapshot(),
+      finalizedPlaysThisTurn: structuredClone(this.finalizedPlaysThisTurn),
+      finalizeSequence: this.finalizeSequence,
       finalizeAnswers: new Map([...this.finalizeAnswers].map(([key, value]) => [key, structuredClone(value)] as const)),
       paymentContinuation: this.paymentContinuation,
       paymentContinuationCheckpoint: this.paymentContinuationCheckpoint,
@@ -1111,7 +1134,11 @@ export class ChainEngine {
       if (item.status !== 'finalized') {
         item.status = 'finalized'; this.record({ step: 'finalized', item: item.id });
       }
-      this.pipeline.emit({ timingPoint: 'chain-item-finalize', object: item.source, player: item.controller, details: { item: item.id } });
+      if (['unit', 'gear', 'spell'].includes(item.kind)) {
+        this.recordCardFinalize(item);
+      }
+      this.pipeline.emit({ timingPoint: 'chain-item-finalize', object: item.source, player: item.controller,
+        details: { item: item.id, ...(['unit', 'gear', 'spell'].includes(item.kind) ? { cardFinalize: true } : {}) } });
       this.requestCleanup('item-finalized'); this.busy = 'idle';
     });
   }
@@ -1138,6 +1165,7 @@ export class ChainEngine {
       statics: [...staticCostSources(this), ...(item.costStatics ?? [])],
       continuous: this.layers.registry.list().filter(entry =>
         (entry.effect.effect as { costModification?: unknown }).costModification !== true),
+      finalizedPlaysThisTurn: this.finalizedPlaysThisTurn,
       // An activated Add is re-tagged kind add for its immediate resolution
       // (CR 430.2) but is still an activated ability for cost purposes
       // (CR 399-401); only a triggered Add carries a trigger snapshot.
@@ -1145,6 +1173,18 @@ export class ChainEngine {
       targets: (item.targetPlans ?? []).flatMap(plan => plan.selected),
       originZone: item.source.zone,
     };
+  }
+  /** Capture the exact successful Finalize, before Resolve or Counter (CR 420.4.b). */
+  private recordCardFinalize(item: ChainItem): void {
+    const object = this.options.host.objects().find(candidate =>
+      candidate.ref.id === item.object.id && candidate.ref.zoneEntryId === item.object.zoneEntryId) ?? item.source;
+    this.finalizedPlaysThisTurn.push(structuredClone({
+      object,
+      player: item.controller,
+      turn: this.pipeline.clock.turn,
+      sequence: ++this.finalizeSequence,
+      finalizedAt: 'chain-item-finalize',
+    }));
   }
   private collectBoundTargetTaxes(item: ChainItem, context: ResolveContext, into: CostComponentInput[]): void {
     const effects = boundTargetTaxes(this);
@@ -1329,6 +1369,7 @@ export class ChainEngine {
           focusHolder: this.focusHolder, showdown: this.showdown, origin: item.kind,
           priorityPasses: this.priorityPasses, focusPasses: this.focusPasses,
           triggerSequence: this.triggerSequence, delayedSequence: this.delayedSequence,
+          finalizedPlaysThisTurn: structuredClone(this.finalizedPlaysThisTurn), finalizeSequence: this.finalizeSequence,
           phase: this.phase, choiceMemory, finalizeAnswers,
         },
         pipeline: this.pipeline.checkpoint(),
@@ -1417,7 +1458,9 @@ export class ChainEngine {
         if (!after.payable) throw new Error('Parent cost remains unpayable after the Reaction Add');
         const payment = this.payFinalizedParent(parent);
         parent.status = 'finalized';
-        this.pipeline.emit({ timingPoint: 'chain-item-finalize', object: parent.source, player: parent.controller, details: { item: parent.id } });
+        this.recordCardFinalize(parent);
+        this.pipeline.emit({ timingPoint: 'chain-item-finalize', object: parent.source, player: parent.controller,
+          details: { item: parent.id, cardFinalize: true } });
         this.requestCleanup('item-finalized');
         this.busy = 'idle';
         binding.state = 'consumed';

@@ -1,14 +1,7 @@
 // Golden test for the Gold gear token (sfd-t03).
-// RIFT-654 template execution evidence: ../templates/activated-activated-effect-resources-654.test.mjs
-// (whole-card activation is pending; the original 'Kill this, Exhaust this' payment, original [A] body,
-// exhausted-source and spent-source boundaries execute as partial evidence). The card stays judge-required for the
-// [A] Universal Power add and for the kind=add activation bridge into 430.2.a/430.3.
-//
-// The activated ability's two real halves — the nonstandard `kill` + `exhaust`
-// cost payment through the merged cost plan and the card-program binding
-// (describeActivate + ChainEngine), and the Reaction-speed declaration — are
-// executed here. The [A] Universal Power addition and the missing token
-// definition are the judged gaps (see judgeReason).
+// The production Chain executes the Kill + Exhaust cost, Reaction timing, and
+// immediate Universal Power Add. RIFT-987 separately covers token creation and
+// lifecycle attachment of the sfd-t03 carrier.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -17,7 +10,6 @@ import program from "../../../dist/cards/sfd/gold.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
-import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
@@ -58,24 +50,14 @@ test("sfd-t03 Gold: program passes validateCardProgram", () => {
   assert.deepEqual(result.issues, []);
 });
 
-test("sfd-t03 Gold: identity, ruleset, status, judgeReason and verbatim sourceText", () => {
+test("sfd-t03 Gold: identity, ruleset, executable status and verbatim sourceText", () => {
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
+  assert.equal(program.status, "executable");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CARD_ID), program);
-
-  // The gap is Universal Power, not the cost or the Reaction timing.
-  assert.match(program.judgeReason, /163\.2\.b/);
-  assert.match(program.judgeReason, /Universal/);
-  assert.match(program.judgeReason, /gain-universal-power/);
-  // The merged payment half is executed, but the kind=add activation bridge for
-  // the 430.2.a/430.3 Add timing paths is still an open gap and must stay named.
-  assert.match(program.judgeReason, /describeActivate/);
-  assert.match(program.judgeReason, /activateAddDuringPayment/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-261|未合入 HEAD/);
-  assert.doesNotMatch(program.judgeReason, /golden 实测 buildCostPlan/);
+  assert.equal(program.judgeReason, undefined);
 });
 
 test("sfd-t03 Gold: a reaction-timed activated ability whose cost is 'Kill this, exhaust this'", () => {
@@ -100,10 +82,9 @@ test("sfd-t03 Gold: the body records one [A] Power and never a named domain", ()
   assert.equal(addUniversal.id, "gold.add-universal-power");
   assert.equal(addUniversal.op, "effect.resources");
   // 430.1 / 430.5: "[Add] :rb_rune_rainbow:." adds one Power; 135.2.e.5 / 163.2.b
-  // make that Power Universal ([A]). The closed six-domain union has no such
-  // value, so the descriptive "rainbow" spelling is kept and never narrowed.
+  // make that Power Universal ([A]); "universal" is the normalized source.
   assert.deepEqual(addUniversal.args, {
-    power: { kind: "constant", value: ["rainbow"] }
+    power: { kind: "constant", value: ["universal"] }
   });
   assert.equal(addUniversal.args.energy, undefined);
   assert.equal(addUniversal.targets, undefined);
@@ -192,13 +173,13 @@ function goldActivation() {
   return { binding, engine, kernel };
 }
 
-test("sfd-t03 golden: the card-program binding describes the real activation and the chain pays exhaust + kill", () => {
+test("sfd-t03 golden: the card-program binding describes the Reaction Add and the chain pays exhaust + kill", () => {
   // 377.1 / 357.2: the printed cost is the activation cost, so the merged
   // describeActivate draft carries it and the chain engine pays it for real.
   const { binding, engine, kernel } = goldActivation();
   const source = kernel.getObject("gold");
   const draft = binding.describeActivate(source, "A", 0);
-  assert.equal(draft.kind, "activated");
+  assert.equal(draft.kind, "add");
   assert.equal(draft.speed, "reaction");
   assert.deepEqual(
     draft.cost.cost.payments.map((payment) => [payment.kind, payment.object]),
@@ -210,11 +191,9 @@ test("sfd-t03 golden: the card-program binding describes the real activation and
 
   // 415.4 / 429.1 / 429.2: both nonstandard payments really happened and the
   // token really left the Board for its Trash.
-  assert.deepEqual(kernel.events.map((event) => event.action).filter(Boolean), ["pay", "exhaust", "kill"]);
+  assert.deepEqual(kernel.events.map((event) => event.action).filter(Boolean), ["pay", "exhaust", "kill", "gain-power"]);
   assert.equal(kernel.getObject("gold").zone, "trash");
-  // The body's [A] addition is the judged gap: effect.resources refuses the
-  // descriptive rainbow spelling instead of gaining a domain.
-  assert.deepEqual(kernel.player("A").power, []);
+  assert.deepEqual(kernel.player("A").power, ["universal"]);
   assert.equal(kernel.player("A").energy, 20);
 });
 
@@ -228,50 +207,10 @@ test("sfd-t03 golden: a second activation cannot be paid once the token is in th
     () => engine.execute(binding.describeActivate(kernel.getObject("gold"), "A", 0)),
     (error) => error.name === "CostPlanError" && error.reason === "cannot-pay-cost"
   );
-  assert.deepEqual(kernel.player("A").power, []);
+  assert.deepEqual(kernel.player("A").power, ["universal"]);
 });
 
 // The previous "[A] cannot be paid" boundary asserted that the missing
 // Universal Power representation is still missing; it is restored under the
 // tightened review rule and stays aligned with the TODO entry below, while the
 // real cost plan and the card-program binding keep their positive goldens above.
-test("sfd-t03 boundary: [A] cannot be paid either, so the gap stays a contract request", () => {
-  // 135.2.e.5 / 163.2.b: [A] is Universal Power. The merged payer rejects the
-  // descriptive spelling outright instead of substituting a domain (cost/README
-  // contract integration request 2).
-  const kernel = world().player("A", { energy: 10, power: ["Calm"] }).player("B", { energy: 10 }).build();
-  const context = kernel.clone({ sourceSnapshot: kernel.getObject("gold") });
-  // The planner's domain validator is the closed six-domain set too, so it
-  // refuses the descriptive [A] spelling rather than locking a plan whose
-  // composition cannot be represented (plan-values.ts domains(); cost/README
-  // integration request 2 asks for a distinct universal source).
-  assert.throws(
-    () => buildCostPlan(context, {
-      id: "gold:universal",
-      cost: {
-        kind: "activated",
-        payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["rainbow"] }]
-      }
-    }),
-    (error) => error instanceof CostPlanError && error.reason === "invalid-cost-plan"
-  );
-  assert.deepEqual(context.player("A").power, ["Calm"]);
-  assert.equal(context.player("A").energy, 10);
-});
-
-test.todo(
-  "sfd-t03 Gold: adding Universal Power ([A], CR 135.2.e.5 / 163.2.b) needs a contract representation — the " +
-    "closed six-domain union and the gain-power action have no universal value"
-);
-
-test.todo(
-  "sfd-t03 Gold: creating/playing a Gold gear token is blocked inside effect.token — its frozen definition table " +
-    "deliberately omits Gold (\"definitions requiring other abilities, including Gold, remain blocked/judge-required\"), " +
-    "so both the token definition and the source that would play it stay pending"
-);
-
-test.todo(
-  "sfd-t03 Gold: the 430.3 window that lets a Reaction Add be activated while costs are being paid is owned by the " +
-    "chain (ChainEngine.activateAddDuringPayment); wiring this card's activated Add ability into that window is part " +
-    "of the card-program → chain call-site work (the ChainEngine method is merged; no production caller invokes it)"
-);

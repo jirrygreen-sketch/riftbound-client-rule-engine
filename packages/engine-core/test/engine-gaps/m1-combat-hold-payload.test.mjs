@@ -14,6 +14,7 @@ import { translateTriggerFilter } from '../../dist/programs/filters.js';
 import lucianMerciless from '../../../card-dsl/dist/cards/sfd/lucian-merciless.js';
 import minefield from '../../../card-dsl/dist/cards/sfd/minefield.js';
 import plunderingPoro from '../../../card-dsl/dist/cards/sfd/plundering-poro.js';
+import gold from '../../../card-dsl/dist/cards/sfd/gold.js';
 import ravenbloomConservatory from '../../../card-dsl/dist/cards/sfd/ravenbloom-conservatory.js';
 import rumbleHotheaded from '../../../card-dsl/dist/cards/sfd/rumble-hotheaded.js';
 import rumbleScrapper from '../../../card-dsl/dist/cards/sfd/rumble-scrapper.js';
@@ -64,7 +65,15 @@ function scoreFixture({ fields = [{ id: 'bf1', controller: null }, { id: 'bf2', 
     }),
     testTrigger: registration => kernel.test(registration.spec.condition),
   });
-  const flow = new TurnFlow({ host, player: id => kernel.player(id), turnOrder: ['A', 'B'], battlefields: fields });
+  const binding = createProgramBinding({
+    cardPrograms: Object.values(testProgramBindings()).filter(program =>
+      program.canonicalCardId !== plunderingPoro.canonicalCardId
+    ).concat(gold),
+  });
+  const flow = new TurnFlow({
+    host, player: id => kernel.player(id), turnOrder: ['A', 'B'], battlefields: fields,
+    describePlay: binding.describePlay,
+  });
   const activated = (id, body, sourceId = 'trigger-source', controller = 'A') => ({
     id, controller, source: kernel.getObject(sourceId), kind: 'activated', speed: 'normal', body,
   });

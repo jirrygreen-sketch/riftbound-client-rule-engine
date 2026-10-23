@@ -49,7 +49,7 @@ type MutablePlayer = {
   id: PlayerId;
   name: string;
   energy: number;
-  power: Domain[];
+  power: PowerPaymentSource[];
   xp: number;
   score: number;
   /** The engine primitive contract names a subset of zones; the runtime also
@@ -145,6 +145,9 @@ export class EngineRuntimeHost {
   private readonly objectMap = new Map<string, MutableObject>();
   private readonly players = new Map<PlayerId, MutablePlayer>();
   private readonly lastKnown = new Map<string, ObjectSnapshot>();
+  /** A choice may be raised after an uncommitted move; retain only those exact
+   * option incarnations until the caller answers and replays the transaction. */
+  private readonly choiceObjects = new Map<string, ObjectSnapshot>();
   private nextToken = 1;
   private readonly grants: RuntimeVisibilityGrant[] = [];
   private readonly runeDomainsByObject = new Map<string, readonly Domain[]>();
@@ -154,7 +157,7 @@ export class EngineRuntimeHost {
 
   constructor(
     readonly seatNames: Readonly<Record<PlayerId, string>> = { A: "Player A", B: "Player B" },
-    readonly choose: <T>(request: ChoiceRequest<T>) => T,
+    private readonly chooseDelegate: <T>(request: ChoiceRequest<T>) => T,
     catalogDomains: ReadonlyMap<string, readonly Domain[]> = new Map(),
   ) {
     for (const [cardId, values] of catalogDomains) {
@@ -235,7 +238,33 @@ export class EngineRuntimeHost {
 
   object(ref: ObjectRef): ObjectSnapshot | null {
     const object = this.objectMap.get(ref.id);
-    return object && object.ref.zoneEntryId === ref.zoneEntryId ? clone(object) : null;
+    if (object && object.ref.zoneEntryId === ref.zoneEntryId) return clone(object);
+    return clone(this.choiceObjects.get(refKey(ref)) ?? null);
+  }
+
+  /** Ask for exactly one decision. Object options retain the transaction's
+   * precise snapshots across the rollback that suspends the decision. */
+  choose<T>(request: ChoiceRequest<T>): T {
+    const prior = new Map(this.choiceObjects);
+    this.choiceObjects.clear();
+    if (request.type === "select-objects" || request.type === "order") {
+      for (const ref of request.options) {
+        const object = this.objectMap.get(ref.id);
+        if (object?.ref.zoneEntryId === ref.zoneEntryId) this.choiceObjects.set(refKey(ref), clone(object));
+      }
+    }
+    try {
+      const answer = this.chooseDelegate(request);
+      for (const [key, object] of prior) if (!this.choiceObjects.has(key)) this.choiceObjects.set(key, object);
+      this.choiceObjects.clear();
+      return answer;
+    } catch (error) {
+      // The outer transaction owns whether this is a pending choice or a
+      // rejected command. Restore its exact set while the error unwinds; the
+      // next actual state action retires any choice-only view.
+      for (const [key, object] of prior) if (!this.choiceObjects.has(key)) this.choiceObjects.set(key, object);
+      throw error;
+    }
   }
 
   lastKnownObject(ref: ObjectRef): ObjectSnapshot {
@@ -303,6 +332,9 @@ export class EngineRuntimeHost {
   }
 
   perform(action: GameAction): ActionOutcome {
+    // A suspended choice is the only reader allowed to observe the rolled-back
+    // option incarnations. Any new state action retires that narrow view.
+    this.choiceObjects.clear();
     try {
       switch (action.type) {
         case "create-token": return this.createToken(action.player, action.token, action.to, action.location);
@@ -334,7 +366,12 @@ export class EngineRuntimeHost {
         case "heal": { const target = this.requireObject(action.object); const amount = Math.min(target.damage, action.amount); target.damage -= amount; return this.done(amount); }
         case "channel-rune": return this.channel(action.player, action.amount, action.exhausted ?? true);
         case "gain-energy": { const player = this.requirePlayer(action.player); player.energy += action.amount; return this.done(action.amount); }
-        case "gain-power": { const player = this.requirePlayer(action.player); player.power.push(...action.power); return this.done(action.power); }
+        case "gain-power": {
+          const player = this.requirePlayer(action.player);
+          if (!Array.isArray(action.power) || action.power.some(source =>
+            !KNOWN_DOMAINS.has(source as Domain) && !["universal", "any", "universal-power"].includes(source))) return this.impossible();
+          player.power.push(...action.power); return this.done(action.power);
+        }
         case "pay": return this.pay(action.player, action.plan);
         case "gain-xp": { const player = this.requirePlayer(action.player); player.xp += action.amount; return this.done(action.amount); }
         case "spend-xp": { const player = this.requirePlayer(action.player); if (player.xp < action.amount) return this.prevented(); player.xp -= action.amount; return this.done(action.amount); }
@@ -381,6 +418,7 @@ export class EngineRuntimeHost {
 
   /** Versioned direct consumer for actions outside the closed GameAction union. */
   performContract(action: ContractGameAction): ActionOutcome {
+    this.choiceObjects.clear();
     const checkpoint = this.checkpoint();
     const outcome = this.performContractInternal(action);
     if (outcome.status !== "done") this.restore(checkpoint);
@@ -775,25 +813,36 @@ export class EngineRuntimeHost {
 
     const power = plan.power ?? [];
     if (!Array.isArray(power) || power.some(domain => !KNOWN_DOMAINS.has(domain))) return this.prevented();
+    const universalPower = plan.universalPower ?? 0;
+    if (!validCount(universalPower)) return this.prevented();
     const powerRequired = new Map<Domain, number>();
     for (const domain of power) powerRequired.set(domain, (powerRequired.get(domain) ?? 0) + 1);
+    // `power` is the concrete named-Domain debit emitted by the payment
+    // allocator; `universalPower` is the separate Universal debit. The host
+    // checks both inventories against the final chosen source mix.
     const powerSources = plan.powerSources ?? [];
     if (!Array.isArray(powerSources)) return this.prevented();
+    const explicitPowerSources = plan.powerSources !== undefined;
     const assigned = new Map<PowerPaymentSource, number>();
     for (const entry of powerSources) {
-      if (entry === null || typeof entry !== "object" || !KNOWN_DOMAINS.has(entry.source as Domain) ||
+      if (entry === null || typeof entry !== "object" ||
+          (!KNOWN_DOMAINS.has(entry.source as Domain) && !["universal", "any", "universal-power"].includes(entry.source)) ||
           !validCount(entry.amount) || entry.amount === 0) return this.prevented();
       assigned.set(entry.source, (assigned.get(entry.source) ?? 0) + entry.amount);
     }
-    // The legacy Domain[] pool can prove only named-domain Power. Universal
-    // lots cannot be represented here; fail closed rather than treating them
-    // as an unrestricted or free payment.
-    if (plan.universalPower !== undefined) return this.prevented();
+    if (explicitPowerSources && (assigned.get("universal") ?? 0) + (assigned.get("any") ?? 0) +
+        (assigned.get("universal-power") ?? 0) !== universalPower) return this.prevented();
     for (const [domain, amount] of powerRequired) {
-      if (powerSources.length > 0 && (assigned.get(domain) ?? 0) !== amount) return this.prevented();
+      if (explicitPowerSources && (assigned.get(domain) ?? 0) !== amount) return this.prevented();
       if (player.power.filter(value => value === domain).length < amount) return this.prevented();
     }
-    if (powerSources.length > 0 && [...assigned].some(([domain, amount]) => (powerRequired.get(domain as Domain) ?? 0) !== amount)) return this.prevented();
+    const universalAvailable = player.power.filter(value =>
+      value === "universal" || value === "any" || value === "universal-power").length;
+    if (universalAvailable < universalPower) return this.prevented();
+    if (explicitPowerSources && [...assigned].some(([source, amount]) =>
+      source === "universal" || source === "any" || source === "universal-power"
+        ? false
+        : (powerRequired.get(source as Domain) ?? 0) !== amount)) return this.prevented();
 
     const exhaust = plan.exhaust ?? [];
     const recycle = plan.recycle ?? [];
@@ -814,6 +863,14 @@ export class EngineRuntimeHost {
     try {
       player.energy -= energy;
       player.xp -= xp;
+      let remainingUniversal = universalPower;
+      for (let index = player.power.length - 1; index >= 0 && remainingUniversal > 0; index--) {
+        const source = player.power[index];
+        if (source !== "universal" && source !== "any" && source !== "universal-power") continue;
+        player.power.splice(index, 1);
+        remainingUniversal--;
+      }
+      if (remainingUniversal !== 0) throw new Error("Universal Power payment lost during commit");
       for (const [domain, amount] of powerRequired) {
         let remaining = amount;
         for (let index = player.power.length - 1; index >= 0 && remaining > 0; index--) {

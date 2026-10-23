@@ -97,8 +97,9 @@ test("CR 187.1-187.12 definitions retain real types, tags, Might, keywords and n
   });
   assert.deepEqual(byId.get("gold").spec.types, ["gear"]);
   assert.equal(byId.get("gold").spec.might, null);
-  assert.deepEqual(byId.get("gold").spec.keywords, [{ id: "Reaction" }]);
+  assert.deepEqual(byId.get("gold").spec.keywords, []);
   assert.equal(byId.get("gold").defaultEntry, "ready");
+  assert.equal(byId.get("gold").abilityBinding, "canonical-card-program");
   assert.deepEqual(byId.get("bird").spec.keywords, [{ id: "Deflect" }]);
   assert.deepEqual(byId.get("bomb").spec.keywords, [{ id: "Deploy" }, { id: "Deathknell" }]);
   assert.deepEqual(byId.get("baron-pit").spec.types, ["battlefield"]);
@@ -232,7 +233,7 @@ test("a unit entry override is carried on the real create action with null print
   assert.equal(kernel.getObject("token-1").exhausted, false);
 });
 
-test("an invalid destination and a blocked intrinsic definition fail without creating anything", () => {
+test("an invalid destination fails without creating anything", () => {
   const token = instructionDefinitionsById.get("effect.token");
   const kernel = world().unit("source").build();
   const context = bindResolveContext(kernel, {
@@ -244,14 +245,15 @@ test("an invalid destination and a blocked intrinsic definition fail without cre
   }], context).results[0].result;
   assert.equal(invalid.status, "negated");
   assert.equal(kernel.objects.filter(object => object.isToken).length, 0);
-  const blocked = resolveChainBody([{
-    id: "blocked.gold", op: "effect.token",
+  const created = resolveChainBody([{
+    id: "created.gold", op: "effect.token",
     args: { token: c("gold"), location: c(base("A")), entersExhausted: c(true) }
   }], context).results[0].result;
-  assert.equal(blocked.status, "negated");
-  assert.equal(kernel.linked("blocked.gold.token.blockedReason"), undefined);
-  assert.equal(kernel.linked("blocked.gold.token").blockedReason, "token-definition-or-abilities-judge-required");
-  assert.equal(kernel.objects.filter(object => object.isToken).length, 0);
+  assert.equal(created.status, "executed");
+  const [gold] = kernel.objects.filter(object => object.isToken);
+  assert.equal(gold.cardId, "card.hash-6249df4367d0a2e088c8eb1117ef59430f0d7dad4bf0fcf8a01d7f0415f4d511");
+  assert.equal(gold.isToken, true);
+  assert.equal(gold.exhausted, true);
 });
 
 test("an outer transaction rolls back every committed token when a later Play is prevented", () => {

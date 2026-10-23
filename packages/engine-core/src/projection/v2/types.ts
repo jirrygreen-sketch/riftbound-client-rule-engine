@@ -6,6 +6,7 @@ import type {
   ObjectSnapshot,
   PlayerId,
   ZoneId,
+  PowerPaymentSource,
 } from '../../effects/contract.js';
 
 /** A seat, or the privacy-restricted view used by spectators and replays. */
@@ -78,7 +79,7 @@ export interface ProjectionPlayerInput {
   readonly playerId?: PlayerId;
   readonly name?: string;
   readonly energy?: number;
-  readonly power?: readonly Domain[];
+  readonly power?: readonly PowerPaymentSource[];
   readonly score?: number;
   readonly points?: number;
   readonly xp?: number;
@@ -217,7 +218,7 @@ export interface ProjectedPlayer {
   readonly id: PlayerId;
   readonly name?: string;
   readonly energy?: number;
-  readonly power?: readonly Domain[];
+  readonly power?: readonly PowerPaymentSource[];
   readonly score?: number;
   readonly points?: number;
   readonly xp?: number;

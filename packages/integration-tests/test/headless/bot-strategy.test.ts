@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   rankHeadlessBotCommands,
+  replayHeadlessJournal,
+  runHeadlessGame,
   type HeadlessCommand,
   type HeadlessCommandTrace,
   type HeadlessCommandTraceObject,
+  type HeadlessJournal,
 } from "../../src/headless/duel.js";
 
 const ref = (id: string) => ({ id, zoneEntryId: 1 });
@@ -60,6 +63,32 @@ function trace(
 }
 
 describe("headless bot command strategy", () => {
+  it("journals an active setup blocker without inventing gameplay or a winner", () => {
+    let journal: HeadlessJournal | undefined;
+    const result = runHeadlessGame("RIFT-857-m1-seed-001", {
+      decks: ["rumble-sfd", "fiora-sfd"],
+      onJournal: value => { journal = value; },
+    });
+    expect(result.termination).toBe("blocked");
+    expect(result.winner).toBeNull();
+    expect(result.guardReason).toBeNull();
+    expect(result.blockers).toEqual([
+      expect.objectContaining({ name: "ProgramBindingError", code: "judge-required" }),
+    ]);
+    expect(result.judgeRequiredCards).toContain(
+      "card.hash-0c36f22df8ffa7bed49f59fd138d24b9b0a52a7b8ad4c720afcaa12ec816eee4",
+    );
+    expect(Object.values(result.actionCoverage.commands).every(count => count === 0)).toBe(true);
+    expect(journal).toBeDefined();
+    expect(journal!.commands).toEqual([]);
+    expect(journal!.setupBlockers).toEqual(result.blockers);
+    expect(result.replayMatches).toBe(true);
+    expect(result.privacySafe).toBe(true);
+    expect(result.privacyChecks).toBeGreaterThan(0);
+    expect(replayHeadlessJournal(journal!)).toBe(true);
+    expect(replayHeadlessJournal({ ...journal!, setupBlockers: [] })).toBe(false);
+  }, 60_000);
+
   it("plays an affordable Unit even when an owned board Unit already exists", () => {
     const play: HeadlessCommand = { type: "play", player: "A", object: ref("unit-play"),
       id: "play:unit", location: { type: "base", player: "A" } };

@@ -127,7 +127,7 @@ test("Watchful Sentry's printed Deathknell text binds to one boundary and resolv
   assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-killed").length, 1);
 });
 
-test("Plundering Poro's original Gold IR remains fail-closed with no token or Pending item", () => {
+test("Plundering Poro's original Gold IR plays one exhausted Gold carrier", () => {
   const kernel = world().player("A").player("B").unit("poro", { location: battlefield }).build();
   const source = kernel.getObject("poro");
   const context = runtimeContext(kernel, source);
@@ -136,16 +136,22 @@ test("Plundering Poro's original Gold IR remains fail-closed with no token or Pe
   assert.ok(trigger);
   const outcome = resolveChainBody(trigger.body, context);
   const result = outcome.results[0].result;
-  assert.equal(result.status, "negated");
-  assert.equal(result.reason, "impossible");
-  assert.equal(kernel.linked("play-gold.token").blockedReason, "token-definition-or-abilities-judge-required");
-  assert.equal(kernel.linked("play-gold.token.amount"), 0);
-  assert.deepEqual(kernel.linked("play-gold.token.objects"), []);
-  assert.equal(kernel.objects.filter(object => object.isToken).length, 0);
+  assert.equal(result.status, "executed");
+  assert.equal(kernel.linked("play-gold.token").blockedReason, undefined);
+  assert.equal(kernel.linked("play-gold.token.amount"), 1);
+  const [gold] = kernel.objects.filter(object => object.isToken);
+  assert.deepEqual(kernel.linked("play-gold.token.objects"), [gold.ref]);
+  assert.equal(gold.cardId, "card.hash-6249df4367d0a2e088c8eb1117ef59430f0d7dad4bf0fcf8a01d7f0415f4d511");
+  assert.equal(gold.isToken, true);
+  assert.deepEqual(gold.types, ["gear"]);
+  assert.deepEqual(gold.location, base("A"));
+  assert.equal(gold.exhausted, true);
+  assert.equal(gold.energy, null);
+  assert.equal(gold.power, null);
   assert.equal(kernel.pendingItems.length, 0);
 });
 
-test("Wages of Pain's original Gold instruction stays blocked after its executable damage half", () => {
+test("Wages of Pain's original damage half is followed by one exhausted Gold Play", () => {
   const kernel = world().player("A").player("B")
     .unit("victim", { owner: "B" })
     .card("wages", {
@@ -164,15 +170,21 @@ test("Wages of Pain's original Gold instruction stays blocked after its executab
   assert.equal(damageOutcome.results[0].result.status, "executed");
   assert.equal(kernel.getObject("victim").damage, 3);
   const tokenOutcome = resolveChainBody([token], context);
-  assert.equal(tokenOutcome.results[0].result.status, "negated");
-  assert.equal(kernel.linked("play-gold-token.goldToken").blockedReason,
-    "token-definition-or-abilities-judge-required");
-  assert.equal(kernel.linked("play-gold-token.goldToken.amount"), 0);
-  assert.equal(kernel.objects.filter(object => object.isToken).length, 0);
+  assert.equal(tokenOutcome.results[0].result.status, "executed");
+  assert.equal(kernel.linked("play-gold-token.goldToken").blockedReason, undefined);
+  assert.equal(kernel.linked("play-gold-token.goldToken.amount"), 1);
+  const [gold] = kernel.objects.filter(object => object.isToken);
+  assert.deepEqual(kernel.linked("play-gold-token.goldToken.objects"), [gold.ref]);
+  assert.equal(gold.isToken, true);
+  assert.deepEqual(gold.types, ["gear"]);
+  assert.deepEqual(gold.location, base("A"));
+  assert.equal(gold.exhausted, true);
+  assert.equal(gold.energy, null);
+  assert.equal(gold.power, null);
   assert.equal(kernel.pendingItems.length, 0);
 });
 
-test("Treasure Hoard's original optional Gold branch pays Energy and then fails closed without a Token", () => {
+test("Treasure Hoard's original optional branch pays Energy and plays one exhausted Gold", () => {
   const kernel = world().player("A", { energy: 1 }).player("B")
     .unit("treasure-hoard", {
       cardId: treasureHoard.canonicalCardId,
@@ -185,11 +197,19 @@ test("Treasure Hoard's original optional Gold branch pays Energy and then fails 
   const outcome = resolveChainBody(treasureHoard.abilities[0].body, context);
   const byId = new Map(outcome.results.map(result => [result.id, result.result]));
   assert.equal(byId.get("treasure-hoard.pay").status, "executed");
-  assert.equal(byId.get("treasure-hoard.create").status, "negated");
+  assert.equal(byId.get("treasure-hoard.create").status, "executed");
   assert.equal(kernel.player("A").energy, 0, "the optional branch made the real payment");
-  assert.equal(kernel.linked("treasure-hoard.opt-in/treasure-hoard.create.goldToken").blockedReason,
-    "token-definition-or-abilities-judge-required");
-  assert.equal(kernel.objects.filter(object => object.isToken).length, 0);
+  const linked = kernel.linked("treasure-hoard.opt-in/treasure-hoard.create.goldToken");
+  assert.equal(linked.blockedReason, undefined);
+  assert.equal(linked.amount, 1);
+  const [gold] = kernel.objects.filter(object => object.isToken);
+  assert.deepEqual(linked.objects, [gold.ref]);
+  assert.equal(gold.isToken, true);
+  assert.deepEqual(gold.types, ["gear"]);
+  assert.deepEqual(gold.location, base("A"));
+  assert.equal(gold.exhausted, true);
+  assert.equal(gold.energy, null);
+  assert.equal(gold.power, null);
   assert.equal(kernel.pendingItems.length, 0);
 });
 
