@@ -90,19 +90,6 @@ export { buildV2RoomUrlWithSession as buildV2RoomUrl };
 
 export function useV2Match(options: UseV2MatchOptions): V2MatchClient {
   const controllerRef = useRef<V2MatchSessionController | null>(null);
-  const transportKeyRef = useRef<{
-    readonly enabled: boolean;
-    readonly serverUrl: string | null;
-    readonly socketFactory: V2SocketFactory | undefined;
-    readonly choiceTimeoutMs: number | undefined;
-    readonly requestTimeoutMs: number | undefined;
-  }>({
-    enabled: options.enabled,
-    serverUrl: options.serverUrl,
-    socketFactory: options.socketFactory,
-    choiceTimeoutMs: options.choiceTimeoutMs,
-    requestTimeoutMs: options.requestTimeoutMs
-  });
   const [snapshot, setSnapshot] = useState<V2MatchSessionSnapshot>(emptySnapshot);
   const callbacksRef = useRef<{
     createRoom: (playerName: string) => Promise<RoomView>;
@@ -126,20 +113,6 @@ export function useV2Match(options: UseV2MatchOptions): V2MatchClient {
       setSnapshot(emptySnapshot);
       return;
     }
-    const previous = transportKeyRef.current;
-    if (controllerRef.current &&
-        previous.enabled === options.enabled &&
-        previous.serverUrl === options.serverUrl &&
-        previous.socketFactory === options.socketFactory &&
-        previous.choiceTimeoutMs === options.choiceTimeoutMs &&
-        previous.requestTimeoutMs === options.requestTimeoutMs) return;
-    transportKeyRef.current = {
-      enabled: options.enabled,
-      serverUrl: options.serverUrl,
-      socketFactory: options.socketFactory,
-      choiceTimeoutMs: options.choiceTimeoutMs,
-      requestTimeoutMs: options.requestTimeoutMs
-    };
     // Room/session identity is deliberately absent from the effect dependency
     // list below. The controller owns the live socket, and persisting its
     // created session back into props must not replace that socket. These
