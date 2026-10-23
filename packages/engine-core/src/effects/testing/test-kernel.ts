@@ -598,8 +598,7 @@ export class TestWorld implements ResolveContext {
             !Number.isSafeInteger(universalPower) || universalPower < 0) return fail();
         if (requestedPower !== undefined && !Array.isArray(requestedPower)) return fail();
         const power = requestedPower === undefined ? [] : [...requestedPower];
-        if (power.some(domain => domain !== "universal" && domain !== "any" && domain !== "universal-power" &&
-            !["Fury", "Calm", "Mind", "Body", "Chaos", "Order"].includes(domain))) return fail();
+        if (power.some(domain => !["Fury", "Calm", "Mind", "Body", "Chaos", "Order"].includes(domain))) return fail();
         if (player.energy < energy || player.xp < xp) return fail("prevented");
         const remainingPower = [...player.power];
         for (const domain of power) {

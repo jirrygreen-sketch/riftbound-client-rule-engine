@@ -334,7 +334,12 @@ export class EngineRuntimeHost {
         case "heal": { const target = this.requireObject(action.object); const amount = Math.min(target.damage, action.amount); target.damage -= amount; return this.done(amount); }
         case "channel-rune": return this.channel(action.player, action.amount, action.exhausted ?? true);
         case "gain-energy": { const player = this.requirePlayer(action.player); player.energy += action.amount; return this.done(action.amount); }
-        case "gain-power": { const player = this.requirePlayer(action.player); player.power.push(...action.power); return this.done(action.power); }
+        case "gain-power": {
+          const player = this.requirePlayer(action.player);
+          if (!Array.isArray(action.power) || action.power.some(source =>
+            !KNOWN_DOMAINS.has(source as Domain) && !["universal", "any", "universal-power"].includes(source))) return this.impossible();
+          player.power.push(...action.power); return this.done(action.power);
+        }
         case "pay": return this.pay(action.player, action.plan);
         case "gain-xp": { const player = this.requirePlayer(action.player); player.xp += action.amount; return this.done(action.amount); }
         case "spend-xp": { const player = this.requirePlayer(action.player); if (player.xp < action.amount) return this.prevented(); player.xp -= action.amount; return this.done(action.amount); }
@@ -779,25 +784,29 @@ export class EngineRuntimeHost {
     if (!validCount(universalPower)) return this.prevented();
     const powerRequired = new Map<Domain, number>();
     for (const domain of power) powerRequired.set(domain, (powerRequired.get(domain) ?? 0) + 1);
+    // `power` is the concrete named-Domain debit emitted by the payment
+    // allocator; `universalPower` is the separate Universal debit. The host
+    // checks both inventories against the final chosen source mix.
     const powerSources = plan.powerSources ?? [];
     if (!Array.isArray(powerSources)) return this.prevented();
+    const explicitPowerSources = plan.powerSources !== undefined;
     const assigned = new Map<PowerPaymentSource, number>();
     for (const entry of powerSources) {
       if (entry === null || typeof entry !== "object" ||
-          !KNOWN_DOMAINS.has(entry.source as Domain) && !["universal", "any", "universal-power"].includes(entry.source) ||
+          (!KNOWN_DOMAINS.has(entry.source as Domain) && !["universal", "any", "universal-power"].includes(entry.source)) ||
           !validCount(entry.amount) || entry.amount === 0) return this.prevented();
       assigned.set(entry.source, (assigned.get(entry.source) ?? 0) + entry.amount);
     }
-    if (powerSources.length > 0 && (assigned.get("universal") ?? 0) + (assigned.get("any") ?? 0) +
+    if (explicitPowerSources && (assigned.get("universal") ?? 0) + (assigned.get("any") ?? 0) +
         (assigned.get("universal-power") ?? 0) !== universalPower) return this.prevented();
     for (const [domain, amount] of powerRequired) {
-      if (powerSources.length > 0 && (assigned.get(domain) ?? 0) !== amount) return this.prevented();
+      if (explicitPowerSources && (assigned.get(domain) ?? 0) !== amount) return this.prevented();
       if (player.power.filter(value => value === domain).length < amount) return this.prevented();
     }
     const universalAvailable = player.power.filter(value =>
       value === "universal" || value === "any" || value === "universal-power").length;
     if (universalAvailable < universalPower) return this.prevented();
-    if (powerSources.length > 0 && [...assigned].some(([source, amount]) =>
+    if (explicitPowerSources && [...assigned].some(([source, amount]) =>
       source === "universal" || source === "any" || source === "universal-power"
         ? false
         : (powerRequired.get(source as Domain) ?? 0) !== amount)) return this.prevented();
@@ -821,6 +830,14 @@ export class EngineRuntimeHost {
     try {
       player.energy -= energy;
       player.xp -= xp;
+      let remainingUniversal = universalPower;
+      for (let index = player.power.length - 1; index >= 0 && remainingUniversal > 0; index--) {
+        const source = player.power[index];
+        if (source !== "universal" && source !== "any" && source !== "universal-power") continue;
+        player.power.splice(index, 1);
+        remainingUniversal--;
+      }
+      if (remainingUniversal !== 0) throw new Error("Universal Power payment lost during commit");
       for (const [domain, amount] of powerRequired) {
         let remaining = amount;
         for (let index = player.power.length - 1; index >= 0 && remaining > 0; index--) {
@@ -830,14 +847,6 @@ export class EngineRuntimeHost {
         }
         if (remaining !== 0) throw new Error(`Power payment lost ${domain} during commit`);
       }
-      let remainingUniversal = universalPower;
-      for (let index = player.power.length - 1; index >= 0 && remainingUniversal > 0; index--) {
-        const source = player.power[index];
-        if (source !== "universal" && source !== "any" && source !== "universal-power") continue;
-        player.power.splice(index, 1);
-        remainingUniversal--;
-      }
-      if (remainingUniversal !== 0) throw new Error("Universal Power payment lost during commit");
       for (const ref of exhaust) this.setExhausted(ref, true);
       for (const ref of recycle) this.move(ref, "deck-bottom");
       return this.done();
