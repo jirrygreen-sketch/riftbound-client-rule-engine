@@ -602,6 +602,11 @@ export async function runV2DuelBatch(options: {
       port: portBase + (index % portSpan),
       creator: index % 2 === 0 ? "first" : "second",
       maxActions: options.maxActions,
+      // Batch mode is the 100-game acceptance surface. Use the same bounded
+      // command receipt and total-match budgets as the fixed-seed gate.
+      actionTimeoutMs: 45_000,
+      acknowledgementTimeoutMs: 60_000,
+      totalTimeoutMs: 780_000,
       outputDirectory: options.outputDirectory
     }));
   }
