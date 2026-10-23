@@ -109,10 +109,9 @@ test("sfd-028-221 Lucian, Gunslinger: the merged Assault expansion resolves to +
   });
 });
 
-test("sfd-028-221 Lucian, Gunslinger boundary: Assault still reads missing designation", () => {
-  // The merged contract exposes combatRole, while the Assault KeywordDef still
-  // asks for the rules characteristic named designation. The condition therefore
-  // fails closed instead of inventing an attacker-only Might bonus.
+test("sfd-028-221 Lucian, Gunslinger: Assault reads the attacker combat role", () => {
+  // The keyword condition spells the rules characteristic "designation"; the
+  // production expression adapter maps it to the host's combatRole.
   const kernel = world().unit("lucian", { might: 2, combatRole: "attacker" }).build();
   const source = kernel.getObject("lucian");
   const environment = {
@@ -123,14 +122,16 @@ test("sfd-028-221 Lucian, Gunslinger boundary: Assault still reads missing desig
     isIgnored: () => false
   };
   const condition = expandProgram(program, source).expanded[0].condition;
-  assert.throws(() => evaluateCondition(condition, environment), /Unavailable characteristic: designation/);
-  assert.equal(
-    evaluateCondition(
-      { ...condition, left: { kind: "object-property", object: "self", property: "combatRole" } },
-      environment
-    ),
-    true
-  );
+  assert.equal(evaluateCondition(condition, environment), true);
+
+  const defender = world().unit("lucian", { might: 2, combatRole: "defender" }).build();
+  assert.equal(evaluateCondition(condition, {
+    linked: () => undefined,
+    canLookBack: () => true,
+    isIgnored: () => false,
+    context: bindResolveContext(defender, { source: defender.getObject("lucian") }),
+    host: defender.ref("lucian")
+  }), false);
 });
 
 test("sfd-028-221 Lucian, Gunslinger: the attack trigger targets one enemy unit here", () => {
@@ -285,15 +286,15 @@ test("sfd-028-221 Lucian, Gunslinger boundary: the interpreter resolves enemy un
   );
 });
 
-test("sfd-028-221 Lucian, Gunslinger boundary: production trigger binding rejects sameLocationAs", () => {
-  // Probe the target translator directly without promoting this blocked card
-  // to executable just to bypass ProgramRegistry's status guard.
-  assert.throws(
-    () => translateInstructionTargets(attack.body),
-    error => error instanceof ProgramBindingError &&
-      error.code === "judge-required" &&
-      /Unsupported filter field sameLocationAs/.test(error.message)
-  );
+test("sfd-028-221 Lucian, Gunslinger: production trigger binding preserves the here anchor", () => {
+  // The production translator preserves the card's source-relative "here"
+  // anchor without promoting this blocked card past the registry guard.
+  const [translated] = translateInstructionTargets(attack.body);
+  assert.deepEqual(translated.targets[0].filter, {
+    type: "unit",
+    controller: "opponent",
+    sameLocationAs: "source"
+  });
 });
 
 test("sfd-028-221 Lucian, Gunslinger boundary: production registry preserves the actual judge-required guard", () => {
