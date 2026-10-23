@@ -10,6 +10,15 @@ import { TurnFlow } from '../../dist/turn/flow.js';
 
 const CANONICAL = rumbleHotheaded.canonicalCardId;
 const RULES_URL = 'https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf';
+const TRASH_MECH_CANONICAL = 'synthetic:RIFT-953-trash-mech';
+const TRASH_MECH_PRINTED = Object.freeze({
+  id: 'synthetic:rift-953-trash-mech-printing',
+  canonicalCardId: TRASH_MECH_CANONICAL,
+  cardType: 'Unit',
+  domains: Object.freeze(['Mind']),
+  energy: 5,
+  power: null,
+});
 const RULES = Object.freeze({
   version: '1.5',
   dated: '2026-10-09',
@@ -21,7 +30,7 @@ const RULES = Object.freeze({
 function runtime({ accept = true, energy = 10, fodderMight = 3, mechEnergy = 5, onFinalize = () => {} } = {}) {
   const program = { ...rumbleHotheaded, status: 'executable', judgeReason: undefined };
   const trashMechProgram = {
-    canonicalCardId: 'synthetic:RIFT-953-trash-mech',
+    canonicalCardId: TRASH_MECH_CANONICAL,
     rulesetVersion: 'core-1.5',
     status: 'executable',
     sourceText: 'Synthetic RIFT-953 Trash Mech.',
@@ -67,7 +76,10 @@ function runtime({ accept = true, energy = 10, fodderMight = 3, mechEnergy = 5, 
     context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
     testTrigger: registration => kernel.test(registration.spec.condition),
   });
-  const binding = createProgramBinding({ cardPrograms: [program, trashMechProgram] });
+  const binding = createProgramBinding({
+    cardPrograms: [program, trashMechProgram],
+    printedCatalog: [TRASH_MECH_PRINTED],
+  });
   flow = new TurnFlow({
     host,
     player: id => kernel.player(id),
@@ -75,6 +87,7 @@ function runtime({ accept = true, energy = 10, fodderMight = 3, mechEnergy = 5, 
     battlefields: [{ id: 'bf1', controller: null }, { id: 'bf2', controller: null }],
     describePlay: binding.describePlay,
   });
+  binding.attachLifecycle(flow.chain, error => { throw error; });
   flow.start();
   assert.equal(flow.chain.commit({ type: 'gain-energy', player: 'A', amount: energy }).status, 'done');
   const energyBeforePayment = kernel.player('A').energy;
