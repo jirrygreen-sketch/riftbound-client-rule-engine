@@ -12,7 +12,7 @@ import { runInstruction, world } from "../../../../engine-core/dist/effects/test
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { bindStaticAbility, createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
-import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { assertTriggerSpec, validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -121,7 +121,7 @@ test("unl-085-219 Sumpworks Map golden: the printed score trigger registers and 
   assert.equal(queued[0].event.player, "B");
 });
 
-test("unl-085-219 Sumpworks Map: [Temporary]'s beginning-start trigger body is still outside the closed event vocabulary", () => {
+test("unl-085-219 Sumpworks Map: [Temporary]'s beginning-start trigger validates in production", () => {
   // 816.1 / 816.1.b: Temporary expands a kill trigger at the controller's
   // Beginning Phase start. The expansion writes event: "beginning-start", which
   // is a legal timing point but not a legal EventPattern name, so the
@@ -131,10 +131,8 @@ test("unl-085-219 Sumpworks Map: [Temporary]'s beginning-start trigger body is s
   });
   assert.equal(temporaryTrigger.trigger.at, "beginning-start");
   assert.deepEqual(temporaryTrigger.trigger.filter, { event: "beginning-start", player: "self" });
-  assert.throws(
-    () => assertTriggerSpec({ at: temporaryTrigger.trigger.at, filter: temporaryTrigger.trigger.filter }),
-    (error) => error.name === "TriggerSpecValidationError" && /trigger\.filter\.event/.test(error.message)
-  );
+  assert.doesNotThrow(() => assertTriggerSpec({ at: temporaryTrigger.trigger.at, filter: temporaryTrigger.trigger.filter }));
+  assert.equal(validateTriggerSpec({ at: temporaryTrigger.trigger.at, filter: temporaryTrigger.trigger.filter }).ok, true);
   // 816.1.b's kill body itself is the merged effect.kill primitive.
   assert.deepEqual(temporaryTrigger.body.map(instruction => instruction.op), ["effect.kill"]);
 });
