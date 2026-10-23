@@ -15,6 +15,7 @@ type PreconTuple = readonly [PreconEntry["zone"], string, number];
 export interface PreconCatalogEntry {
   readonly id: string;
   readonly canonicalCardId: string;
+  readonly setCode?: string;
   readonly variant?: string;
   readonly available?: boolean;
 }
@@ -91,12 +92,19 @@ export const V2_M1_PRECON_LISTS: Readonly<Record<V2M1PreconId, readonly PreconEn
   "fiora-sfd": materialize(PRECON_ROWS["fiora-sfd"])
 };
 
+/** Both M1 presets are Spiritforged (SFD) precons. */
+const PRECON_SET_CODE = "sfd";
+
 export function printingForCanonical(
   cards: readonly PreconCatalogEntry[],
   canonicalCardId: string
 ): string | null {
   const matches = cards.filter(card => card.canonicalCardId === canonicalCardId && card.available !== false);
-  const preferred = matches.find(card => card.variant === "standard") ?? matches[0] ?? null;
+  // Same preference as the server preset builder (apps/game-server/src/presets/
+  // catalog.ts physicalPrintingFor): the SFD standard printing first, so the
+  // submitted deck digest matches the authoritative preset (RIFT-1027).
+  const preferred = matches.find(card => card.setCode === PRECON_SET_CODE && card.variant === "standard") ??
+    matches.find(card => card.variant === "standard") ?? matches[0] ?? null;
   return preferred?.id ?? null;
 }
 
