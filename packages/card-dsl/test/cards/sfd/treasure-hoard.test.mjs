@@ -85,7 +85,7 @@ const OFFICIAL_EVIDENCE = Object.freeze({
     optionalPaymentAndGold: Object.freeze({
       canonicalCardId: CANONICAL,
       goldCanonicalCardId: goldProgram.canonicalCardId,
-      ruleRefs: Object.freeze(["135.2.e.5.a", "135.2.e.5.b", "184.1", "185.2.a", "185.2.d", "187.5", "350.2", "354", "383.3.a", "405.1", "405.2", "415.4", "440.2.c"]),
+      ruleRefs: Object.freeze(["135.2.e.5.a", "135.2.e.5.b", "184.1", "185.2.a", "185.2.d", "187.5", "350.2", "354", "383.3.a", "405.1", "405.2", "440.2.c"]),
       setup: "CR 133.6.a.1 / 170.2.a-b establish the selected Battlefield without playing it; CR 199.1 makes it the Game Object at its own Location.",
       timeline: Object.freeze([
         "Play/Pending: Conquer creates the triggered ability as a Pending Item.",
@@ -113,11 +113,15 @@ const OFFICIAL_EVIDENCE = Object.freeze({
     goldIntrinsicAbility: Object.freeze({
       canonicalCardId: goldProgram.canonicalCardId,
       sourceCanonicalCardId: CANONICAL,
-      ruleRefs: Object.freeze(["135.2.e.5.a", "135.2.e.5.b", "187.5", "357.2", "430.2.a", "430.3", "813.1.c.2"]),
+      ruleRefs: Object.freeze(["135.2.e.5.a", "135.2.e.5.b", "187.5", "357.2", "415.4", "430.2.a", "430.3", "813.1.c.2"]),
       timeline: Object.freeze([
         "Gold is a Reaction Add, so its ordinary legality is evaluated without a separate card-created response window.",
-        "Finalize pays Exhaust this and Kill this from the created token incarnation.",
+        "Finalize checks and pays Exhaust this and Kill this from the created token incarnation; an already exhausted Gold cannot complete the Exhaust cost (CR 415.4).",
         "The Add resolves immediately under CR 430.2.a and places one Universal Power lot in the controller's Rune Pool."
+      ]),
+      productionAssertions: Object.freeze([
+        "production boundary: a ready Gold pays Exhaust then Kill and adds Universal Power",
+        "production counterexample: the created Gold remains exhausted, fails the 187.5 Exhaust cost with cannot-pay-cost, and rolls back Board, events and Power"
       ]),
       productionTestNames: Object.freeze([
         "sfd-220-221 Treasure Hoard production boundary: Gold's canonical intrinsic ability pays Kill this + Exhaust and adds Universal Power",
@@ -314,7 +318,7 @@ test("sfd-220-221 Treasure Hoard: official CR, Radiance, SFD and processing evid
   assert.match(OFFICIAL_EVIDENCE.interactions.optionalPaymentAndGold.replacement, /405\.2/);
   assert.deepEqual(OFFICIAL_EVIDENCE.interactions.optionalPaymentAndGold.ruleRefs, [
     "135.2.e.5.a", "135.2.e.5.b", "184.1", "185.2.a", "185.2.d", "187.5", "350.2",
-    "354", "383.3.a", "405.1", "405.2", "415.4", "440.2.c"
+    "354", "383.3.a", "405.1", "405.2", "440.2.c"
   ]);
   assert.deepEqual(OFFICIAL_EVIDENCE.interactions.optionalPaymentAndGold.timeline, [
     "Play/Pending: Conquer creates the triggered ability as a Pending Item.",
@@ -327,8 +331,14 @@ test("sfd-220-221 Treasure Hoard: official CR, Radiance, SFD and processing evid
     "production counterexamples: declining and insufficient-Energy cases pay nothing and create no substitute Token",
     "Gold entry golden: the produced Gold resolves as its own Chain item, enters the controller's Base, and is exhausted"
   ]);
+  assert.equal(OFFICIAL_EVIDENCE.interactions.optionalPaymentAndGold.ruleRefs.includes("415.4"), false,
+    "CR 415.4 belongs to Gold's Exhaust cost, not Treasure Hoard's Energy payment");
   assert.deepEqual(OFFICIAL_EVIDENCE.interactions.goldIntrinsicAbility.ruleRefs, [
-    "135.2.e.5.a", "135.2.e.5.b", "187.5", "357.2", "430.2.a", "430.3", "813.1.c.2"
+    "135.2.e.5.a", "135.2.e.5.b", "187.5", "357.2", "415.4", "430.2.a", "430.3", "813.1.c.2"
+  ]);
+  assert.deepEqual(OFFICIAL_EVIDENCE.interactions.goldIntrinsicAbility.productionAssertions, [
+    "production boundary: a ready Gold pays Exhaust then Kill and adds Universal Power",
+    "production counterexample: the created Gold remains exhausted, fails the 187.5 Exhaust cost with cannot-pay-cost, and rolls back Board, events and Power"
   ]);
   for (const interaction of Object.values(OFFICIAL_EVIDENCE.interactions)) {
     assert.ok(interaction.productionTestNames.length > 0);
