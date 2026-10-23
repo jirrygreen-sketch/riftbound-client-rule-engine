@@ -12,6 +12,7 @@ import { moveUnits } from "../../../../engine-core/dist/game/commands/index.js";
 import { createMatch } from "../../../../engine-core/dist/game/lifecycle.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { bindBurnOutInstructionCapability } from "../../../../engine-core/dist/turn/burn-out.js";
 
 const CANONICAL_ID = "card.hash-0c36f22df8ffa7bed49f59fd138d24b9b0a52a7b8ad4c720afcaa12ec816eee4";
 const PRINTING_ID = "sfd-212-221";
@@ -21,19 +22,23 @@ const RADIANCE_URL = "https://playriftbound.com/en-us/news/announcements/core-ru
 const SFD_ERRATA_URL = "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/";
 const SFD_PATCH_URL = "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-core-rules-spiritforged-patch-notes/";
 const field = id => ({ type: "battlefield", id });
-
-// The committed program remains fail-closed. Lift only this in-memory copy to
-// verify the authored IR through the same default setup and command adapter a
-// production match uses; the promotion decision stays with the committed status.
-const admitted = Object.freeze({ ...program, status: "executable", judgeReason: undefined });
+const PRODUCTION_TEST_NAMES = Object.freeze({
+  setup: "minefield: default setup and two Units produce one mill through Priority, Finalize and Resolve",
+  currentController: "minefield: current controller B conquers through real combat and burns B, not creator A",
+  shortDeck: "minefield: one-card Main Deck completes Burn Out under the setup production path",
+  emptyDeck: "minefield: empty Main Deck recycles two Trash cards and completes the full instructed Burn"
+});
 
 const OFFICIAL_EVIDENCE = Object.freeze({
   policyId: "official-effect-order-20261019",
   canonicalCardId: CANONICAL_ID,
   rulesetVersion: "core-1.5",
   coreRules: Object.freeze({
+    version: "1.5",
     url: CORE_RULES_URL,
     updated: "2026-10-09",
+    effective: "2026-10-16",
+    sha256: "94d41fee86f88b61c4157c0389c0595d990b98e5b42555c99d9f649ee64d1fec",
     rules: Object.freeze([
       "002", "051", "053.3", "170.2.a-b", "170.8-10", "190.6.a/d",
       "303.2.a", "383.4.c", "432.1.b", "432.2.a-d", "441.4",
@@ -42,16 +47,38 @@ const OFFICIAL_EVIDENCE = Object.freeze({
   }),
   radianceRuling: Object.freeze({
     url: RADIANCE_URL,
+    published: "2026-10-09",
     effective: "2026-10-16",
     involvesMinefield: false
   }),
-  spiritforgedErrata: Object.freeze({ url: SFD_ERRATA_URL, involvesMinefield: false }),
-  spiritforgedRulings: Object.freeze({ url: SFD_PATCH_URL, involvesMinefield: false }),
+  spiritforgedErrata: Object.freeze({
+    url: SFD_ERRATA_URL,
+    published: "2026-01-14",
+    effective: null,
+    involvesMinefield: false
+  }),
+  spiritforgedRulings: Object.freeze({
+    url: SFD_PATCH_URL,
+    published: "2025-12-05",
+    effective: null,
+    involvesMinefield: false
+  }),
   interactions: Object.freeze([
     Object.freeze({
       id: "setup-conquer",
-      productionTest: "default setup production golden",
-      rules: Object.freeze(["002", "051", "053.3", "170.2.a-b", "170.8-10", "303.2.a", "383.4.c", "471.1", "472", "473.2.a/c"]),
+      canonicalCardId: CANONICAL_ID,
+      productionTests: Object.freeze([PRODUCTION_TEST_NAMES.setup]),
+      rules: Object.freeze([
+        "002", "051", "053.3", "133.6.a.1", "170.2.a-b", "170.9", "190.6.a/d",
+        "303.2.a", "312.2", "313", "337.1", "338.1.a.2", "383.3.d",
+        "383.4.c", "383.4.c.2.b", "407.4", "407.5", "471.1", "472", "473.2.a/c"
+      ]),
+      priorityFocus: "The Score and its Conquer trigger enter the ordinary Chain; shown Standard Move closes its Showdown by Focus passes, the trigger becomes Pending, and the controller receives ordinary Priority.",
+      responseWindow: "After the mandatory trigger is Finalized, the ordinary Closed State permits legally timed Reactions before Resolve.",
+      replacement: "Minefield supplies no replacement or prevention. CR 383.4.c.2.c keeps the Conquer trigger even if the point gain is replaced.",
+      layers: "This trigger does not depend on continuous-effect layer ordering; there is no layer dependency to resolve.",
+      lki: "The Board Battlefield source remains present while its Resolve burns cards; no left-zone value is read.",
+      simultaneousTriggers: "A multi-Unit Score wave is one batch and registers this Battlefield ability once. There is no card-specific numeric priority; simultaneous ordering remains engine-owned by the applicable CR process.",
       timeline: Object.freeze([
         "createMatch moves the selected Battlefield to the Board at its own Location",
         "MatchCommandAdapter initial scan binds the exact Board object",
@@ -64,8 +91,15 @@ const OFFICIAL_EVIDENCE = Object.freeze({
     }),
     Object.freeze({
       id: "current-controller",
-      productionTest: "current controller production counterexample",
+      canonicalCardId: CANONICAL_ID,
+      productionTests: Object.freeze([PRODUCTION_TEST_NAMES.currentController]),
       rules: Object.freeze(["002", "051", "190.6.a/d", "303.2.a", "383.4.c"]),
+      priorityFocus: "B receives ordinary Priority and Focus after A ends the prior Main Phase; the battlefield ability is controlled by its current controller B.",
+      responseWindow: "The trigger follows the same ordinary Pending, Finalize, Reaction, Resolve sequence as the positive case.",
+      replacement: "No replacement or prevention is involved in identifying the controller of the ability.",
+      layers: "Control here is a current state rather than a layered characteristic; the test checks the synchronized Battlefield controller.",
+      lki: "The source remains on the Board; current controller data is read while the trigger is collected and resolved.",
+      simultaneousTriggers: "The counterexample has one participant and therefore one trigger instance.",
       timeline: Object.freeze([
         "A passes an idle Main Phase and B receives Priority",
         "B Standard Moves a Unit into Minefield",
@@ -75,13 +109,39 @@ const OFFICIAL_EVIDENCE = Object.freeze({
     }),
     Object.freeze({
       id: "short-deck-burn-out",
-      productionTest: "short Main Deck production gap",
-      rules: Object.freeze(["002", "051", "432.1.b", "432.2.a-d", "441.4"]),
+      canonicalCardId: CANONICAL_ID,
+      productionTests: Object.freeze([PRODUCTION_TEST_NAMES.shortDeck]),
+      rules: Object.freeze(["002", "051", "411.2", "432.1.b", "432.2.a-d", "432.5", "441.1", "441.4"]),
+      priorityFocus: "The score and Minefield ability still use the ordinary Priority/Focus and Finalize path. Burn Out occurs only after the ability begins Resolve; it creates no new discretionary priority by itself.",
+      responseWindow: "The post-Finalize Reaction opportunity closes before Resolve; the sequence of Burn action, replacement Burn Out, and remaining Burn then executes as the instructed effect.",
+      replacement: "Burn Out is a replacement effect by CR 432.5. The test observes the real mill, recycle, shuffle, score, and remaining mill sequence.",
+      layers: "No continuous-effect layer or dependency affects the burn amount or Burn Out procedure.",
+      lki: "The post-Burn-Out remainder is drawn from the newly recycled Main Deck; the test does not replace that move with a stale pre-resolution reference.",
+      simultaneousTriggers: "Only the one per-batch Minefield trigger is resolving in this interaction.",
       timeline: Object.freeze([
         "Score action",
         "Pending then Finalize",
-        "Resolve burns the cards remaining in the Main Deck",
-        "required Burn Out recycle, randomize, point and shortfall continuation is absent"
+        "Resolve burns the remaining card, recycles and randomizes Trash, awards the opponent one point",
+        "Resolve then burns the recycled shortfall card through the same mill action"
+      ])
+    }),
+    Object.freeze({
+      id: "empty-deck-burn-out",
+      canonicalCardId: CANONICAL_ID,
+      productionTests: Object.freeze([PRODUCTION_TEST_NAMES.emptyDeck]),
+      rules: Object.freeze(["002", "051", "411.2", "432.1.b", "432.2.a-d", "432.5", "441.1", "441.4"]),
+      priorityFocus: "The empty deck changes only the Resolve continuation, not the ordinary Priority/Focus path that produced the Pending trigger.",
+      responseWindow: "The ordinary pre-Resolve Reaction window has closed before Burn Out begins; Burn Out itself adds no discretionary choice beyond its instructed sequence.",
+      replacement: "CR 432.5 makes Burn Out the replacement for the impossible full two-card burn; both recycled cards are burned after the opponent-point step.",
+      layers: "No layer or dependency controls the empty-deck Burn Out continuation.",
+      lki: "The two cards are identified in Trash at Burn Out and then burned again after being recycled; the test asserts their final Trash identities.",
+      simultaneousTriggers: "Only one per-batch trigger resolves; this boundary concerns the Burn amount, not simultaneous trigger ordering.",
+      timeline: Object.freeze([
+        "Score action",
+        "Pending then Finalize",
+        "Resolve attempts the instructed two-card burn with an empty Main Deck",
+        "Burn Out recycles and randomizes Trash, awards the opponent one point",
+        "Resolve burns the full two-card shortfall"
       ])
     })
   ])
@@ -150,7 +210,7 @@ function fixture({ mineDeck = true, mainDeckSize = 7 } = {}) {
     performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
     choose,
     context: (source, controller, timingPoint) => bindResolveContext(kernel, {
-      source,
+      source: bindBurnOutInstructionCapability(source, kernel.burnOutInstructionCapability()),
       controller,
       timingPoint,
       choose
@@ -159,7 +219,7 @@ function fixture({ mineDeck = true, mainDeckSize = 7 } = {}) {
   });
   adapterDefaultChoose = pipeline.choose;
   pipeline.player = id => kernel.player(id);
-  const binding = createProgramBinding({ cardPrograms: [admitted] });
+  const binding = createProgramBinding({ cardPrograms: [program] });
   const match = createMatch({
     host: pipeline,
     decks: [deck({ prefix: "A", mine: mineDeck, mainDeckSize }), deck({ prefix: "B" })],
@@ -307,19 +367,15 @@ function idsIn(kernel, player, zone) {
   return kernel.objectsInZone(player, zone).map(ref => kernel.getObject(ref.id).cardId);
 }
 
-test("minefield: identity, text, IR and the narrowed judge-required boundary are exact", () => {
+test("minefield: executable identity, text, IR and optional status boundary are exact", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.issues));
-  assert.equal(program.status, "judge-required");
+  assert.deepEqual(result.issues, []);
+  assert.equal(program.status, "executable");
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /apps\/game-server\/src\/engine-runtime\/host\.ts:745-749/);
-  assert.match(program.judgeReason, /effects\/instructions\/effect\.mill\.ts:358-371/);
-  assert.match(program.judgeReason, /turn\/burn-out\.ts:38-74/);
-  assert.match(program.judgeReason, /CR 441\.4、432\.1\.b、432\.2\.a-d/);
-  assert.doesNotMatch(program.judgeReason, /room\.ts|ProgramBinding/);
-  assert.match(program.judgeReason, /不足 2 张|至多 2 张/);
+  assert.equal(Object.hasOwn(program, "judgeReason"), false);
   assert.deepEqual(program.abilities, [{
     kind: "triggered",
     trigger: {
@@ -340,19 +396,39 @@ test("minefield: official evidence maps each interaction to real production asse
   assert.equal(OFFICIAL_EVIDENCE.canonicalCardId, CANONICAL_ID);
   assert.equal(OFFICIAL_EVIDENCE.rulesetVersion, "core-1.5");
   assert.equal(OFFICIAL_EVIDENCE.coreRules.updated, "2026-10-09");
+  assert.equal(OFFICIAL_EVIDENCE.coreRules.version, "1.5");
+  assert.equal(OFFICIAL_EVIDENCE.coreRules.effective, "2026-10-16");
+  assert.equal(OFFICIAL_EVIDENCE.coreRules.sha256, "94d41fee86f88b61c4157c0389c0595d990b98e5b42555c99d9f649ee64d1fec");
   assert.equal(OFFICIAL_EVIDENCE.coreRules.url, CORE_RULES_URL);
   assert.equal(OFFICIAL_EVIDENCE.radianceRuling.effective, "2026-10-16");
+  assert.equal(OFFICIAL_EVIDENCE.radianceRuling.published, "2026-10-09");
   assert.equal(OFFICIAL_EVIDENCE.radianceRuling.involvesMinefield, false);
+  assert.equal(OFFICIAL_EVIDENCE.spiritforgedErrata.published, "2026-01-14");
+  assert.equal(OFFICIAL_EVIDENCE.spiritforgedErrata.effective, null);
   assert.equal(OFFICIAL_EVIDENCE.spiritforgedErrata.involvesMinefield, false);
+  assert.equal(OFFICIAL_EVIDENCE.spiritforgedRulings.published, "2025-12-05");
+  assert.equal(OFFICIAL_EVIDENCE.spiritforgedRulings.effective, null);
   assert.equal(OFFICIAL_EVIDENCE.spiritforgedRulings.involvesMinefield, false);
   assert.deepEqual(OFFICIAL_EVIDENCE.interactions.map(interaction => interaction.id), [
     "setup-conquer",
     "current-controller",
-    "short-deck-burn-out"
+    "short-deck-burn-out",
+    "empty-deck-burn-out"
   ]);
   for (const interaction of OFFICIAL_EVIDENCE.interactions) {
+    assert.equal(interaction.canonicalCardId, CANONICAL_ID);
     assert.ok(interaction.rules.length > 0);
     assert.ok(interaction.timeline.length > 0);
+    assert.ok(interaction.productionTests.length > 0);
+    for (const testName of interaction.productionTests) {
+      assert.ok(Object.values(PRODUCTION_TEST_NAMES).includes(testName), `${testName} is a named production test`);
+    }
+    assert.match(interaction.priorityFocus, /Priority/);
+    assert.match(interaction.responseWindow, /Reaction|Resolve|response/i);
+    assert.ok(interaction.replacement.length > 0);
+    assert.ok(interaction.layers.length > 0);
+    assert.ok(interaction.lki.length > 0);
+    assert.ok(interaction.simultaneousTriggers.length > 0);
   }
 });
 
@@ -365,7 +441,7 @@ test("minefield: trigger contract accepts self conquer at here with per-batch fr
   );
 });
 
-test("minefield: default setup and two Units produce one mill through Priority, Finalize and Resolve", () => {
+test(PRODUCTION_TEST_NAMES.setup, () => {
   const f = fixture();
   try {
     addUnit(f.kernel, "unit-a1", "A");
@@ -409,7 +485,7 @@ test("minefield: default setup and two Units produce one mill through Priority, 
   }
 });
 
-test("minefield: current controller B conquers through real combat and burns B, not creator A", () => {
+test(PRODUCTION_TEST_NAMES.currentController, () => {
   const f = fixture();
   try {
     addUnit(f.kernel, "unit-b", "B");
@@ -452,7 +528,7 @@ test("minefield: conquering the other Battlefield does not satisfy here", () => 
   }
 });
 
-test("minefield: short Main Deck exposes the missing Burn Out continuation under the setup production path", () => {
+test(PRODUCTION_TEST_NAMES.shortDeck, () => {
   const f = fixture({ mainDeckSize: 6 });
   try {
     addUnit(f.kernel, "unit-short", "A");
@@ -462,10 +538,55 @@ test("minefield: short Main Deck exposes the missing Burn Out continuation under
 
     assert.equal(triggerEvents(f.match).length, 1);
     assert.deepEqual(idsIn(f.kernel, "A", "deck"), []);
-    assert.deepEqual(idsIn(f.kernel, "A", "trash"), deckBefore);
-    assert.equal(f.kernel.player("B").score, 0);
-    assert.equal(f.match.events().filter(event => event.timingPoint === "card-burned").length, 1);
-    assert.equal(f.kernel.events.filter(event => event.action === "recycle").length, 0);
+    assert.deepEqual(idsIn(f.kernel, "A", "trash").toSorted(), deckBefore.toSorted());
+    assert.equal(f.kernel.player("B").score, 1, "the opponent gains the one Burn Out point");
+    assert.equal(f.match.events().filter(event => event.timingPoint === "card-burned").length, 2,
+      "the remaining card and the post-Burn-Out shortfall are both burned");
+    assert.equal(f.kernel.events.filter(event => event.action === "recycle").length, 1,
+      "the one-card Trash is recycled through the real primitive");
+    assert.equal(f.kernel.events.filter(event => event.action === "shuffle").length, 1,
+      "the recycled Main Deck is randomized through the real primitive");
+    const continuation = f.kernel.actionHistory.filter(entry => ["mill", "recycle", "shuffle", "score"].includes(entry.action.type))
+      .map(entry => entry.action.type);
+    const initialMill = continuation.lastIndexOf("mill", continuation.indexOf("recycle") - 1);
+    assert.ok(initialMill >= 0);
+    assert.equal(continuation[initialMill - 1], "score", "the Conquer point precedes this resolver's burn");
+    assert.deepEqual(continuation.slice(initialMill), ["mill", "recycle", "shuffle", "score", "mill"]);
+  } finally {
+    f.adapter.detach();
+  }
+});
+
+test(PRODUCTION_TEST_NAMES.emptyDeck, () => {
+  const f = fixture({ mainDeckSize: 5 });
+  try {
+    addUnit(f.kernel, "unit-empty", "A");
+    const deckBefore = idsIn(f.kernel, "A", "deck");
+    assert.equal(deckBefore.length, 0, "an empty Main Deck still requires the full two-card instruction");
+    const fromHand = f.kernel.objectsInZone("A", "hand").slice(0, 2);
+    assert.equal(fromHand.length, 2, "setup provides at least two hand cards to place in Trash");
+    const trashBefore = fromHand.map(ref => f.kernel.getObject(ref.id).cardId);
+    for (const object of fromHand) {
+      assert.equal(f.kernel.perform({ type: "move-zone", object, to: "trash" }).status, "done");
+    }
+    assert.deepEqual(idsIn(f.kernel, "A", "trash").toSorted(), trashBefore.toSorted());
+
+    moveUnit(f.adapter, "unit-empty", f.mineId, "empty-deck");
+
+    assert.equal(triggerEvents(f.match).length, 1);
+    assert.equal(f.kernel.player("B").score, 1, "the opponent gains one point from Burn Out");
+    assert.equal(f.kernel.events.filter(event => event.action === "recycle").length, 2,
+      "both Trash cards are individually recycled");
+    assert.equal(f.kernel.events.filter(event => event.action === "shuffle").length, 1);
+    assert.equal(f.match.events().filter(event => event.timingPoint === "card-burned").length, 2,
+      "the two-card shortfall is burned after Burn Out");
+    assert.deepEqual(idsIn(f.kernel, "A", "deck"), []);
+    assert.deepEqual(idsIn(f.kernel, "A", "trash").toSorted(), trashBefore.toSorted());
+    const continuation = f.kernel.actionHistory.filter(entry => ["mill", "recycle", "shuffle", "score"].includes(entry.action.type))
+      .map(entry => entry.action.type);
+    const initialMill = continuation.lastIndexOf("mill", continuation.indexOf("recycle") - 1);
+    assert.ok(initialMill >= 0);
+    assert.deepEqual(continuation.slice(initialMill), ["mill", "recycle", "recycle", "shuffle", "score", "mill"]);
   } finally {
     f.adapter.detach();
   }
