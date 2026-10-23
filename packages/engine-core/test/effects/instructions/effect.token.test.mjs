@@ -357,7 +357,7 @@ test("effect.token evaluates a count once before creating any additional units",
   assert.equal(tokens(kernel).length, 2);
 });
 
-for (const definition of ["gold", "sprite", "bird", "shadow-clone", "bomb", "unknown", "__proto__"]) {
+for (const definition of ["sprite", "bird", "shadow-clone", "bomb", "unknown", "__proto__"]) {
   test(`effect.token keeps the unsupported ${definition} definition or ability dependencies judge-required`, () => {
     const kernel = world().build();
     const run = runInstruction(token, args({ token: literal(definition) }), { world: kernel });
@@ -388,16 +388,25 @@ for (const [card, ability, definition, amount, location] of [
   });
 }
 
-test("sfd-203-221 Battle Mistress: play a Gold gear token exhausted stays blocked on Gold ability dependencies", () => {
+test("sfd-203-221 Battle Mistress: play a Gold gear token exhausted materializes the executable token", () => {
   const kernel = world().build();
-  const run = runInstruction(token, args({ mode: literal("play"), token: literal("gold") }), { world: kernel });
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.linked.token.blockedReason, "token-definition-or-abilities-judge-required");
-  assert.equal(run.linked.token.amount, 0);
-  assert.equal(run.linked.token.createdAmount, 0);
-  assert.deepEqual(kernel.objects, []);
+  const run = runInstruction(token, args({
+    mode: literal("play"), token: literal("gold"), entersExhausted: literal(true),
+  }), { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.token.blockedReason, undefined);
+  assert.equal(run.linked.token.amount, 1);
+  assert.equal(run.linked.token.createdAmount, 1);
+  const [gold] = kernel.objects.filter(object => object.types.includes("gear"));
+  assert.equal(gold.cardId, "card.hash-6249df4367d0a2e088c8eb1117ef59430f0d7dad4bf0fcf8a01d7f0415f4d511");
+  assert.equal(gold.isToken, true);
+  assert.deepEqual(gold.types, ["gear"]);
+  assert.deepEqual(gold.location, base);
+  assert.equal(gold.exhausted, true);
+  assert.equal(gold.energy, null);
+  assert.equal(gold.power, null);
   assert.deepEqual(kernel.pendingItems, []);
-  assert.deepEqual(run.events, []);
+  assert.deepEqual(run.events.map(event => event.action), ["create-token", "pay", "play"]);
 });
 
 test("effect.token schema accepts the current card-dsl expression forms", () => {

@@ -30,6 +30,157 @@ const SOURCE_TEXT =
 const OPTIONAL_ID = "fiora-worthy.opt-in";
 const PAY_ID = "fiora-worthy.pay-order";
 const READY_ID = "fiora-worthy.ready-event-it";
+const CORE_RULES_URL =
+  "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf";
+const RADIANCE_URL =
+  "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/";
+const SFD_ERRATA_URL =
+  "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/";
+
+const PRODUCTION_TEST_NAMES = Object.freeze({
+  universalPower:
+    "sfd-180-221 Fiora, Worthy production golden: Universal Power Finalize pays once and Resolve readies event:it",
+  namedOrder:
+    "sfd-180-221 Fiora, Worthy: real Hand/Chain/Board lifecycle pays one Order and readies only event:it",
+  decline:
+    "sfd-180-221 Fiora, Worthy: declining Finalize pays no Order and does not ready event:it",
+  unpayable:
+    "sfd-180-221 Fiora, Worthy: wrong-domain or absent Power leaves the trigger unperformed",
+  transition:
+    "sfd-180-221 Fiora, Worthy production boundary: 3-to-4 and 5-to-6 Might changes do not trigger",
+  staleEventObject:
+    "sfd-180-221 Fiora, Worthy: effect.ready consumes exact event:it and fails closed otherwise"
+});
+
+// The CR and both official snapshots are pinned under
+// shared/rules/official-order. The Radiance patch is effective 2026-10-16;
+// neither it nor the Spiritforged errata contains a Fiora, Worthy entry.
+const OFFICIAL_EVIDENCE = Object.freeze({
+  contract: "riftbound.official-effect-order-evidence.v1",
+  canonicalCardId: CANONICAL_ID,
+  sources: Object.freeze({
+    coreRules: Object.freeze({
+      version: "1.5",
+      dated: "2026-10-09",
+      effective: "2026-10-16",
+      url: CORE_RULES_URL,
+      localSha256: "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2"
+    }),
+    radianceRulings: Object.freeze({
+      published: "2026-10-09",
+      effective: "2026-10-16",
+      url: RADIANCE_URL,
+      applicableToThisCard: false,
+      result: "reviewed: no Fiora, Worthy ruling changes the CR v1.5 treatment"
+    }),
+    spiritforgedErrata: Object.freeze({
+      published: "2026-01-14",
+      effective: null,
+      url: SFD_ERRATA_URL,
+      applicableToThisCard: false,
+      result: "reviewed: no Fiora, Worthy correction"
+    })
+  }),
+  interactions: Object.freeze({
+    universalPayment: Object.freeze({
+      canonicalCardId: CANONICAL_ID,
+      ruleRefs: Object.freeze([
+        "002", "051", "203", "337", "338.1.b", "339.1", "340.1",
+        "383.2.c", "383.3.a", "383.3.b", "383.3.b.1", "405.1",
+        "135.2.e.5.a", "163.2.b"
+      ]),
+      priorityFocus:
+        "A holds ordinary Main-phase Priority for the play and owns the trigger's leading may at Finalize. " +
+        "The Universal Power choice and payment occur in that Finalize; no Focus is created by this interaction.",
+      responseWindow:
+        "After the trigger becomes Pending, each player can pass in turn order. Only Reaction-speed items can be " +
+        "added while the Chain is closed (CR 338.1.a.2); Resolve begins only after both players pass (CR 339.1).",
+      replacement:
+        "Not applicable: no replacement or prohibition applies to becoming Mighty, paying Universal Power, or readying this Unit, so CR 054.1 does not decide this interaction.",
+      layers:
+        "The real buff action changes Might from 4 to 5; the event must be checked after that layer change, and the ready action does not depend on a later Might layer.",
+      simultaneousTriggers:
+        "Only one Fiora trigger is emitted here. Its placement in the Pending wave follows the event batch; no global FIFO/LIFO priority is inferred from CR 303.2.a.",
+      lki:
+        "At trigger creation, the exact target Unit incarnation is frozen as event.it (CR 359.3.f.3/383.2.c.3.b). " +
+        "Resolve uses that event object and rejects a stale incarnation instead of falling back to Fiora or another Unit.",
+      timeline: Object.freeze([
+        "Play/Pending: Pit Rookie resolves, buffs the friendly Unit from Might 4 to 5, emits one might-changed event, and creates Fiora's mandatory trigger as a Pending item.",
+        "Finalize: A may accepts, the frozen Order Power requirement is planned as one Universal Power source, and the exact A owner pays universalPower=1 before the item is Finalized.",
+        "Execute/Pass: A and B pass in turn order without adding an item; declining or an unpayable payment removes the trigger and pays nothing.",
+        "Resolve: effect.ready consumes event.it and commits one ready action for the exact Unit that became Mighty; Fiora remains exhausted."
+      ]),
+      productionAssertions: Object.freeze([
+        "the real productionPlay binding records trigger:2 Pending, Finalize, A/B pass, then Resolve",
+        "the frozen pay plan is {energy:0,power:[],universalPower:1,powerSources:[{source:'any',amount:1}]}",
+        "Universal Power changes from ['any'] to [] and no Energy is spent for this trigger",
+        "one object-readied event targets event:it; there is no target prompt and Fiora remains exhausted"
+      ]),
+      regression: PRODUCTION_TEST_NAMES.universalPower
+    }),
+    namedOrder: Object.freeze({
+      canonicalCardId: CANONICAL_ID,
+      ruleRefs: Object.freeze(["383.3.a", "383.3.b.1", "405.1"]),
+      priorityFocus: "A chooses the leading may during Finalize while holding ordinary Priority; no Focus originates from this trigger.",
+      responseWindow: "The finalized trigger remains on the Chain until A and B pass in turn order.",
+      replacement: "Not applicable: no replacement or prohibition competes with the named Order payment.",
+      layers: "Might change is produced by the prior buff layer and is checked when the trigger condition is fulfilled.",
+      simultaneousTriggers: "This scenario emits one Fiora trigger; it makes no global ordering rule from CR 303.2.a.",
+      lki: "The triggering Unit incarnation remains the Resolve object.",
+      timeline: Object.freeze([
+        "Play/Pending: the friendly Unit crosses Might 4 to 5 and Fiora's trigger is placed on the Chain.",
+        "Finalize: A accepts and pays exactly one named Order Power.",
+        "Resolve: only event:it is readied; Fiora's own exhausted state is unchanged."
+      ]),
+      productionAssertions: Object.freeze([
+        "one named Order lot is consumed during Finalize",
+        "the ready event identifies event:it and no player target choice is made"
+      ]),
+      regression: PRODUCTION_TEST_NAMES.namedOrder
+    }),
+    declineAndUnpayable: Object.freeze({
+      canonicalCardId: CANONICAL_ID,
+      ruleRefs: Object.freeze(["203", "383.3.a", "383.3.a.2", "383.3.b.1", "405.2"]),
+      priorityFocus: "The controller makes the decline choice at Finalize; payment and effect never occur.",
+      responseWindow: "Declining removes the trigger before it becomes a Finalized item, so there is nothing left to Resolve.",
+      replacement: "Not applicable: decline or inability to pay is not a replacement effect.",
+      layers: "The preceding Might transition still occurs; only Fiora's optional ready effect is removed.",
+      simultaneousTriggers: "No simultaneous-trigger ordering decision is used in these counterexamples.",
+      lki: "The trigger may hold event.it, but without a legal payment its linked effect is never executed.",
+      timeline: Object.freeze([
+        "Play/Pending: event.it is created when the Unit becomes Mighty.",
+        "Finalize: A declines, or has only absent/wrong-Domain Power, so no payment is committed and the item is removed.",
+        "Resolve: not reached; the triggering Unit remains exhausted."
+      ]),
+      productionAssertions: Object.freeze([
+        "decline preserves Power and emits no object-readied",
+        "absent or wrong-Domain Power is removed as unperformable-trigger without a free ready"
+      ]),
+      regression: `${PRODUCTION_TEST_NAMES.decline} / ${PRODUCTION_TEST_NAMES.unpayable}`
+    }),
+    transitionAndIncarnation: Object.freeze({
+      canonicalCardId: CANONICAL_ID,
+      ruleRefs: Object.freeze(["054.1", "303.2.a", "359.3.f.3", "383.2.c", "706", "708", "709", "710", "711", "416.1"]),
+      priorityFocus: "The trigger owner uses ordinary Chain priority; the Mighty transition and event object add no special priority value.",
+      responseWindow: "A legal trigger waits in the ordinary Chain and Resolves after both players pass.",
+      replacement: "CR 054.1 is checked only for the absent competing prohibition; no prohibition applies here.",
+      layers: "Might must be current on the Board. 3-to-4, 5-to-6, and 4-to-5 with a pre-existing buff do not fabricate a second transition.",
+      simultaneousTriggers: "A multi-event wave would require the controller's order under CR 383.3.d; this card test does not hard-code a universal priority.",
+      lki: "event.it must name the exact triggering incarnation. Removing and re-entering the same card id creates a new incarnation that the stale event object cannot ready.",
+      timeline: Object.freeze([
+        "Condition: only a current Might change from below 5 to 5 or greater matches; repeated Mighty changes do not.",
+        "Pending: the exact triggering Unit incarnation is frozen in event.it.",
+        "Resolve: ready uses that incarnation only; stale or mismatched event objects fail closed."
+      ]),
+      productionAssertions: Object.freeze([
+        "3-to-4 and 5-to-6 do not create Fiora's trigger",
+        "the effect.ready component golden readies only the live exact event:it and rejects stale incarnations"
+      ]),
+      regression: `${PRODUCTION_TEST_NAMES.transition} / ${PRODUCTION_TEST_NAMES.staleEventObject}`
+    })
+  })
+});
+
 const [ability] = program.abilities;
 const [optional] = ability.body;
 const [payOrder, readyEventIt] = optional.args.body.value;
@@ -83,8 +234,6 @@ function productionFixture() {
   binding.attachLifecycle(engine, error => errors.push(error));
   return { kernel, binding, engine, errors, questions };
 }
-
-const admitted = { ...program, status: "executable", judgeReason: undefined };
 
 function fullLifecycleFixture({
   power = ["Order"],
@@ -143,7 +292,7 @@ function fullLifecycleFixture({
       bindResolveContext(kernel, { source, controller, timingPoint, choose }),
     testTrigger: registration => kernel.test(registration.spec.condition)
   });
-  const binding = createProgramBinding({ cardPrograms: [admitted, pitRookie] });
+  const binding = createProgramBinding({ cardPrograms: [program, pitRookie] });
   const engine = new ChainEngine({
     turnOrder: ["A", "B"],
     turnPlayer: "A",
@@ -225,9 +374,7 @@ function directPipelineFixture({ power = ["Order", "Order"] } = {}) {
     host,
     cleanup: () => false
   });
-  // Only metadata is admitted here. The registry receives the card's original
-  // trigger and body unchanged.
-  const binding = createProgramBinding({ cardPrograms: [admitted] });
+  const binding = createProgramBinding({ cardPrograms: [program] });
   const registered = binding.registerProgramTriggers(engine, kernel.getObject("fiora"));
   return { kernel, engine, host, binding, registered, questions };
 }
@@ -235,27 +382,62 @@ function directPipelineFixture({ power = ["Order", "Order"] } = {}) {
 test("sfd-180-221 Fiora, Worthy: program validates and has expected shape", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
-  assert.equal(program.status, "judge-required");
+  assert.equal(program.status, "executable");
+  assert.equal(Object.hasOwn(program, "judgeReason"), false);
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
-  assert.match(program.judgeReason, /typed Mighty transition/);
-  assert.match(program.judgeReason, /event:it/);
-  assert.match(program.judgeReason, /RIFT-929 now plans a domainless `any` lot/);
-  assert.match(program.judgeReason, /cost\/payment\.ts:184-190/);
-  assert.match(program.judgeReason, /effects\/contract\.ts:91/);
-  assert.match(program.judgeReason, /UniversalPowerSource/);
-  assert.match(program.judgeReason, /testing\/test-kernel\.ts:572-590/);
-  assert.match(program.judgeReason, /engine-runtime\/host\.ts:771/);
-  assert.match(program.judgeReason, /universalPower/);
-  assert.match(program.judgeReason, /135\.2\.e\.5\.a \/ 163\.2\.b/);
-  assert.doesNotMatch(program.judgeReason, /cost\/payment\.ts:120/);
-  assert.doesNotMatch(program.judgeReason, /cost\/payment\.ts:132/);
-  assert.doesNotMatch(program.judgeReason, /authoritative-host proof/);
-  assert.doesNotMatch(program.judgeReason, /programs\/filters\.ts rejects/);
-  assert.doesNotMatch(program.judgeReason, /does not publish/);
-  assert.doesNotMatch(program.judgeReason, /does not accept/);
+});
+
+function assertEvidenceInteraction(interaction) {
+  assert.equal(interaction.canonicalCardId, CANONICAL_ID);
+  assert.ok(interaction.ruleRefs.length > 0);
+  assert.ok(interaction.timeline.length >= 3);
+  assert.equal(interaction.timeline.at(-1).startsWith("Resolve") ||
+    interaction.timeline.at(-1).startsWith("Resolve: not reached"), true);
+  assert.ok(interaction.priorityFocus.length > 0);
+  assert.ok(interaction.responseWindow.length > 0);
+  assert.ok(interaction.replacement.length > 0);
+  assert.ok(interaction.layers.length > 0);
+  assert.ok(interaction.simultaneousTriggers.length > 0);
+  assert.ok(interaction.lki.length > 0);
+  assert.ok(interaction.productionAssertions.length > 0);
+  assert.ok(interaction.regression.length > 0);
+}
+
+test("sfd-180-221 Fiora, Worthy: official sources and production timelines are pinned", () => {
+  assert.equal(OFFICIAL_EVIDENCE.contract, "riftbound.official-effect-order-evidence.v1");
+  assert.deepEqual(OFFICIAL_EVIDENCE.sources.coreRules, {
+    version: "1.5",
+    dated: "2026-10-09",
+    effective: "2026-10-16",
+    url: CORE_RULES_URL,
+    localSha256: "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2"
+  });
+  assert.equal(OFFICIAL_EVIDENCE.canonicalCardId, program.canonicalCardId);
+  assert.equal(OFFICIAL_EVIDENCE.sources.radianceRulings.published, "2026-10-09");
+  assert.equal(OFFICIAL_EVIDENCE.sources.radianceRulings.effective, "2026-10-16");
+  assert.equal(OFFICIAL_EVIDENCE.sources.radianceRulings.applicableToThisCard, false);
+  assert.match(OFFICIAL_EVIDENCE.sources.radianceRulings.result, /no Fiora, Worthy ruling/);
+  assert.equal(OFFICIAL_EVIDENCE.sources.spiritforgedErrata.applicableToThisCard, false);
+  assert.match(OFFICIAL_EVIDENCE.sources.spiritforgedErrata.result, /no Fiora, Worthy correction/);
+  assert.deepEqual(Object.keys(OFFICIAL_EVIDENCE.interactions), [
+    "universalPayment", "namedOrder", "declineAndUnpayable", "transitionAndIncarnation"
+  ]);
+  for (const interaction of Object.values(OFFICIAL_EVIDENCE.interactions)) {
+    assertEvidenceInteraction(interaction);
+  }
+  const payment = OFFICIAL_EVIDENCE.interactions.universalPayment;
+  for (const rule of ["135.2.e.5.a", "163.2.b", "383.3.a", "383.3.b.1", "405.1"]) {
+    assert.ok(payment.ruleRefs.includes(rule), `${rule} is associated with the Universal payment`);
+  }
+  assert.equal(payment.regression, PRODUCTION_TEST_NAMES.universalPower);
+  assert.match(payment.responseWindow, /338\.1\.a\.2/);
+  assert.match(payment.responseWindow, /339\.1/);
+  assert.match(payment.lki, /359\.3\.f\.3/);
+  assert.match(payment.simultaneousTriggers, /303\.2\.a/);
+  assert.match(payment.replacement, /054\.1/);
 });
 
 test("sfd-180-221 Fiora, Worthy: might-changed trigger filtered to friendly units becoming Mighty", () => {
@@ -359,7 +541,7 @@ test("sfd-180-221 Fiora, Worthy: effect.ready body readies an exhausted unit via
 
 test("sfd-180-221 Fiora, Worthy: the original unmodified trigger IR registers", () => {
   const { engine, kernel } = productionFixture();
-  const binding = createProgramBinding({ cardPrograms: [admitted] });
+  const binding = createProgramBinding({ cardPrograms: [program] });
   assert.deepEqual(binding.registry.get(CANONICAL_ID).abilities, program.abilities);
   assert.deepEqual(binding.registry.get(CANONICAL_ID).abilities[0].trigger.filter, ability.trigger.filter);
 
@@ -427,15 +609,10 @@ test("sfd-180-221 Fiora, Worthy: a real layer action emits one target 4-to-5 mig
   assert.equal(kernel.getObject("target").exhausted, true);
   assert.equal(engine.pipeline.events.filter(event => event.timingPoint === "became-target").length, 0);
 
-  // This is the real layer producer. The full card remains blocked until the
-  // card's own default lifecycle is independently accepted; the binding here
-  // only verifies that this exact production event would match the original IR.
-  const admittedBinding = createProgramBinding({ cardPrograms: [admitted] });
+  const admittedBinding = createProgramBinding({ cardPrograms: [program] });
   const [registration] = admittedBinding.registry.get(CANONICAL_ID).abilities;
   assert.deepEqual(registration.trigger.filter, ability.trigger.filter);
   assert.equal(binding.registry.inspect(CANONICAL_ID), program);
-  // The unadmitted card lifecycle remains detached at this stage, so no Pending
-  // item is fabricated from this real fact by the component-level probe.
   assert.equal(engine.items.length, 0);
 });
 
@@ -517,9 +694,6 @@ test("sfd-180-221 Fiora, Worthy: the real Might producer freezes before, after a
 });
 
 test("sfd-180-221 Fiora, Worthy: the original trigger resolves payment and readies only event:it", () => {
-  // Component-level fixture: admitted metadata bypasses the whole-card status
-  // gate so the original trigger/body can be registered unchanged. It is not
-  // evidence that Fiora's card is executable end-to-end.
   const f = directPipelineFixture();
   const { kernel, engine, registered } = f;
   const eventUnit = kernel.getObject("event-unit");
@@ -877,9 +1051,9 @@ test("sfd-180-221 Fiora, Worthy: wrong-domain or absent Power leaves the trigger
   }
 });
 
-test("sfd-180-221 Fiora, Worthy: production ports plan Universal Power but fail Finalize closed", () => {
+test(PRODUCTION_TEST_NAMES.universalPower, () => {
   const f = productionPlay({
-    programs: [admitted, pitRookie],
+    programs: [program, pitRookie],
     answers: { "target:other-unit": ["target"], "finalize:trigger:": () => true },
     build: builder => builder
       .player("A", { energy: 10, power: ["any"] })
@@ -914,9 +1088,29 @@ test("sfd-180-221 Fiora, Worthy: production ports plan Universal Power but fail 
   };
 
   f.play("fiora");
-  // Chain Finalize converts the payment-owner rejection into an unperformable
-  // Pending item rather than leaking a half-finalized trigger to Resolve.
   f.play("pit");
+
+  const triggerItem = "trigger:2";
+  const itemTrace = f.engine.trace
+    .filter(entry => entry.step !== "event" && entry.step !== "cleanup-requested" &&
+      entry.step !== "cleanup-start" && entry.step !== "cleanup-end" &&
+      (entry.item === triggerItem || entry.step === "pass" || entry.step === "priority-granted"))
+    .map(entry => [entry.step, entry.item, entry.player, entry.reason]);
+  const pendingIndex = itemTrace.findIndex(entry => entry[0] === "pending" && entry[1] === triggerItem);
+  const finalizeIndex = itemTrace.findIndex(entry => entry[0] === "finalize-start" && entry[1] === triggerItem);
+  const passIndices = itemTrace
+    .map((entry, index) => entry[0] === "pass" ? index : -1)
+    .filter(index => index > finalizeIndex);
+  const resolveIndex = itemTrace.findIndex(entry => entry[0] === "resolve-start" && entry[1] === triggerItem);
+  assert.ok(pendingIndex >= 0, "the real trigger must be Pending");
+  assert.ok(finalizeIndex > pendingIndex, "Finalize must follow Pending");
+  assert.ok(passIndices.length >= 2, "A and B must pass before the trigger resolves");
+  assert.ok(resolveIndex > passIndices[1], "Resolve must follow both passes");
+  const settlementTrace = itemTrace.slice(finalizeIndex, resolveIndex + 1);
+  assert.deepEqual(
+    settlementTrace.filter(entry => entry[0] === "pass").map(entry => entry[2]),
+    ["A", "B"]
+  );
 
   const universalPayment = actions.find(action =>
     action.type === "pay" &&
@@ -930,28 +1124,38 @@ test("sfd-180-221 Fiora, Worthy: production ports plan Universal Power but fail 
     universalPower: 1,
     powerSources: [{ source: "any", amount: 1 }]
   });
-  assert.deepEqual(f.kernel.player("A").power, ["any"]);
+  assert.deepEqual(f.kernel.player("A").power, []);
   assert.equal(f.kernel.player("A").energy, 6);
-  assert.equal(f.kernel.getObject("target").exhausted, true);
+  assert.equal(f.kernel.getObject("target").exhausted, false);
+  assert.equal(f.kernel.getObject("target").buffs, 1);
   assert.equal(f.kernel.getObject("fiora").exhausted, true);
   assert.equal(f.engine.items.length, 0);
   const transition = f.engine.pipeline.events.filter(event => event.timingPoint === "might-changed");
-  assert.deepEqual(transition.map(event => event.it.ref), [f.kernel.ref("target")]);
+  assert.deepEqual(transition.map(event => [event.object.ref, event.it.ref]), [
+    [f.kernel.ref("target"), f.kernel.ref("target")]
+  ]);
+  assert.deepEqual(transition.map(event => [event.details.previousMight, event.details.currentMight]), [[4, 5]]);
   const ready = f.engine.pipeline.events.filter(event => event.timingPoint === "object-readied");
-  assert.deepEqual(ready, []);
+  assert.deepEqual(ready.map(event => event.object.ref), [f.kernel.ref("target")]);
+  assert.equal(ready.length, 1);
+  assert.deepEqual(actions.filter(action => action.type === "ready").map(action => action.object), [
+    f.kernel.ref("target")
+  ]);
   assert.ok(f.requests.some(request =>
     request.type === "optional" &&
     request.id.startsWith("finalize:trigger:") &&
     request.chooser === "A"
   ));
   assert.ok(f.engine.trace.some(entry =>
-    entry.step === "removed" &&
-    entry.item === "trigger:2" &&
-    entry.reason === "unperformable-trigger"
+    entry.step === "removed" && entry.item === triggerItem && entry.reason === "resolved"
   ));
+  assert.equal(f.engine.trace.some(entry =>
+    entry.step === "removed" && entry.item === triggerItem && entry.reason === "unperformable-trigger"
+  ), false);
+  assert.equal(f.requests.some(request => request.id.startsWith("target:fiora")), false);
 });
 
-test("sfd-180-221 Fiora, Worthy: 3-to-4 and 5-to-6 Might changes do not trigger", () => {
+test(PRODUCTION_TEST_NAMES.transition, () => {
   for (const [targetMight, targetBuffs] of [[3, 0], [5, 0], [4, 1]]) {
     const f = fullLifecycleFixture({ targetMight, targetBuffs });
     f.enterAccessories();

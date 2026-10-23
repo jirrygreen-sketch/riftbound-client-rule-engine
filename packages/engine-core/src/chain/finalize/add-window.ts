@@ -1,6 +1,6 @@
 import type { Restriction } from '@riftbound/card-dsl';
 import type { ChainDraft, ChainEngine, ChainTrace } from '../engine.js';
-import type { Domain, ObjectRef, ObjectSnapshot, PlayerId, PlayerSnapshot } from '../../effects/contract.js';
+import type { ObjectRef, ObjectSnapshot, PlayerId, PlayerSnapshot, PowerPaymentSource } from '../../effects/contract.js';
 import type { PipelineEvent } from '../../events/pipeline-types.js';
 import { describeAddActivation, type AddActivation } from '../../programs/add.js';
 import type { ProgramRegistry } from '../../programs/registry.js';
@@ -23,7 +23,7 @@ export class AddWindowError extends Error {
 
 export interface AddPaymentResources {
   readonly energy: number;
-  readonly power: readonly Domain[];
+  readonly power: readonly PowerPaymentSource[];
 }
 
 /** Evidence returned by one immediate Add settlement inside Pay Costs. */
@@ -66,7 +66,7 @@ function lifecycle(trace: readonly ChainTrace[], itemId: string): readonly strin
 
 function addedResources(events: readonly PipelineEvent[]): AddPaymentResources {
   let energy = 0;
-  const power: Domain[] = [];
+  const power: PowerPaymentSource[] = [];
   for (const event of events) {
     if (event.action?.type === 'gain-energy') energy += event.action.amount;
     if (event.action?.type === 'gain-power') power.push(...event.action.power);
@@ -80,10 +80,10 @@ function linkedResourceValue(value: unknown): AddPaymentResources | null {
   if (typeof record.energy !== 'number' || !Number.isSafeInteger(record.energy) || record.energy < 0 || !Array.isArray(record.power)) {
     return null;
   }
-  const power: Domain[] = [];
+  const power: PowerPaymentSource[] = [];
   for (const domain of record.power) {
-    if (!['Fury', 'Calm', 'Mind', 'Body', 'Chaos', 'Order'].includes(String(domain))) return null;
-    power.push(domain as Domain);
+    if (!['Fury', 'Calm', 'Mind', 'Body', 'Chaos', 'Order', 'universal', 'any', 'universal-power'].includes(String(domain))) return null;
+    power.push(domain as PowerPaymentSource);
   }
   return Object.freeze({ energy: record.energy, power: Object.freeze(power) });
 }
@@ -94,7 +94,7 @@ function linkedResources(
   before: ReadonlyMap<string, unknown>,
 ): AddPaymentResources | null {
   let energy = 0;
-  const power: Domain[] = [];
+  const power: PowerPaymentSource[] = [];
   let changed = false;
   for (const id of instructionIds) {
     const key = `${id}.resources`;

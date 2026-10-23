@@ -1,20 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { validateCardProgram } from "../../../dist/ir/validation.js";
+import { validateCardProgram } from "../../../dist/index.js";
 import goldProgram from "../../../dist/cards/sfd/gold.js";
 import program from "../../../dist/cards/sfd/wages-of-pain.js";
-import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
-import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { cardProgramsById, cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
-import resources from "../../../../engine-core/dist/effects/instructions/effect.resources.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
-import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
-import { TOKEN_DEFINITIONS } from "../../../../engine-core/dist/effects/tokens/definitions.js";
+import { getTokenDefinition, TOKEN_DEFINITIONS } from "../../../../engine-core/dist/effects/tokens/definitions.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { projectFor } from "../../../../engine-core/dist/projection/v2/index.js";
+import { createProgramBinding, withHiddenSource } from "../../../../engine-core/dist/programs/index.js";
+import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
+import { createHiddenState } from "../../../../engine-core/dist/zones/hidden/index.js";
 import { productionPlay } from "../../fixtures/production-play.mjs";
 import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 
@@ -25,51 +25,129 @@ const SOURCE_TEXT =
   "[Action] (Play on your turn or in showdowns.)\n" +
   "Deal 3 to a unit at a battlefield. Play a Gold gear token exhausted.";
 
-// Official evidence checked on 2026-10-22 against the repository's verified
-// manifests and captured source snapshots. The Spiritforged errata snapshot
-// contains no entry for this canonical card id or SFD-070, so there is no
-// applicable source replacement for the captured card text.
+// Official evidence checked on 2026-10-23 against the policy's CR v1.5 and the
+// pinned official snapshots. The Radiance rulings effective 2026-10-16 do not
+// mention this card, and the Spiritforged errata contains no entry for this
+// canonical id or SFD-070, so the captured card text remains authoritative.
 const RULE_EVIDENCE = {
+  policyId: "official-effect-order-20261019",
   canonicalCardId: CARD_ID,
   core: {
     version: "1.5",
     dated: "2026-10-09",
     effective: "2026-10-16",
-    url: "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf"
+    url: "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+    localSha256: "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2"
   },
-  patchNotesUrl:
-    "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
-  sfdErrata: {
-    url: "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/",
-    checked: true,
-    applicableToThisCard: false
+  sources: {
+    radianceRulings: {
+      url: "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/",
+      published: "2026-10-09",
+      observedAtUtc: "2026-10-19T07:13:20.540309+00:00",
+      sha256: "dfba4f3ecf6956c32c19327330eaca96d317bedbf2c211c80a8fe1f1dccb569f",
+      effective: "2026-10-16",
+      applicableToThisCard: false,
+      relevance: "Reviewed: no Wages of Pain, Gold token, or 187.5 ruling changes CR v1.5."
+    },
+    spiritforgedErrata: {
+      url: "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/",
+      observedAtUtc: "2026-10-19T07:13:21.407996+00:00",
+      sha256: "dca55c2d013473ffca82fb649a70d16d4b4356c22f74bd5a71b3aa3a9a4c94af",
+      applicableToThisCard: false,
+      relevance: "Reviewed: no SFD-070 or Wages of Pain correction."
+    },
+    spiritforgedRulings: {
+      url: "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-core-rules-spiritforged-patch-notes/",
+      observedAtUtc: "2026-10-19T07:13:22.213588+00:00",
+      sha256: "c085e3a1b89df98df6c4458d195b276430eb49e601533d80a247786598bb3111",
+      applicableToThisCard: false,
+      relevance: "Reviewed: no card-specific Wages of Pain or Gold replacement."
+    }
   },
   rules: {
     hidden: ["811.1.b", "811.1.c", "811.1.d.2", "811.1.d.3", "811.6"],
     action: ["806.1.b", "806.1.c.1"],
     resolution: ["359.3.d", "359.3.e.5", "359.3.e.6"],
-    gold: ["184.1", "185.2.d", "187.5", "430.1", "430.2", "813.1.c.2"]
+    gold: ["163.2.b", "184.1", "185.2.a", "185.2.d", "185.3.a.1", "187.5", "430.1", "430.2", "430.3", "813.1.c.2"]
   },
   timeline: {
-    normalPlay: ["Finalize target", "Pay printed Energy", "Resolve damage", "Fail closed on Gold", "Move spell to Trash"],
-    normalEvents: ["move-zone", "pay", "damage", "move-zone"],
-    goldAttempt: ["Plan Kill + exhaust", "Reject unverified Add shape", "No [A] gain"]
+    normalPlay: [
+      "Play pending", "Finalize locks a Battlefield Unit", "Pay 3 Energy",
+      "Resolve the damage instruction before the Gold instruction",
+      "Play one Gold token exhausted to its controller's Base", "Move Wages of Pain to Trash"
+    ],
+    hidden: [
+      "Hide pays one [A] without opening a Chain", "The card moves privately facedown to the controlled Battlefield",
+      "The next turn grants Reaction and lets the owner play it ignoring its base cost",
+      "Finalize chooses only a Unit at the Hidden Battlefield", "Resolve uses top-to-bottom order, then gold",
+      "Opponent projection omits the concealed identity"
+    ],
+    gold: [
+      "Created Gold binds its canonical 187.5 program", "Reaction activation plans Exhaust then Kill",
+      "Kill moves the token to Trash", "Resolve adds one Universal Power [A]"
+    ]
   }
 };
+
+const INTERACTION_EVIDENCE = [
+  {
+    id: "normal-action",
+    productionTest: "production golden: pays 3, damages, plays Gold exhausted at Base, and preserves response timing",
+    rules: ["051", "337.1", "338.1.b", "340.1", "359.3.d", "359.3.e.5", "359.3.e.6", "184.1", "185.2.a", "359.2.d"],
+    priorityFocus: "The turn player has Priority in Main. After Play it becomes Pending; Finalize locks the target and pays three Energy; other players may react while the spell remains on the Chain.",
+    responseWindow: "This one investment starts with one spell item; CR 338.1.b passing Priority leads to Finalize, and CR 340.1 resolves the newest finalized item. Reactions remain legal during Execute.",
+    replacement: "No replacement or prevention clause applies to these instructions. A stale target follows 359.3.e.5 and only that damage instruction is ignored.",
+    layers: "No continuous effect is needed to choose the target, cost, damage amount, or Gold destination.",
+    lki: "The target is rechecked at Resolve. Moving it off a Battlefield makes the locked damage target illegal; the later independent Gold instruction still executes.",
+    timeline: ["Play/Pending", "Finalize target and pay 3 Energy", "Resolve deal 3", "Resolve Gold create/Play", "Gold Play Finalize/Resolve at Base with exhausted entry", "spell to Trash"],
+    assertions: ["energy becomes 0", "victim damage becomes 3", "base-only damage stays 0", "damage event precedes Gold creation", "exactly one Gold reaches controller's Base", "Gold is exhausted and still bound to 187.5", "spell reaches Trash"]
+  },
+  {
+    id: "hidden",
+    productionTest: "Hidden production: [A] Hide is private and opens no Chain",
+    rules: ["422.1", "422.2", "811.1.b", "811.1.c", "811.1.c.2", "811.1.d.2", "811.6", "811.6.a"],
+    priorityFocus: "Hide requires the turn player's Open State and is a Discretionary Action; it consumes one [A] and does not open a Chain.",
+    responseWindow: "CR 811.1.c.2 gives no response window for Hide. The later facedown Play opens a Chain and grants Reaction beginning next turn (811.1.c.3, 811.6).",
+    replacement: "No replacement or prevention is involved in Hide or the scope of this card's target choice.",
+    layers: "The facedown Reaction grant is turn-scoped permission, not a global numeric Priority. CR 811.6.a keeps it non-public.",
+    lki: "The source Battlefield remains the target scope for the spell. The target-only draft narrows the finalized requirement to the exact bf1 LocationRef.",
+    timeline: ["Hide/Pending discretionary action", "Pay one [A]", "private facedown state", "opponent projection hides identity", "next turn Reaction", "Finalize target restricted to bf1"],
+    assertions: ["chain stays empty after Hide", "Power becomes empty", "private sidecar has one bf1 card", "owner sees identity and opponent does not", "target-only draft scopes target to bf1"]
+  },
+  {
+    id: "hidden-gold-base",
+    productionTest: "Hidden production: next-turn Reaction scopes the target to bf1 and plays exhausted Gold at the controller's Base",
+    rules: ["811.1.c.2", "811.1.c.3", "811.1.d.2", "811.1.d.5", "811.2", "184.1", "359.2.d"],
+    priorityFocus: "After the next-turn unlock, the facedown card's Reaction Play is Pending and its source-Battlefield target restriction is finalized before Resolve.",
+    responseWindow: "The facedown Play opens the ordinary Chain under 811.1.c.3 and may receive legal Reactions; no special card-defined window exists.",
+    replacement: "No replacement or prevention clause applies to the damage or the Gold Play.",
+    layers: "No layer ordering can make a Gold Gear token a Unit; the 811.1.d.5 Unit-only destination rewrite therefore leaves the authored Base destination intact under 811.2.",
+    lki: "The source battlefield controls the spell target and Hidden play, while the independently instructed Gear keeps its Base destination under 359.2.d and its explicit exhausted entry under 184.1.",
+    timeline: ["Hide/Pending discretionary action", "next-turn Hidden Reaction Play/Pending", "Finalize source-scoped target", "Resolve damage", "Gold Play Finalize/Resolve exhausted at controller's Base"],
+    assertions: ["target scope is restricted to bf1", "remote Base target cannot be chosen", "hidden victim takes 3", "exactly one Gold is at A's Base", "Gold is exhausted", "source is revealed and moves to Trash"]
+  },
+  {
+    id: "gold-187-5",
+    productionTest: "played Gold binds 187.5 and Adds one Universal Power",
+    rules: ["135.2.e.5.b", "163.2.b", "187.5", "430.2", "430.2.a", "430.3", "813.1.c.2"],
+    priorityFocus: "Gold's Reaction activated Add uses its own reaction permission. The Add finalizes and resolves immediately without passing Priority or Focus (430.2.a).",
+    responseWindow: "CR 430.3 permits activation when resources are needed during Pay Costs; the Add itself cannot be reacted to.",
+    replacement: "No replacement or prevention applies to the Kill/exhaust cost or Universal Power Add.",
+    layers: "Universal Power remains a distinct source identity and is never represented as a named Domain.",
+    lki: "The cost consumes the current Gold incarnation into Trash before the Add resolves; no stale source object is reused.",
+    timeline: ["describeActivate", "Finalize Exhaust then Kill", "Gold moves to Trash", "Resolve +1 [A]"],
+    assertions: ["draft is reaction Add", "pay event precedes exhaust/kill", "Gold is in Trash", "player Power gains one universal"]
+  }
+];
 
 const play = program.abilities.find((ability) => ability.kind === "play");
 const dealInstruction = play.body[0];
 const tokenInstruction = play.body[1];
 const targetSpec = dealInstruction.targets[0];
 
-// The ProgramRegistry intentionally rejects judge-required programs. The probe
-// changes only the status gate to exercise the already-authored body through
-// the same default binder and ChainEngine; the published program stays blocked.
-const admittedProbeProgram = { ...program, status: "executable", judgeReason: undefined };
-
 function wagesScene({ answers = { "target:damaged-unit": ["victim"] }, energy = 3 } = {}) {
   return productionPlay({
-    programs: [admittedProbeProgram],
+    programs: [program, goldProgram],
     answers,
     build: (builder) => builder
       .player("A", { energy, power: [] })
@@ -111,47 +189,55 @@ test("sfd-070-221 Wages of Pain: program validates and is registered", () => {
 });
 
 test("sfd-070-221 Wages of Pain: official CR, errata and processing evidence is pinned", () => {
-  assert.deepEqual(RULE_EVIDENCE.core, {
-    version: "1.5",
-    dated: "2026-10-09",
-    effective: "2026-10-16",
-    url: "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf"
-  });
+  assert.equal(RULE_EVIDENCE.policyId, "official-effect-order-20261019");
+  assert.equal(RULE_EVIDENCE.core.version, "1.5");
+  assert.equal(RULE_EVIDENCE.core.dated, "2026-10-09");
+  assert.equal(RULE_EVIDENCE.core.effective, "2026-10-16");
+  assert.equal(RULE_EVIDENCE.core.url,
+    "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf");
+  assert.match(RULE_EVIDENCE.core.localSha256, /^[0-9a-f]{64}$/);
   assert.equal(RULE_EVIDENCE.canonicalCardId, program.canonicalCardId);
-  assert.equal(RULE_EVIDENCE.sfdErrata.checked, true);
-  assert.equal(RULE_EVIDENCE.sfdErrata.applicableToThisCard, false);
+  assert.equal(RULE_EVIDENCE.sources.radianceRulings.effective, "2026-10-16");
+  assert.equal(RULE_EVIDENCE.sources.radianceRulings.applicableToThisCard, false);
+  assert.equal(RULE_EVIDENCE.sources.spiritforgedErrata.applicableToThisCard, false);
+  assert.equal(RULE_EVIDENCE.sources.spiritforgedRulings.applicableToThisCard, false);
+  assert.match(RULE_EVIDENCE.sources.radianceRulings.sha256, /^[0-9a-f]{64}$/);
+  assert.match(RULE_EVIDENCE.sources.spiritforgedErrata.sha256, /^[0-9a-f]{64}$/);
+  assert.match(RULE_EVIDENCE.sources.spiritforgedRulings.sha256, /^[0-9a-f]{64}$/);
   assert.deepEqual(RULE_EVIDENCE.timeline.normalPlay, [
-    "Finalize target", "Pay printed Energy", "Resolve damage", "Fail closed on Gold", "Move spell to Trash"
+    "Play pending", "Finalize locks a Battlefield Unit", "Pay 3 Energy",
+    "Resolve the damage instruction before the Gold instruction",
+    "Play one Gold token exhausted to its controller's Base", "Move Wages of Pain to Trash"
   ]);
-  assert.deepEqual(RULE_EVIDENCE.timeline.goldAttempt, [
-    "Plan Kill + exhaust", "Reject unverified Add shape", "No [A] gain"
+  assert.deepEqual(RULE_EVIDENCE.timeline.hidden, [
+    "Hide pays one [A] without opening a Chain", "The card moves privately facedown to the controlled Battlefield",
+    "The next turn grants Reaction and lets the owner play it ignoring its base cost",
+    "Finalize chooses only a Unit at the Hidden Battlefield", "Resolve uses top-to-bottom order, then gold",
+    "Opponent projection omits the concealed identity"
   ]);
+  assert.deepEqual(RULE_EVIDENCE.timeline.gold, [
+    "Created Gold binds its canonical 187.5 program", "Reaction activation plans Exhaust then Kill",
+    "Kill moves the token to Trash", "Resolve adds one Universal Power [A]"
+  ]);
+  assert.deepEqual(INTERACTION_EVIDENCE.map((entry) => entry.id), [
+    "normal-action", "hidden", "hidden-gold-base", "gold-187-5"
+  ]);
+  for (const interaction of INTERACTION_EVIDENCE) {
+    assert.ok(interaction.productionTest.length > 0);
+    assert.ok(interaction.rules.length > 0);
+    assert.ok(interaction.timeline.length > 0);
+    assert.ok(interaction.assertions.length > 0);
+  }
 });
 
-test("sfd-070-221 Wages of Pain: stays judge-required only for the current Gold and Hidden gaps", () => {
+test("sfd-070-221 Wages of Pain: production gaps are closed and the card is executable", () => {
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /187\.5/);
-  assert.match(program.judgeReason, /definitions\.ts:83-101/);
-  assert.match(program.judgeReason, /effect\.token\.ts:341-342/);
-  assert.match(program.judgeReason, /token-definition-or-abilities-judge-required/);
-  assert.match(program.judgeReason, /UniversalPowerSource/);
-  assert.match(program.judgeReason, /effect\.resources\.ts:35-37/);
-  assert.match(program.judgeReason, /effect\.resources\.ts:54/);
-  assert.match(program.judgeReason, /programs\/index\.ts:40-58/);
-  assert.match(program.judgeReason, /programs\/index\.ts:73-77/);
-  assert.match(program.judgeReason, /unverified Add shape/);
-  assert.match(program.judgeReason, /cost\.hidden/);
-  assert.match(program.judgeReason, /entersExhausted/);
-  assert.match(program.judgeReason, /bridge\.ts:228/);
-  assert.match(program.judgeReason, /TurnFlow\.hidden\(\):194/);
-  assert.match(program.judgeReason, /programs\/play\.ts:129-165/);
-  assert.match(program.judgeReason, /811\.1\.d\.2/);
-  // These claims were disproved by the merged production sources and must not
-  // survive as stale blockers.
-  assert.doesNotMatch(program.judgeReason, /Invalid effect\.token argument: entersExhausted/);
-  assert.doesNotMatch(program.judgeReason, /cost\.hidden has no layer mapping/);
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
+  assert.equal(cardProgramsById.get(CARD_ID), program);
+  assert.equal(goldProgram.status, "executable");
+  assert.equal(goldProgram.judgeReason, undefined);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -195,19 +281,17 @@ test("sfd-070-221 Wages of Pain structure: Hidden + Action keywords, damage then
 test("sfd-070-221 Wages of Pain: GameAction create-token carries the exhausted entry stipulation", () => {
   const kernel = world().player("A").unit("source").build();
   const actions = [];
-  const choose = (request) => {
-    throw new AwaitChoice(request);
-  };
   const context = {
     ...kernel.clone({ sourceSnapshot: kernel.getObject("source"), controller: "A" }),
     evaluate: (expression) => expression.value,
     link: (key, value) => kernel.link(key, value),
+    query: (filter) => kernel.query(filter),
     object: (ref) => {
       const object = kernel.objects.find((candidate) =>
         candidate.ref.id === ref.id && candidate.ref.zoneEntryId === ref.zoneEntryId);
       return object ?? null;
     },
-    choose,
+    choose: (request) => { throw new AwaitChoice(request); },
     perform: (action) => {
       actions.push(structuredClone(action));
       return kernel.perform(action);
@@ -259,7 +343,7 @@ test("sfd-070-221 Wages of Pain golden execution: a stale battlefield target is 
   assert.equal(run.events.length, 0);
 });
 
-test("sfd-070-221 Wages of Pain production golden: pays 3, damages a battlefield Unit, then fails closed on Gold", () => {
+test("sfd-070-221 Wages of Pain production golden: pays 3, damages, plays Gold exhausted at Base, and preserves response timing", () => {
   const f = wagesScene();
   const draft = f.describe("wages");
   assert.equal(draft.kind, "spell");
@@ -273,25 +357,59 @@ test("sfd-070-221 Wages of Pain production golden: pays 3, damages a battlefield
   assert.equal(f.kernel.getObject("victim").damage, 3);
   assert.equal(f.kernel.getObject("base-only").damage, 0);
   assert.equal(f.kernel.getObject("wages").zone, "trash");
+  const timeline = f.engine.pipeline.events.map((event) => event.timingPoint);
+  const pendingAt = timeline.indexOf("chain-item-pending");
+  const finalizeAt = timeline.indexOf("chain-item-finalize", pendingAt);
+  const resolveAt = timeline.indexOf("chain-item-resolve", finalizeAt);
+  assert.ok(pendingAt >= 0 && pendingAt < finalizeAt && finalizeAt < resolveAt,
+    "Play enters the Chain as Pending, then Finalize precedes Resolve");
   assert.equal(f.targetRequests().length, 1);
   assert.deepEqual(f.targetRequests()[0].options, [f.kernel.ref("victim")]);
 
-  const gold = f.kernel.linked("play-gold-token.goldToken");
-  assert.equal(gold.amount, 0);
-  assert.equal(gold.createdAmount, 0);
-  assert.deepEqual(gold.objects, []);
-  assert.equal(gold.objectsComplete, true);
-  assert.equal(gold.blockedReason, "token-definition-or-abilities-judge-required");
-  assert.equal(f.kernel.objects.some((object) => object.isToken), false);
+  const [gold] = f.kernel.objects.filter((object) => object.isToken && object.cardId === GOLD_ID);
+  assert.ok(gold, "Wages of Pain creates and plays its Gold carrier");
+  assert.equal(f.kernel.events.some((event) => event.action === "ready"), false,
+    "the explicit 184.1 exhausted entry overrides the Gear ready default");
+  const receipt = f.kernel.linked("play-gold-token.goldToken");
+  assert.equal(receipt.amount, 1);
+  assert.equal(receipt.createdAmount, 1);
+  assert.deepEqual(receipt.objects, [{ id: gold.ref.id, zoneEntryId: 1 }]);
+  assert.deepEqual(receipt.createdObjects, [{ id: gold.ref.id, zoneEntryId: 1 }]);
+  assert.equal(receipt.objectsComplete, true);
+  assert.equal(receipt.blockedReason, undefined);
+  assert.equal(gold.zone, "board");
+  assert.deepEqual(gold.location, { type: "base", player: "A" });
+  assert.equal(f.kernel.getObject(gold.ref.id).exhausted, true);
+  assert.equal(gold.energy, null);
+  assert.equal(gold.power, null);
+  assert.equal(f.binding.activationAbilities(gold).length, 1,
+    "the created token is bound to the canonical Gold command program");
   assert.deepEqual(
     f.kernel.events.map((event) => event.action).filter(Boolean),
-    RULE_EVIDENCE.timeline.normalEvents
+    ["move-zone", "pay", "damage", "create-token", "move-zone", "pay", "exhaust", "move-zone"]
   );
   const damageEvent = f.kernel.events.find((event) => event.action === "damage");
   assert.equal(damageEvent.reason, "damage");
   assert.equal(damageEvent.seq, 3);
+  const damageIndex = f.kernel.events.indexOf(damageEvent);
+  const goldCreationIndex = f.kernel.events.findIndex((event) => event.action === "create-token");
+  assert.ok(damageIndex >= 0 && damageIndex < goldCreationIndex,
+    "the damage instruction resolves before the Gold instruction (top-to-bottom)");
+  const paymentIndex = f.kernel.events.findIndex((event) => event.action === "pay");
+  const spellResolveIndex = f.engine.pipeline.events.findIndex((event) =>
+    event.timingPoint === "chain-item-resolve" && event.details?.item === draft.id);
+  const goldFinalizeIndex = f.engine.pipeline.events.findIndex((event, index) => index > spellResolveIndex &&
+    event.timingPoint === "chain-item-finalize" && event.details?.cardFinalize === true);
+  const goldResolveIndex = f.engine.pipeline.events.findIndex((event, index) => index > goldFinalizeIndex &&
+    event.timingPoint === "chain-item-resolve" && String(event.details?.item).startsWith(`play:${gold.ref.id}:`));
+  assert.ok(paymentIndex >= 0 && paymentIndex < damageIndex, "the printed 3 Energy payment occurs during spell Finalize");
+  assert.ok(spellResolveIndex >= 0 && spellResolveIndex < goldFinalizeIndex && goldFinalizeIndex < goldResolveIndex,
+    "CR 337/340 resolve order includes the Gold's own production Play after the spell");
+  const creation = f.kernel.events.find((event) => event.action === "create-token");
+  assert.equal(creation.objectId, gold.ref.id);
   assert.equal(draft.cost.cost.kind, "printed");
   assert.equal(f.engine.trace.some((entry) => entry.step === "resolved"), true);
+  assert.equal(f.engine.trace.some((entry) => entry.step === "priority-granted"), true);
 });
 
 test("sfd-070-221 Wages of Pain production boundary: a target moved before Resolve is rechecked and ignored", () => {
@@ -312,15 +430,18 @@ test("sfd-070-221 Wages of Pain production boundary: a target moved before Resol
   // Resolve makes the damage instruction mistarget; no damage result/link is
   // written at all, and no fallback target is selected.
   assert.equal(f.kernel.linked("deal-3"), undefined);
-  assert.equal(
-    f.kernel.linked("play-gold-token.goldToken").blockedReason,
-    "token-definition-or-abilities-judge-required"
-  );
+  const receipt = f.kernel.linked("play-gold-token.goldToken");
+  assert.equal(receipt.amount, 1);
+  assert.equal(receipt.blockedReason, undefined);
+  const [gold] = f.kernel.objects.filter((object) => object.isToken && object.cardId === GOLD_ID);
+  assert.ok(gold, "the independent Gold instruction still executes after damage mistargets");
+  assert.equal(f.kernel.getObject(gold.ref.id).exhausted, true);
+  assert.equal(f.kernel.getObject("base-only").damage, 0);
 });
 
 test("sfd-070-221 Wages of Pain production boundary: no battlefield target fails before costs or movement", () => {
   const f = productionPlay({
-    programs: [admittedProbeProgram],
+    programs: [program, goldProgram],
     build: (builder) => builder
       .player("A", { energy: 3 })
       .player("B")
@@ -358,23 +479,24 @@ test("sfd-070-221 Wages of Pain production boundary: insufficient Energy is reje
   assert.equal(f.kernel.getObject("wages").zone, "hand");
 });
 
-test("sfd-070-221 Wages of Pain: Gold is defined but remains fail-closed before creation", () => {
+test("sfd-070-221 Wages of Pain: Gold is defined as an executable canonical token program", () => {
   const gold = TOKEN_DEFINITIONS.find((definition) => definition.id === "gold");
   assert.ok(gold);
+  assert.equal(getTokenDefinition("gold"), gold);
   assert.deepEqual(gold.spec, {
     cardId: GOLD_ID,
     name: "Gold",
     types: ["gear"],
     tags: [],
-    keywords: [{ id: "Reaction" }],
+    keywords: [],
     might: null,
     energy: null,
     power: null
   });
   assert.deepEqual(gold.ruleRefs, ["187.5", "185.3.a", "149.1", "359.2.d"]);
   assert.equal(gold.defaultEntry, "ready");
-  assert.equal(gold.abilityBinding, "blocked");
-  assert.equal(gold.blockedReason, "token-definition-or-abilities-judge-required");
+  assert.equal(gold.abilityBinding, "canonical-card-program");
+  assert.equal(gold.blockedReason, undefined);
 
   const kernel = world().build();
   const actions = [];
@@ -383,6 +505,7 @@ test("sfd-070-221 Wages of Pain: Gold is defined but remains fail-closed before 
     ...kernel.clone({ sourceSnapshot: kernel.getObject("source"), controller: "A" }),
     evaluate: (expression) => expression.value,
     link: (key, value) => kernel.link(key, value),
+    query: (filter) => kernel.query(filter),
     object: (ref) => {
       const object = kernel.objects.find((candidate) =>
         candidate.ref.id === ref.id && candidate.ref.zoneEntryId === ref.zoneEntryId);
@@ -395,17 +518,18 @@ test("sfd-070-221 Wages of Pain: Gold is defined but remains fail-closed before 
     }
   };
   const result = token.execute(context, tokenInstruction.args);
-  assert.equal(result.status, "negated");
-  assert.equal(result.reason, "impossible");
-  assert.equal(kernel.linked("goldToken").blockedReason, "token-definition-or-abilities-judge-required");
-  assert.equal(kernel.linked("goldToken").createdAmount, 0);
-  assert.equal(actions.length, 0);
-  assert.equal(kernel.objects.some((object) => object.isToken), false);
+  assert.equal(result.status, "executed");
+  assert.equal(kernel.linked("goldToken").blockedReason, undefined);
+  assert.equal(kernel.linked("goldToken").createdAmount, 1);
+  assert.deepEqual(actions.map((action) => action.type), ["create-token", "play"]);
+  const [goldToken] = kernel.objects.filter((object) => object.isToken && object.cardId === GOLD_ID);
+  assert.ok(goldToken);
+  assert.equal(goldToken.exhausted, true);
 });
 
-test("sfd-070-221 Wages of Pain: Gold's production binding rejects the unverified Add shape before payment", () => {
+test("sfd-070-221 Wages of Pain: played Gold binds 187.5 and Adds one Universal Power", () => {
   assert.equal(goldProgram.canonicalCardId, GOLD_ID);
-  assert.equal(goldProgram.status, "judge-required");
+  assert.equal(goldProgram.status, "executable");
   const [goldAbility] = goldProgram.abilities;
   assert.equal(goldAbility.kind, "activated");
   assert.equal(goldAbility.timing, "reaction");
@@ -416,11 +540,11 @@ test("sfd-070-221 Wages of Pain: Gold's production binding rejects the unverifie
   assert.equal(goldAbility.body.length, 1);
   assert.equal(goldAbility.body[0].op, "effect.resources");
   assert.deepEqual(goldAbility.body[0].args, {
-    power: { kind: "constant", value: ["rainbow"] }
+    power: { kind: "constant", value: ["universal"] }
   });
 
   const f = productionPlay({
-    programs: [{ ...goldProgram, status: "executable", judgeReason: undefined }],
+    programs: [goldProgram],
     build: (builder) => builder
       .player("A", { energy: 20, power: ["Mind"] })
       .player("B")
@@ -436,81 +560,262 @@ test("sfd-070-221 Wages of Pain: Gold's production binding rejects the unverifie
         location: { type: "base", player: "A" },
         energy: null,
         power: null,
-        might: null
+        might: null,
+        exhausted: false
       })
   });
   const source = f.kernel.getObject("gold-token");
-  assert.throws(
-    () => f.binding.describeActivate(source, "A", 0),
-    (error) => error.name === "ProgramBindingError" &&
-      error.code === "judge-required" &&
-      /unverified Add shape/.test(error.message)
+  const draft = f.binding.describeActivate(source, "A", 0);
+  assert.equal(draft.kind, "add");
+  assert.equal(draft.speed, "reaction");
+  assert.deepEqual(
+    draft.cost.cost.payments.map((payment) => [payment.kind, payment.object]),
+    [["exhaust", "self"], ["kill", "self"]]
   );
+  f.engine.execute(draft);
+  f.settle();
 
-  const context = f.kernel.clone({
-    sourceSnapshot: source,
-    controller: "A",
-    timingPoint: "chain-item-finalize"
-  });
-  const plan = buildCostPlan(context, {
-    id: "gold:activated:cost-only",
-    cost: goldAbility.cost
-  });
-  assert.deepEqual(plan.total.actions.map((payment) => payment.action.type), ["exhaust", "kill"]);
-  assert.deepEqual(plan.total.actions.map((payment) => payment.action.object), [source.ref, source.ref]);
-  const receipt = payCostPlan(context, plan);
-  assert.deepEqual(receipt.actions.map((entry) => [entry.action.type, entry.status]), [
-    ["pay", "done"],
-    ["exhaust", "done"],
-    ["kill", "done"]
+  assert.deepEqual(f.kernel.events.map((event) => event.action).filter(Boolean), [
+    "pay", "exhaust", "kill", "gain-power"
   ]);
-  assert.equal(context.getObject("gold-token").zone, "trash");
-  assert.deepEqual(context.player("A").power, ["Mind"]);
-  assert.equal(context.player("A").energy, 20);
-
-  const resourceKernel = world().player("A", { power: ["Mind"] }).build();
-  const addition = runInstruction(resources, goldAbility.body[0].args, { world: resourceKernel });
-  assert.deepEqual(addition.result, { status: "negated", reason: "impossible", events: [] });
-  assert.deepEqual(resourceKernel.player("A").power, ["Mind"]);
-  assert.deepEqual(addition.events, []);
+  assert.equal(f.engine.trace.some((entry) => entry.step === "priority-granted" && entry.item === draft.id), false,
+    "an Add finalizes and resolves without passing Priority or Focus");
+  assert.equal(f.kernel.getObject("gold-token").zone, "trash");
+  assert.equal(f.kernel.getObject("gold-token").exhausted, true);
+  assert.deepEqual(f.kernel.player("A").power, ["Mind", "universal"]);
+  assert.equal(f.kernel.player("A").energy, 20);
 });
 
-test("sfd-070-221 Wages of Pain: cost.hidden binds, while the live Hide transition has no production consumer", () => {
-  const hidden = keywordDefinitionsById.get("Hidden");
-  assert.ok(hidden, "effects/keywords/Hidden.ts must be registered");
-  const [ability] = hidden.expand({ host: { canonicalCardId: CARD_ID } });
-  assert.deepEqual(ability, { kind: "static", effect: { kind: "cost.hidden" } });
-  const source = world()
-    .player("A")
-    .player("B")
-    .hand("card", {
-      cardId: CARD_ID,
-      types: ["spell"],
-      keywords: [{ id: "Hidden" }],
-      energy: 3,
-      power: null
-    })
-    .build();
-  const { engine } = wagesScene();
-  const binder = createEngineStaticBinder(engine);
-  const handle = binder.bindStatic(ability, source.getObject("card"));
-  assert.equal(typeof handle.unbind, "function");
-  const registered = engine.layers.registry.get("program-hidden:card:1:0");
-  assert.equal(registered.effect.effect.capabilityKind, "hidden");
-  assert.equal(registered.effect.source.id, "card");
-  // This capability is not itself a Hide action. bridge.ts rejects that action
-  // and TurnFlow exposes no transition into its private sidecar.
-  assert.equal(engine.layers.registry.list().length, 1);
+const HIDDEN_BATTLEFIELD = { type: "battlefield", id: "bf1" };
 
-  const before = source.snapshot();
-  const hide = source.performContract({
-    type: "hide",
-    object: source.getObject("card").ref,
-    player: "A",
-    location: { type: "battlefield", id: "bf1" }
+function hiddenWagesScene({ power = ["Mind"], energy = 0 } = {}) {
+  const builder = world()
+    .player("A", { energy, power: [] })
+    .player("B")
+    .deck(["a1", "a2", "a3", "a4"], { owner: "A" })
+    .deck(["b1", "b2", "b3", "b4"], { owner: "B" })
+    .rune(["a-rune"], { owner: "A" })
+    .rune(["b-rune"], { owner: "B" })
+    .object("bf1", {
+      owner: "A", controller: "A", types: ["battlefield"], zone: "board",
+      location: HIDDEN_BATTLEFIELD, might: null, energy: null, power: null
+    })
+    .object("bf2", {
+      owner: "B", controller: null, types: ["battlefield"], zone: "board",
+      location: { type: "battlefield", id: "bf2" }, might: null, energy: null, power: null
+    })
+    .hand("wages", {
+      owner: "A", controller: "A", cardId: CARD_ID, name: "Wages of Pain",
+      types: ["spell"], energy: 3, power: null, might: null, location: null
+    })
+    .unit("hidden-guard", {
+      owner: "A", controller: "A", name: "Friendly battlefield unit", might: 10,
+      location: HIDDEN_BATTLEFIELD
+    })
+    .unit("remote-victim", {
+      owner: "B", controller: "B", name: "Remote battlefield victim", might: 5,
+      location: { type: "base", player: "B" }
+    })
+    .unit("base-victim", {
+      owner: "B", controller: "B", name: "Base victim", might: 5,
+      location: { type: "base", player: "B" }
+    });
+  const kernel = builder.build();
+  const requests = [];
+  const choose = (request) => {
+    requests.push(structuredClone(request));
+    if (request.type === "mode" && request.id.startsWith("engagement:")) return request.options[0];
+    if (request.type === "select-objects" && request.id === "target:damaged-unit") {
+      return request.options.filter((option) => option.id === "hidden-victim");
+    }
+    if (request.type === "select-objects" && request.min === request.max && request.options.length === request.min) {
+      return [...request.options];
+    }
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (saved) => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    performContract: (action) => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose })
   });
-  assert.equal(hide.status, "impossible");
-  assert.deepEqual(hide.events, []);
-  assert.equal(hide.receipt.status, "rejected");
-  assert.deepEqual(source.snapshot(), before);
+  const binding = createProgramBinding({ cardPrograms: [program, goldProgram] });
+  const flow = new TurnFlow({
+    host: { ...host, player: (id) => kernel.player(id) },
+    player: (id) => kernel.player(id),
+    turnOrder: ["A", "B"],
+    battlefields: [{ id: "bf1", controller: "A" }, { id: "bf2", controller: null }],
+    victoryScore: 20,
+    describePlay: binding.describePlay,
+    hiddenState: createHiddenState([
+      { battlefieldId: "bf1", controller: "A" }, { battlefieldId: "bf2", controller: null }
+    ], 0)
+  });
+  binding.attachLifecycle(flow.chain, (error) => { throw error; });
+  flow.start();
+  for (let guard = 0; flow.phase !== "main"; guard++) {
+    assert.ok(guard < 100, "TurnFlow must reach the Main Phase");
+    flow.advance();
+  }
+  if (power.length) flow.chain.commit({ type: "gain-power", player: "A", power });
+  const settle = () => {
+    for (let guard = 0; guard < 30 && flow.chain.items.length; guard++) flow.pass(flow.chain.priority);
+    for (let guard = 0; guard < 30 && flow.chain.focus !== null; guard++) flow.pass(flow.chain.focus);
+    assert.equal(flow.chain.items.length, 0, "TurnFlow Chain must settle");
+  };
+  const hide = () => flow.hide({
+    type: "hide",
+    object: kernel.ref("wages"),
+    player: "A",
+    location: HIDDEN_BATTLEFIELD
+  });
+  const nextTurn = () => {
+    settle();
+    const hiddenTurn = flow.chain.pipeline.clock.turn;
+    flow.pass("A");
+    flow.pass("B");
+    settle();
+    assert.ok(flow.chain.pipeline.clock.turn > hiddenTurn);
+    assert.equal(flow.turnPlayer, "A");
+  };
+  const concealed = () => flow.objects().find((object) => object.ref.id === "wages");
+  const playHidden = () => {
+    const source = kernel.getObject("wages");
+    return withHiddenSource(flow, () => binding.describePlay(
+      { type: "play", object: source.ref, player: "A" }, source
+    ));
+  };
+  const addHiddenVictim = () => kernel.addObject({
+    ...kernel.getObject("hidden-guard"),
+    ref: { id: "hidden-victim", zoneEntryId: 1 }, cardId: "card:hidden-victim",
+    owner: "B", controller: "B",
+    name: "Hidden battlefield victim", types: ["unit"], tags: [], keywords: [],
+    might: 5, energy: null, power: null, damage: 0, exhausted: false,
+    location: HIDDEN_BATTLEFIELD, zone: "board", faceDown: false, isToken: false
+  }, "board");
+  const targetOnlyDraft = () => {
+    const targetOnlyProgram = {
+      ...program,
+      abilities: program.abilities.map((ability) => ability.kind === "play"
+        ? { ...ability, body: [ability.body[0]] }
+        : ability)
+    };
+    const targetOnlyBinding = createProgramBinding({ cardPrograms: [targetOnlyProgram, goldProgram] });
+    const hiddenCard = flow.hidden().zones.bf1.cards[0];
+    const source = {
+      ...kernel.getObject(hiddenCard.ref.id), ref: hiddenCard.ref, zone: "board", faceDown: true,
+      location: HIDDEN_BATTLEFIELD, facedownLocation: HIDDEN_BATTLEFIELD
+    };
+    return withHiddenSource(flow, () => targetOnlyBinding.describePlay(
+      { type: "play", object: hiddenCard.ref, player: "A" }, source
+    ));
+  };
+  return { kernel, flow, binding, requests, settle, hide, nextTurn, concealed, playHidden, addHiddenVictim, targetOnlyDraft };
+}
+
+test("sfd-070-221 Wages of Pain Hidden production: [A] Hide is private and opens no Chain", () => {
+  const f = hiddenWagesScene();
+  const beforeTurn = f.flow.turnPlayer;
+  const outcome = f.hide();
+  assert.equal(outcome.status, "done");
+  assert.deepEqual(outcome.plan.total.power, [{
+    amount: 1,
+    allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]
+  }]);
+  assert.equal(outcome.costReceipt.paid, true);
+  assert.deepEqual(f.kernel.player("A").power, []);
+  assert.equal(f.flow.chain.items.length, 0);
+  assert.equal(f.flow.chain.turnState, "neutral-open");
+  assert.equal(f.flow.turnPlayer, beforeTurn);
+  assert.equal(f.concealed().faceDown, true);
+  assert.deepEqual(f.concealed().facedownLocation, HIDDEN_BATTLEFIELD);
+  assert.equal(f.flow.hidden().zones.bf1.cards.length, 1);
+  const authoritative = f.flow.chain.pipeline.events.find((event) => event.timingPoint === "card-hidden");
+  assert.equal(authoritative.object.cardId, CARD_ID);
+  assert.equal(authoritative.details.battlefieldId, "bf1");
+
+  const face = f.concealed();
+  const projectionState = {
+    players: {
+      A: { id: "A", facedown: [face] },
+      B: { id: "B" }
+    },
+    objects: [face]
+  };
+  // The authoritative hidden event retains the private identity; projection
+  // gives identity only to this controller while opponents see face-down data.
+  assert.equal(projectFor(projectionState, "A").objects.find((object) => object.faceDown).visibility, "identity");
+  const opponentFace = projectFor(projectionState, "B").objects.find((object) => object.faceDown);
+  assert.equal(opponentFace.visibility, "face-down");
+  assert.equal(opponentFace.cardId, undefined);
+  assert.equal(opponentFace.name, undefined);
+});
+
+test("sfd-070-221 Wages of Pain Hidden production: next-turn Reaction scopes the target to bf1 and plays exhausted Gold at the controller's Base", () => {
+  const f = hiddenWagesScene();
+  f.hide();
+  // Hidden is locked on the turn it is concealed; the full production call for
+  // that same card is covered by engine-core/test/engine-gaps/m1-hidden.test.mjs.
+  assert.equal(f.flow.hidden().turn, f.flow.hidden().zones.bf1.cards[0].hiddenTurn);
+  f.nextTurn();
+  f.addHiddenVictim();
+  f.settle();
+  const draft = f.playHidden();
+  assert.equal(draft.speed, "reaction");
+  assert.deepEqual(draft.targets.map((target) => target.requirement.location), [HIDDEN_BATTLEFIELD]);
+  const goldInstruction = draft.body.find((instruction) => instruction.id === "play-gold-token");
+  assert.deepEqual(goldInstruction.args.location, {
+    kind: "constant", value: { type: "base", player: "controller" }
+  }, "811.2 keeps the Gear instruction's Base destination");
+  f.flow.execute(draft);
+  const hiddenPlayId = f.flow.chain.items[0]?.id;
+  assert.ok(hiddenPlayId?.startsWith("play:wages:"));
+  const targetRequest = f.requests.find((request) => request.id === "target:damaged-unit");
+  assert.ok(targetRequest.options.some((option) => option.id === "hidden-victim"));
+  for (const option of targetRequest.options) {
+    const live = f.kernel.getObject(option.id);
+    assert.ok(live?.location?.type === "battlefield" && live.location.id === "bf1",
+      "CR 811.1.d.2 offers only Units at the Hidden battlefield");
+  }
+  f.settle();
+
+  assert.equal(f.kernel.getObject("hidden-victim").damage, 3);
+  assert.equal(f.kernel.getObject("wages").zone, "trash");
+  assert.equal(f.flow.hidden().zones.bf1.cards.length, 0);
+  const golds = f.kernel.objects.filter((object) => object.isToken && object.cardId === GOLD_ID);
+  assert.equal(golds.length, 1);
+  assert.equal(golds[0].zone, "board");
+  assert.deepEqual(golds[0].location, { type: "base", player: "A" });
+  assert.equal(golds[0].exhausted, true);
+  assert.equal(f.binding.activationAbilities(golds[0]).length, 1);
+  const trace = f.flow.chain.trace;
+  assert.equal(trace.some((entry) => entry.step === "priority-granted"), true,
+    "the ordinary Chain still grants Priority at its legal response window");
+  assert.ok(trace.some((entry) => entry.step === "finalized" && entry.item === hiddenPlayId),
+    "the Hidden spell finalized its source-scoped target");
+  assert.ok(trace.some((entry) => entry.step === "resolved" && entry.item?.startsWith("play:wages:")),
+    "the Hidden spell resolved from the ordinary Chain");
+  assert.ok(trace.some((entry) => entry.step === "resolved" && entry.item?.startsWith(`play:${golds[0].ref.id}:`)),
+    "Gold resolved as its own production Chain Play");
+});
+
+test("sfd-070-221 Wages of Pain Hidden production: 811.1.d.2 scopes the target to bf1", () => {
+  const f = hiddenWagesScene();
+  f.hide();
+  f.nextTurn();
+  f.addHiddenVictim();
+  // A temporary copy of the exact IR without the Gold sentence isolates the
+  // independently implemented 811.1.d.2 target scope. It is never published.
+  const draft = f.targetOnlyDraft();
+  assert.equal(draft.speed, "reaction");
+  assert.deepEqual(draft.targets.map((target) => target.requirement.location), [HIDDEN_BATTLEFIELD]);
+  assert.deepEqual(draft.cost.baseModifications, [{ kind: "ignore-base", ignore: "resources" }]);
+  assert.equal(Object.hasOwn(draft.body[0].args, "location"), false);
+  assert.equal(f.kernel.getObject("remote-victim").damage, 0);
+  assert.equal(f.kernel.getObject("wages").zone, "board");
+  assert.equal(f.flow.hidden().zones.bf1.cards.length, 1);
 });

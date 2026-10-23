@@ -615,8 +615,16 @@ export class TurnFlow {
     if (snapshot.energy === 0 && snapshot.power.length === 0) return;
     this.emptyingRunePool = true;
     try {
+      const namedPower: import('../effects/contract.js').Domain[] = [];
+      let universalPower = 0;
+      for (const source of snapshot.power) {
+        if (source === 'universal' || source === 'any' || source === 'universal-power') universalPower++;
+        else if (['Fury', 'Calm', 'Mind', 'Body', 'Chaos', 'Order'].includes(source)) namedPower.push(source);
+        else throw new TurnCombatBlockedError('empty-rune-pool', `Unknown Power source in Rune Pool: ${String(source)}`);
+      }
       const outcome = this.chain.commit({ type: 'pay', player,
-        plan: { finalized: true, energy: snapshot.energy, power: [...snapshot.power] } });
+        plan: { finalized: true, energy: snapshot.energy, power: namedPower,
+          ...(universalPower === 0 ? {} : { universalPower }) } });
       if (outcome.status !== 'done') {
         throw new TurnCombatBlockedError('empty-rune-pool', 'Rune Pool could not be emptied by the state owner');
       }

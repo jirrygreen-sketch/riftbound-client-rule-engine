@@ -88,7 +88,8 @@ export interface ObjectSnapshot {
 export interface PlayerSnapshot {
   readonly id: PlayerId;
   readonly energy: number;
-  readonly power: readonly Domain[];
+  /** Ordered Rune Pool Power, including Universal sources as distinct lots. */
+  readonly power: readonly PowerPaymentSource[];
   readonly runePool: readonly ObjectRef[];
   readonly runes: readonly ObjectRef[];
   readonly xp: number;
@@ -257,8 +258,8 @@ export type GameAction =
   | { readonly type: "channel-rune"; readonly player: PlayerId; readonly amount: number; readonly exhausted?: boolean }
   /** Add Energy. */
   | { readonly type: "gain-energy"; readonly player: PlayerId; readonly amount: number }
-  /** Add domain power. */
-  | { readonly type: "gain-power"; readonly player: PlayerId; readonly power: readonly Domain[] }
+  /** Add named or Universal Power; repeats preserve each Power as a distinct lot. */
+  | { readonly type: "gain-power"; readonly player: PlayerId; readonly power: readonly PowerPaymentSource[] }
   /** Pay a finalized cost plan. */
   | { readonly type: "pay"; readonly player: PlayerId; readonly plan: FinalizedCostPlan }
   /** Gain XP. */

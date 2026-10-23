@@ -118,3 +118,84 @@ test('RIFT-927: a nested read keeps layered Might for a mightGte timing filter',
   assert.equal(subject.might, 5);
   assert.deepEqual(subject.actionTimings, ['showdown']);
 });
+
+// RIFT-999: ChainEngine.withStableLayers reuses one layered view across a
+// synchronous sweep. Every host write routed through the engine (ordinary
+// execution, death-boundary Kill, batch Kill, rollback, and direct writes
+// through a host-provided ResolveContext) must discard that view.
+function stableWindowSetup() {
+  const kernel = world().player('A').player('B')
+    .unit('victim', { might: 2, location: { type: 'base', player: 'A' } })
+    .unit('bystander', { might: 3, location: { type: 'base', player: 'A' } })
+    .build();
+  const choose = request => { throw new Error(`Unexpected choice ${request.id}`); };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    ...kernel.deathBoundaryPort(),
+  });
+  const engine = new ChainEngine({ turnOrder: ['A', 'B'], turnPlayer: 'A', phase: 'main', host, cleanup: () => false });
+  const read = id => engine.pipeline.host.objects().find(object => object.ref.id === id);
+  return { kernel, engine, read };
+}
+
+test('RIFT-999: a stable layered view is discarded after an ordinary host write', () => {
+  const { kernel, engine, read } = stableWindowSetup();
+  engine.withStableLayers(() => {
+    assert.equal(read('victim').exhausted, false);
+    assert.equal(engine.commit({ type: 'exhaust', object: kernel.ref('victim') }).status, 'done');
+    assert.equal(read('victim').exhausted, true);
+  });
+});
+
+test('RIFT-999: a stable layered view is discarded after a death-boundary Kill', () => {
+  const { kernel, engine, read } = stableWindowSetup();
+  engine.withStableLayers(() => {
+    assert.equal(read('victim').zone, 'board');
+    assert.equal(engine.commit({ type: 'kill', object: kernel.ref('victim') }).status, 'done');
+    assert.equal(kernel.getObject('victim').zone, 'trash');
+    assert.equal(read('victim').zone, 'trash');
+  });
+});
+
+test('RIFT-999: a stable layered view is discarded after a batch Kill', () => {
+  const { kernel, engine, read } = stableWindowSetup();
+  engine.withStableLayers(() => {
+    assert.equal(read('victim').zone, 'board');
+    const outcome = engine.commit({ type: 'batch', transactionId: 'rift-999-kills', actions: [{ type: 'kill', object: kernel.ref('victim') }] });
+    assert.equal(outcome.status, 'done');
+    assert.equal(kernel.getObject('victim').zone, 'trash');
+    assert.equal(read('victim').zone, 'trash');
+  });
+});
+
+test('RIFT-999: a stable layered view is discarded after an atomic rollback', () => {
+  const { kernel, engine, read } = stableWindowSetup();
+  engine.withStableLayers(() => {
+    assert.equal(read('victim').exhausted, false);
+    assert.throws(() => engine.atomic(() => {
+      engine.commit({ type: 'exhaust', object: kernel.ref('victim') });
+      assert.equal(read('victim').exhausted, true);
+      throw new Error('rollback');
+    }), /rollback/);
+    assert.equal(kernel.getObject('victim').exhausted, false);
+    assert.equal(read('victim').exhausted, false);
+  });
+});
+
+test('RIFT-999: a stable layered view is discarded after a direct ResolveContext write', () => {
+  const { kernel, engine, read } = stableWindowSetup();
+  engine.withStableLayers(() => {
+    assert.equal(read('bystander').exhausted, false);
+    const context = engine.pipeline.host.context(read('bystander'), 'A', 'main');
+    context.perform({ type: 'exhaust', object: kernel.ref('bystander') });
+    assert.equal(kernel.getObject('bystander').exhausted, true);
+    assert.equal(read('bystander').exhausted, true);
+  });
+});

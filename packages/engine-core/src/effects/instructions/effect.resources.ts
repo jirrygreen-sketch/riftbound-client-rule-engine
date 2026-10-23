@@ -2,7 +2,8 @@
  * Add Energy / domain Power to one player's Rune Pool (CR v1.5 163.1-2,
  * 166.1-2, 168, 430.1, 430.4-5). Every argument is a card-dsl Expr:
  * - energy: nonnegative safe integer; omitted means no Energy addition.
- * - power: ordered Domain[]; repeats add multiple Power of the same domain.
+ * - power: ordered PowerPaymentSource[]; named Domains and Universal Power keep
+ *   their source identity. Repeats add multiple separate Power lots.
  *   At least one of energy / power must be present. Zero / [] is a successful
  *   no-op, not a gain action. Null printed characteristics are never zero.
  * - player: PlayerId or candidate PlayerId[]; defaults to ctx.controller.
@@ -32,13 +33,12 @@
  * clearing belongs to turn structure (167). Domain choices can be supplied
  * by a prior choice instruction via a linked Expr.
  *
- * Contract gap: Universal Power (163.2.b) is not representable by the closed
- * Domain type / gain-power action. It remains unsupported, never approximated
- * by a chosen domain. This primitive accepts only the six existing Domains.
+ * Universal Power (163.2.b) remains distinct from the six named Domains and is
+ * never approximated by a chosen domain.
  */
 import type {
   Domain, Expr, GameAction, GameEvent, InstructionDef, InstructionResult,
-  ObjectRef, PlayerId, PlayerSnapshot, ResolveContext, Value
+  ObjectRef, PlayerId, PlayerSnapshot, PowerPaymentSource, ResolveContext, Value
 } from "../contract.js";
 
 export interface ResourcesArgs {
@@ -52,6 +52,7 @@ export interface ResourcesArgs {
 }
 
 const DOMAINS: readonly Domain[] = ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"];
+const UNIVERSAL_POWER: readonly PowerPaymentSource[] = ["universal", "any", "universal-power"];
 const ARG_KEYS = ["energy", "power", "player", "target", "pick", "choiceId", "linkKey"];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -123,8 +124,9 @@ function isAmount(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
-function isPower(value: unknown): value is Domain[] {
-  return Array.isArray(value) && value.every(domain => DOMAINS.includes(domain));
+function isPower(value: unknown): value is PowerPaymentSource[] {
+  return Array.isArray(value) && value.every(source =>
+    DOMAINS.includes(source as Domain) || UNIVERSAL_POWER.includes(source as PowerPaymentSource));
 }
 
 function recipientCandidates(ctx: ResolveContext, args: ResourcesArgs): PlayerId[] {
@@ -146,7 +148,7 @@ function recipientCandidates(ctx: ResolveContext, args: ResourcesArgs): PlayerId
   return players;
 }
 
-function addedPower(before: readonly Domain[], after: readonly Domain[]): Domain[] {
+function addedPower(before: readonly PowerPaymentSource[], after: readonly PowerPaymentSource[]): PowerPaymentSource[] {
   const remaining = [...before];
   return after.filter(domain => {
     const index = remaining.indexOf(domain);
@@ -188,7 +190,7 @@ export default {
     if (power.length > 0) actions.push({ type: "gain-power", player, power: [...power] });
     const events: GameEvent[] = [];
     let actualEnergy = 0;
-    const actualPower: Domain[] = [];
+    const actualPower: PowerPaymentSource[] = [];
     let reason: "replaced" | "skipped" | "impossible" | undefined;
     for (const action of actions) {
       const before = ctx.player(player);

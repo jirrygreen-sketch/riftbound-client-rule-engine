@@ -7,7 +7,6 @@ import {
   type BatchAction,
   type ChoiceRequest,
   type ContinuousEffectSpec,
-  type Domain,
   type Duration,
   type GameAction,
   type ContractGameAction,
@@ -18,6 +17,7 @@ import {
   type ObjectSnapshot,
   type PlayerId,
   type PlayerSnapshot,
+  type PowerPaymentSource,
   type ResolveContext,
   type RecallAction,
   type TokenSpec,
@@ -31,6 +31,7 @@ import { arithmetic, equalValues } from "../interpreter/values.js";
 import { resolveObjectSelector } from "../interpreter/selectors.js";
 import { executeContractAction, isKnownContractAction, type ContractActionExecution } from "../../events/contract-actions/bridge.js";
 import { disempowerTransition } from "../../zones/empower-state.js";
+import type { BurnOutInstructionCapability } from "../../turn/burn-out.js";
 
 export { AwaitChoice } from "../contract.js";
 
@@ -62,7 +63,7 @@ type MutableObject = { -readonly [Key in keyof ObjectSnapshot]: ObjectSnapshot[K
 interface MutablePlayer {
   id: PlayerId;
   energy: number;
-  power: Domain[];
+  power: PowerPaymentSource[];
   runes: string[];
   xp: number;
   score: number;
@@ -86,7 +87,6 @@ interface WorldState {
 }
 
 const ZONES: readonly ZoneId[] = ["hand", "deck", "rune-deck", "trash", "banishment", "board", "rune-zone", "chain", "legend"];
-const DOMAINS: readonly Domain[] = ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"];
 function emptyZones(): Record<ZoneId, string[]> { return { hand: [], deck: [], "rune-deck": [], trash: [], banishment: [], board: [], "rune-zone": [], chain: [], legend: [] }; }
 const cloneRef = (ref: ObjectRef): ObjectRef => ({ id: ref.id, zoneEntryId: ref.zoneEntryId });
 const refKey = (ref: ObjectRef): string => `${ref.id}:${ref.zoneEntryId}`;
@@ -175,6 +175,7 @@ export class TestWorld implements ResolveContext {
   private readonly pickSets: Map<string, readonly (ObjectRef | PlayerId | string)[]>;
   private answers: Map<string, unknown>;
   private readonly linkedValues: Map<string, Value>;
+  private burnOutVictoryScore = 8;
 
   constructor(options: { seed?: number; source?: ObjectRef; sourceSnapshot?: ObjectSnapshot; controller?: PlayerId; timingPoint?: TimingPointId; state?: WorldState; targets?: Map<string, ObjectRef[]>; picks?: Map<string, readonly (ObjectRef | PlayerId | string)[]>; answers?: Map<string, unknown>; linked?: Map<string, Value> } = {}) {
     this.state = options.state ?? freshState(options.seed ?? 0x52494654);
@@ -195,8 +196,49 @@ export class TestWorld implements ResolveContext {
   get continuousEffects(): readonly { effect: ContinuousEffectSpec; duration: Duration }[] { return this.state.continuous; }
   get delayedTriggers(): readonly { at: TriggerSpec; body: readonly Instruction[] }[] { return this.state.delayed; }
   get randomState(): number { return this.state.randomState; }
+  /** Ordered action log for production-path assertions (no state mutation). */
+  get actionHistory(): readonly { readonly action: GameAction; readonly object?: ObjectSnapshot }[] {
+    return this.state.history.map(entry => ({
+      action: structuredClone(entry.action) as GameAction,
+      ...(entry.object === undefined ? {} : { object: copySnapshot(entry.object) }),
+    }));
+  }
   ref(id: string): ObjectRef { const object = this.state.objects.get(id); if (!object) throw new Error(`Unknown object ${id}`); return cloneRef(object.ref); }
   setAnswers(answers: Record<string, unknown>): void { this.answers = new Map(Object.entries(answers)); }
+  /** Test-state owner's Victory Score for a Burn Out point-gain terminal. */
+  setBurnOutVictoryScore(value: number): void {
+    if (!Number.isSafeInteger(value) || value < 1) throw new RangeError("Burn Out Victory Score must be a positive safe integer");
+    this.burnOutVictoryScore = value;
+  }
+  /** Non-wire capability consumed by effect.mill's exact production context. */
+  burnOutInstructionCapability(): BurnOutInstructionCapability {
+    return {
+      participants: () => this.playerIds().map(id => ({
+        id,
+        deckCount: this.state.players.get(id)!.zones.deck.length,
+        trashCount: this.state.players.get(id)!.zones.trash.length,
+      })),
+      trash: owner => this.objectsInZone(owner, "trash"),
+      performPoint: action => {
+        const outcome = this.apply(action);
+        if (outcome.status === 'done') this.state.history.push({ action: structuredClone(action), timingPoint: this.timingPoint, turn: 1, combat: 0 });
+        return outcome;
+      },
+      afterBurnOut: sequence => {
+        if (sequence === 0) return true;
+        const winner = this.burnOutWinner();
+        if (winner === undefined) return true;
+        this.apply({ type: 'win', player: winner });
+        this.state.history.push({ action: { type: 'win', player: winner }, timingPoint: this.timingPoint, turn: 1, combat: 0 });
+        return false;
+      },
+    };
+  }
+  private burnOutWinner(): PlayerId | undefined {
+    const players = [...this.state.players.values()];
+    return players.find(candidate => candidate.score >= this.burnOutVictoryScore &&
+      players.every(other => other === candidate || candidate.score > other.score))?.id;
+  }
   setTargets(id: string, refs: readonly ObjectRef[]): void { this.targetSets.set(id, refs.map(cloneRef)); }
   setPicks(id: string, picks: readonly (ObjectRef | PlayerId | string)[]): void { this.pickSets.set(id, picks.map(pick => typeof pick === "object" ? cloneRef(pick) : pick)); }
   addReplacement(hook: ReplacementHook): void { this.state.replacements.push(hook); }
@@ -593,11 +635,13 @@ export class TestWorld implements ResolveContext {
         if (!player || !action.plan.finalized) return fail();
         const energy = action.plan.energy ?? 0;
         const xp = action.plan.xp ?? 0;
+        const universalPower = action.plan.universalPower ?? 0;
         const requestedPower = action.plan.power;
-        if (!Number.isSafeInteger(energy) || energy < 0 || !Number.isSafeInteger(xp) || xp < 0) return fail();
+        if (!Number.isSafeInteger(energy) || energy < 0 || !Number.isSafeInteger(xp) || xp < 0 ||
+            !Number.isSafeInteger(universalPower) || universalPower < 0) return fail();
         if (requestedPower !== undefined && !Array.isArray(requestedPower)) return fail();
         const power = requestedPower === undefined ? [] : [...requestedPower];
-        if (power.some(domain => !DOMAINS.includes(domain))) return fail();
+        if (power.some(domain => !["Fury", "Calm", "Mind", "Body", "Chaos", "Order"].includes(domain))) return fail();
         if (player.energy < energy || player.xp < xp) return fail("prevented");
         const remainingPower = [...player.power];
         for (const domain of power) {
@@ -605,10 +649,17 @@ export class TestWorld implements ResolveContext {
           if (index < 0) return fail("prevented");
           remainingPower.splice(index, 1);
         }
+        let remainingUniversal = universalPower;
+        for (let index = remainingPower.length - 1; index >= 0 && remainingUniversal > 0; index--) {
+          if (!["universal", "any", "universal-power"].includes(remainingPower[index]!)) continue;
+          remainingPower.splice(index, 1);
+          remainingUniversal--;
+        }
+        if (remainingUniversal !== 0) return fail("prevented");
         player.energy -= energy;
         player.power = remainingPower;
         player.xp -= xp;
-        return done(undefined, { energy, power, xp });
+        return done(undefined, { energy, power, ...(universalPower === 0 ? {} : { universalPower }), xp });
       }
       case "gain-xp": { const player = this.state.players.get(action.player); if (!player || action.amount < 0) return fail(); player.xp += action.amount; return done(action.amount as Value); }
       case "spend-xp": { const player = this.state.players.get(action.player); if (!player || action.amount < 0 || player.xp < action.amount) return fail("prevented"); player.xp -= action.amount; return done(action.amount as Value); }

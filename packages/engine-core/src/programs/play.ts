@@ -96,9 +96,76 @@ function validateSurface(body: readonly Instruction[]): void {
   visit(body);
 }
 
+function constantExpressionValue(expression: Instruction['args'][string] | undefined): unknown {
+  return expression !== undefined && (expression.kind === 'constant' || expression.kind === 'literal')
+    ? expression.value : undefined;
+}
+
+/** CR 811.1.d.5 changes a destination only for a Unit that is actually Played. */
+function tokenPlayUsesHiddenBattlefield(args: Instruction['args']): boolean {
+  const mode = constantExpressionValue(args.mode);
+  if (mode === undefined) {
+    if (args.mode !== undefined) judgeRequired('A dynamic effect.token mode requires Hidden battlefield adjudication');
+    return false;
+  }
+  if (mode !== 'play') return false;
+  const tokenId = constantExpressionValue(args.token);
+  const definition = typeof tokenId === 'string' ? getTokenDefinition(tokenId) : undefined;
+  if (definition?.abilityBinding === 'blocked') {
+    judgeRequired(`Hidden token ${tokenId} has no executable program adapter`);
+  }
+  if (definition === undefined) {
+    judgeRequired(`Hidden token ${String(tokenId ?? '<dynamic>')} has no adjudicated definition`);
+  }
+  const types = definition.spec.types.map(type => type.toLowerCase());
+  if (types.includes('unit')) return true;
+  if (!types.includes('gear')) return false;
+  const deploy = definition.spec.keywords?.some(keyword => keyword.id.toLowerCase() === 'deploy') === true;
+  if (deploy) return true;
+  // Preserve the previous fail-closed boundary for an incomplete instruction;
+  // an authored non-Deploy Gear destination (such as Wages of Pain's Base)
+  // remains unchanged instead of being adjudicated as a battlefield Play.
+  if (!['location', 'locations', 'target', 'pick'].some(key => Object.hasOwn(args, key))) {
+    judgeRequired(`Hidden Gear token ${tokenId} has no explicit Play destination`);
+  }
+  return false;
+}
+
+function exactObjectFilterType(filter: object, expected: 'unit' | 'gear'): boolean {
+  const raw = filter as Readonly<Record<string, unknown>>;
+  const types = raw.types ?? raw.type;
+  return types === expected || Array.isArray(types) && types.length === 1 && types[0] === expected;
+}
+
 /**
- * CR 811.1.d restricts target-bearing choices to the Hidden Battlefield. Apply
- * the scope to each instruction and to Play-created tokens (811.1.d.5).
+ * CR 811.1.d.5 also applies when an effect Play is statically known to select
+ * a Unit. Picks/targets are the public object-selection forms this binder can
+ * prove before runtime; all other forms remain fail-closed.
+ */
+function effectPlayUsesHiddenBattlefield(instruction: Instruction): boolean {
+  for (const key of ['target', 'pick'] as const) {
+    const sourceId = constantExpressionValue(instruction.args[key]);
+    if (typeof sourceId !== 'string') continue;
+    const selections = key === 'target' ? instruction.targets : instruction.picks;
+    const selected = selections?.find(candidate => candidate.id === sourceId);
+    if (selected === undefined) continue;
+    if (selected.filter === undefined) {
+      judgeRequired(`Hidden effect.play ${sourceId} does not identify a Unit`);
+    }
+    if (exactObjectFilterType(selected.filter, 'unit')) return true;
+    if (exactObjectFilterType(selected.filter, 'gear')) return false;
+    judgeRequired(`Hidden effect.play ${sourceId} does not identify a Unit`);
+  }
+  if (instruction.args.target !== undefined || instruction.args.pick !== undefined || instruction.args.object !== undefined) {
+    judgeRequired('Hidden effect.play requires a statically identifiable Unit selection');
+  }
+  return false;
+}
+
+/**
+ * CR 811.1.d restricts target-bearing choices to the Hidden Battlefield. CR
+ * 811.1.d.5 limits the Play destination override to Units (plus the existing
+ * Deploy-Gear path); other instructions keep their authored behavior (811.2).
  */
 function scopeHiddenBody(instructions: readonly Instruction[], battlefieldId: string,
   nested = false): readonly Instruction[] {
@@ -123,57 +190,34 @@ function scopeHiddenBody(instructions: readonly Instruction[], battlefieldId: st
       }
       return [key, expression];
     }));
-    if (instruction.op === 'effect.token') {
-      const mode = args.mode;
-      if (mode !== undefined && (mode.kind === 'constant' || mode.kind === 'literal') && mode.value === 'play') {
-        const token = args.token;
-        const tokenId = token !== undefined && (token.kind === 'constant' || token.kind === 'literal') ? token.value : undefined;
-        const definition = typeof tokenId === 'string' ? getTokenDefinition(tokenId) : undefined;
-        if (definition?.abilityBinding === 'blocked') {
-          judgeRequired(`Hidden token ${tokenId} has no executable program adapter`);
-        }
-        if (definition?.spec.types.some(type => type.toLowerCase() === 'gear') &&
-            !definition.spec.keywords?.some(keyword => keyword.id.toLowerCase() === 'deploy')) {
-          judgeRequired(`Hidden Gear token ${tokenId} cannot be played directly to a Battlefield`);
-        }
-        delete args.location;
-        delete args.locations;
-        delete args.target;
-        delete args.pick;
-        delete args.choiceId;
-        args.location = { kind: 'constant', value: location };
-      } else if (mode !== undefined && !(mode.kind === 'constant' || mode.kind === 'literal')) {
-        judgeRequired('A dynamic effect.token mode requires Hidden battlefield adjudication');
-      }
-      if (mode === undefined) {
-        const token = args.token;
-        const tokenId = token !== undefined && (token.kind === 'constant' || token.kind === 'literal') ? token.value : undefined;
-        const definition = typeof tokenId === 'string' ? getTokenDefinition(tokenId) : undefined;
-        if (definition?.abilityBinding === 'blocked') {
-          judgeRequired(`Hidden token ${tokenId} has no executable program adapter`);
-        }
-        if (definition?.spec.types.some(type => type.toLowerCase() === 'gear') &&
-            !definition.spec.keywords?.some(keyword => keyword.id.toLowerCase() === 'deploy')) {
-          judgeRequired(`Hidden Gear token ${tokenId} cannot be created at a Battlefield`);
-        }
-        delete args.location;
-        delete args.locations;
-        delete args.target;
-        delete args.pick;
-        delete args.choiceId;
-        args.location = { kind: 'constant', value: location };
-      }
+    if (instruction.op === 'effect.token' && tokenPlayUsesHiddenBattlefield(args)) {
+      delete args.location;
+      delete args.locations;
+      delete args.target;
+      delete args.pick;
+      delete args.choiceId;
+      args.location = { kind: 'constant', value: location };
     }
-    if (instruction.op === 'effect.play') {
+    if (instruction.op === 'effect.play' && effectPlayUsesHiddenBattlefield(instruction)) {
       args.location = { kind: 'constant', value: location };
     }
     return {
       ...instruction,
       args,
       ...(instruction.targets === undefined ? {} : {
-        targets: instruction.targets.map(requirement => canScopeHiddenTarget(requirement) &&
-          !explicitTargetLocationRestriction(requirement.filter) ?
-          { ...requirement, location } : requirement),
+        targets: instruction.targets.map(requirement => {
+          if (!canScopeHiddenTarget(requirement) || explicitTargetLocationRestriction(requirement.filter)) {
+            return requirement;
+          }
+          const filterLocation = (requirement.filter as Readonly<Record<string, unknown>>).location;
+          const genericFilterLocation = filterLocation === 'battlefield' ||
+            isRecord(filterLocation) && filterLocation.type === 'battlefield' && filterLocation.id === undefined;
+          return {
+            ...requirement,
+            ...(genericFilterLocation ? { filter: { ...requirement.filter, location } } : {}),
+            location,
+          };
+        }),
       }),
     };
   });

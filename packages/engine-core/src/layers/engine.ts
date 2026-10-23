@@ -367,6 +367,15 @@ class LayerDependencyRestart extends Error {}
 class CopyDependencyRestart extends Error {}
 type AppliedEffect = { readonly entry: RegisteredContinuousEffect; readonly effect: AnyRecord };
 
+/**
+ * RIFT-999: derived layer state that a host-backed layered view depends on
+ * (keyword-grant expansions) bumps this epoch on every change, so a cached
+ * view keyed on it can never outlive that state.
+ */
+let derivedLayerEpochCount = 0;
+export function derivedLayerEpoch(): number { return derivedLayerEpochCount; }
+export function bumpDerivedLayerEpoch(): void { derivedLayerEpochCount++; }
+
 export class LayerEngine {
   readonly registry: ContinuousEffectRegistry;
   private readonly objects = new Map<string, ObjectSnapshot>();
@@ -383,6 +392,8 @@ export class LayerEngine {
   private registryRevision = -1;
   private attachmentRevision?: string;
   private depth = 0;
+  /** True while this engine is inside evaluate/evaluateAll (reentrant reads). */
+  get inEvaluation(): boolean { return this.depth > 0; }
   private frames: string[][] = [];
   private groups = new Map<string, Set<string>>();
   private groupView = new Map<string, LayeredObjectSnapshot>();

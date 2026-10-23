@@ -64,6 +64,7 @@ import type { RuntimeJournal } from "./engine-runtime/journal.js";
 import type { Domain } from "../../../packages/engine-core/dist/effects/contract.js";
 import type { CardProgram } from "../../../packages/card-dsl/dist/ir/index.js";
 import { cardProgramsById } from "../../../packages/card-dsl/dist/cards/registry.generated.js";
+import type { ProgramPrintedCatalogCard } from "../../../packages/engine-core/dist/programs/index.js";
 
 export type DuelRoomProfile = "v1" | "p4";
 export type DuelRuntimeMode = "legacy-p4" | "engine-v2";
@@ -260,6 +261,43 @@ export class GameRoom {
         // judge-required/no-ability programs; this cast grants no capability.
         return program === undefined ? [] : [program as unknown as CardProgram];
       });
+    const printedCatalog = new Map<string, ProgramPrintedCatalogCard>();
+    const conflictingCanonicalIds = new Set<string>();
+    for (const card of catalog.publicCatalog.cards) {
+      const projection: ProgramPrintedCatalogCard = {
+        id: card.id,
+        canonicalCardId: card.canonicalCardId,
+        cardType: card.cardType,
+        domains: [...card.domains],
+        energy: card.energy,
+        power: card.power,
+      };
+      const signature = JSON.stringify([
+        projection.cardType,
+        projection.domains,
+        projection.energy,
+        projection.power,
+      ]);
+      const existing = printedCatalog.get(projection.canonicalCardId);
+      if (existing === undefined) {
+        printedCatalog.set(projection.canonicalCardId, projection);
+        continue;
+      }
+      const existingSignature = JSON.stringify([
+        existing.cardType,
+        existing.domains,
+        existing.energy,
+        existing.power,
+      ]);
+      // A canonical identity may have cosmetic reprints, but divergent trusted
+      // printed costs cannot be resolved by printing order. Keep that identity
+      // absent so effect Play remains fail-closed.
+      if (existingSignature !== signature) {
+        printedCatalog.delete(projection.canonicalCardId);
+        conflictingCanonicalIds.add(projection.canonicalCardId);
+      }
+    }
+    for (const canonicalCardId of conflictingCanonicalIds) printedCatalog.delete(canonicalCardId);
     return {
       matchId: `duel:${this.roomId}`,
       roomId: this.roomId,
@@ -274,6 +312,7 @@ export class GameRoom {
         ] as const,
       }),
       ...(deckPrograms.length > 0 ? { programs: deckPrograms } : {}),
+      ...(printedCatalog.size > 0 ? { printedCatalog: [...printedCatalog.values()] } : {}),
     } as const;
   }
 
