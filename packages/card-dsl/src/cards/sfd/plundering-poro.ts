@@ -15,14 +15,12 @@ import type { CardProgram } from "../../ir/index.js";
  * stipulation (CR 143.4 / 185.2.d), not a later Exhaust action. The token
  * primitive now accepts entersExhausted and verifies the post-play state.
  *
- * Status remains judge-required for the CR 187.5 Gold definition's intrinsic
- * ability. RIFT-929 made Universal Power available as a cost source, but it did
- * not add Universal Power as an effect result: effect.resources still accepts
- * only the six named Domains (135.2.e.5.b / 163.2.b), and the Add binder still
- * rejects the authored ``power: ["rainbow"]`` shape. The Gold token definition
- * therefore remains blocked before a copy can be created. This card's own
- * trigger and its play-plus-exhausted entry instruction are independently
- * production-bound; a generic or ready Gold substitute would still be wrong.
+ * RIFT-987 makes the CR 187.5 Gold token definition executable as the same
+ * canonical card program. Its Reaction Add really produces one Universal Power
+ * source ([A]), but the full sentence is not yet executable: the production
+ * Play route completes a Gear ready after this effect explicitly required it to
+ * enter exhausted. The card remains fail-closed until that per-token entry
+ * stipulation reaches the authoritative Board transition.
  *
  * Official CR v1.5 source (effective 2026-10-16):
  * https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
@@ -35,18 +33,14 @@ export default {
     "Official evidence: CR v1.5 (2026-10-09, effective 2026-10-16; " +
     "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf), " +
     "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/, and " +
-    "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/; those reviewed snapshots contain no matching " +
-    "Plundering Poro, Gold, 187.5, 135.2.e.5, or 163.2.b entry. " +
-    "Current gap: the CR 187.5 Gold gear token carries its own Reaction Add ability, but obtaining Universal Power [A] is still not " +
-    "executable even though RIFT-929 added [A] as a cost source. effects/instructions/effect.resources.ts:126-170 accepts only the " +
-    "six named Domains, so the canonical Gold body's rainbow Power returns negated(impossible) without gaining Power " +
-    "(CR 135.2.e.5.b / 163.2.b). programs/index.ts:40-58 rejects that same body as an unverified Add shape, and " +
-    "effects/tokens/definitions.ts:100 still marks the Gold token abilityBinding blocked; effect.token.ts:341-343 therefore " +
-    "returns token-definition-or-abilities-judge-required before create-token/play can materialize it. This card's Conquer trigger " +
-    "is production-bound: turn/flow.ts emits the conquering Unit as object/source/it and the binder matches it by exact Unit identity " +
-    "(CR 383.4.c.2.a). Its effect.token instruction also supports play plus the exhausted entry stipulation " +
-    "(CR 185.2.a / 440.2.c / 184.1 / 185.2.d). Dependency: a source-backed Universal Power gain result, the Gold token ability " +
-    "program rebased onto it, and admission of that token program; until then no Gold token may be materialized.",
+    "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/. Current gap: RIFT-987 made the " +
+    "canonical CR 187.5 Gold program executable, so the token binds and its Reaction Add yields one Universal Power source. " +
+    "Current gap: the production Play route in engine-core/src/chain/engine.ts:423-442 / 1578-1600 applies its generic " +
+    "Gear-ready result after effect.token carried entersExhausted; the created Gold is therefore ready and immediately " +
+    "activatable, contrary to CR 184.1 and 185.2.a as applied over the ordinary 149.1 / 359.2.d entry rule. Required fix: " +
+    "carry a trusted Play entry-state stipulation through Finalize/Resolve and the entry-replacement path; do not append " +
+    "a later Exhaust action. The Conquer trigger itself and the Gold program's Play/Add halves are otherwise production-safe " +
+    "(CR 383.4.c.2.a, 187.5, 420.3, 430.2 / 430.3).",
   abilities: [
     {
       kind: "triggered",
