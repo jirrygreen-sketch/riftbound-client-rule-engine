@@ -1038,10 +1038,15 @@ export class LayerEngine {
   }
 
   /** Identity, type, and attachment facts that can change bonus eligibility. */
+  /**
+   * Detects in-place changes to the attachment-relevant fields of the current
+   * objects. It is only ever compared with a signature of the same Map, whose
+   * insertion order changes only through setObjects (which re-signs), so the
+   * Map order is already canonical here and needs no sort (RIFT-1015).
+   */
   private attachmentSignature(): string {
     return JSON.stringify([...this.objects.values()].map(object => [refKey(object.ref), object.types,
-      object.tags, object.zone, object.might, object.buffs, object.attachedTo]).sort((left, right) =>
-      String(left[0]).localeCompare(String(right[0]))));
+      object.tags, object.zone, object.might, object.buffs, object.attachedTo]));
   }
 
   snapshot(ref: ObjectRef): LayeredObjectSnapshot | null {
