@@ -10,10 +10,18 @@ import { readPlayerProfile, writePlayerProfile, type PlayerProfile } from "../pr
 import { readDisplaySettings, writeDisplaySettings, type DisplaySettings } from "../settings/display-settings";
 import {
   readReplayLibrary,
+  isV2ReplayRecording,
+  replayRecordingFrame,
   writeReplayLibrary,
   saveReplayRecording,
   type ReplayRecording
 } from "../replays/replay-library";
+import {
+  captureV2ReplaySnapshot,
+  v2ReplayCaptureComplete,
+  v2ReplayRecording,
+  type V2ReplayCapture
+} from "../replays/v2-replay-capture";
 import { type DeckBuilderEntry } from "../components/DeckBuilder";
 import {
   emptySubmissionTracking,
@@ -126,6 +134,8 @@ export function useAppState() {
   const [replayNotice, setReplayNotice] = useState<string | null>(null);
   const [exitError, setExitError] = useState<string | null>(null);
   const liveReplay = useRef<{ key: string; frames: DuelProjectionTransport[] } | null>(null);
+  const liveV2Replay = useRef<V2ReplayCapture | null>(null);
+  const [, setV2CaptureRevision] = useState(0);
 
   const saveProfile = (next: PlayerProfile): boolean => {
     if (!writePlayerProfile(preferenceStorage, next)) return false;
@@ -157,13 +167,20 @@ export function useAppState() {
     frames.push(structuredClone(duelProjection));
   }, [duelProjection, roomId]);
   const saveCurrentReplay = (): void => {
-    const capture = liveReplay.current;
-    if (!capture || capture.frames.length === 0 || !roomId) return;
-    const recording: ReplayRecording = {
-      id: capture.key, roomId,
-      title: capture.frames[0]!.match.roster.map(seat => seat.displayName).join(" vs "),
-      savedAt: new Date().toISOString(), frames: structuredClone(capture.frames)
-    };
+    const legacy = liveReplay.current;
+    const v2 = liveV2Replay.current;
+    const recording: ReplayRecording | null = v2UiEnabled
+      ? v2ReplayCaptureComplete(v2)
+        ? v2ReplayRecording(v2!, new Date().toISOString())
+        : null
+      : legacy && legacy.frames.length > 0 && roomId
+        ? {
+            id: legacy.key, roomId,
+            title: legacy.frames[0]!.match.roster.map(seat => seat.displayName).join(" vs "),
+            savedAt: new Date().toISOString(), frames: structuredClone(legacy.frames)
+          }
+        : null;
+    if (recording === null) return;
     const next = saveReplayRecording(replayLibrary, recording);
     if (!writeReplayLibrary(preferenceStorage, next)) {
       setReplayNotice("回放未能保存，请检查本机存储或记录大小。");
@@ -171,6 +188,7 @@ export function useAppState() {
     }
     setReplayLibrary(next);
     setReplayNotice("已保存本机当前视角回放。");
+    setReplaySelection({ id: recording.id, index: 0 });
   };
 
 
@@ -227,6 +245,22 @@ export function useAppState() {
       current.playerId === v2Match.session?.playerId &&
       current.resumeToken === v2Match.session?.resumeToken ? current : v2Match.session);
   }, [bootstrap.storage, v2Match.session]);
+  useEffect(() => {
+    const roomIdForCapture = v2Match.room?.roomId ?? v2Match.session?.roomId ?? null;
+    const result = captureV2ReplaySnapshot(liveV2Replay.current, {
+      roomId: roomIdForCapture,
+      sessionPlayerId: v2Match.session?.playerId ?? null,
+      projection: v2Match.state.projection,
+      events: v2Match.state.events
+    });
+    const changed = result.capture !== liveV2Replay.current &&
+      result.capture?.frames.length !== liveV2Replay.current?.frames.length;
+    liveV2Replay.current = result.capture;
+    if (changed) setV2CaptureRevision(revision => revision + 1);
+    if (result.rejectedReason !== null) setReplayNotice(result.rejectedReason);
+  }, [v2Match.room?.roomId, v2Match.session?.playerId, v2Match.state.events, v2Match.state.projection]);
+  const canSaveCurrentReplay = (duelProjection !== null && roomId !== null) ||
+    v2ReplayCaptureComplete(liveV2Replay.current);
 
   const libraryStorage: DeckLibraryStorage | null = bootstrap.storage;
   const [library, setLibrary] = useState<DeckLibrary>(bootstrap.library);
@@ -366,8 +400,12 @@ export function useAppState() {
   // relabels the duel, and this hook never writes draft/validation state.
   // A saved replay uses its own stamp even after the live session has ended.
   const selectedReplay = replayLibrary.recordings.find(recording => recording.id === replaySelection?.id) ?? null;
-  const replayFrame = selectedReplay?.frames[replaySelection?.index ?? 0] ?? null;
-  const displayedProjection = activeTab === "replays" ? replayFrame : duelProjection;
+  const replayFrame = selectedReplay ? replayRecordingFrame(selectedReplay, replaySelection?.index ?? 0) ?? null : null;
+  const replaysV2 = selectedReplay !== null && isV2ReplayRecording(selectedReplay);
+  const legacyReplayFrame: DuelProjectionTransport | null = replayFrame !== null && !replaysV2
+    ? replayFrame as DuelProjectionTransport
+    : null;
+  const displayedProjection = activeTab === "replays" ? legacyReplayFrame : duelProjection;
   const duelDataVersion = displayedProjection?.match.dataVersion ?? null;
   const duelCatalogDigest = displayedProjection?.match.catalogDigest ?? null;
   const duelCatalogStamp = useMemo<DuelCatalogStamp | null>(
@@ -636,6 +674,7 @@ export function useAppState() {
     saveProfile,
     changeDisplaySettings,
     saveCurrentReplay,
+    canSaveCurrentReplay,
     selectedCardId,
     setSelectedCardId,
     actionSelection,
@@ -693,7 +732,7 @@ export function useAppState() {
     validationIssues,
     cardLimits,
     resolveCardInfo,
-    replayFrame,
+    replayFrame: legacyReplayFrame,
     duelCatalog,
     resolveDuelCardTitle,
     resolveDuelCardImage,
