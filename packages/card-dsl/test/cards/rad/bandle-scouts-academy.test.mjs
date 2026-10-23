@@ -135,10 +135,9 @@ test("bandle-scouts-academy: the printed exhausted entry stipulation is not carr
 });
 
 test.todo(
-  "bandle-scouts-academy: create the Gold token on the Chain and play it exhausted in the " +
-    "production chain (440.2.c / 185.2.a / 350.2 / 354; needs the Gold definition, the exhausted " +
-    "entry stipulation and the Gold program identity/describePlay adapter). The controller-Base " +
-    "resolution and the measured fail-closed refusal are covered by the real-execution test above."
+  "bandle-scouts-academy: play the authored exhausted Gold token through the production " +
+    "card-hidden trigger and Chain lifecycle (440.2.c / 185.2.a / 350.2 / 354). The canonical " +
+    "Gold definition, controller-Base resolution and primitive token/Play handoff are covered above."
 );
 test.todo(
   "bandle-scouts-academy: card-hidden timing wiring for the Hide discretionary action " +

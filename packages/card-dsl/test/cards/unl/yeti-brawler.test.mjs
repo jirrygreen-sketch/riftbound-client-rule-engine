@@ -150,8 +150,8 @@ test("unl-018-219 Yeti Brawler: the token half creates and plays two canonical G
     ["yeti-brawler.base", "executed"],
     ["yeti-brawler.play-gold", "executed"]
   ]);
-  // Reproduce the same instruction through the primitive with the Base the
-  // preceding instruction produced: the definition lookup is what fails.
+  // Reproduce the same instruction through the primitive with the concrete Base
+  // the preceding instruction produced.
   const baseRun = runInstruction(
     token,
     {
@@ -172,8 +172,7 @@ test("unl-018-219 Yeti Brawler: the token half creates and plays two canonical G
     { type: "base", player: "A" },
     { type: "base", player: "A" }
   ]);
-  // A definition the primitive does know still plays, proving the surrounding
-  // handoff works and that only the Gold definition is missing.
+  // An independent definition also plays through the same handoff.
   const run = runInstruction(
     token,
     {
@@ -245,7 +244,7 @@ test.todo(
 );
 
 test.todo(
-  "unl-018-219 Yeti Brawler: play two Gold gear tokens with the CR 187.5 ability through the production token/Chain handoff"
+  "unl-018-219 Yeti Brawler: carry the card's exhausted entry stipulation through the production token/Chain handoff"
 );
 
 test.todo(

@@ -134,9 +134,8 @@ test("sfd-155-221 Honest Broker: body declares one Gold token played exhausted",
 });
 
 test("sfd-155-221 Honest Broker boundary: the merged play mode really creates and plays a token from this card's own shape", () => {
-  // The Gold definition is the blocker, not the play-mode handoff: swapping in
-  // a definition the frozen table does have (187.4 mech) runs the same authored
-  // argument shape through chain creation and the play action for real.
+  // An independent definition (187.4 mech) exercises the same authored argument
+  // shape through chain creation and the play action for real.
   const kernel = brokerKernel();
   const { entersExhausted, ...supportedArgs } = instruction.args;
   const args = {
@@ -223,8 +222,7 @@ test("sfd-155-221 Honest Broker: the object-killed trigger and the Deathknell ex
 });
 
 test.todo(
-  "sfd-155-221 Honest Broker: resolve the Deathknell [Effect] through the real chain once the " +
-    "Gold gear definition (CR 187.5), chain creation + cost-waived play (440.2.c / 185.2.a) and the " +
-    "exhausted entry stipulation (184.1 / 185.2.d) exist"
+  "sfd-155-221 Honest Broker: resolve the Deathknell [Effect] and its authored exhausted Gold through " +
+    "the real triggered lifecycle once trigger.leave is registered (CR 808.1.d / 187.5 / 184.1 / 185.2.d)"
 );
 

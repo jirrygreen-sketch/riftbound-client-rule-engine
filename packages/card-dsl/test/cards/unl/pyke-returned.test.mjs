@@ -191,7 +191,7 @@ test("unl-145-219 Pyke, Returned: the effect is one Gold-token play, with no tar
   assert.equal(diesTrigger.body.length, 1);
   assert.equal(playGold.id, "pyke-returned.play-gold-token");
   assert.equal(playGold.op, "effect.token");
-  // 187.5 的 Gold 定义缺席（judgeReason）；440.2.c / 185.2.a 的“链上创建 + 打出”流程用 mode "play"。
+  // 187.5 的 Gold 定义已合入；440.2.c / 185.2.a 的“链上创建 + 打出”流程用 mode "play"。
   assert.deepEqual(playGold.args.token, { kind: "constant", value: "gold" });
   assert.deepEqual(playGold.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(playGold.args.mode, { kind: "constant", value: "play" });
@@ -214,16 +214,16 @@ test("unl-145-219 Pyke, Returned: the effect is one Gold-token play, with no tar
 });
 
 test.todo(
-  "unl-145-219 Pyke, Returned: Gold gear token definition with its printed ability (CR 187.5) — " +
-    "effect.token's frozen table has no gold entry, so mode \"play\" has no executable path"
+  "unl-145-219 Pyke, Returned: play the authored Gold token through the production death-trigger lifecycle " +
+    "(CR 187.5 / 440.2.c / 185.2.a / 350.2 / 354), including its exhausted entry stipulation"
 );
 test.todo(
-  "unl-145-219 Pyke, Returned: chain creation plus the cost-waived play handoff " +
-    "(CR 440.2.c / 185.2.a / 350.2 / 354) — RIFT-62 follow-up"
+  "unl-145-219 Pyke, Returned: evaluate the production death trigger's battlefield location condition " +
+    "before queueing the authored Gold play (CR 383.2.a.1 / 808.1.d.3)"
 );
 test.todo(
-  "unl-145-219 Pyke, Returned: exhausted entry stipulation on the created token " +
-    "(CR 184.1 / 185.2.d / 143.4) — create-token supports no entry-state override"
+  "unl-145-219 Pyke, Returned: preserve the authored exhausted entry stipulation across production " +
+    "create-token and Play handoff (CR 184.1 / 185.2.d / 143.4)"
 );
 test.todo(
   "unl-145-219 Pyke, Returned: register the 'once each turn' death trigger and evaluate the " +

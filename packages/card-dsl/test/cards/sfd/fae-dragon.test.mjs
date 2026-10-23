@@ -260,9 +260,8 @@ test("sfd-101-221 Fae Dragon: the real buff-spent trigger is rejected by the eve
 });
 
 test.todo(
-  "sfd-101-221 Fae Dragon: create/play Gold with exhausted entry (187.5/184.1/185.2.d); " +
-    "this needs a Gold definition and an entry-state override on the create/play actions " +
-    "(the controller-base destination is merged)"
+  "sfd-101-221 Fae Dragon: play the authored exhausted Gold token through the production buff-spent " +
+    "trigger lifecycle (187.5 / 184.1 / 185.2.d), preserving the real primitive coverage above"
 );
 
 test.todo(

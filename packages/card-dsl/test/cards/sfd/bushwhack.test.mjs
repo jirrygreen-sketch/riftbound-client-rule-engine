@@ -120,7 +120,8 @@ test("sfd-004-221 Bushwhack structure: [Hidden], the entry-ready stipulation and
 
   // "Play a Gold gear token exhausted": CR 187.5's Gold definition, the
   // 440.2.c / 185.2.a chain-create + play path and the 143.4 / 185.2.d entry
-  // stipulation. Gold's definition and entry override remain judge-required.
+  // stipulation are authored here; the held-out Hidden and entry-replacement
+  // clauses remain judge-required.
   assert.equal(goldToken.op, "effect.token");
   assert.deepEqual(goldToken.args.token, { kind: "constant", value: "gold" });
   assert.deepEqual(goldToken.args.amount, { kind: "constant", value: 1 });
@@ -151,9 +152,8 @@ test.todo(
 );
 
 test.todo(
-  "sfd-004-221 Bushwhack: playing the Gold gear token needs the CR 187.5 definition (with its own " +
-    "printed ability) in the token table and an entry override on the existing chain-create/play handoff for the " +
-    "exhausted entry stipulation of 143.4 / 185.2.d"
+  "sfd-004-221 Bushwhack: play the card's Gold token through the production TriggerRegistration lifecycle " +
+    "(440.2.c / 185.2.a / 350.2 / 354), including the authored exhausted entry stipulation of 143.4 / 185.2.d"
 );
 
 test("sfd-004-221 Bushwhack: merged entry primitive cannot broaden the spell to a host-only replacement", () => {

@@ -183,8 +183,8 @@ test.todo(
     "cost pipeline; the exhaust must not be approximated with effect.exhaust"
 );
 test.todo(
-  "sfd-063-221 Chemtech Cask: playing the Gold gear token (CR 187.5 definition plus 440.2.c / 185.2.a chain creation and " +
-    "184.1 / 185.2.d exhausted entry) needs the Gold token definition plus the create-token entry-state rewrite"
+  "sfd-063-221 Chemtech Cask: play the authored exhausted Gold token through the production triggered " +
+    "spell-played lifecycle (CR 187.5 / 440.2.c / 185.2.a / 184.1 / 185.2.d)"
 );
 test.todo(
   "sfd-063-221 Chemtech Cask: \"on an opponent's turn\" needs an event payload / trigger-filter predicate for turn ownership " +

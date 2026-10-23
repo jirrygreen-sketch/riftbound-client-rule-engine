@@ -1,9 +1,8 @@
 // Golden test for Reckless Innovator (rad-105-167).
 // The printed ability is [Accelerate] plus an object-exhausted "choose one" trigger.
 // The structure, the merged effect.draw half of mode two and the token boundary are
-// verified here; the Gold token definition, the exhausted entry override and the
-// success-gated payment body are still open (see judgeReason and the test.todo
-// entries below).
+// verified here; the production Accelerate/choice wiring and the success-gated
+// payment body are still open (see judgeReason and the test.todo entries below).
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -259,13 +258,12 @@ test("rad-105-167 Reckless Innovator boundary: the Accelerate cost is also unbou
 });
 
 test.todo(
-  "rad-105-167 Reckless Innovator: Gold gear token definition carrying its printed " +
-    '"[Reaction][>] Kill this, [E]: [Add] [A]" ability (CR 187.5) — deliberately absent from the frozen ' +
-    "effect.token definition table (RIFT-62/RIFT-63)"
+  "rad-105-167 Reckless Innovator: execute the authored Gold choice through the production " +
+    "choose-one chain lifecycle, including its exhausted entry stipulation (CR 187.5 / 184.1 / 185.2.d)"
 );
 test.todo(
-  "rad-105-167 Reckless Innovator: 'exhausted' token entry state (CR 143.4/185.2.d) — create-token has no " +
-    "entry-override support, and creating then exhausting is not equivalent (RIFT-62/RIFT-63)"
+  "rad-105-167 Reckless Innovator: keep the optional Accelerate additional-cost decision and its " +
+    "success-gated result connected through Finalize and Resolve (CR 805.2.b / 805.6)"
 );
 test.todo(
   "rad-105-167 Reckless Innovator: cost.pay primitive for the ':rb_rune_chaos: to draw 1' cost within an " +

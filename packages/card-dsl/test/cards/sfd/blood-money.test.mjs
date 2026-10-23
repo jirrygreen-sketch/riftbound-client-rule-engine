@@ -192,9 +192,8 @@ test("Blood Money golden: the friendly branch kills the unit and plays two Gold 
 });
 
 test.todo(
-  "Blood Money token branches: the Gold gear token (CR 187.5, with its own activated " +
-    "ability) is played exhausted (143.4 / 185.2.d entry override) through chain creation plus " +
-    "the play handoff (440.2.c / 185.2.a); 依赖 Gold token 定义与入场状态改写（token 原语任务）"
+  "Blood Money token branches: play the authored Gold tokens exhausted through the production " +
+    "Chain lifecycle (143.4 / 185.2.d / 440.2.c / 185.2.a), without substituting the real primitive coverage"
 );
 
 test("Blood Money golden: the merged effect.token primitive creates the canonical Gold definition", () => {

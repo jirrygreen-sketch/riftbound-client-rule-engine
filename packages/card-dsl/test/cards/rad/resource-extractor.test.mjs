@@ -167,14 +167,13 @@ for (const controller of ["A", "B"]) test(`rad-052-167 Resource Extractor regres
 });
 
 test.todo(
-  "rad-052-167 Resource Extractor: adding the Gold gear token definition (CR 187.5, with its own " +
-    "\"[Reaction][>] Kill this, [E]: [Add] [A]\" ability) to the effect.token definition table."
+  "rad-052-167 Resource Extractor: play the authored exhausted Gold token through the production " +
+    "turn-end trigger and Chain lifecycle (CR 187.5 / 184.1 / 185.2.d / 440.2.c / 185.2.a)."
 );
 
 test.todo(
-  "rad-052-167 Resource Extractor: the printed 'exhausted' entry override (143.4 / 185.2.d) needs an " +
-    "entry-state path on Chain creation/play; a later effect.exhaust is a separate exhaust action and " +
-    "is not a substitute."
+  "rad-052-167 Resource Extractor: bind the controller-Base value produced in the card body to the " +
+    "production chain lifecycle without substituting a fixture destination."
 );
 
 test.todo(

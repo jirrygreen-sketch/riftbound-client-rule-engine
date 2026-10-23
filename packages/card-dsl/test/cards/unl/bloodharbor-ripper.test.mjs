@@ -156,9 +156,8 @@ test("unl-185-219 Bloodharbor Ripper: the return half runs the program's own bod
 
 test("unl-185-219 Bloodharbor Ripper: mode \"play\" really creates on the Chain and hands the token to play", () => {
   // 440.2.c / 185.2.a / 350.2 / 354: the merged effect.token creates the token
-  // on the Chain and then performs the play for that ref. The Gold definition
-  // itself is still missing (CR 187.5), so the merged handoff is exercised with
-  // a token the frozen table does define — never substituted into the card.
+  // on the Chain and then performs the play for that ref. This independent
+  // definition checks the shared handoff without substituting it into the card.
   const kernel = world().player("A", { energy: 0 }).build();
   const scoped = kernel.clone({ controller: "A" });
   const outcome = resolveChainBody(
@@ -272,7 +271,8 @@ test("unl-185-219 Bloodharbor Ripper: effect.token has no exhausted entry overri
 });
 
 test.todo(
-  "unl-185-219 Bloodharbor Ripper: Gold gear token definition with its printed ability (CR 187.5) — effect.token's frozen table has no gold entry"
+  "unl-185-219 Bloodharbor Ripper: play the authored exhausted Gold through the production activation " +
+    "lifecycle (CR 187.5 / 184.1 / 185.2.d / 440.2.c / 185.2.a)"
 );
 test.todo(
   "unl-185-219 Bloodharbor Ripper: exhausted entry override on the created token (CR 143.4 / 184.1 / 185.2.d)"
