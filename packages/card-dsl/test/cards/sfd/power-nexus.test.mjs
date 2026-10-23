@@ -152,11 +152,10 @@ test("sfd-214-221: the merged Score half really gains the printed 1 point (470.1
   assert.deepEqual(run.linked.scored, [{ player: "A", amount: 1 }]);
 });
 
-test("sfd-214-221 golden: accepting the optional runs cost.pay and scores 1 point within the reference-kernel evidence boundary", () => {
+test("sfd-214-221 golden: accepting the optional pays four [A] Power and scores 1 point", () => {
   // The accepted branch runs the program's own choice.optional body with the
-  // merged cost.pay instruction. The reference test kernel currently records
-  // the Power payment plan and event but deducts only Energy and XP; this test
-  // therefore proves instruction ordering and Score, never resource settlement.
+  // merged cost.pay instruction. The accepted branch must deduct all four
+  // matching Power before awarding the printed point.
   const kernel = world().player("A", { score: 2, power: ["Calm", "Calm", "Calm", "Calm"] }).player("B", { score: 4 }).build();
   kernel.setAnswers({ "power-nexus.opt-in/optional": true });
 
@@ -170,15 +169,14 @@ test("sfd-214-221 golden: accepting the optional runs cost.pay and scores 1 poin
     ["power-nexus.opt-in", "power-nexus.pay-four-runes", "power-nexus.score-1"]
   );
   for (const entry of outcome.results) assert.equal(entry.result.status, "executed");
-  // The receipt is only structural evidence of the locked four-[A] plan. The
-  // reference kernel does not consume its Power resources.
+  // The receipt records the locked four-[A] plan and the payment action.
   const payment = outcome.results.find((entry) => entry.id === "power-nexus.pay-four-runes").result.linkedValues.payment;
   assert.deepEqual(payment.total.power, [
     { amount: 4, allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] }
   ]);
   assert.deepEqual(payment.actions.map((entry) => entry.action.type), ["pay"]);
   assert.deepEqual(outcome.events.map((event) => event.action), ["pay", "score"]);
-  assert.equal(kernel.player("A").power.length, 4);
+  assert.equal(kernel.player("A").power.length, 0);
   // The printed "pay … to score" dependency: the point gain is linked to the
   // payment and both happen in the same optional branch (contract 3.9).
   assert.deepEqual(outcome.results.find((entry) => entry.id === "power-nexus.score-1").result.linkedValues.scored, [
@@ -240,15 +238,13 @@ test.todo(
   "sfd-214-221: hold 触发在链上真正匹配本 Battlefield 后，可选分支的金色执行升级为端到端生产链路（cost.pay 已执行支付与得分）"
 );
 
-test("sfd-214-221: the printed here placeholder is refused while the closed discriminant registers", () => {
-  // Direct evidence for the judgeReason: the hold producer and the "held"
-  // discriminant are merged (the matcher maps held -> the hold timing point for
-  // a controller filter), but the printed battlefield-relative anchor has no
-  // vocabulary, so no faithful registration of THIS Battlefield exists.
-  assert.throws(
-    () => translateTriggerFilter(ability.trigger.filter, "power-nexus", "hold"),
-    (error) => error.code === "judge-required" && /Unsupported filter field here/.test(error.message)
+test("sfd-214-221: the printed here placeholder validates and translates", () => {
+  assert.doesNotThrow(() =>
+    assertTriggerSpec({ at: "hold", filter: { ...ability.trigger.filter, event: "held" } })
   );
+  assert.deepEqual(translateTriggerFilter(ability.trigger.filter, "power-nexus", "hold"), {
+    event: "held", here: true, player: "self"
+  });
 
   const translated = translateTriggerFilter({ event: "held", player: "controller" }, "power-nexus", "hold");
   assert.deepEqual(translated, { event: "held", player: "self" });
