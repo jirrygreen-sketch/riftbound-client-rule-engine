@@ -10,6 +10,10 @@ import type {
   Schema,
   Value
 } from "../contract.js";
+import {
+  burnOutInstructionCapabilityFor,
+  completeBurnOutContinuation,
+} from "../../turn/burn-out.js";
 
 /**
  * effect.mill — Burn / 卡库到弃牌区（把一名玩家主牌库顶的若干张牌放进其弃牌区）。
@@ -355,20 +359,62 @@ function execute(ctx: ResolveContext, args: EffectMillArgs): InstructionResult {
     if (!(error instanceof Error)) throw error;
     return { status: "negated", reason: "impossible", events: [] };
   }
-  const outcome = ctx.perform({ type: "mill", player, amount: amountValue });
-  const events: GameEvent[] = [...outcome.events];
-  if (outcome.status !== "done") {
+  const first = ctx.perform({ type: "mill", player, amount: amountValue });
+  const events: GameEvent[] = [...first.events];
+  if (first.status !== "done") {
     return {
       status: "negated",
-      reason: outcome.status === "replaced" ? "replaced" : outcome.status === "prevented" ? "skipped" : "impossible",
+      reason: first.status === "replaced" ? "replaced" : first.status === "prevented" ? "skipped" : "impossible",
       events
     };
   }
 
+  const initialCompleted = isNonNegativeInteger(first.result) ? first.result : candidates.length;
+  let completed = initialCompleted;
+  if (completed < amountValue) {
+    const capability = ctx.timingPoint === "chain-item-resolve"
+      ? burnOutInstructionCapabilityFor(ctx.source)
+      : null;
+    if (capability === null) {
+      // Preserve the closed primitive contract for callers without an
+      // authoritative game-mode/participant owner.
+      const burned = candidates.filter(ref => {
+        const current = ctx.object(ref);
+        return current === null || current.zone !== "deck";
+      });
+      return executed(ctx, player, burned, burned.length, events);
+    }
+    const continuation = completeBurnOutContinuation("mill", player, amountValue, first, {
+      perform: action => ctx.perform(action),
+      participants: capability.participants,
+      trash: capability.trash,
+      completed: result => typeof result.result === "number" && isNonNegativeInteger(result.result)
+        ? result.result
+        : 0,
+      performPoint: (action, sequence) => sequence === 0 ? ctx.perform(action) : capability.performPoint(action),
+      afterBurnOut: (_step, sequence) => capability.afterBurnOut(sequence),
+    });
+    if (continuation === null) {
+      return { status: "negated", reason: "impossible", events };
+    }
+    if (continuation.completed < amountValue) {
+      // The state owner stopped at a subsequent Burn Out's immediate victory
+      // (CR 432.3.c.1). Preserve that actual score/event result and fail closed
+      // on any caller that asks for rule state beyond the terminated game.
+      return { status: "negated", reason: "impossible", events: [...continuation.events] };
+    }
+    events.splice(0, events.length, ...continuation.events);
+    completed = completed + continuation.completed - initialCompleted;
+  }
+
   // 124：离区后旧引用失效；只保留动作后确实不在原区域的引用，即观察到的被烧牌。
-  const burned = candidates.filter(ref => ctx.object(ref) === null);
-  const count = isNonNegativeInteger(outcome.result) ? outcome.result : burned.length;
-  return executed(ctx, player, burned, count, events);
+  const burned = candidates.filter(ref => {
+    const current = ctx.object(ref);
+    return current === null || current.zone !== "deck";
+  });
+  // The linked count includes every successful continuation, while `burned`
+  // retains only the references that already existed at the top of the Deck.
+  return executed(ctx, player, burned, completed, events);
 }
 
 export default {
