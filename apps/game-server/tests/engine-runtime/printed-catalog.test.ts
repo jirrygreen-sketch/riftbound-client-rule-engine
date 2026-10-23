@@ -128,6 +128,10 @@ interface Booted {
 
 async function bootRoom(): Promise<Booted> {
   const catalog = await loadCardCatalogRuntime();
+  return bootRoomFromCatalog(catalog);
+}
+
+async function bootRoomFromCatalog(catalog: Awaited<ReturnType<typeof loadCardCatalogRuntime>>): Promise<Booted> {
   const room = new GameRoom(ROOM_ID, DUEL_RULESET_ID, catalog, () => 0);
   const first = room.join("Alice", () => undefined, "printed-catalog-a");
   const second = room.join("Bob", () => undefined, "printed-catalog-b");
@@ -166,5 +170,28 @@ describe("RIFT-993 server ProgramBinding printed catalog", () => {
       canonicalCardId: BREAKNECK, id: "sfd-071-221", energy: 8, power: 2, domains: ["Mind"],
     }));
     expect(booted.runtime.projectFor("A").phase).toBe("main");
+    expect(booted.runtimeOptions.printedCatalog?.find(card => card.canonicalCardId === MIND_RUNE))
+      .toMatchObject({ energy: null, power: null });
   }, 420_000);
+
+  it("leaves a conflicting canonical cost fail-closed in the default server assembly", async () => {
+    cardProgramsById.set(RUMBLE, admittedRumble);
+    const catalog = await loadCardCatalogRuntime();
+    const breakneck = catalog.publicCatalog.cards.find(card =>
+      card.canonicalCardId === BREAKNECK && card.id === "sfd-071-221");
+    expect(breakneck).toBeDefined();
+    const conflicting = {
+      ...catalog,
+      publicCatalog: {
+        ...catalog.publicCatalog,
+        cards: [
+          ...catalog.publicCatalog.cards,
+          { ...breakneck!, id: "sfd-071-conflict", cardNumber: "SFD-071c/221", variant: "alternate" as const, power: 3 },
+        ],
+      },
+    };
+    const booted = await bootRoomFromCatalog(conflicting);
+    expect(booted.binding.printedCatalog(BREAKNECK)).toBeUndefined();
+  }, 420_000);
+
 });
