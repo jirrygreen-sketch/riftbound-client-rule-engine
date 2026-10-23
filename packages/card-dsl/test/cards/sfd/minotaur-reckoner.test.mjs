@@ -16,6 +16,8 @@ import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
 import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { moveDuelUnitsStandard } from "../../../../engine-core/dist/zones/movement.js";
 import { createDuelBoard, placeDuelUnit, selectDuelBattlefields } from "../../../../engine-core/dist/duel/battlefields.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -65,14 +67,17 @@ test("sfd-014-221 Minotaur Reckoner: the production binding really reaches the r
     .build();
   const source = kernel.getObject("minotaur");
   const target = kernel.getObject("u1");
-  const layers = {
-    objects: new Map(),
-    registry: new ContinuousEffectRegistry(),
-    addContinuous: (effect, duration) => layers.registry.register(effect, duration),
-    removeContinuous: id => layers.registry.remove(id)
-  };
-  const handle = createEngineStaticBinder({ layers }).bindStatic(ability, source);
-  const view = movement(layers.registry, target.ref, target, "A");
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => { throw new Error("A static binding must not ask for a choice"); },
+    context: (snapshot, controller, timingPoint) => bindResolveContext(kernel, { source: snapshot, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host });
+  const handle = createEngineStaticBinder(engine).bindStatic(ability, source);
+  const view = movement(engine.layers.registry, target.ref, target, "A");
   assert.deepEqual(view.restrictions, ["move-to-base"]);
   // 054.1: the prohibition removes only the Battlefield-to-Base option.
   assert.equal(view.canMove, true);
