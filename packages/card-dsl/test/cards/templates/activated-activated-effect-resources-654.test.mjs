@@ -207,11 +207,10 @@ function assertUniversalBodyFailsClosed(program, id, initial) {
   assert.deepEqual(outcome.events, []);
 }
 
-// Original cost/body probes. Hand is the only card whose complete printed cost
-// and body are both representable; the four [A] bodies must fail closed until
-// Universal Power is represented. Iron isolates its original Exhaust payment
-// only after separately proving that the full original Banish+Exhaust cost is
-// rejected by the merged cost vocabulary.
+// Original cost/body probes. Hand is the only non-Gold card whose complete
+// printed cost and body are both representable; the three [A] bodies must fail
+// closed when called directly. Iron's full original Banish+Exhaust cost is now
+// represented by the production cost plan, while its [A] body remains pending.
 test("RIFT-654 evidence: Daughter pays its original Exhaust cost and original [A] body fails closed", () => {
   assertUniversalBodyFailsClosed(daughterOfTheVoid, "daughter", { energy: 3, power: ["Fury"] });
 });
@@ -235,25 +234,29 @@ test("RIFT-654 evidence: Hand pays its original Exhaust cost and original [Add] 
   assert.deepEqual(context.events.slice(beforeEvents).map(event => event.action), ["gain-energy"]);
 });
 
-test("RIFT-654 evidence: Iron keeps its full Banish cost rejected and isolates only the original Exhaust payment", () => {
+test("RIFT-654 evidence: Iron pays the original Banish+Exhaust cost and the [A] body remains fail-closed", () => {
   const ability = activatedAbility(ironRevenant);
-  const fullContext = sourceContext(ironRevenant, "revenant", { energy: 4, power: ["Order"] });
-  assert.throws(
-    () => buildCostPlan(fullContext, { id: "revenant:full-cost", cost: ability.cost }),
-    error => error instanceof CostPlanError && /Unsupported payment kind: banish/i.test(error.message),
-  );
-  assert.equal(fullContext.getObject("revenant").exhausted, false);
-  assert.equal(fullContext.player("A").energy, 4);
-
-  const exhaustPayment = ability.cost.payments.find(payment => payment.kind === "exhaust");
-  assert.ok(exhaustPayment, "Iron Revenant must retain its original Exhaust payment");
-  const context = sourceContext(ironRevenant, "revenant", { energy: 4, power: ["Order"] });
-  const plan = buildCostPlan(context, {
-    id: "revenant:original-exhaust-slice",
-    cost: { kind: "activated", payments: [exhaustPayment] },
-  });
+  const kernel = world()
+    .player("A", { energy: 4, power: ["Order"] })
+    .unit("revenant", {
+      cardId: ironRevenant.canonicalCardId,
+      types: ["legend"],
+      zone: "board",
+      energy: null,
+      power: null,
+    })
+    .unit("banished", { owner: "A", types: ["unit"], zone: "trash" })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("revenant") });
+  const banished = context.ref("banished");
+  context.setAnswers({ "revenant:full-cost:pick:iron-revenant.banished-card": [banished] });
+  const plan = buildCostPlan(context, { id: "revenant:full-cost", cost: ability.cost });
+  assert.deepEqual(plan.total.actions.map(entry => entry.action.type), ["banish", "exhaust"]);
+  assert.deepEqual(plan.total.choices[0].objects, [banished]);
   const receipt = payCostPlan(context, plan);
-  assert.deepEqual(receipt.actions.map(entry => entry.action.type), ["pay", "exhaust"]);
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.actions.map(entry => entry.action.type), ["pay", "banish", "exhaust"]);
+  assert.equal(context.getObject("banished").zone, "banishment");
   assert.equal(context.getObject("revenant").exhausted, true);
   assert.equal(context.player("A").energy, 4);
 

@@ -146,7 +146,7 @@ const rows = [
     }
   },
   {
-    name: "Black Market · two [A] runes required, then Draw 1 for the activator [any-player permission blocked]",
+    name: "Black Market · two [A] runes are paid, then Draw 1 for the activator",
     canonicalCardId: BLACK_MARKET,
     program: marketSlice,
     scenario: {
@@ -177,11 +177,8 @@ const rows = [
           market: { zone: "board", location: { type: "battlefield", id: "battlefield-1" }, energy: null, power: null },
           "top-1": { zone: "hand" }
         },
-        // The scenario kernel's pay action debits Energy only (it does not
-        // consume Power), so the printed two-rune requirement is evidenced by
-        // the cost-plan test below, not by a pool change here. The pool is
-        // asserted unchanged so a future Power debit shows up as a diff.
-        players: { A: { energy: 0, power: ["Fury", "Calm"], handSize: 1 } },
+        // The scenario now consumes the two selected Power from the pool.
+        players: { A: { energy: 0, power: [], handSize: 1 } },
         links: { "black-market.draw-1.drawn": 1, "black-market.draw-1.drawnTo": "A" },
         events: {
           sequence: [
@@ -313,7 +310,7 @@ const boundaryRows = [
     declared: program => assert.equal(program.status, "judge-required")
   },
   {
-    name: "Garbage Grabber boundary · the printed recycle cost has no exact object reference",
+    name: "Garbage Grabber boundary · an empty Trash cannot complete the printed recycle cost",
     canonicalCardId: GARBAGE_GRABBER,
     program: executableSlice(garbageGrabber),
     scenario: {
@@ -324,7 +321,7 @@ const boundaryRows = [
       ],
       operations: [{ type: "activate", object: "grabber", player: "A" }]
     },
-    failure: /Cost requires an exact object reference/,
+    failure: /Cost choice cannot be completed from the current zone/,
     declared: program => assert.match(program.judgeReason, /choiceObjects/)
   },
   {
@@ -405,14 +402,13 @@ for (const [label, program, sourceTypes, sourceId, players] of [
   });
 }
 
-// 417.3: the recycle cost needs three cards. The declared PickSpec bounds are
-// validated against the real cost planner (which rejects the placeholder
-// options first), and the printed "exactly 3" reading is pinned above.
+// 417.3: the recycle cost needs three cards, so the real cost planner rejects an
+// empty Trash without committing anything.
 test("Garbage Grabber · the printed 3-card recycle cost cannot be completed from an empty Trash (417.3)", () => {
   const kernel = world().player("A", { energy: 4 }).build();
   assert.throws(
     () => buildCostPlan(kernel, { id: "cost:garbage-grabber", cost: garbageGrabber.abilities[0].cost }),
-    error => error?.name === "CostPlanError" && /Cost requires an exact object reference/.test(error.message)
+    error => error?.name === "CostPlanError" && /Cost choice cannot be completed from the current zone/.test(error.message)
   );
   assert.equal(kernel.zone("A", "trash").length, 0);
 });

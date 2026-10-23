@@ -1,14 +1,14 @@
 // RIFT-598 template-level golden. Each row is an independent card assertion.
-// The production binding is used to expand declared keywords; cards whose
-// source includes additional abilities or an unregistered keyword remain
-// judge-required and assert the precise fail-closed reason.
+// The production binding is used to expand declared keywords. Published status
+// is part of the contract: promoted cards must remain executable, while a card
+// with an unmodeled printed clause remains judge-required.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 
 const rows = [
-  {"canonicalCardId": "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6", "programPath": "sfd/laurent-duelist", "abilities": [{"kind": "keyword", "keyword": "assault", "value": 2}], "expectedExpanded": ["static:continuous.might"], "keywordOnly": true},
+  {"canonicalCardId": "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6", "programPath": "sfd/laurent-duelist", "status": "executable", "abilities": [{"kind": "keyword", "keyword": "assault", "value": 2}], "expectedExpanded": ["static:continuous.might"], "keywordOnly": true},
   {"canonicalCardId": "card.hash-63dae663a2ca549dc4704d2814cdc3b2eea4a26845d09029e88d2c8df6ee0013", "programPath": "sfd/skyfall-of-areion", "abilities": [{"kind": "keyword", "keyword": "equip", "value": 1}], "expectedExpanded": ["activated"], "keywordOnly": true},
   {"canonicalCardId": "card.hash-f9c6d6052ec4552cfcfc53a0e584e07cb232189ed89b277126630202cc188050", "programPath": "sfd/blade-of-the-ruined-king", "abilities": [{"kind": "keyword", "keyword": "equip", "value": 1}], "expectedExpanded": ["activated"], "keywordOnly": true},
   {"canonicalCardId": "card.hash-b5a71d562e350fc2da5172cbd7a0ef37531661ac9a27651a3cdfc1784f22b918", "programPath": "sfd/sentinel-adept", "abilities": [{"kind": "keyword", "keyword": "weaponmaster"}], "expectedExpanded": ["triggered"], "keywordOnly": true},
@@ -22,7 +22,7 @@ const rows = [
   {"canonicalCardId": "card.hash-2d46595233b37a0868857eab035ad4fa4dc53fc8c932d35ad32cca2c54ff06d2", "programPath": "sfd/serrated-dirk", "abilities": [{"kind": "keyword", "keyword": "equip", "value": 1}], "expectedExpanded": ["activated"], "keywordOnly": true},
   {"canonicalCardId": "card.hash-7a011777b95befa4fad1e25df22ffc8e9707030c4927ee2c5297fb8128a01ef4", "programPath": "sfd/master-bingwen", "abilities": [{"kind": "keyword", "keyword": "weaponmaster"}], "expectedExpanded": ["triggered"], "keywordOnly": true},
   {"canonicalCardId": "card.hash-af3547abb5e6d69c2372b62331d6039acaf16cca337eefb27e5734bbee3fb307", "programPath": "sfd/guardian-angel", "abilities": [{"kind": "keyword", "keyword": "equip", "value": 1}], "expectedExpanded": ["activated"], "keywordOnly": true},
-  {"canonicalCardId": "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732", "programPath": "sfd/jaull-fish", "abilities": [{"kind": "keyword", "keyword": "accelerate"}], "expectedExpanded": ["static:accelerate.cost", "replacement"], "keywordOnly": true, "sourceHasAdditionalAbility": true},
+  {"canonicalCardId": "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732", "programPath": "sfd/jaull-fish", "status": "executable", "abilities": [{"kind": "keyword", "keyword": "accelerate"}, {"kind": "static"}], "expectedExpanded": ["static:accelerate.cost", "replacement"], "keywordOnly": false},
   {"canonicalCardId": "card.hash-553d60be98d221dc71d4e71eb6ae5938143fa0c4b71e6e96d27d8570521d36eb", "programPath": "sfd/recurve-bow", "abilities": [{"kind": "keyword", "keyword": "equip", "value": 1}], "expectedExpanded": ["activated"], "keywordOnly": true},
   {"canonicalCardId": "card.hash-b3976fdbbb870e1d3f2e8cd4a8c353a35d653828284910792b79b5d6e6982f12", "programPath": "ven/soulspinner", "abilities": [{"kind": "keyword", "keyword": "ambush"}], "expectedExpanded": ["static:play-location-permission", "static:continuous.timing"], "keywordOnly": true},
   {"canonicalCardId": "card.hash-9e6cf771d3c68dc759e26aa3068eb3f3f2873734ee60fe6d8df8ef5a2ac46dbe", "programPath": "ven/horns-of-the-dragon", "abilities": [{"kind": "keyword", "keyword": "tank"}], "expectedExpanded": ["static:continuous.combat"], "keywordOnly": true},
@@ -41,9 +41,9 @@ const rows = [
   {"canonicalCardId": "card.hash-87e2eedcbebff6711e1c1841d161efbe5d63d047836446fb4ececd034911f1be", "programPath": "unl/soul-sword", "abilities": [{"kind": "keyword", "keyword": "equip", "value": 1}], "expectedExpanded": ["activated"], "keywordOnly": true},
   {"canonicalCardId": "card.hash-955bd858659e4d3eb8edfd20347a7496c51932de05cafd32fc71d86d94f96e47", "programPath": "unl/hextech-gauntlets", "abilities": [{"kind": "keyword", "keyword": "equip", "value": 3}], "expectedExpanded": ["activated"], "keywordOnly": true},
   {"canonicalCardId": "card.hash-f8b8f40872bd80284cc23f0fb215719625d48e00be1b8ed248c2a494ad0a5bad", "programPath": "unl/voracious-gromp", "abilities": [{"kind": "keyword", "keyword": "hunt", "value": 3}], "expectedExpanded": ["triggered", "triggered"], "keywordOnly": true},
-  {"canonicalCardId": "card.hash-f57b9ca8014fe44251722063cac371908fc07829fc257206b3c21b2c62f38d89", "programPath": "sfd/forgefire-cape", "abilities": [{"kind": "keyword", "keyword": "unique"}, {"kind": "keyword", "keyword": "equip", "value": 1}], "expectedExpanded": [], "keywordOnly": true},
+  {"canonicalCardId": "card.hash-f57b9ca8014fe44251722063cac371908fc07829fc257206b3c21b2c62f38d89", "programPath": "sfd/forgefire-cape", "abilities": [{"kind": "keyword", "keyword": "unique"}, {"kind": "keyword", "keyword": "equip", "value": 1}], "expectedExpanded": ["activated"], "keywordOnly": true},
   {"canonicalCardId": "card.hash-b9ee923133a3002010f175ddd77b690a710fa21bed8ffaefa29904a936c710ca", "programPath": "sfd/steraks-gage", "abilities": [{"kind": "keyword", "keyword": "quick-draw"}, {"kind": "keyword", "keyword": "equip", "value": 1}], "expectedExpanded": ["static:continuous.timing", "triggered", "activated"], "keywordOnly": true},
-  {"canonicalCardId": "card.hash-963c1bf1475a7d2678d6b10353dd2919b09c2bac0c8a471f44fdf8d090a65c02", "programPath": "sfd/rabadons-deathcrown", "abilities": [{"kind": "keyword", "keyword": "unique"}, {"kind": "keyword", "keyword": "equip", "value": 1}], "expectedExpanded": [], "keywordOnly": true},
+  {"canonicalCardId": "card.hash-963c1bf1475a7d2678d6b10353dd2919b09c2bac0c8a471f44fdf8d090a65c02", "programPath": "sfd/rabadons-deathcrown", "abilities": [{"kind": "keyword", "keyword": "unique"}, {"kind": "keyword", "keyword": "equip", "value": 1}], "expectedExpanded": ["activated"], "keywordOnly": true},
   {"canonicalCardId": "card.hash-8518a281524e1e72c165821192f2957a4ce78725737d98dbb03e70569739aec0", "programPath": "sfd/armed-assailant", "abilities": [{"kind": "keyword", "keyword": "accelerate"}, {"kind": "keyword", "keyword": "weaponmaster"}], "expectedExpanded": ["static:accelerate.cost", "replacement", "triggered"], "keywordOnly": true},
   {"canonicalCardId": "card.hash-4cb8d7a21af85e64b1351cadd5764e7d72532c46a93c2c85289c8c4351c33818", "programPath": "ogs/garen-rugged", "abilities": [{"kind": "keyword", "keyword": "assault", "value": 2}, {"kind": "keyword", "keyword": "shield", "value": 2}], "expectedExpanded": ["static:continuous.might", "static:continuous.might"], "keywordOnly": true},
   {"canonicalCardId": "card.hash-0386094f508d9cbd2f5fca31e0757380fa1c42cf0e9124b48b8a32d75b9fddc4", "programPath": "ogn/sunlit-guardian", "abilities": [{"kind": "keyword", "keyword": "shield"}, {"kind": "keyword", "keyword": "tank"}], "expectedExpanded": ["static:continuous.might", "static:continuous.combat"], "keywordOnly": true},
@@ -73,7 +73,7 @@ for (const row of rows) {
     const { default: program } = await import(`../../../dist/cards/${row.programPath}.js`);
     assert.equal(program.canonicalCardId, row.canonicalCardId);
     assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
-    assert.equal(program.status, "judge-required");
+    assert.equal(program.status, row.status ?? "judge-required");
     if (row.sourceHasAdditionalAbility) {
       assert.ok(program.judgeReason, "unmodeled printed ability must keep an explicit judge reason");
     }
@@ -83,13 +83,6 @@ for (const row of rows) {
     assert.ok(program.sourceText.length > 0);
 
     const binding = createProgramBinding({ cardPrograms: [program] });
-    if (row.expectedExpanded.length === 0) {
-      assert.throws(
-        () => binding.inspect({ cardId: row.canonicalCardId, keywords: [] }),
-        /Keyword unique has no executable KeywordDef/
-      );
-      return;
-    }
     const inspected = binding.inspect({ cardId: row.canonicalCardId, keywords: [] });
     const generated = inspected.abilities.slice(program.abilities.length).map(normalizeExpanded);
     assert.deepEqual(generated, row.expectedExpanded);
@@ -97,7 +90,7 @@ for (const row of rows) {
       assert.ok(program.abilities.every(ability => ability.kind === "keyword"), "keyword-only rows must not hide another ability");
     } else {
       assert.ok(program.abilities.some(ability => ability.kind !== "keyword"), "non-keyword source must remain explicit");
-      assert.equal(program.status, "judge-required");
+      assert.equal(program.status, row.status ?? "judge-required");
     }
   });
 }
