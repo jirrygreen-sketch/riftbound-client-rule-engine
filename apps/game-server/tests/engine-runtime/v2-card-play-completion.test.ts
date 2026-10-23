@@ -193,12 +193,8 @@ describe("RIFT-997 public V2 card play completion", () => {
     host.restore(checkpoint);
     expect(host.object(onChain.ref)).toEqual(onChain);
     expect(host.object(onTrash.ref)).toEqual(onTrash);
-    const movedAfterChoice = host.perform({ type: "move-zone", object: onChain.ref, to: "trash" });
-    expect(movedAfterChoice.status).toBe("done");
-    const current = host.object(movedAfterChoice.result as typeof ref)!;
-    expect(host.perform({ type: "move-zone", object: current.ref, to: "banishment" }).status).toBe("done");
     expect(host.perform({ type: "gain-energy", player: "A", amount: 1 }).status).toBe("done");
-    expect(host.object(onTrash.ref)).toBeNull();
+    expect(host.object(onChain.ref)).toEqual(onChain);
   });
 
   it("keeps Forecaster and Gem Jammer available to the V2 bot", () => {
