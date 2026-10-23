@@ -1,10 +1,11 @@
-import type { ActionOutcome, ContractGameAction, GameAction, ObjectFilter, ObjectSnapshot, PlayerId, ResolveContext } from '../effects/contract.js';
+import type { ActionOutcome, ContractGameAction, GameAction, HistoryQuery, ObjectFilter, ObjectSnapshot, PlayerId, ResolveContext } from '../effects/contract.js';
 import { getTimingPoint } from './timing-points.js';
 import { matchesTriggerEvent } from './pipeline-match.js';
 import { assertTriggerSpec } from './trigger-spec.js';
 import type { ActionExecution, NamedTriggerActivation, PipelineClock, PipelineEvent, PipelineHost, RegisteredTrigger, ReplacementCostEvidence, ReplacementMatchContext, ReplacementRegistration, TimingEmission, TriggerRegistration, TriggerRule, TriggerRuleContext, TriggerSnapshot } from './pipeline-types.js';
 import { evaluateCondition } from '../effects/interpreter/condition.js';
 import { MissingInformation } from '../effects/interpreter/values.js';
+import { historyCount } from '../effects/interpreter/history.js';
 import { bindEventHistory } from '../effects/interpreter/expr-ext/event-history.js';
 import { matchesObjectPredicates } from '../effects/filters/predicates.js';
 import { matchesObjectFilter } from '../layers/filter.js';
@@ -108,7 +109,8 @@ function evaluateTriggerCondition(
   controller: PlayerId,
 ): boolean {
   const condition = registration.spec.condition;
-  if (condition === undefined) return true;
+  const conditionHistory = registration.spec.conditionHistory;
+  if (condition === undefined && conditionHistory === undefined) return true;
   const base = host.context(source, controller, event.timingPoint);
   const frozenQuery = participatingUnitQuery(pipeline, host, event, controller, source);
   const context = bindEventHistory(new Proxy(base, { get(target, key) {
@@ -122,14 +124,54 @@ function evaluateTriggerCondition(
     const value = Reflect.get(target, key);
     return typeof value === 'function' ? value.bind(target) : value;
   } }), pipeline);
-  return evaluateCondition(condition as unknown as import("@riftbound/card-dsl").Condition, {
+  const environment = {
     context,
     event,
-    linked: key => context.linked(key),
+    linked: (key: string) => context.linked(key),
     canLookBack: () => true,
     isIgnored: () => false,
-    query: filter => context.query(filter)
-  });
+    query: (filter: ObjectFilter) => context.query(filter)
+  };
+  const mainCondition = condition === undefined || evaluateCondition(
+    condition as unknown as import("@riftbound/card-dsl").Condition, environment,
+  );
+  if (!mainCondition || conditionHistory === undefined) return mainCondition;
+  if (conditionHistory.exclude === 'self') {
+    const query = conditionHistory;
+    const history = (host as PipelineHost & {
+      readonly finalizedCardPlaysThisTurn?: () => readonly { readonly object: ObjectSnapshot; readonly player: PlayerId }[];
+    }).finalizedCardPlaysThisTurn?.();
+    if (history === undefined) return false;
+    return history.some(play => play.object.ref.id !== source.ref.id &&
+      (query.player === undefined || play.player === query.player || play.object.controller === query.player || play.object.owner === query.player) &&
+      matchesFinalizedHistoryQuery(query, play.object));
+  }
+  return historyCount(conditionHistory, context) >= 1;
+}
+
+function matchesFinalizedHistoryQuery(
+  query: Omit<HistoryQuery, 'exclude'>,
+  object: ObjectSnapshot,
+): boolean {
+  if (query.scope !== undefined && query.scope !== 'turn') return false;
+  if (query.object !== undefined && (query.object.id !== object.ref.id || query.object.zoneEntryId !== object.ref.zoneEntryId)) return false;
+  if (query.timingPoint !== undefined && query.timingPoint !== 'chain-item-finalize') return false;
+  const filter = query.objectFilter;
+  if (filter === undefined) return true;
+  const supported = new Set(['cardId', 'canonicalCardId', 'type', 'types', 'controller', 'owner', 'isToken']);
+  if (Object.keys(filter).some(key => !supported.has(key))) throw new MissingInformation('Unsupported Finalize history filter');
+  if (filter.cardId !== undefined && filter.cardId !== object.cardId) return false;
+  if (filter.canonicalCardId !== undefined && filter.canonicalCardId !== object.cardId) return false;
+  const types = filter.type ?? filter.types;
+  if (types !== undefined) {
+    const values = Array.isArray(types) ? types : [types];
+    if (!values.some(type => type === 'object' || type === 'card' && object.cardId !== null || object.types.includes(String(type)))) return false;
+  }
+  for (const key of ['controller', 'owner'] as const) {
+    const expected = filter[key];
+    if (expected !== undefined && expected !== object[key]) return false;
+  }
+  return filter.isToken === undefined || filter.isToken === object.isToken;
 }
 
 function namedEventDependency(value: unknown, seen = new Set<object>()): boolean {
@@ -165,6 +207,7 @@ function namedFilterEventDependency(filter: unknown): boolean {
 
 function namedActivationRequiresRealEvent(registration: TriggerRegistration): boolean {
   return namedFilterEventDependency(registration.spec.filter) ||
+    registration.spec.conditionHistory !== undefined ||
     namedEventDependency(registration.spec.condition) ||
     registration.body.some(instruction => namedEventDependency(instruction.condition) || namedEventDependency(instruction.args));
 }
@@ -220,7 +263,7 @@ export class EventPipeline {
       (registration.spec.filter as { readonly type?: string }).type ??
       (registration.spec.filter as { readonly kind?: string }).kind;
     if (hold === 'hold' && !registration.delayed && captured.location?.type !== 'battlefield') return null;
-    if (registration.spec.condition !== undefined) {
+    if (registration.spec.condition !== undefined || registration.spec.conditionHistory !== undefined) {
       const probe = deepFreeze({
         reason: 'named-trigger-activation',
         timingPoint: 'chain-item-finalize', kind: 'named-trigger-activation',
@@ -466,7 +509,7 @@ export class EventPipeline {
       const captured = structuredClone(source ?? registration.source);
       const controller = registration.delayed ? registration.controller : captured.controller;
       if (!matchesTriggerEvent(registration.spec.filter, event, controller, captured)) continue;
-      if (registration.spec.condition) {
+      if (registration.spec.condition || registration.spec.conditionHistory) {
         try {
           // The pipeline evaluator has the captured source, immutable event,
           // and relative-player context.  A legacy host hook is only a fallback
