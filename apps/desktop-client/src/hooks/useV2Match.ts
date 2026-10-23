@@ -106,7 +106,6 @@ export function useV2Match(options: UseV2MatchOptions): V2MatchClient {
     sendCommand: () => Promise.reject(new Error("Protocol v2 is not connected")),
     connect: () => undefined
   });
-
   useEffect(() => {
     if (!options.enabled || !options.serverUrl) {
       controllerRef.current?.stop("v2 route disabled");
@@ -114,8 +113,17 @@ export function useV2Match(options: UseV2MatchOptions): V2MatchClient {
       setSnapshot(emptySnapshot);
       return;
     }
-    const initialSession: ClientSession | null = options.roomId && options.session?.playerId && options.session.resumeToken
-      ? { roomId: options.roomId, playerId: options.session.playerId, resumeToken: options.session.resumeToken }
+    // Room/session identity is deliberately absent from the effect dependency
+    // list below. The controller owns the live socket, and persisting its
+    // created session back into props must not replace that socket. These
+    // values are only a first-mount resume hint; transport changes rebuild.
+    const initialSession: ClientSession | null =
+      options.roomId && options.session?.playerId && options.session.resumeToken
+      ? {
+          roomId: options.roomId,
+          playerId: options.session.playerId,
+          resumeToken: options.session.resumeToken
+        }
       : null;
     const controller = createV2MatchSessionController({
       serverUrl: options.serverUrl,
@@ -143,10 +151,7 @@ export function useV2Match(options: UseV2MatchOptions): V2MatchClient {
     options.choiceTimeoutMs,
     options.enabled,
     options.requestTimeoutMs,
-    options.roomId,
     options.serverUrl,
-    options.session?.playerId,
-    options.session?.resumeToken,
     options.socketFactory
   ]);
 

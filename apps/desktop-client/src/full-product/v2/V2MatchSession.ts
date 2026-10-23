@@ -168,7 +168,9 @@ export function buildV2Hello(
     ...(session === null ? {} : {
       roomId: session.roomId,
       resumeToken: session.resumeToken,
-      afterEventSeq: Math.max(0, cursor.eventSeq ?? 0)
+      ...(cursor.eventSeq === undefined || cursor.eventSeq <= 0
+        ? {}
+        : { afterEventSeq: cursor.eventSeq })
     })
   };
 }

@@ -939,6 +939,7 @@ export class GameRoom {
       return;
     }
     if (!this.state) {
+      if (afterEventSeq === 0 && this.isEngineV2WaitingRoom()) return;
       throw new RoomError(
         "Game events are not available before the game starts",
         "command-rejected"
@@ -999,6 +1000,7 @@ export class GameRoom {
       return;
     }
     if (!this.state) {
+      if (afterEventSeq === 0 && this.isEngineV2WaitingRoom()) return;
       throw new RoomError(
         "Game events are not available before the game starts",
         "command-rejected"
@@ -1038,15 +1040,16 @@ export class GameRoom {
           "command-rejected"
         );
       }
-      if (!this.hasGame) {
+      if (this.hasGame &&
+          afterEventSeq > (this.duelMatch?.eventSeq ?? this.engineProjection?.eventSeq ?? this.state!.eventSeq)) {
         throw new RoomError(
-          "Game events are not available before the game starts",
+          "Event cursor is ahead of the authoritative log",
           "command-rejected"
         );
       }
-      if (afterEventSeq > (this.duelMatch?.eventSeq ?? this.engineProjection?.eventSeq ?? this.state!.eventSeq)) {
+      if (!this.hasGame && !(afterEventSeq === 0 && this.isEngineV2WaitingRoom())) {
         throw new RoomError(
-          "Event cursor is ahead of the authoritative log",
+          "Game events are not available before the game starts",
           "command-rejected"
         );
       }
@@ -1066,6 +1069,10 @@ export class GameRoom {
         );
       }
     }
+  }
+
+  private isEngineV2WaitingRoom(): boolean {
+    return this.rulesetId === DUEL_RULESET_ID && this.runtimeMode === "engine-v2";
   }
 
   submitDeck(
