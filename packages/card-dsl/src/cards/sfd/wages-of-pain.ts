@@ -3,29 +3,19 @@ import type { CardProgram } from "../../ir/index.js";
 /**
  * Wages of Pain — sfd-070-221 (CR v1.5 811.1, 187.5, 184.1/185.2.d).
  *
- * Status: judge-required, re-verified 2026-10-23 against the merged production
- * path. RIFT-987 binds the Gold carrier to its canonical 187.5 program, whose
- * Reaction Add really produces Universal Power ([A]); RIFT-961 supplies the
- * Hide transaction, private facedown storage, next-turn Reaction permission,
- * source-Battlefield target restriction, and play-from-facedown transition.
- *
- * Two production gaps remain. First, the normal ProgramBinding + Chain Play of
- * Gold ends ready rather than under the card's entersExhausted stipulation
- * (chain/engine.ts:1593-1595 unconditionally commits every resolving Gear as
- * ready before moving it to the Board, overriding the TokenSpec entry state).
- * Second, programs/play.ts scopeHiddenBody applies its 811.1.d play-location
- * rewrite to every effect.token, including this Gear token, and then rejects a
- * non-Deploy Gear at a Battlefield. CR 811.1.d.5 limits that override to playing
- * a Unit; this spell's Gold is still played to the controller's Base.
+ * Status: executable, re-verified 2026-10-23 against the merged production
+ * path. RIFT-1005 preserves the token Gear's stipulated exhausted entry when
+ * the Gold Play resolves (184.1/359.2.d), and RIFT-1007 applies the Hidden
+ * destination restriction only to a played Unit (811.1.d.5), leaving this Gold
+ * at its controller's Base as instructed while 811.2 keeps other instructions
+ * normal. RIFT-987 binds Gold to its canonical 187.5 Reaction Add, and the
+ * Hidden Play/private storage/next-turn Reaction path is covered in the card
+ * golden alongside the normal production Play.
  */
 const wagesOfPain = {
   canonicalCardId: "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "当前剩余缺口（2026-10-23 生产路径实测，不近似实现）：(1) CR 184.1 的 exhausted entry 未保持。effect.token.ts:343-371 将 entersExhausted 写入 create-token 的 TokenSpec；Chain 先接受该 token 的 Play，随后 chain/engine.ts:1593-1595 在 Resolve 时只按 item.kind === gear 选择 ready，并无条件提交 ready 后再移到 Board，覆盖了 TokenSpec 的 exhausted entry；最终实际对象为 exhausted=false。卡文明确要求 Play a Gold gear token exhausted。" +
-    "(2) Hidden 来源仍错误改 scope。engine-core/src/programs/play.ts:126-165 的 hidden scopeHiddenBody 会把每条 effect.token 的 location 改写到牌所隐藏的战场；随后 :135-138、:155-158 因 Gold 是未带 Deploy 的 Gear 而抛 judge-required。CR 811.1.d.5 只要求 hidden spell 让你 play a unit 时在该战场施放 Unit；本卡第二句的 Gold gear token 仍应按 359.2.d/811.2 进入控制者 Base。" +
-    "已由生产链路验证：3 Energy、Finalize 目标锁定与 Resolve 重验、造成 3 点伤害、Gold 创建并绑定 187.5 程序及 Universal Power Add；Hide 行动、private facedown、次回合 Reaction 与来源战场目标限制也通过。因上述两项任一项都会使整卡行为错误，保持 judge-required。",
+  status: "executable",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "action" },
