@@ -286,10 +286,13 @@ function installKeywordReexpansion(engine: ChainEngine): void {
     onKeywordAbilities: () => {},
   });
   keywordEngine.setObjects(engine.pipeline.host.objects());
+  // True while a sweep has already set the current host objects on both
+  // keyword engines; per-object queries then reuse them (RIFT-999).
+  let sweeping = false;
   const keywordTriggerRegistrations = (ref: ObjectRef) => {
     const source = liveSource(engine, ref);
     if (source === null) return [];
-    keywordEngine.setObjects(engine.pipeline.host.objects());
+    if (!sweeping) keywordEngine.setObjects(engine.pipeline.host.objects());
     const entries = keywordEngine.keywordEntries(ref);
     return entries.flatMap(entry => entry.ability.kind === 'triggered'
       ? (() => {
@@ -302,16 +305,21 @@ function installKeywordReexpansion(engine: ChainEngine): void {
   protocol.keywordTriggerRegistrations = keywordTriggerRegistrations;
   const add = engine.layers.addContinuous.bind(engine.layers);
   const remove = engine.layers.removeContinuous.bind(engine.layers);
+  const sweepAll = () => engine.withStableLayers(() => {
+    const objects = engine.pipeline.host.objects();
+    exp.setObjects(objects);
+    keywordEngine.setObjects(objects);
+    const previous = sweeping;
+    sweeping = true;
+    try {
+      keywordEngine.withBatch(() => { for (const object of exp.evaluateAll()) syncObject(object.ref); });
+    } finally { sweeping = previous; }
+  });
   let syncingView = false;
   const syncView = () => {
     if (syncingView) return;
     syncingView = true;
-    try {
-      const objects = engine.pipeline.host.objects();
-      exp.setObjects(objects);
-      keywordEngine.setObjects(objects);
-      for (const object of exp.evaluateAll()) syncObject(object.ref);
-    } finally { syncingView = false; }
+    try { sweepAll(); } finally { syncingView = false; }
   };
   engine.layers.addContinuous = ((effect, duration, timestamp) => {
     const entry = add(effect, duration, timestamp);
@@ -351,10 +359,7 @@ function installKeywordReexpansion(engine: ChainEngine): void {
     },
     sync(ref?: ObjectRef) {
       if (ref === undefined) {
-        const objects = engine.pipeline.host.objects();
-        exp.setObjects(objects);
-        keywordEngine.setObjects(objects);
-        for (const object of exp.evaluateAll()) syncObject(object.ref);
+        sweepAll();
         return;
       }
       if (liveSource(engine, ref) === null) {
