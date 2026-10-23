@@ -243,11 +243,8 @@ test("unl-t03 Brush: the production static binder rejects the declared OR-tag fi
   assert.equal(engine.layers.registry.list().length, 1);
 });
 
-test("unl-t03 Brush: the score filter with here: true is refused by the trigger translator (383.4 / 053.3)", () => {
-  assert.throws(
-    () => translateTriggerFilter(scoreAbility.trigger.filter, "brush", "score"),
-    /Unsupported filter field here/
-  );
+test("unl-t03 Brush: the score filter preserves here: true (383.4 / 053.3)", () => {
+  assert.equal(translateTriggerFilter(scoreAbility.trigger.filter, "brush", "score").here, true);
   // The score production event carries no source battlefield object, so even a
   // translated subscription could not bind to this Battlefield.
   assert.equal(matchesTriggerEvent(

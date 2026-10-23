@@ -210,15 +210,13 @@ test("Back Off golden: the merged play-origin predicate draws from hand and refu
   assert.equal(trashScoped.player("A").deckSize, 2);
 });
 
-test("Back Off: the production chain adapter still rejects the declared effect.stun argument envelope (CR 424.1)", () => {
-  // Evidence for judgeReason (3): LITERAL_FIELDS in chain/interpreter-adapter.ts
-  // has no effect.stun entry, so the Expr-wrapped target reaches the frozen
-  // primitive schema unchanged and the resolution fails before Stun executes.
+test("Back Off: the production chain adapter decodes the effect.stun target envelope (CR 424.1)", () => {
   const kernel = world().unit("enemy", { owner: "B", might: 3 }).build();
   kernel.setTargets("back-off.stunned-unit", [kernel.ref("enemy")]);
-  assert.throws(() => resolveChainBody([stunInstruction], kernel),
-    /effect\.stun target must be a spec id string/);
-  assert.equal(kernel.getObject("enemy").stunned, false);
+  const outcome = resolveChainBody([stunInstruction], kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(kernel.getObject("enemy").stunned, true);
 });
 
 test.todo("back-off: supply the resolving event's play-origin payload to a card's own play.body so the merged played-from-hand predicate can evaluate it (CR 356.1/356.2)");

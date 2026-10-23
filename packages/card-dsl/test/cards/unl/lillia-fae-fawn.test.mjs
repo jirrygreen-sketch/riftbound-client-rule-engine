@@ -113,17 +113,12 @@ test("unl-082-219 Lillia, Fae Fawn: merged Accelerate and Temporary definitions 
   assert.equal(token.getObject("sprite").zone, "trash");
 });
 
-test("unl-082-219 Lillia, Fae Fawn: the Move trigger is rejected by the closed event vocabulary (CR 421.1 / 449.1-2)", () => {
-  // The card authors the intent with the object-moved timing point, but
-  // EVENT_PATTERN_TYPES (events/trigger-spec.ts) does not contain it, so the
-  // production registration path cannot subscribe this trigger.
+test("unl-082-219 Lillia, Fae Fawn: the Move trigger registers in the production pipeline (CR 421.1 / 449.1-2)", () => {
+  // object-moved is now in the closed EventPattern vocabulary and the source
+  // Move trigger installs on the real pipeline.
   const translated = translateTriggerFilter(ability.trigger.filter, "lillia");
   assert.equal(translated.event, "object-moved");
-  assert.throws(
-    () => assertTriggerSpec({ at: ability.trigger.at, filter: translated }),
-    (error) => error.name === "TriggerSpecValidationError" &&
-      error.issues.some((issue) => issue.code === "invalid-event-type")
-  );
+  assert.doesNotThrow(() => assertTriggerSpec({ at: ability.trigger.at, filter: translated }));
   const f = fixture({
     cards: [{ id: "lillia", cardId: CANONICAL_ID, types: ["unit"], energy: 3, power: ["Mind"], might: 3 }]
   });
@@ -133,11 +128,8 @@ test("unl-082-219 Lillia, Fae Fawn: the Move trigger is rejected by the closed e
   // other goldens in this file.
   const lifted = { ...program, status: "executable" };
   delete lifted.judgeReason;
-  assert.throws(
-    () => createProgramBinding({ cardPrograms: [lifted] }).registerProgramTriggers(f.engine, source),
-    (error) => error.name === "TriggerSpecValidationError" &&
-      error.issues.some((issue) => issue.code === "invalid-event-type")
-  );
+  const ids = createProgramBinding({ cardPrograms: [lifted] }).registerProgramTriggers(f.engine, source);
+  assert.ok(ids.length > 0);
 });
 
 test("unl-082-219 Lillia, Fae Fawn: no Sprite token can be created (CR 187.2)", () => {
@@ -165,7 +157,7 @@ test("unl-082-219 Lillia, Fae Fawn: no Sprite token can be created (CR 187.2)", 
   assert.equal(defined.linked["token.amount"], 1);
 });
 
-test("unl-082-219 Lillia, Fae Fawn: [Accelerate]'s static cost declaration has no layer mapping (CR 805.1.b)", () => {
+test("unl-082-219 Lillia, Fae Fawn: [Accelerate]'s static cost declaration binds (CR 805.1.b)", () => {
   const definition = keywordDefinitionsById.get("Accelerate");
   const [costAbility] = definition.expand({ host: { canonicalCardId: CANONICAL_ID } });
   assert.equal(costAbility.effect.kind, "accelerate.cost");
@@ -173,10 +165,9 @@ test("unl-082-219 Lillia, Fae Fawn: [Accelerate]'s static cost declaration has n
     cards: [{ id: "lillia", cardId: CANONICAL_ID, types: ["unit"], energy: 3, power: ["Mind"], might: 3 }]
   });
   const source = { ...f.kernel.getObject("lillia"), cardId: CANONICAL_ID, zone: "board" };
-  assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic(costAbility, source),
-    (error) => error.name === "ProgramBindingError" && /no layer mapping/.test(error.message)
-  );
+  const handle = createEngineStaticBinder(f.engine).bindStatic(costAbility, source);
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
 });
 test.todo(
   "unl-082-219 Lillia, Fae Fawn: bind 'there' to the location recorded by the trigger condition " +

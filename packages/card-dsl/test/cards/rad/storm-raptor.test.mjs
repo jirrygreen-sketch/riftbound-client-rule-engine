@@ -132,7 +132,7 @@ test("rad-036-167 Storm Raptor: the Stunned enemy clause really matches through 
   );
 });
 
-test("rad-036-167 Storm Raptor: the real trigger registration really rejects the 'here' anchor", () => {
+test("rad-036-167 Storm Raptor: trigger registration still requires the unified event matcher", () => {
   // 053.3 / 421.1: "dies here" is a location condition. The production trigger
   // binder refuses the sameLocationAs field, so the trigger never registers.
   const kernel = world().player("A").player("B")
@@ -141,7 +141,7 @@ test("rad-036-167 Storm Raptor: the real trigger registration really rejects the
   const snapshot = { ...kernel.getObject("storm-raptor"), cardId: CANONICAL };
   assert.throws(
     () => triggerRegistrations(new Map([[CANONICAL, program]]), snapshot),
-    /Unsupported filter field sameLocationAs/
+    /Trigger filter requires the unified event matcher/,
   );
 });
 

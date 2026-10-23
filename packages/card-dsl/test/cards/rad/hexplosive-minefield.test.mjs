@@ -77,12 +77,11 @@ test("rad-142-167 Hexplosive Minefield: judgeReason names the delayed op, full l
   assert.match(program.judgeReason, /amount/);
 });
 
-test("rad-142-167 Hexplosive Minefield gap: no registered op creates a Delayed Ability (390 / 391.2 / 393)", () => {
-  // The ResolveContext hook exists, but only registered instructions can call it
-  // from card data; the card-facing delayed op is still absent, and a
-  // card-owned trigger would be wrong under 393.
-  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
-  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
+test("rad-142-167 Hexplosive Minefield: the card-facing delayed-ability op is registered", () => {
+  // CR 390 / 391.2 / 393: the delayed ability is created by the resolving card
+  // through its registered instruction rather than by a card-owned trigger.
+  assert.equal(instructionDefinitionsById.has("trigger.delayed"), true);
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), true);
   assert.equal(delayedPlay.op, "trigger.delayed");
 });
 

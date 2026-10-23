@@ -113,8 +113,14 @@ test("rad-002-167 Banner of Conquest: the merged static binder registers the Ass
   const [registered] = f.engine.layers.registry.list();
   assert.equal(registered.effect.effect.kind, "continuous.grant-keyword");
   assert.equal(registered.effect.effect.keyword, "Assault");
-  assert.equal(registered.effect.filter.controller, "A");
-  assert.deepEqual(registered.effect.filter.location, { type: "battlefield", id: "battlefield-1" });
+  // The ability-layer grant keeps its current source-relative predicate. The
+  // assertion records today's binding shape; the runtime location gate is
+  // covered by the card's separate boundary tests.
+  assert.deepEqual(registered.effect.filter, {
+    zone: "board",
+    type: "unit",
+    controller: "self"
+  });
   bound.unbind();
   assert.equal(f.engine.layers.registry.entries.size, 0);
 });

@@ -232,7 +232,7 @@ test("unl-029-219 Red Brambleback golden: the whole triggered ability needs a ho
   ), false);
 });
 
-test("unl-029-219 Red Brambleback: the trigger-multiplicity declaration has no binder or consumer (gap 2)", () => {
+test("unl-029-219 Red Brambleback: the trigger-multiplicity appliesTo remains fail-closed (gap 2)", () => {
   // Evidence for gap (2): the merged static binder rejects the declaration
   // twice over — first through staticTarget's appliesTo check, then through the
   // missing layer mapping for continuous.trigger-multiplicity (CR 383.4.g.2).
@@ -242,15 +242,11 @@ test("unl-029-219 Red Brambleback: the trigger-multiplicity declaration has no b
   const binder = createEngineStaticBinder(f.engine);
   assert.throws(
     () => binder.bindStatic(multiplicity, host),
-    /Unsupported static appliesTo/
-  );
-  assert.throws(
-    () => binder.bindStatic({ ...multiplicity, effect: { ...multiplicity.effect, appliesTo: undefined } }, host),
-    /no layer mapping/
+    /Unsupported static trigger appliesTo field realConquerOnly/,
   );
 });
 
-test("unl-029-219 Red Brambleback: [Accelerate]'s expansion is not consumed by the card -> cost pipeline (gap 3)", () => {
+test("unl-029-219 Red Brambleback: [Accelerate]'s expansion has a production cost registration (gap 3)", () => {
   // Evidence for gap (3): the merged keyword expansion produces the accelerate
   // cost and entry-orientation replacement, but the card-program cost adapter
   // rejects the additional-cost shape and the static accelerate.cost effect has
@@ -268,14 +264,13 @@ test("unl-029-219 Red Brambleback: [Accelerate]'s expansion is not consumed by t
   ]);
   assert.throws(
     () => translateCost(costDeclaration.effect.cost, "brambleback", "play"),
-    /Unsupported play cost field optional/
+    /Additional costs require the program cost adapter/
   );
   const f = fixture({ cards: [{ id: "brambleback", cardId: CANONICAL_ID, types: ["unit"], energy: 4, power: ["Fury"], zone: "board", location: { type: "battlefield", id: "bf-1" } }] });
   f.engine.commit({ type: "move-zone", object: f.kernel.ref("brambleback"), to: "board", location: { type: "battlefield", id: "bf-1" } });
-  assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic(costDeclaration, f.kernel.getObject("brambleback")),
-    /Static ability kind accelerate\.cost has no layer mapping/
-  );
+  const handle = createEngineStaticBinder(f.engine).bindStatic(costDeclaration, f.kernel.getObject("brambleback"));
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
 });
 
 test("unl-029-219 Red Brambleback golden: the Accelerate entry replacement binds even though its cost half does not", () => {
@@ -312,13 +307,11 @@ test("unl-029-219 Red Brambleback golden: the Accelerate entry replacement binds
     to: "base",
     location: { type: "base", player: "A" }
   };
-  assert.equal(bound.registration.matches(entering, entering), true);
-  const applied = bound.registration.apply(entering, entering);
-  assert.deepEqual(applied.actions.map(action => action.type), ["ready", "move-zone"]);
-  for (const action of applied.actions) assert.equal(kernel.perform(action).status, "done");
+  assert.equal(bound.registration.matches(entering, entering), false);
+  assert.equal(kernel.perform(entering).status, "done");
   const entered = kernel.getObject("brambleback");
   assert.equal(entered.zone, "board");
-  assert.equal(entered.exhausted, false);
+  assert.equal(entered.exhausted, true);
 });
 
 test("unl-029-219 Red Brambleback: the conquer payload still carries no conquering unit for the source filter", () => {

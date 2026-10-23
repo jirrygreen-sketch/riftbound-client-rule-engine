@@ -202,7 +202,7 @@ test("rad-166-167 Ruined Monastery: the conquer trigger really binds through the
   assert.equal(registrations.length, 1);
   const [registration] = registrations;
   assert.equal(registration.spec.at, "conquer");
-  assert.equal(registration.optional, true);
+  assert.equal(registration.mayAtFinalize, true);
   assert.deepEqual(registration.activeZones, ["board"]);
   assert.equal(registration.id.startsWith("program:monastery:"), true);
 

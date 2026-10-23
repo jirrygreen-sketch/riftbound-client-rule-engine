@@ -9,10 +9,12 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { translateCost } from "../../../../engine-core/dist/programs/play.js";
-import { bindStaticAbility, createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { boundTargetTaxes } from "../../../../engine-core/dist/programs/static-adapters/capabilities.js";
 import { deflectAmount, deflectCost } from "../../../../engine-core/dist/target/tax/collect.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID =
   "card.hash-0637f5fadf7db883948eb6366a512392aa80676b5a0ff45433e37f75c35961c3";
@@ -119,17 +121,17 @@ test("rad-075-167 Skystrike Squadron: the merged pipeline can apply a caller-sup
   assert.equal(plan.total.energy, 3, "a 5 Energy cost reduced by 2");
 });
 
-test("rad-075-167 Skystrike Squadron: translateCost really refuses the declared additional cost", () => {
+test("rad-075-167 Skystrike Squadron: the low-level translator defers the declared additional cost to its program adapter", () => {
   // 356.2 / 356.4.f.1: the optional additional cost and its conditional discount
   // are authored on the play ability, but the card-program → cost-plan binding
   // rejects both fields before any plan exists (measured, not assumed).
   assert.throws(
     () => translateCost(play.cost, "play:skystrike-squadron-test", "play"),
-    /Unsupported play cost field optional/
+    /Additional costs require the program cost adapter/
   );
   assert.throws(
     () => translateCost({ kind: "additional-cost", payments: [] }, "play:skystrike-squadron-test", "play"),
-    /Additional costs are not bound for play:skystrike-squadron-test/
+    /Additional costs require the program cost adapter/
   );
 });
 
@@ -190,7 +192,7 @@ test("rad-075-167 Skystrike Squadron: the cost pipeline really has no return-to-
   );
 });
 
-test("rad-075-167 Skystrike Squadron: the merged target-tax planner charges 1 any-Domain Power, but the static binder cannot register it", () => {
+test("rad-075-167 Skystrike Squadron: the static binder registers the Deflect tax in the production tax set", () => {
   // RIFT-360 merged deflectCost: 809.1.c.1's tax is a Power requirement payable
   // by any of the six domains, and the real planner builds it without Energy.
   const taxed = world()
@@ -202,12 +204,19 @@ test("rad-075-167 Skystrike Squadron: the merged target-tax planner charges 1 an
   const plan = buildCostPlan(taxed, { id: "skystrike-tax", cost: deflectCost(1) });
   assert.equal(plan.total.energy, 0);
   assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] }]);
-  // ...but the KeywordDef expansion still has no production entry:
-  // layerFor has no target.tax mapping, so the static binder throws.
-  assert.throws(
-    () => bindStaticAbility(binderFor(), { kind: "static", effect: { kind: "target.tax", value: { kind: "constant", value: 1 } } }, target),
-    /Static ability kind target\.tax has no layer mapping/
+  const f = fixture({ cards: [{ id: "taxed", cardId: CARD_ID, types: ["unit"], might: 3 }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("taxed"), to: "board" });
+  const source = f.kernel.getObject("taxed");
+  const handle = createEngineStaticBinder(f.engine).bindStatic(
+    { kind: "static", effect: { kind: "target.tax", value: { kind: "constant", value: 1 } } },
+    source
   );
+  assert.deepEqual(boundTargetTaxes(f.engine), [{
+    id: "program-target-tax:taxed:2:0",
+    target: source.ref,
+    effect: { kind: "target.tax", value: { kind: "constant", value: 1 } }
+  }]);
+  handle.unbind();
 });
 
 test.todo(

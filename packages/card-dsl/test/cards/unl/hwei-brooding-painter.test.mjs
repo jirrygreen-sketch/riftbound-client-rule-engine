@@ -289,7 +289,7 @@ test("unl-080-219 Hwei, Brooding Painter golden: the Unit branch registers +3 Mi
   assert.equal(layers.evaluate(kernel.ref("hwei")).might, 5);
 });
 
-test("unl-080-219 Hwei, Brooding Painter: translation is correct but trigger registration rejects object-moved", () => {
+test("unl-080-219 Hwei, Brooding Painter: the object-moved trigger registers", () => {
   // Lift only the status for the binding probe. This makes ProgramRegistry
   // reach trigger translation; the production card remains judge-required.
   const lifted = { ...program, status: "executable" };
@@ -304,11 +304,8 @@ test("unl-080-219 Hwei, Brooding Painter: translation is correct but trigger reg
     translateTriggerFilter(ability.trigger.filter, source.ref.id, ability.trigger.at),
     { event: "object-moved", object: { objectId: "hwei" } }
   );
-  assert.throws(
-    () => registerProgramTriggers(registry, f.engine, source),
-    error => error instanceof TriggerSpecValidationError &&
-      error.issues.some(issue => issue.code === "invalid-event-type")
-  );
+  const ids = registerProgramTriggers(registry, f.engine, source);
+  assert.ok(ids.length > 0);
 });
 
 test("unl-080-219 Hwei, Brooding Painter regression: ChainEngine keeps the type branch inline", () => {

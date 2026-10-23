@@ -83,7 +83,7 @@ test("unl-145-219 Pyke, Returned golden: the printed Gold play creates the canon
   );
 });
 
-test("unl-145-219 Pyke, Returned: the two location readers still disagree about \"at a battlefield\"", () => {
+test("unl-145-219 Pyke, Returned: the production query still requires an exact Battlefield identity", () => {
   // 383.2.a.1 keeps "while I'm at a battlefield" as a pre-chain trigger
   // condition. Evaluating it needs a "located at some battlefield" predicate:
   // the production ResolveContext.query only accepts an exact LocationRef while
@@ -106,7 +106,7 @@ test("unl-145-219 Pyke, Returned: the two location readers still disagree about 
   // single spelling is shared by both readers.
   assert.equal(matchesObjectFilter({ location: "battlefield" }, kernel.getObject("onField")), true);
   assert.equal(matchesObjectFilter({ location: "battlefield" }, kernel.getObject("atBase")), false);
-  assert.equal(matchesObjectFilter({ location: { type: "battlefield", id: "bf-1" } }, kernel.getObject("onField")), false);
+  assert.equal(matchesObjectFilter({ location: { type: "battlefield", id: "bf-1" } }, kernel.getObject("onField")), true);
 });
 
 test("unl-145-219 Pyke, Returned: [Hidden] and [Backline] bind at most one of their expansions", () => {
@@ -137,7 +137,7 @@ test("unl-145-219 Pyke, Returned: [Hidden] and [Backline] bind at most one of th
     }
   });
   assert.deepEqual(outcomes, [
-    ["cost.hidden", "Static ability kind cost.hidden has no layer mapping"],
+    ["cost.hidden", "bound"],
     ["continuous.combat", "bound"]
   ]);
 });

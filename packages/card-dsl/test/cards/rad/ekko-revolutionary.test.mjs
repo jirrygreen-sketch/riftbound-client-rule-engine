@@ -107,6 +107,7 @@ test("rad-021-167 Ekko, Revolutionary: the printed activation cost really plans 
     {
       id: "base:payment:0:0",
       componentId: "base",
+      choiceId: "ekko.discarded-card",
       action: { type: "discard", object: kernel.ref("card-a") }
     }
   ]);

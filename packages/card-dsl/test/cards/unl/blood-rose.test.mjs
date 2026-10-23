@@ -224,9 +224,12 @@ test("unl-109-219 Blood Rose: the production trigger registration still drops th
   };
   const registrations = triggerRegistrations(registry, source);
   assert.deepEqual(registrations.map(entry => entry.spec.at), ["card-played"]);
-  assert.equal(registrations[0].cost, undefined);
-  assert.equal(registrations[0].mayAtFinalize, undefined);
-  assert.deepEqual(registrations[0].body.map(instruction => instruction.op), ["choice.optional"]);
+  assert.deepEqual(registrations[0].cost, {
+    id: "cost:blood-rose:1:blood-rose.may-pay-for-xp",
+    cost: { energy: { kind: "constant", value: 1 } }
+  });
+  assert.equal(registrations[0].mayAtFinalize, true);
+  assert.deepEqual(registrations[0].body.map(instruction => instruction.op), ["effect.xp"]);
 });
 
 test.todo(

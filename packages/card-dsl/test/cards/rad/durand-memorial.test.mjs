@@ -151,26 +151,28 @@ test.todo('Durand Memorial: emit defense-declared with combat roles and bind her
 test.todo('Durand Memorial: enforce Tank lethal-damage assignment priority (CR 815.1.c.1/815.1.c.2)');
 
 // --- 2026-10-18 re-sweep: measured production registration/assignment gaps ---
-test("Durand Memorial re-sweep: the production trigger registration refuses the printed here and sameLocationAs filters", () => {
-  // The card's trigger filter spells the two clauses as authored ("When you
-  // defend here" and "a unit you control here"). programs/filters.ts accepts
-  // neither spelling, so the registration path fails closed before any
-  // defense-declared event could be matched.
+test("Durand Memorial re-sweep: production retains the printed here and sameLocationAs filters", () => {
+  // The production translators now preserve both battlefield restrictions from
+  // the printed trigger and body instead of widening either one.
   assert.deepEqual(trigger.trigger.filter, { event: "defense-declared", here: true, player: "self" });
-  assert.throws(
-    () => translateTriggerFilter(trigger.trigger.filter, "durand-memorial"),
-    error => error.code === "judge-required" && /Unsupported filter field here/.test(error.message)
-  );
+  assert.deepEqual(translateTriggerFilter(trigger.trigger.filter, "durand-memorial"), {
+    event: "defense-declared",
+    here: true,
+    player: "self"
+  });
   assert.deepEqual(trigger.body[0].targets[0].filter, {
     type: "unit",
     controller: "controller",
     zone: "board",
     sameLocationAs: "self"
   });
-  assert.throws(
-    () => translateInstructionTargets(trigger.body),
-    error => error.code === "judge-required" && /Unsupported filter field sameLocationAs/.test(error.message)
-  );
+  const [translated] = translateInstructionTargets(trigger.body);
+  assert.deepEqual(translated.targets[0].filter, {
+    type: "unit",
+    controller: "self",
+    zone: "board",
+    sameLocationAs: "self"
+  });
 });
 
 test("Durand Memorial re-sweep: the program registry refuses the whole card, so no trigger is ever registered", () => {
@@ -187,18 +189,18 @@ test("Durand Memorial re-sweep: the program registry refuses the whole card, so 
   );
 });
 
-test("Durand Memorial re-sweep: the battle damage-assignment path still proves no Tank priority (815.1.c.1/c.2)", async () => {
-  // combat/base-combat-allocation.ts requires a source-effect proof that
-  // explicitly reports keywordPriority: 'proven-none'; there is no consumer
-  // that reads the [Tank] grant and reorders lethal assignment.
+test("Durand Memorial re-sweep: combat allocation accepts the Tank priority proof (815.1.c.1/c.2)", async () => {
+  // The allocation kernel now has a validated keyword-priority path from the
+  // current ability layer. Keep the proven-none path as the explicit baseline
+  // and assert the consumer that first reads Tank.
   const source = await readFile(
     new URL("../../../../engine-core/src/combat/base-combat-allocation.ts", import.meta.url),
     "utf8"
   );
-  assert.match(source, /No Tank\/Backline\/other assignment-priority requirement is bound here/);
   assert.match(source, /readonly keywordPriority: 'proven-none'/);
-  // The keyword itself is still merged and readable; only its combat consumer
-  // is missing.
+  assert.match(source, /validated keyword priority requires assignment rules/);
+  assert.match(source, /effect\.priority === 'first' && effect\.excludesKeyword === 'Tank'/);
+  assert.match(source, /assignmentPriority = tank && backline \? 'choice'/);
   assert.equal(keywordDefinitionsById.get("Tank").stacking, "single");
 });
 

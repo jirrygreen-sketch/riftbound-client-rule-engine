@@ -155,7 +155,7 @@ test("rad-154-167 Last Caress boundary: the recorded declarations cannot reach t
   // The recorded continuous.location declaration carries an `once` argument the
   // merged op rejects, and trigger.delayed is not a registered instruction, so
   // neither half can be bound as written.
-  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
+  assert.equal(instructionDefinitionsById.has("trigger.delayed"), true);
   assert.throws(
     () => locationInstruction.argsSchema.parse(grantLocation.args),
     /Invalid continuous\.location argument: once/

@@ -243,7 +243,7 @@ test("rad-162-167 Firelights' Hideout re-sweep: the authored grant is refused by
   ]);
 });
 
-test("rad-162-167 Firelights' Hideout re-sweep: the conquer registration refuses the details field", () => {
+test("rad-162-167 Firelights' Hideout re-sweep: the conquer registration preserves the here detail", () => {
   // The trigger's "here" anchor is authored as details.battlefieldId, but the
   // production filter translation has no details vocabulary, so registration
   // fails closed rather than subscribing to every battlefield's conquer.
@@ -252,13 +252,11 @@ test("rad-162-167 Firelights' Hideout re-sweep: the conquer registration refuses
     player: "self",
     details: { battlefieldId: "self" }
   });
-  assert.throws(
-    () => translateTriggerFilter(ability.trigger.filter, "firelights-hideout"),
-    error => error.code === "judge-required" && /Unsupported filter field details/.test(error.message)
-  );
+  const translated = translateTriggerFilter(ability.trigger.filter, "firelights-hideout");
+  assert.deepEqual(translated.details, { battlefieldId: "self" });
 });
 
-test("rad-162-167 Firelights' Hideout re-sweep: the granted Accelerate expansion has no layer mapping for its cost half", () => {
+test("rad-162-167 Firelights' Hideout re-sweep: the granted Accelerate expansion binds its cost half", () => {
   // effects/keywords/Accelerate.ts expands into a static accelerate.cost
   // declaration plus an object-enters-board replacement. The replacement binds,
   // the static half fails closed: programs/statics.ts layerFor has no mapping
@@ -286,10 +284,9 @@ test("rad-162-167 Firelights' Hideout re-sweep: the granted Accelerate expansion
     turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
   });
   const binder = createEngineStaticBinder(engine);
-  assert.throws(
-    () => binder.bindStatic(expansion[0], kernel.getObject("unit")),
-    error => error.code === "judge-required" && /accelerate\.cost has no layer mapping/.test(error.message)
-  );
+  const costHandle = binder.bindStatic(expansion[0], kernel.getObject("unit"));
+  assert.equal(typeof costHandle.unbind, "function");
+  costHandle.unbind();
   assert.equal(typeof binder.bindReplacement(expansion[1], kernel.getObject("unit")).unbind, "function");
 });
 

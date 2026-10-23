@@ -211,7 +211,7 @@ test("rad-014-167: the paid-cost predicate gates the trigger, whose original bod
   assert.equal(paid.scoped.getObject("enemy").damage, 2);
 });
 
-test("rad-014-167: the production play binding still refuses the declared additional cost", () => {
+test("rad-014-167: production play binding exposes the declared additional cost", () => {
   // The card stays judge-required until programs/play.ts translates
   // CostSpec kind:"additional" into CostPlanInput.optionalAdditional. The
   // shipped program is lifted in memory only to drive the real binding.
@@ -221,13 +221,12 @@ test("rad-014-167: the production play binding still refuses the declared additi
   const kernel = world()
     .card("swimmer", { cardId: program.canonicalCardId, types: ["unit"], energy: 3, power: null, might: 3, zone: "hand" })
     .build();
-  assert.throws(
-    () => binding.describePlay(
-      { type: "play", object: kernel.ref("swimmer"), player: "A" },
-      kernel.getObject("swimmer")
-    ),
-    (error) => error.code === "judge-required" && /Unsupported play cost field optional/.test(error.message)
+  const draft = binding.describePlay(
+    { type: "play", object: kernel.ref("swimmer"), player: "A" },
+    kernel.getObject("swimmer")
   );
+  assert.deepEqual(draft.cost.optionalAdditional.map(option => option.kind), ["additional"]);
+  assert.deepEqual(draft.cost.optionalAdditional[0].cost.payments.map(payment => payment.kind), ["kill"]);
 });
 
 test.todo(

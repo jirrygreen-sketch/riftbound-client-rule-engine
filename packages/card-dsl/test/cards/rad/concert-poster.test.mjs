@@ -157,13 +157,14 @@ test("rad-116-167 Concert Poster: the play trigger really binds through the merg
   );
 });
 
-test("rad-116-167 Concert Poster: the conquer trigger's here anchor is still rejected, never rebound", () => {
+test("rad-116-167 Concert Poster: the conquer trigger keeps its here anchor in production", () => {
   // 468.5.d / 471.1: the conquer trigger is scoped "here". The merged
   // translator has no evaluable battlefield anchor for that key, so it refuses
   // the registration instead of subscribing to every conquer for the player.
   const filter = program.abilities[2].trigger.filter;
-  assert.throws(
-    () => translateTriggerFilter(filter, "poster", "conquer"),
-    /Unsupported filter field here/
-  );
+  assert.deepEqual(translateTriggerFilter(filter, "poster", "conquer"), {
+    event: "conquered",
+    here: true,
+    player: "self"
+  });
 });

@@ -51,30 +51,32 @@ test("unl-170-219 Atakhan: identity, status, judgeReason and verbatim sourceText
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
-test("unl-170-219 Atakhan: the merged play-cost translator still rejects the optional additional cost (356.2.b.1)", () => {
-  // Evidence for gap (1): the declarations are authored per 356.2.b/356.4.f.1
-  // but the production Finalize path refuses them instead of granting the
-  // discount, so the card cannot claim the cost reduction is wired.
-  assert.throws(() => translateCost({ kind: "additional", payments: [] }, "atakhan", "play"),
-    /Additional costs are not bound/);
-  assert.throws(() => translateCost({ kind: "cost.additional", payments: [] }, "atakhan", "play"),
-    /Additional costs are not bound/);
+test("unl-170-219 Atakhan: the low-level cost translator requires the program cost adapter (356.2.b.1)", () => {
+  // The raw translator still fails closed on an additional-cost wrapper; the
+  // production program path judges the complete optional cost below.
+  for (const kind of ["additional", "cost.additional"]) {
+    assert.throws(
+      () => translateCost({ kind, payments: [] }, "atakhan", "play"),
+      /Additional costs require the program cost adapter/
+    );
+  }
 });
 
-test("unl-170-219 Atakhan: the production static binder has no layer mapping for the discount or the additional cost", () => {
-  // 356.4.f.1: the discounts are granted by the paid optional cost. Neither
-  // declaration reaches the layer registry through the merged binder.
+test("unl-170-219 Atakhan: the production static binder rejects the unresolved killed-unit history", () => {
+  // 356.4.f.1: the declarations reach production, but the cost still depends on
+  // a killed-unit history expression that the binder cannot evaluate.
   const f = fixture({ cards: [
     { id: "atakhan", cardId: CANONICAL_ID, types: ["unit"], energy: 1, power: [], zone: "board", location: { type: "battlefield", id: "bf-1" } }
   ] });
   f.engine.commit({ type: "move-zone", object: f.kernel.ref("atakhan"), to: "board", location: { type: "battlefield", id: "bf-1" } });
   const binder = createEngineStaticBinder(f.engine);
   const source = f.kernel.getObject("atakhan");
-  assert.throws(() => binder.bindStatic(additionalCost, source), /cost\.additional has no layer mapping/);
   for (const discount of [energyDiscount, powerDiscount]) {
-    assert.throws(() => binder.bindStatic(discount, source), /continuous\.cost-modification has no layer mapping/);
+    assert.throws(
+      () => binder.bindStatic(discount, source),
+      /Unavailable history subject: energy-cost-of-the-killed-unit|power-cost-of-the-killed-unit/
+    );
   }
-  assert.deepEqual(f.engine.layers.registry.list(), []);
 });
 
 test("unl-170-219 Atakhan: the merged discount collector still rejects the grantedBy optional-cost link", () => {
@@ -95,7 +97,7 @@ test("unl-170-219 Atakhan: the merged discount collector still rejects the grant
       statics: [{ id: "atakhan.energy-discount", source: source.ref, ability: energyDiscount }],
       purpose: "play"
     }),
-    error => error.name === "CostPlanError" && /grantedBy|Unsupported cost modification field/.test(error.message)
+    error => error.name === "CostPlanError" && /unknown additional cost|grantedBy/.test(error.message)
   );
 });
 

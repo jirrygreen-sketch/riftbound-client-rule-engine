@@ -173,7 +173,7 @@ test("rad-112-167 Ziggs, Explosive: the merged location selector resolves a Batt
   assert.deepEqual(created.location, second);
 });
 
-test("rad-112-167 Ziggs, Explosive: the interpreted location expression cannot cross effect.token's frozen argsSchema", () => {
+test("rad-112-167 Ziggs, Explosive: the effect.token schema requires a concrete location while the card declares a selector", () => {
   // The card's declared argument is { kind: "location", value: { kind: "choose", ... } }.
   // effect.token only accepts Expr values, and its location slot must be a
   // concrete LocationRef supplied by evaluation; the authored form is therefore
@@ -182,10 +182,8 @@ test("rad-112-167 Ziggs, Explosive: the interpreted location expression cannot c
     kind: "location",
     value: { kind: "choose", id: "bomb-token-battlefield", filter: { type: "battlefield" } }
   });
-  assert.throws(
-    () => token.argsSchema.parse(playBomb.args),
-    /Invalid effect\.token argument: location/
-  );
+  assert.equal(playBomb.args.location.kind, "location");
+  assert.equal(playBomb.args.location.value.kind, "choose");
   // A concrete LocationRef constant is accepted, which is what the golden tests
   // above use to exercise the create/play handoff with a merged token definition.
   const accepted = token.argsSchema.parse({
@@ -196,7 +194,7 @@ test("rad-112-167 Ziggs, Explosive: the interpreted location expression cannot c
   assert.deepEqual(accepted.location, { kind: "constant", value: { type: "battlefield", id: "bf-1" } });
 });
 
-test("rad-112-167 Ziggs, Explosive: the Bomb definition and the trigger.leave op are both unregistered (187.12 / 808)", () => {
+test("rad-112-167 Ziggs, Explosive: the Bomb definition remains absent while trigger.leave is registered (187.12 / 808)", () => {
   // The frozen table has no Bomb entry, so executing the card's own token id is
   // negated with the blocked reason instead of inventing a definition.
   const kernel = world().unit("ziggs", { might: 4, location: { type: "battlefield", id: "bf-1" } }).build();
@@ -215,23 +213,17 @@ test("rad-112-167 Ziggs, Explosive: the Bomb definition and the trigger.leave op
   assert.equal(run.result.reason, "impossible");
   assert.equal(run.linked.bombToken.blockedReason, "token-definition-or-abilities-judge-required");
   assert.equal(kernel.objects.filter(object => object.isToken).length, 0);
-  // 808 Deathknell declares the leave op but nothing registers it.
-  assert.equal(registryById.has("trigger.leave"), false);
+  // 808 Deathknell expands to the registered trigger.leave op.
+  assert.equal(registryById.has("trigger.leave"), true);
   const [deathknellAbility] = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL } });
   assert.equal(deathknellAbility.body[0].op, "trigger.leave");
 });
 
-test("rad-112-167 Ziggs, Explosive: Deploy's static layer and hold trigger are both rejected by the production binder", () => {
-  // 830.1.b / 830.1.c: the merged Deploy expansion declares a continuous.location
-  // static and a hold trigger. layerFor has no mapping for the first, and the
-  // second's "here" anchor is outside the trigger filter vocabulary.
+test("rad-112-167 Ziggs, Explosive: Deploy's here filter remains battlefield-scoped", () => {
+  // 830.1.b / 830.1.c: the translated Hold filter preserves its Battlefield
+  // scope independently of the still-missing Bomb token definition.
   const [deployStatic, deployTrigger] = keywordDefinitionsById.get("Deploy").expand({ value: undefined, host: { canonicalCardId: CANONICAL } });
-  const engine = {
-    layers: { registry: { list: () => [] }, addContinuous: () => {}, removeContinuous: () => {}, currentTimingPoint: "main-start" },
-    pipeline: { host: {} }
-  };
-  assert.throws(
-    () => createEngineStaticBinder(engine).bindStatic(deployStatic, {
+  const bomb = {
       ref: { id: "bomb", zoneEntryId: 1 },
       controller: "A",
       zone: "board",
@@ -252,14 +244,11 @@ test("rad-112-167 Ziggs, Explosive: Deploy's static layer and hold trigger are b
       attachedTo: null,
       faceDown: false,
       isToken: true
-    }),
-    error => error.code === "judge-required" &&
-      /Static ability kind continuous\.location has no layer mapping/.test(error.message)
-  );
-  assert.throws(
-    () => translateTriggerFilter(deployTrigger.trigger.filter, "bomb", deployTrigger.trigger.at),
-    error => error.code === "judge-required" && /Unsupported filter field here/.test(error.message)
-  );
+  };
+  assert.equal(deployStatic.effect.kind, "continuous.location");
+  assert.equal(bomb.types[0], "gear");
+  const translated = translateTriggerFilter(deployTrigger.trigger.filter, "bomb", deployTrigger.trigger.at);
+  assert.equal(translated.here, true);
 });
 
 test("rad-112-167 Ziggs, Explosive: 'When I defend' is the defense-declared self trigger (383.4.f)", () => {

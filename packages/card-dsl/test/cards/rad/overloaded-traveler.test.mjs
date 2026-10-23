@@ -295,15 +295,12 @@ test("rad-072-167 Overloaded Traveler: the relative-player anchor fails closed i
     "the relative spelling is not broadened on this path either");
 });
 
-test("rad-072-167 Overloaded Traveler gap: the production filter rejects a keyword qualifier in every spelling", () => {
-  // 830.3 makes "[Deploy]" a checkable characteristic, but no merged filter
-  // spelling can carry it: unknown keys pass through the layer matcher and are
-  // refused by the production translator.
+test("rad-072-167 Overloaded Traveler: the production filter preserves both Deploy keyword spellings", () => {
+  // 830.3 makes "[Deploy]" a checkable characteristic; both closed spellings
+  // now survive production translation so the source-relative query can use
+  // them.
   for (const filter of [{ type: "gear", keywords: ["Deploy"] }, { type: "gear", keyword: "Deploy" }]) {
-    assert.throws(
-      () => translateObjectFilter(filter),
-      error => error.code === "judge-required" && /Unsupported filter field/.test(error.message)
-    );
+    assert.deepEqual(translateObjectFilter(filter), filter);
   }
 });
 

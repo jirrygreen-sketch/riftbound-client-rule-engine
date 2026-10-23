@@ -243,17 +243,14 @@ test.todo(
     "204.3.a) — the payment primitive and receipt work; the optional affordability decision and failure recovery remain unbound"
 );
 
-test("unl-135-219 Insightful Investigator: the production interpreter has no target.player opcode", () => {
+test("unl-135-219 Insightful Investigator: the production interpreter dispatches target.player to its choice request", () => {
   // 355.7 / 355.9.a: the printed "choose an opponent" selects a Player. The merged
   // instruction registry has no target.player, so the card's own first step throws
   // instead of silently picking a seat.
-  assert.equal(instructionDefinitionsById.has("target.player"), false);
+  assert.equal(instructionDefinitionsById.has("target.player"), true);
   const kernel = world().hand("b1", { owner: "B" }).build();
   const context = kernel.clone({ sourceSnapshot: kernel.getObject("b1") });
-  assert.throws(
-    () => resolveChainBody([standalone(chooseOpponent)], context),
-    /Unregistered instruction opcode: target\.player/
-  );
+  assert.throws(() => resolveChainBody([standalone(chooseOpponent)], context), error => error.name === "AwaitChoice");
 });
 
 test("unl-135-219 Insightful Investigator: the discard's fallback choice belongs to the discarding opponent", () => {

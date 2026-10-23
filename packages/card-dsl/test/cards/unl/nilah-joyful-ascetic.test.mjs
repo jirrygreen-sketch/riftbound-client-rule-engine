@@ -120,26 +120,23 @@ test.todo(
     "and the 458.1 Recall exclusion"
 );
 
-test("unl-115-219 Nilah, Joyful Ascetic: the 'When I move' trigger is not registrable in the closed vocabulary", async () => {
-  // 421.1 / 449.1: a real Move trigger, but the merged closed EventPattern
-  // vocabulary has no object-moved entry — the card's own filter and every
-  // equivalent spelling are rejected, so the subscription cannot be
-  // approximated by a neighbouring event.
+test("unl-115-219 Nilah, Joyful Ascetic: the 'When I move' trigger registers", async () => {
+  // 421.1 / 449.1: the production vocabulary and translator accept the source
+  // Move trigger and install it for Nilah's current incarnation.
   const { createProgramBinding } = await import("../../../../engine-core/dist/programs/index.js");
   const { validateTriggerSpec, EVENT_PATTERN_TYPES } = await import("../../../../engine-core/dist/events/trigger-spec.js");
   const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
   const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
 
-  assert.equal(EVENT_PATTERN_TYPES.includes("object-moved"), false);
+  assert.equal(EVENT_PATTERN_TYPES.includes("object-moved"), true);
   const spec = validateTriggerSpec({ at: "object-moved", filter: moveTrigger.trigger.filter });
   assert.equal(spec.ok, false);
-  assert.ok(spec.issues.some(issue => issue.code === "invalid-event-type"));
-  assert.ok(spec.issues.some(issue => issue.code === "unknown-field"));
-  // Even the translated shape stays outside the vocabulary.
+  assert.ok(spec.issues.every(issue => issue.code === "unknown-field"));
+  // The valid translated shape reaches the production pipeline.
   assert.equal(validateTriggerSpec({
     at: "object-moved",
     filter: translateTriggerFilter(moveTrigger.trigger.filter, "nilah")
-  }).ok, false);
+  }).ok, true);
 
   const lifted = { ...program, status: "executable" };
   delete lifted.judgeReason;
@@ -154,10 +151,8 @@ test("unl-115-219 Nilah, Joyful Ascetic: the 'When I move' trigger is not regist
     location: { type: "battlefield", id: "bf-1" }
   });
   const source = { ...f.kernel.getObject("nilah"), cardId: CANONICAL_ID, zone: "board" };
-  assert.throws(
-    () => binding.registerProgramTriggers(f.engine, source),
-    /trigger\.filter\.event: 值必须属于 zone-entered/
-  );
+  const ids = binding.registerProgramTriggers(f.engine, source);
+  assert.ok(ids.length > 0);
 });
 
 test("unl-115-219 Nilah, Joyful Ascetic golden: a real move-location publishes object-moved without from/to zones", async () => {
@@ -187,7 +182,7 @@ test("unl-115-219 Nilah, Joyful Ascetic golden: a real move-location publishes o
   assert.equal(f.kernel.player("A").xp, 0);
 });
 
-test("unl-115-219 Nilah, Joyful Ascetic: the Accelerate static declaration stays outside the production layer path", async () => {
+test("unl-115-219 Nilah, Joyful Ascetic: the Accelerate static declaration reaches the production layer path", async () => {
   // 805.1.b: the merged KeywordDef publishes a static accelerate.cost, but the
   // production static binder has no layer mapping for it and the merged play
   // draft carries no cost, so the optional [1][C] can never be charged.
@@ -213,11 +208,10 @@ test("unl-115-219 Nilah, Joyful Ascetic: the Accelerate static declaration stays
   assert.ok(accelerate, "the merged Accelerate expansion must publish accelerate.cost");
   assert.equal(accelerate.effect.cost.optional, true);
   assert.equal(accelerate.effect.cost.payments.length, 2);
-  assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic(accelerate, source),
-    /Static ability kind accelerate\.cost has no layer mapping/
-  );
-  // Ganking's own static does bind; only Accelerate is outside the path.
+  const accelerateHandle = createEngineStaticBinder(f.engine).bindStatic(accelerate, source);
+  assert.equal(typeof accelerateHandle.unbind, "function");
+  accelerateHandle.unbind();
+  // Ganking's own static binds independently.
   const ganking = statics.find(ability => ability.effect.kind === "continuous.movement");
   assert.ok(ganking);
   createEngineStaticBinder(f.engine).bindStatic(ganking, source);
@@ -226,7 +220,8 @@ test("unl-115-219 Nilah, Joyful Ascetic: the Accelerate static declaration stays
     { type: "play", player: "A", object: f.kernel.ref("nilah") },
     f.kernel.getObject("nilah")
   );
-  assert.equal(draft.cost, undefined);
+  const optional = draft.cost?.optionalAdditional?.[0];
+  assert.equal(optional.kind, "accelerate");
 });
 
 test("unl-115-219 Nilah, Joyful Ascetic golden: the merged Ganking expansion registers a movement permission consumed by Standard Move", () => {
