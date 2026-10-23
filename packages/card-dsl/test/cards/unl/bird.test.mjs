@@ -10,6 +10,7 @@ import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan, prepareCostPayment } from "../../../../engine-core/dist/cost/payment.js";
 import { DUEL_DOMAINS } from "../../../../engine-core/dist/cost/resources.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { boundTargetTaxes } from "../../../../engine-core/dist/programs/static-adapters/capabilities.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -78,23 +79,23 @@ test("unl-t02 Bird: the expansion is static target.tax 1 (809.1.b.3's presumed X
   assert.deepEqual(valued.effect.value, { kind: "constant", value: 2 });
 });
 
-test("unl-t02 Bird: the expanded target.tax grant still has no layer mapping in the production binder (809.1.c)", () => {
-  // Evidence for the remaining gap: the merged static binder refuses the
-  // expansion, so no Deflect tax can be derived from the permanent at all.
+test("unl-t02 Bird: the expanded target.tax grant binds into the production tax set (809.1.c)", () => {
   const f = fixture({ cards: [
     { id: "bird", cardId: CANONICAL_ID, types: ["unit"], energy: 0, power: [], might: 1, zone: "board", location: { type: "battlefield", id: "bf-1" } }
   ] });
   f.engine.commit({ type: "move-zone", object: f.kernel.ref("bird"), to: "board", location: { type: "battlefield", id: "bf-1" } });
   const [expansion] = deflect.expand({ host: { canonicalCardId: CANONICAL_ID } });
-  assert.throws(() => createEngineStaticBinder(f.engine).bindStatic(expansion, f.kernel.getObject("bird")),
-    /target\.tax has no layer mapping/);
-  assert.deepEqual(f.engine.layers.registry.list(), []);
+  const source = f.kernel.getObject("bird");
+  const handle = createEngineStaticBinder(f.engine).bindStatic(expansion, source);
+  assert.deepEqual(boundTargetTaxes(f.engine), [{
+    id: "program-target-tax:bird:2:0",
+    target: source.ref,
+    effect: expansion.effect
+  }]);
+  handle.unbind();
 });
 
-test("Bird: the reference kernel's pay action still ignores the prepared Power allocation (809.1.c.1)", () => {
-  // Evidence for the remaining gap: preparing a payment plans Power, but the
-  // merged kernel payment only consumes energy/xp, so a Deflect Power cost is
-  // never actually deducted at the action boundary.
+test("Bird: the reference kernel consumes the prepared Deflect Power allocation (809.1.c.1)", () => {
   const kernel = world().player("A", { energy: 2, power: ["Fury"] }).build();
   const plan = buildCostPlan(kernel, {
     id: "bird:power-consumption", domains: [], cost: {},
@@ -105,9 +106,7 @@ test("Bird: the reference kernel's pay action still ignores the prepared Power a
   for (const entry of prepared.actions) {
     assert.equal(kernel.perform(entry.action).status, "done");
   }
-  // The Power is still in the pool: the merged kernel pay action only subtracts
-  // energy/xp, which is exactly why the card cannot claim the tax is enforced.
-  assert.deepEqual(kernel.player("A").power, ["Fury"]);
+  assert.deepEqual(kernel.player("A").power, []);
 });
 
 test.todo("bird: route the expanded target.tax through the static binder into the tax collector and append unrestricted-domain Power to Finalize costs (CR 809.1.c.1/809.1.d; the tax planner is merged, its static-binding and Chain consumers are not)");

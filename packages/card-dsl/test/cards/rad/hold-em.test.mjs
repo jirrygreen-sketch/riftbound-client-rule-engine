@@ -51,16 +51,16 @@ test("rad-070-167 Hold 'Em: judgeReason names the cost-plan wiring and the histo
   assert.match(program.judgeReason, /Unsupported finalized-card history filter/);
 });
 
-test("rad-070-167 Hold 'Em gap: the production static binder rejects the discount declaration", () => {
-  // The discount is authored per the contract, but the merged binder has no
-  // layer for it, so it can never reach a play's CostPlanInput.discounts.
+test("rad-070-167 Hold 'Em: the production static binder registers the discount declaration", () => {
+  // The discount crosses the production static binder and is available to the
+  // play-cost collector.
   const f = fixture({ cards: [{ id: "src", cardId: CANONICAL, types: ["spell"], energy: 3, power: [] }] });
   const binder = createEngineStaticBinder(f.engine);
-  assert.throws(
-    () => binder.bindStatic(discount, f.kernel.getObject("src")),
-    /continuous\.cost-modification has no layer mapping/
-  );
-  assert.deepEqual(f.engine.layers.registry.list(), []);
+  const handle = binder.bindStatic(discount, f.kernel.getObject("src"));
+  const registered = f.engine.layers.registry.list().filter(entry => entry.effect.effect.kind === "continuous.cost-modification");
+  assert.equal(registered.length, 1);
+  handle.unbind();
+  assert.equal(f.engine.layers.registry.list().some(entry => entry.effect.effect.kind === "continuous.cost-modification"), false);
 });
 
 test("rad-070-167 Hold 'Em gap: a printed-cost plan receives no discount without caller-supplied input", () => {

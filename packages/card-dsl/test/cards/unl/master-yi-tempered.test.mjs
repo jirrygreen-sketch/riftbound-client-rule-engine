@@ -267,7 +267,7 @@ test("unl-113-219 Master Yi, Tempered: the unresolved [Level 6][>] query stays b
   }
 });
 
-test("unl-113-219 Master Yi, Tempered: Level's own predicate and Deflect's target tax have no layer mapping (CR 824.1.b / 809.1.c)", async () => {
+test("unl-113-219 Master Yi, Tempered: Level and Deflect reach production static capabilities (CR 824.1.b / 809.1.c)", async () => {
   const { default: level } = await import("../../../../engine-core/dist/effects/keywords/Level.js");
   const { default: deflect } = await import("../../../../engine-core/dist/effects/keywords/Deflect.js");
   const f = fixture({
@@ -282,16 +282,14 @@ test("unl-113-219 Master Yi, Tempered: Level's own predicate and Deflect's targe
   const source = f.kernel.getObject("yi");
   const binder = createEngineStaticBinder(f.engine);
   const [predicate] = level.expand({ value: 6, host: { canonicalCardId: CANONICAL_ID } });
-  assert.throws(
-    () => binder.bindStatic(predicate, source),
-    (error) => error.name === "ProgramBindingError" && /no layer mapping/.test(error.message)
-  );
+  const predicateHandle = binder.bindStatic(predicate, source);
+  assert.equal(typeof predicateHandle.unbind, "function");
+  predicateHandle.unbind();
   const [tax] = deflect.expand({ host: { canonicalCardId: CANONICAL_ID } });
   assert.equal(tax.effect.kind, "target.tax");
-  assert.throws(
-    () => binder.bindStatic(tax, source),
-    (error) => error.name === "ProgramBindingError" && /no layer mapping/.test(error.message)
-  );
+  const taxHandle = binder.bindStatic(tax, source);
+  assert.equal(typeof taxHandle.unbind, "function");
+  taxHandle.unbind();
 });
 
 test("unl-113-219 Master Yi, Tempered: the granted Ganking registration does not satisfy the movement query (CR 810.1.c)", async () => {

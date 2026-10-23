@@ -13,6 +13,7 @@ import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { boundTargetTaxes } from "../../../../engine-core/dist/programs/static-adapters/capabilities.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -113,7 +114,7 @@ test("unl-030-219 Vi, Hotheaded golden: the printed 2 Energy + 1 Fury cost is re
   assert.deepEqual(receipt.total.power[0].allowedDomains, ["Fury"]);
   assert.deepEqual(receipt.actions.map(action => action.action.type), ["pay"]);
   assert.equal(ctx.player("A").energy, 1);
-  assert.deepEqual(ctx.player("A").power, ["Fury"]);
+  assert.deepEqual(ctx.player("A").power, []);
 });
 
 test("unl-030-219 Vi, Hotheaded golden: a non-Fury Power pool cannot pay the printed cost", () => {
@@ -170,22 +171,21 @@ test("unl-030-219 Vi, Hotheaded golden: Doubling reflects a smaller live Might i
   assert.equal(engine.evaluate(ctx.ref("vi")).might, 4);
 });
 
-test("unl-030-219 Vi, Hotheaded gap: the expanded Deflect declaration has no layer mapping", () => {
-  // 809.1.c / 356.2.a.2: the keyword expansion produces a static target.tax
-  // declaration. The production static binder has no layer for it, so the
-  // declaration never reaches the bound tax set collected by
-  // target/tax/collect.ts.
+test("unl-030-219 Vi, Hotheaded: the expanded Deflect declaration joins the production tax set", () => {
   const expansion = keywordDefinitionsById.get("Deflect").expand({ value: 1, host: { canonicalCardId: CANONICAL_ID } });
   assert.deepEqual(expansion.map(ability => [ability.kind, ability.effect.kind]), [
     ["static", "target.tax"]
   ]);
   const f = fixture({ cards: [{ id: "vi", cardId: CANONICAL_ID, types: ["unit"], might: 3 }] });
-  const binder = createEngineStaticBinder(f.engine);
-  assert.throws(
-    () => binder.bindStatic(expansion[0], f.kernel.getObject("vi")),
-    /Static ability kind target\.tax has no layer mapping/
-  );
-  assert.deepEqual(f.engine.layers.registry.list(), []);
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("vi"), to: "board" });
+  const source = f.kernel.getObject("vi");
+  const handle = createEngineStaticBinder(f.engine).bindStatic(expansion[0], source);
+  assert.deepEqual(boundTargetTaxes(f.engine), [{
+    id: "program-target-tax:vi:2:0",
+    target: source.ref,
+    effect: expansion[0].effect
+  }]);
+  handle.unbind();
 });
 
 test("unl-030-219 Vi, Hotheaded gap: the Deflect tax is booked as Energy, not any-domain Power", () => {

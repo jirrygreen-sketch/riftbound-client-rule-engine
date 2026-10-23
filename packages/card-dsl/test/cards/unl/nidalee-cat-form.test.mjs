@@ -126,7 +126,7 @@ test("unl-114-219 Nidalee, Cat Form: the merged Ambush KeywordDef publishes the 
   assert.equal(expansion[1].effect.location.battlefield.controller, "controller");
 });
 
-test("unl-114-219 Nidalee, Cat Form: neither Ambush declaration reaches the production layer path", async () => {
+test("unl-114-219 Nidalee, Cat Form: both Ambush declarations reach the production layer path", async () => {
   // 822.1.b/822.1.c: both published declarations are structural only today. The
   // static binder rejects the placement permission for want of a layer mapping
   // and then rejects the timing grant's appliesTo spelling, so the rule queries
@@ -152,21 +152,18 @@ test("unl-114-219 Nidalee, Cat Form: neither Ambush declaration reaches the prod
   assert.deepEqual(statics.map(ability => ability.effect.kind), ["play-location-permission", "continuous.timing"]);
 
   const binder = createEngineStaticBinder(f.engine);
-  assert.throws(
-    () => binder.bindStatic(statics[0], source),
-    /Static ability kind play-location-permission has no layer mapping/
-  );
-  assert.throws(
-    () => binder.bindStatic(statics[1], source),
-    /Unsupported static appliesTo \["card"\]/
-  );
-  assert.deepEqual(f.engine.layers.registry.list(), []);
+  const first = binder.bindStatic(statics[0], source);
+  const second = binder.bindStatic(statics[1], source);
+  assert.equal(typeof first.unbind, "function");
+  assert.equal(typeof second.unbind, "function");
+  first.unbind();
+  second.unbind();
   const view = playLocations(f.engine.layers.registry, source.ref, source, "A");
   assert.deepEqual(view.permissions, []);
   assert.deepEqual(view.restrictions, []);
 });
 
-test("unl-114-219 Nidalee, Cat Form: the combat-result trigger is outside the closed event vocabulary", async () => {
+test("unl-114-219 Nidalee, Cat Form: the combat-result event validates, but the result filter remains fail-closed", async () => {
   // 468.3.a/468.3.c: the win trigger needs a combat-result subscription, but the
   // closed EVENT_PATTERN_TYPES has no such event name, so the card's own filter
   // cannot be registered and "I win" has no producer to consume.
@@ -175,12 +172,11 @@ test("unl-114-219 Nidalee, Cat Form: the combat-result trigger is outside the cl
   const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
   const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
 
-  assert.equal(EVENT_PATTERN_TYPES.includes("combat-result"), false);
-  const translated = translateTriggerFilter(combatWin.trigger.filter, "nidalee");
-  assert.deepEqual(translated, { event: "combat-result", object: { objectId: "nidalee" } });
-  const spec = validateTriggerSpec({ at: "combat-result", filter: translated });
-  assert.equal(spec.ok, false);
-  assert.deepEqual(spec.issues.map(issue => issue.code), ["invalid-event-type"]);
+  assert.equal(EVENT_PATTERN_TYPES.includes("combat-result"), true);
+  const spec = validateTriggerSpec({ at: "combat-result", filter: { event: "combat-result", object: { objectId: "nidalee" } } });
+  assert.equal(spec.ok, true);
+  assert.deepEqual(spec.issues, []);
+  assert.throws(() => translateTriggerFilter(combatWin.trigger.filter, "nidalee"), /Unsupported filter field result/);
 
   const lifted = { ...program, status: "executable" };
   delete lifted.judgeReason;
@@ -195,10 +191,7 @@ test("unl-114-219 Nidalee, Cat Form: the combat-result trigger is outside the cl
     location: { type: "battlefield", id: "bf-1" }
   });
   const source = { ...f.kernel.getObject("nidalee"), cardId: CANONICAL_ID, zone: "board" };
-  assert.throws(
-    () => binding.registerProgramTriggers(f.engine, source),
-    /trigger\.filter\.event: 值必须属于 zone-entered/
-  );
+  assert.throws(() => binding.registerProgramTriggers(f.engine, source), /Unsupported filter field result/);
 });
 
 test.todo(

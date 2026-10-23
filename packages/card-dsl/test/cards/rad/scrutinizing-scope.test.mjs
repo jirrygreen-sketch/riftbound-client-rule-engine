@@ -252,7 +252,7 @@ test("rad-064-167 Scrutinizing Scope gap: the authored body stops at the unregis
   // No registered instruction produces the opponent choice either (the shared
   // player-selection gap other cards record as target.player).
   assert.equal(instructionDefinitionsById.has("choice.hidden-guess"), false);
-  assert.equal(instructionDefinitionsById.has("target.player"), false);
+  assert.equal(instructionDefinitionsById.has("target.player"), true);
 });
 
 test.todo(

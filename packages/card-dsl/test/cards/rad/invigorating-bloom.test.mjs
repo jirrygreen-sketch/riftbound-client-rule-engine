@@ -204,23 +204,21 @@ test("rad-035-167 Invigorating Bloom: the self-exhaust half of the cost is reall
   assert.equal(context.getObject("bloom").exhausted, true);
 });
 
-test("rad-035-167 Invigorating Bloom boundary: the Mighty-unit cost half is not payable from static IR", () => {
-  // Preserve the real planner behaviour without asserting a source file name:
-  // the planner must reject the static placeholder option because it needs an
-  // exact ObjectRef whose identity is chosen at Finalize (355.10.c.1).
+test("rad-035-167 Invigorating Bloom golden: a locked Mighty object plans both Exhaust payments", () => {
   const kernel = world().unit("bloom", { might: 3 }).unit("mighty-unit", { might: 5 }).build();
   const context = kernel.clone({ sourceSnapshot: kernel.getObject("bloom") });
-  assert.throws(
-    () => buildCostPlan(context, {
-      id: "bloom.activate",
-      cost: {
-        kind: "activated",
-        payments: [{ ...costUnitPayment, choice: { ...costUnitPayment.choice, options: ["friendly-mighty-unit-on-board"] } }]
-      }
-    }),
-    /exact object reference/i
-  );
-  assert.equal(context.getObject("mighty-unit").exhausted, false);
+  context.setPicks("invigorating-bloom.mighty-unit", [kernel.ref("mighty-unit")]);
+  const plan = buildCostPlan(context, {
+    id: "bloom.activate",
+    cost: {
+      kind: "activated",
+      payments: [{ ...costUnitPayment, choice: costUnitPayment.choice }, { kind: "exhaust", object: kernel.ref("bloom") }]
+    }
+  });
+  assert.deepEqual(plan.total.actions.map(entry => entry.action.type), ["exhaust", "exhaust"]);
+  assert.equal(payCostPlan(context, plan).paid, true);
+  assert.equal(context.getObject("mighty-unit").exhausted, true);
+  assert.equal(context.getObject("bloom").exhausted, true);
 });
 
 test("rad-035-167 Invigorating Bloom gap: a filter-shaped cost payment and a Mighty predicate are both rejected", () => {
@@ -238,12 +236,14 @@ test("rad-035-167 Invigorating Bloom gap: a filter-shaped cost payment and a Mig
     ),
     error => error.name === "CostPlanError" && /Unsupported payment field: filter/.test(error.message)
   );
-  for (const filter of [{ type: "unit", mighty: true }, { type: "unit", mightGte: 5 }]) {
-    assert.throws(
-      () => translateObjectFilter(filter),
-      error => error.code === "judge-required" && /Unsupported filter field/.test(error.message)
-    );
-  }
+  assert.throws(
+    () => translateObjectFilter({ type: "unit", mighty: true }),
+    error => error.code === "judge-required" && /Unsupported filter field mighty/.test(error.message)
+  );
+  assert.deepEqual(translateObjectFilter({ type: "unit", mightGte: 5 }), {
+    type: "unit",
+    mightGte: 5
+  });
   // characteristics is a literal equality test, not the 710 threshold: a unit
   // with Might 6 does not satisfy a Might-5 characteristic clause.
   assert.equal(matchesObjectFilter({ characteristics: { might: 5 } }, { ...kernel.getObject("mighty-unit"), might: 6 }), false);

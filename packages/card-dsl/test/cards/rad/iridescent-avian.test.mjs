@@ -168,9 +168,9 @@ test("rad-027-167 Iridescent Avian: an already buffed unit gets +2 Might this tu
   assert.deepEqual(registration.duration, { type: "end-of-turn" });
 
   const layers = createLayerEngine([kernel.getObject("target")], kernel.continuousEffects);
-  assert.equal(layers.evaluate(kernel.ref("target")).might, 4);
+  assert.equal(layers.evaluate(kernel.ref("target")).might, 5);
   assert.deepEqual(layers.advance({ id: "turn-end" }), [registration.effect.id]);
-  assert.equal(layers.evaluate(kernel.ref("target")).might, 2);
+  assert.equal(layers.evaluate(kernel.ref("target")).might, 3);
 });
 
 test("rad-027-167 Iridescent Avian: a target that left the Board ignores the whole body (359.3.e.7)", () => {

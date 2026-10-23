@@ -102,18 +102,18 @@ test("unl-022-219 Jhin, Murderous Artist: the program binding resolves the trigg
   assert.deepEqual(translated, { event: "object-moved", object: { objectId: "jhin" } });
 });
 
-test("unl-022-219 Jhin, Murderous Artist: [Deflect] has no layer mapping and [Ganking] registers an unreadable permission", () => {
-  // 809.1.c: programs/statics.ts layerFor rejects the target.tax expansion
-  // outright. 810.1.b: the continuous.movement expansion registers, but the
-  // movement() query reads permission.routes, so a string permission yields no
-  // routes and canGank stays false.
+test("unl-022-219 Jhin, Murderous Artist: Deflect enters the production tax set while Ganking remains unreadable", () => {
+  // 809.1.c: the target.tax expansion now enters the production capability
+  // registry. 810.1.b: the string movement permission is still unreadable by
+  // movement() until it is normalized to routes.
   return Promise.all([
     import("../../../../engine-core/dist/programs/index.js"),
     import("../../../../engine-core/dist/layers/rules/query.js"),
     import("../../../../engine-core/dist/effects/testing/index.js"),
     import("../../../../engine-core/dist/events/action-adapter.js"),
-    import("../../../../engine-core/dist/chain/engine.js")
-  ]).then(([{ createProgramBinding, createEngineStaticBinder }, { movement }, { world }, { createActionPipelineHost, bindResolveContext }, { ChainEngine }]) => {
+    import("../../../../engine-core/dist/chain/engine.js"),
+    import("../../../../engine-core/dist/programs/static-adapters/capabilities.js")
+  ]).then(([{ createProgramBinding, createEngineStaticBinder }, { movement }, { world }, { createActionPipelineHost, bindResolveContext }, { ChainEngine }, { boundTargetTaxes }]) => {
     const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
     const kernel = world().unit("jhin", { cardId: CANONICAL_ID, types: ["unit"], might: 4 }).build();
     const source = kernel.getObject("jhin");
@@ -130,23 +130,21 @@ test("unl-022-219 Jhin, Murderous Artist: [Deflect] has no layer mapping and [Ga
     });
     const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
     const binder = createEngineStaticBinder(engine);
-    assert.throws(
-      () => binder.bindStatic(expanded[0], source),
-      error => {
-        assert.equal(error.name, "ProgramBindingError");
-        assert.equal(error.code, "judge-required");
-        assert.match(error.message, /target\.tax has no layer mapping/);
-        return true;
-      }
-    );
+    const taxHandle = binder.bindStatic(expanded[0], source);
+    assert.deepEqual(boundTargetTaxes(engine), [{
+      id: "program-target-tax:jhin:1:0",
+      target: source.ref,
+      effect: expanded[0].effect
+    }]);
     const handle = binder.bindStatic(expanded[1], source);
     try {
       const view = movement(engine.layers.registry, source.ref, source, "A");
       assert.equal(view.canGank, false);
       assert.deepEqual(view.permissions, []);
-      assert.equal(engine.layers.registry.list().length, 1);
+      assert.equal(engine.layers.registry.list().length, 2);
     } finally {
       handle.unbind();
+      taxHandle.unbind();
     }
     assert.deepEqual(engine.layers.registry.list(), []);
   });

@@ -113,20 +113,18 @@ test("unl-031-219 Combat Experience golden: the non-Level branch registers +1 Mi
   assert.equal(engine.evaluate(kernel.ref("unit")).might, 4);
 });
 
-test("unl-031-219 Combat Experience boundary: the authored XP gate reaches the default interpreter and remains unsupported", () => {
-  // Re-probed 2026-10-18: the IR now names the correct player-property, but
-  // the default condition path has no player-property dispatch. The production
-  // adapter therefore fails closed instead of silently counting board objects.
-  const kernel = world().player("A", { xp: 6 }).unit("unit", { might: 4 }).build();
-  assert.throws(
-    () => resolveChainBody([{
+test("unl-031-219 Combat Experience golden: the production predicate reads controller XP", () => {
+  for (const [xp, expected] of [[0, false], [5, false], [6, true], [10, true]]) {
+    const kernel = world().player("A", { xp }).unit("unit", { might: 4 }).build();
+    const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("unit"), controller: "A" });
+    const outcome = resolveChainBody([{
       id: "check-level-six",
       op: "condition.predicate",
       args: { condition: { kind: "constant", value: plusThreeInstead.condition } }
-    }], kernel),
-    /Unsupported expression: player-property/
-  );
-  assert.match(program.judgeReason, /effects\/interpreter\/expr\.ts/);
+    }], scoped);
+    assert.equal(outcome.status, "executed");
+    assert.equal(outcome.linkedValues["check-level-six.value"], expected);
+  }
 });
 
 

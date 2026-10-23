@@ -140,10 +140,9 @@ test("Mechanical Bandit: the translated Beginning trigger matches only its contr
   assert.equal(matchesTriggerEvent(filter, { timingPoint: "beginning-start", player: "B" }, "A"), false);
 });
 
-test("rad-111-167 Mechanical Bandit boundary: the translated beginning-start trigger cannot be registered", () => {
-  // The translated filter names the controller's phase, but beginning-start is
-  // outside the closed EventPattern enum, so the production registration is
-  // rejected before the trigger can ever fire.
+test("rad-111-167 Mechanical Bandit: the translated beginning-start trigger registers", () => {
+  // The controller-scoped Beginning Phase event is accepted by the production
+  // EventPattern vocabulary and installed without widening it.
   const kernel = world().unit("bandit", { cardId: CARD_ID, types: ["unit"] }).build();
   const [registration] = triggerRegistrations(
     new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]),
@@ -157,8 +156,6 @@ test("rad-111-167 Mechanical Bandit boundary: the translated beginning-start tri
     context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
   });
   const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
-  assert.throws(
-    () => engine.pipeline.registerTrigger(registration),
-    error => error.name === "TriggerSpecValidationError" && /trigger\.filter\.event/.test(error.message)
-  );
+  engine.pipeline.registerTrigger(registration);
+  assert.equal(engine.pipeline.hasTriggerRegistration(registration.id), true);
 });

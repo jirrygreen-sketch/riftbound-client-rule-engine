@@ -86,13 +86,13 @@ test("rad-079-167 Avalanche: the production filter evaluates the 'in bases' rest
   assert.deepEqual(baseSnapshot.location, { type: "base", player: "A" });
 });
 
-test("rad-079-167 Avalanche gap: the non-target query descriptor has no effect.damage consumer", () => {
-  // The authored set descriptor is not invented: the merged effect.heal really
-  // reads { kind: "query", filter } and resolves, while the same descriptor
-  // handed to effect.damage fails at args parsing. That contrast is the exact
-  // measured gate named in judgeReason.
+test("rad-079-167 Avalanche: an empty selected set is a valid no-effect damage resolution", () => {
+  // The authored query descriptor now reaches effect.damage. In this isolated
+  // primitive setup no Base member is selected, so the damage instruction
+  // completes as a linkable no-effect rather than being rejected as a target.
   const set = dealInstruction.args.objects;
   const damaged = world()
+    .player("A")
     .unit("base-unit", { location: { type: "base", player: "A" }, damage: 2 })
     .build();
 
@@ -108,20 +108,14 @@ test("rad-079-167 Avalanche gap: the non-target query descriptor has no effect.d
   });
   assert.equal(damaged.getObject("base-unit").damage, 1);
 
-  // The card's own descriptor (it adds the "in bases" restriction) is still a
-  // valid set form for the merged heal: it parses and resolves. Its zero match
-  // count is the reference kernel's literal location comparison, which the
-  // production filter above evaluates correctly.
-  const restricted = runInstruction(heal, { amount: { kind: "constant", value: 1 }, objects: set }, { world: damaged.clone() });
-  assert.equal(restricted.result.status, "executed");
-  assert.equal(restricted.linked.healed.count, 0);
-
-  // The same descriptor is refused by effect.damage before any damage action.
   const before = damaged.getObject("base-unit").damage;
-  assert.throws(
-    () => runInstruction(damage, { amount: dealInstruction.args.amount, objects: set }, { world: damaged }),
-    /effect\.damage args\.target must be a TargetSpec id string/
-  );
+  const scoped = damaged.clone({ sourceSnapshot: damaged.getObject("base-unit") });
+  const run = runInstruction(damage, { amount: dealInstruction.args.amount, objects: set }, { world: scoped });
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.dealt, 0);
+  assert.equal(run.linked.dealtCount, 0);
+  assert.deepEqual(run.linked.dealtTo, []);
   assert.equal(damaged.getObject("base-unit").damage, before);
 });
 

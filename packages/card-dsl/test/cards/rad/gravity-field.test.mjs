@@ -115,7 +115,8 @@ test("rad-062-167 Gravity Field golden: the applied cost really registers and re
   assert.deepEqual(kernel.continuousEffects[0].effect.effect, {
     kind: "applied-cost",
     actions: ["move"],
-    cost: { energy: 1, power: ["rainbow"], payers: "opponent" }
+    cost: { energy: 1, power: ["rainbow"], payers: "opponent" },
+    sourcePlayer: "A"
   });
 
   const registry = createContinuousEffectRegistry();

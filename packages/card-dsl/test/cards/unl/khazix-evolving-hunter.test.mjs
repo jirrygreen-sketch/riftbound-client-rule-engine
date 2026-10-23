@@ -73,7 +73,7 @@ test("unl-119-219 Kha'Zix, Evolving Hunter: the merged Hunt expansion is rejecte
   for (const ability of expansion) {
     const validation = validateTriggerSpec({ at: ability.trigger.at, filter: ability.trigger.filter });
     assert.equal(validation.ok, false);
-    assert.deepEqual(validation.issues.map(issue => issue.code), ["unknown-field", "invalid-event-type"]);
+    assert.deepEqual(validation.issues.map(issue => issue.code), ["unknown-field"]);
   }
   // The closed spelling that does register maps to the same runtime timing point.
   const { matchesTriggerEvent } = await import("../../../../engine-core/dist/events/pipeline-match.js");
@@ -81,21 +81,15 @@ test("unl-119-219 Kha'Zix, Evolving Hunter: the merged Hunt expansion is rejecte
   assert.equal(matchesTriggerEvent({ event: "conquered", player: "self" }, conquerEvent, "A"), true);
 });
 
-test("unl-119-219 Kha'Zix, Evolving Hunter gap: the attack body's sameLocationAs anchor is rejected by the production translator", async () => {
+test("unl-119-219 Kha'Zix, Evolving Hunter: the attack body's sameLocationAs anchor translates", async () => {
   // 359.3.f / contract 3.6: the printed "here" is expressed with
   // sameLocationAs:"source". programs/filters.ts translateObjectFilter rejects
   // the key, so registerProgramTriggers cannot install the attack ability; and
   // the PipelineHost query surface (both the reference kernel and the server
   // runtime host) does not resolve that anchor either.
   const { translateObjectFilter } = await import("../../../../engine-core/dist/programs/filters.js");
-  assert.throws(
-    () => translateObjectFilter(enemyUnitSpec.filter),
-    error => {
-      assert.equal(error.name, "ProgramBindingError");
-      assert.match(error.message, /Unsupported filter field sameLocationAs/);
-      return true;
-    }
-  );
+  const translated = translateObjectFilter(enemyUnitSpec.filter);
+  assert.equal(translated.sameLocationAs, "source");
 
   const kernel = world()
     .unit("khazix", { owner: "A", controller: "A", might: 5, location: { type: "battlefield", id: "bf-1" } })

@@ -247,17 +247,16 @@ test("rad-020-167 Mordekaiser, Twice Slain boundary: the replacement planner rej
   );
 });
 
-test("rad-020-167 Mordekaiser, Twice Slain boundary: the accelerate.cost static expansion has no layer mapping", () => {
+test("rad-020-167 Mordekaiser, Twice Slain: the accelerate.cost static expansion binds", () => {
   // 805.2.b: the paid delay can only be declared through accelerate.cost, but
   // programs/statics.ts cannot bind it, so payment can never be connected to the
   // entry-orientation replacement.
   const f = fixture({ cards: [{ id: "morde", cardId: CANONICAL, types: ["unit"], might: 5 }] });
   const [costAbility] = accelerate.expand({ host: HOST });
   assert.equal(costAbility.effect.kind, "accelerate.cost");
-  assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic(costAbility, f.kernel.getObject("morde")),
-    /Static ability kind accelerate\.cost has no layer mapping/
-  );
+  const handle = createEngineStaticBinder(f.engine).bindStatic(costAbility, f.kernel.getObject("morde"));
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
 });
 
 test.todo('Mordekaiser, Twice Slain: select and pay a friendly-unit sacrifice inside the replacement, with payment failure gating (CR 355.10.c.1).');

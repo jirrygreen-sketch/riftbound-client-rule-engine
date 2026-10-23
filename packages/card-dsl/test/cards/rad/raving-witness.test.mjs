@@ -270,10 +270,9 @@ test("rad-074-167 Raving Witness: the as-printed body executes both branches aga
   }
 });
 
-test("rad-074-167 Raving Witness: object-moved is missing from the merged event vocabulary", () => {
-  // The timing point exists and the action adapter maps move-location onto it,
-  // but EVENT_PATTERN_TYPES has no entry, so the strict validator rejects the
-  // translated registration (translateTriggerFilter itself succeeds).
+test("rad-074-167 Raving Witness: object-moved validates as an EventPattern", () => {
+  // The timing point and action producer are mirrored by the closed event
+  // vocabulary, so the translated registration validates.
   assert.equal(isTimingPointId("object-moved"), true);
   const source = world().unit("witness", { cardId: CARD_ID }).build().getObject("witness");
   const lifted = { ...program, status: "executable" };
@@ -284,8 +283,8 @@ test("rad-074-167 Raving Witness: object-moved is missing from the merged event 
     object: { objectId: "witness" }
   });
   const result = validateTriggerSpec(registration.spec);
-  assert.equal(result.ok, false);
-  assert.deepEqual(result.issues.map(issue => issue.code), ["invalid-event-type"]);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.issues, []);
 });
 
 // CR 707/708: a non-unit or a unit without printed Might is not Mighty.

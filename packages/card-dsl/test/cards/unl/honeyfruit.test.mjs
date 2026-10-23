@@ -196,7 +196,7 @@ test("unl-049-219 Honeyfruit: Universal Power has no executable representation (
   assert.deepEqual(run.events, []);
 });
 
-test("unl-049-219 Honeyfruit: the Level 6 predicate has no layer consumer (gap 2)", () => {
+test("unl-049-219 Honeyfruit: the Level 6 predicate binds in production (gap 2)", () => {
   // Evidence for gap (2): the Level keyword expands to a condition.predicate,
   // but programs/statics.ts has no layer mapping for that kind, so the XP gate
   // cannot be bound to either Level branch (CR 824.1.c/824.1.d).
@@ -208,10 +208,9 @@ test("unl-049-219 Honeyfruit: the Level 6 predicate has no layer consumer (gap 2
   const predicate = expanded.abilities.find(ability => ability.kind === "static" && ability.effect.kind === "condition.predicate");
   assert.ok(predicate, "the Level keyword must expand to a condition.predicate");
   assert.equal(predicate.effect.query, "controller-xp");
-  assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic(predicate, withLevel),
-    /Static ability kind condition\.predicate has no layer mapping/
-  );
+  const handle = createEngineStaticBinder(f.engine).bindStatic(predicate, withLevel);
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
 });
 
 test("unl-049-219 Honeyfruit: the Level 6 activation cannot even be described (gap 2)", () => {

@@ -52,17 +52,15 @@ test("rad-040-167 Heartening Soul: identity, ruleset, status, judgeReason and so
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("rad-040-167 Heartening Soul gap: no merged op can carry a whole activated ability (801.3.a / 135.4.b)", () => {
-  // continuous.grant-ability is not a registered instruction op...
-  assert.equal(instructionDefinitionsById.has("continuous.grant-ability"), false);
-  // ...and the production static binder rejects the kind it would need a layer for.
+test("rad-040-167 Heartening Soul: the activated-ability grant reaches the production binder", () => {
+  // continuous.grant-ability is registered and installs a static registration
+  // that carries the complete activated body.
+  assert.equal(instructionDefinitionsById.has("continuous.grant-ability"), true);
   const f = fixture({ cards: [{ id: "src", cardId: CANONICAL, types: ["unit"], might: 7, zone: "board" }] });
   const binder = createEngineStaticBinder(f.engine);
-  assert.throws(
-    () => binder.bindStatic(grantStatic, f.kernel.getObject("src")),
-    /continuous\.grant-ability has no layer mapping/
-  );
-  assert.deepEqual(f.engine.layers.registry.list(), []);
+  const handle = binder.bindStatic(grantStatic, f.kernel.getObject("src"));
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
 });
 
 test("rad-040-167 Heartening Soul gap: keyword grants cannot carry the granted activated ability", () => {

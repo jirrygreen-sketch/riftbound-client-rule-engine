@@ -35,9 +35,9 @@ test("rad-110-167 Lulu, Whimsical: judgeReason identifies the temporary trait in
   assert.match(program.judgeReason, /143\.2\.a\.1\/479\.2/);
   assert.match(program.judgeReason, /applyTrait/);
   assert.match(program.judgeReason, /exclude: source/);
-  // Re-probed 2026-10-17: no registered base-Might instruction, no production
-  // accept for exclude: source and no object-moved EventPattern membership.
-  assert.equal(instructionDefinitionsById.has("continuous.base-might"), false);
+  // The base-Might instruction is registered; the target and move anchors are
+  // preserved by production binding below.
+  assert.equal(instructionDefinitionsById.has("continuous.base-might"), true);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
 });
 
@@ -92,21 +92,22 @@ test("rad-110-167 Lulu, Whimsical: a real Move already produces the source snaps
   assert.equal(f.engine.layers.registry.list().length, 0);
 });
 
-test("rad-110-167 Lulu, Whimsical boundary: production binding rejects exclude: source before registration", () => {
-  // programs/filters.ts translateObjectFilter has no exclude anchor adapter,
-  // so the whole trigger cannot be bound (the interpreter's queryObjects does
-  // support the anchor; the production translation is the gap).
+test("rad-110-167 Lulu, Whimsical: production binding preserves exclude: source", () => {
+  // The "another unit" restriction is retained by the production translator
+  // and reaches the trigger registration.
   const executable = { ...program, status: "executable", judgeReason: undefined };
   const f = fixture({ cards: [{ id: "lulu", cardId: CANONICAL, types: ["unit"], might: 2 }] });
-  assert.throws(
-    () => triggerRegistrations(new ProgramRegistry([executable]), f.kernel.getObject("lulu")),
-    /Unsupported filter field exclude/
-  );
+  const [registration] = triggerRegistrations(new ProgramRegistry([executable]), f.kernel.getObject("lulu"));
+  assert.deepEqual(registration.body[0].targets[0].filter, {
+    type: "unit",
+    zone: "board",
+    exclude: "source"
+  });
 });
 
-test("rad-110-167 Lulu, Whimsical boundary: object-moved is not an EventPattern type", () => {
-  // Even with the exclude anchor removed, the translated trigger filter would
-  // name object-moved, which the closed EventPattern enum rejects.
+test("rad-110-167 Lulu, Whimsical: object-moved is a valid EventPattern and registers", () => {
+  // The move trigger now crosses the closed validation boundary and is
+  // installed on the real pipeline.
   const modified = JSON.parse(JSON.stringify(program));
   modified.abilities[0].body[0].targets[0].filter = { type: "unit", zone: "board" };
   const f = fixture({ cards: [{ id: "lulu", cardId: CANONICAL, types: ["unit"], might: 2 }] });
@@ -116,10 +117,8 @@ test("rad-110-167 Lulu, Whimsical boundary: object-moved is not an EventPattern 
   )[0];
   assert.equal(registration.spec.at, "object-moved");
   assert.deepEqual(registration.spec.filter, { event: "object-moved", object: { objectId: "lulu" } });
-  assert.throws(
-    () => f.engine.pipeline.registerTrigger(registration),
-    error => error.name === "TriggerSpecValidationError" && /trigger\.filter\.event/.test(error.message)
-  );
+  f.engine.pipeline.registerTrigger(registration);
+  assert.equal(f.engine.pipeline.hasTriggerRegistration(registration.id), true);
 });
 
 test.todo('Lulu, Whimsical: register a base-Might 4 trait-layer effect through the resolving body, expire it this turn, and preserve later arithmetic modifiers (CR 143.2.a.1/479.2).');

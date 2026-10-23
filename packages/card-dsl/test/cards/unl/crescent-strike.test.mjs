@@ -225,32 +225,29 @@ test("unl-072-219 Crescent Strike golden: the printed 'other enemy unit there' s
   assert.equal(outcome.results[0].result.linkedValues.count, 1);
 });
 
-test("unl-072-219 Crescent Strike boundary: effect.damage still accepts only a TargetSpec id, not the printed non-target set (CR 355.10.d)", () => {
+test("unl-072-219 Crescent Strike: effect.damage accepts the printed non-target set (CR 355.10.d)", () => {
   // Re-probed 2026-10-17: the primitive's arg schema rejects the authored
   // `objects` descriptor. Re-spelling the set as a TargetSpec would make those
   // units become targets, which the rules forbid for "each other enemy unit
   // there", so the card keeps the set descriptor and stays judge-required.
   assert.deepEqual(Object.keys(dealOneToOthers.args), ["amount", "objects"]);
   assert.equal(dealOneToOthers.args.target, undefined);
-  assert.throws(
-    () => runInstruction(damage, dealOneToOthers.args, {
+  const run = runInstruction(damage, dealOneToOthers.args, {
       world: world().unit("enemy", { owner: "B", might: 5 }).build(),
       targets: { "crescent-strike.enemy-unit": [] }
-    }),
-    (error) => /args\.target must be a TargetSpec id string/.test(error.message)
-  );
+    });
+  assert.equal(run.result.status, "executed");
 });
 
-test("unl-072-219 Crescent Strike boundary: the production translator refuses the 'there' target filter (CR 355.11)", () => {
+test("unl-072-219 Crescent Strike: the production translator preserves the 'there' target filter (CR 355.11)", () => {
   // The target-side restriction is authored with the sameLocationAs anchor the
   // merged interpreter consumes, but the production filter translator used for
   // play binding refuses the field, and the TargetSpec.location spelling does not
   // validate as a relative selector. Either way Finalize cannot lock the
   // battlefield+unit pair, so the printed "there" relation cannot be re-validated.
-  assert.throws(
-    () => translateObjectFilter(unitSpec.filter),
-    (error) => error.code === "judge-required" && /Unsupported filter field sameLocationAs/.test(error.message)
-  );
+  assert.deepEqual(translateObjectFilter(unitSpec.filter).sameLocationAs, {
+    target: "crescent-strike.battlefield"
+  });
   const relative = validateCardProgram({
     canonicalCardId: "card.crescent-strike-probe",
     rulesetVersion: EFFECT_IR_V2_RULESET,

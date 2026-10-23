@@ -241,7 +241,7 @@ test("unl-012-219 Lord Broadmane: Ambush expansion preserves both static permiss
   assert.deepEqual(expansion[1].effect.grants, ["showdown", "closed-state"]);
 });
 
-test("unl-012-219 Lord Broadmane: the production static binder rejects both Ambush declarations (CR 822.1.b)", () => {
+test("unl-012-219 Lord Broadmane: both Ambush declarations bind through production (CR 822.1.b)", () => {
   // The KeywordDef is merged, but neither declaration reaches the layers: the
   // play-location-permission kind has no layerFor mapping, and the conditional
   // timing declaration's appliesTo spelling is unsupported.
@@ -252,15 +252,14 @@ test("unl-012-219 Lord Broadmane: the production static binder rejects both Ambu
   });
   const source = { ...f.kernel.getObject("broadmane"), cardId: CANONICAL_ID, zone: "board" };
   const binder = createEngineStaticBinder(f.engine);
-  assert.throws(
-    () => binder.bindStatic(expansion[0], source),
-    (error) => error.name === "ProgramBindingError" && /no layer mapping/.test(error.message)
-  );
-  assert.throws(
-    () => binder.bindStatic(expansion[1], source),
-    (error) => error.name === "ProgramBindingError" && /Unsupported static appliesTo/.test(error.message)
-  );
-  assert.deepEqual(f.engine.layers.registry.list(), []);
+  const location = binder.bindStatic(expansion[0], source);
+  const timing = binder.bindStatic(expansion[1], source);
+  assert.deepEqual(f.engine.layers.registry.list().map(entry => entry.effect.effect.kind), [
+    "location",
+    "continuous.timing"
+  ]);
+  timing.unbind();
+  location.unbind();
 });
 
 test("unl-012-219 Lord Broadmane: the granted Assault fails closed for a declared attacker (CR 807.1.c/807.1.d.1)", () => {

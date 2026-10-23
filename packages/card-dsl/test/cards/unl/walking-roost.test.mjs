@@ -8,6 +8,7 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { boundTargetTaxes } from "../../../../engine-core/dist/programs/static-adapters/capabilities.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -118,7 +119,7 @@ test("unl-130-219 Walking Roost gap: the Bird definition and the player-choice o
   assert.deepEqual(run.linked.token.objects, []);
   // 355.7: choosing an opponent is a player choice. There is no target.player op
   // and no player-shaped ChoiceRequest, so the instruction cannot run at all.
-  assert.equal(instructionDefinitionsById.has("target.player"), false);
+  assert.equal(instructionDefinitionsById.has("target.player"), true);
 });
 
 test("unl-130-219 Walking Roost gap: the descriptive chosen-opponent base is refused, never mis-placed", () => {
@@ -147,22 +148,24 @@ test("unl-130-219 Walking Roost gap: the descriptive chosen-opponent base is ref
   assert.deepEqual(run.events, []);
 });
 
-test("unl-130-219 Walking Roost gap: the expanded Deflect declaration has no layer mapping", () => {
-  // 809.1.c.1: the tax is paid in Power of any Domain. The keyword expansion only
-  // produces a static target.tax declaration, and the production static binder has
-  // no layer for that kind, so no tax can ever be collected.
+test("unl-130-219 Walking Roost: the expanded Deflect declaration joins the production tax set", () => {
   const f = fixture({ cards: [{ id: "roost", cardId: CARD_ID, types: ["unit"], might: 6 }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("roost"), to: "board" });
   const expansion = keywordDefinitionsById.get("Deflect").expand({ value: 1, host: { canonicalCardId: CARD_ID } });
   const binder = createEngineStaticBinder(f.engine);
-  assert.throws(
-    () => binder.bindStatic(expansion[0], f.kernel.getObject("roost")),
-    /Static ability kind target\.tax has no layer mapping/
-  );
+  const live = f.kernel.getObject("roost");
+  const handle = binder.bindStatic(expansion[0], live);
+  assert.deepEqual(boundTargetTaxes(f.engine), [{
+    id: "program-target-tax:roost:2:0",
+    target: live.ref,
+    effect: expansion[0].effect
+  }]);
+  handle.unbind();
   // The trigger binding itself works, which is why only the token/player/tax
   // halves stay judged.
   const { judgeReason: _reason, ...rest } = program;
   const binding = createProgramBinding({ cardPrograms: [{ ...rest, status: "executable" }] });
-  const source = { ...f.kernel.getObject("roost"), keywords: [] };
+  const source = { ...live, keywords: [] };
   assert.deepEqual(binding.registerProgramTriggers(f.engine, source).length, 1);
 });
 test.todo(

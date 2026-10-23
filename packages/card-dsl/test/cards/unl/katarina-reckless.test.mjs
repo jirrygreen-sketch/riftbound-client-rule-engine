@@ -143,16 +143,15 @@ test("unl-023-219 Katarina, Reckless: the merged program binding exposes both de
   const cardPlayed = abilities.find(ability => ability.kind === "triggered" && ability.trigger.at === "card-played");
   assert.equal(cardPlayed.trigger.filter.player, "self");
 
-  // The card-hidden spelling is still outside EVENT_PATTERN_TYPES, so its
-  // subscription fails the closed-vocabulary validation; the card-played half
-  // registers on its own and retains the details gate.
+  // The card-hidden spelling is now part of the closed EventPattern vocabulary;
+  // both the face-down and Hide events can subscribe.
   const { validateTriggerSpec } = await import("../../../../engine-core/dist/events/trigger-spec.js");
   const hidden = validateTriggerSpec({
     at: "card-hidden",
     filter: { event: "card-hidden", player: "self" }
   });
-  assert.equal(hidden.ok, false);
-  assert.deepEqual(hidden.issues.map(issue => issue.code), ["invalid-event-type"]);
+  assert.equal(hidden.ok, true);
+  assert.deepEqual(hidden.issues, []);
   const playOnly = { ...program, status: "executable", judgeReason: undefined, abilities: [program.abilities[1]] };
   const playBinding = createProgramBinding({ cardPrograms: [playOnly] });
   const [playRegistration] = triggerRegistrations(playBinding.registry, snapshot);

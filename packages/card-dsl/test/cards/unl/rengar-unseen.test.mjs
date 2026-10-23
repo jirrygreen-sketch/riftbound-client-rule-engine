@@ -184,13 +184,11 @@ test("unl-024-219 Rengar, Unseen golden: its expanded Deflect taxes an opposing 
 // the contract text. Nothing here promotes the card: each test pins one live
 // production gap.
 
-test("unl-024-219 Rengar, Unseen golden: Assault 2 and Ganking bind into a layer, Accelerate's cost and Deflect's tax still do not", () => {
+test("unl-024-219 Rengar, Unseen golden: all four keyword expansions bind", () => {
   // 805.1.b / 807.1.c / 809.1.c / 810.1.b: every expansion is real IR, and the
   // production binder accepts the Assault and Ganking declarations (both
   // register an ability-layer effect). The Accelerate cost declaration and the
-  // Deflect tax declaration still refuse a layer mapping because nothing
-  // consumes those kinds, which is why the card cannot be plugged into the
-  // play/cost and targeting pipelines yet.
+  // Deflect tax declarations now bind to their production cost registration.
   const { engine, source } = boardSource();
   const expanded = createProgramBinding({
     cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
@@ -205,9 +203,9 @@ test("unl-024-219 Rengar, Unseen golden: Assault 2 and Ganking bind into a layer
     }
   });
   assert.deepEqual(bound, [
-    ["accelerate.cost", "Static ability kind accelerate.cost has no layer mapping"],
+    ["accelerate.cost", "bound"],
     ["continuous.might", "bound"],
-    ["target.tax", "Static ability kind target.tax has no layer mapping"],
+    ["target.tax", "bound"],
     ["continuous.movement", "bound"]
   ]);
 });
@@ -237,7 +235,7 @@ test("unl-024-219 Rengar, Unseen golden: Assault 2 grants no Might because the d
   ]);
 });
 
-test("unl-024-219 Rengar, Unseen golden: the real combat flow blocks and emits no Attacker designation", () => {
+test("unl-024-219 Rengar, Unseen golden: combat staging publishes attack-declared without installing combatRole", () => {
   // 807.1.d / 466.2: Assault is written against the Attacker designation, which
   // only a combat start transaction can produce. Driving the merged turn flow
   // into a staged Combat blocks with combat-start-transaction and publishes no
@@ -253,12 +251,9 @@ test("unl-024-219 Rengar, Unseen golden: the real combat flow blocks and emits n
     op: "effect.move",
     args: { to: { kind: "constant", value: { type: "battlefield", id: "bf1" } } }
   }]));
-  assert.throws(
-    () => settleTurn(f.flow),
-    error => error.status === "blocked" && error.code === "combat-start-transaction"
-  );
-  assert.equal(f.flow.battlefields[0].staged, "combat");
-  assert.equal(f.flow.chain.pipeline.events.filter(event => event.timingPoint === "attack-declared").length, 0);
+  settleTurn(f.flow);
+  assert.equal(f.flow.battlefields[0].staged, "none");
+  assert.equal(f.flow.chain.pipeline.events.filter(event => event.timingPoint === "attack-declared").length, 1);
   assert.equal(f.kernel.getObject("source").combatRole, null);
 });
 
@@ -339,13 +334,12 @@ test("unl-024-219 Rengar, Unseen: the Accelerate declaration still cannot reach 
   const [accelerateCost] = expansionFor("Accelerate", undefined);
   assert.throws(
     () => translateCost(accelerateCost.effect.cost, "rengar-unseen", "play"),
-    /Unsupported play cost field optional/
+    /Additional costs require the program cost adapter/
   );
   const { engine, source } = boardSource();
-  assert.throws(
-    () => createEngineStaticBinder(engine).bindStatic(accelerateCost, source),
-    /Static ability kind accelerate\.cost has no layer mapping/
-  );
+  const handle = createEngineStaticBinder(engine).bindStatic(accelerateCost, source);
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
 });
 
 test.todo(

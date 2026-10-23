@@ -12,6 +12,7 @@ import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/
 import { translateInstructionTargets, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import deployKeyword from "../../../../engine-core/dist/effects/keywords/Deploy.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-15ed917fed0055c9ae8325c668e501db603af32e4ff58c00dca6ad354739ac93";
 const SOURCE_TEXT =
@@ -184,34 +185,22 @@ test.todo(
     "condition needs an evaluated battlefield-control predicate."
 );
 
-test("rad-052-167 Resource Extractor: the merged Deploy expansion has no consumer for either half", () => {
-  // CR 830.1.b: RIFT-267 merged Deploy.ts, but continuous.location is unmapped in
-  // programs/statics.ts layerFor and the hold trigger's here:true is rejected by
-  // the merged filter translator.
+test("rad-052-167 Resource Extractor: both halves of the Deploy expansion cross production binding", () => {
   const expansion = deployKeyword.expand({ host: { canonicalCardId: CANONICAL } });
   assert.deepEqual(expansion.map(ability => ability.kind), ["static", "triggered"]);
   assert.equal(expansion[0].effect.kind, "continuous.location");
 
-  const kernel = world()
-    .unit("extractor", {
-      types: ["gear"],
-      zone: "board",
-      location: { type: "battlefield", id: "bf1" }
-    })
-    .build();
-  const source = kernel.getObject("extractor");
-  const binder = createEngineStaticBinder({
-    layers: { addContinuous() {}, removeContinuous() {}, currentTimingPoint: "cleanup-start" }
+  const f = fixture({ cards: [{ id: "extractor", cardId: CANONICAL, types: ["gear"], might: null, energy: 1, power: null }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("extractor"), to: "board", location: { type: "battlefield", id: "bf1" } });
+  const source = f.kernel.getObject("extractor");
+  const handle = createEngineStaticBinder(f.engine).bindStatic(expansion[0], source);
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
+  assert.deepEqual(translateTriggerFilter(expansion[1].trigger.filter, source.ref.id, "hold"), {
+    event: "hold",
+    here: true,
+    player: "opponent"
   });
-  assert.throws(
-    () => binder.bindStatic(expansion[0], source),
-    (error) => error.code === "judge-required" &&
-      /Static ability kind continuous\.location has no layer mapping/.test(error.message)
-  );
-  assert.throws(
-    () => translateTriggerFilter(expansion[1].trigger.filter, source.ref.id, "hold"),
-    (error) => error.code === "judge-required" && /Unsupported filter field here/.test(error.message)
-  );
 });
 
 test("rad-052-167 Resource Extractor: the merged cleanup really exempts a Deploy Gear (830.1.b.3 is no longer a gap)", () => {
@@ -255,16 +244,13 @@ test("rad-052-167 Resource Extractor: the merged cleanup really exempts a Deploy
   );
 });
 
-test("rad-052-167 Resource Extractor: the turn-end trigger and its body cannot reach the chain", () => {
-  // CR 317.1.a / 364.3: the timing point exists and turn/flow.ts emits it, but
-  // EVENT_PATTERN_TYPES has no "turn-end". The body now resolves a base
-  // without the obsolete source:self TargetSpec.
-  assert.equal(validateTriggerSpec(turnEndTrigger.trigger).ok, false);
-  assert.deepEqual(
-    validateTriggerSpec(turnEndTrigger.trigger).issues.map(issue => issue.code),
-    ["invalid-event-type"]
-  );
-  // The translated pattern itself is well-formed; only the vocabulary is missing.
+test("rad-052-167 Resource Extractor: the turn-end trigger validates and translates through production", () => {
+  // CR 317.1.a / 364.3: turn-end and its controller predicate are in the
+  // closed event vocabulary. The battlefield-control condition remains an
+  // explicit judge-required gate rather than being assumed true.
+  const validation = validateTriggerSpec(turnEndTrigger.trigger);
+  assert.equal(validation.ok, true);
+  assert.deepEqual(validation.issues, []);
   assert.deepEqual(translateTriggerFilter(turnEndTrigger.trigger.filter, "gear", "turn-end"), {
     event: "turn-end",
     player: "self"
