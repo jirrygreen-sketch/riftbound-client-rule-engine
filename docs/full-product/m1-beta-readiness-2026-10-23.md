@@ -1,19 +1,19 @@
 # M1 beta 就绪重核（2026-10-23）
 
-核验基线：`e886dc17`（本地 `integration`，已包含 RIFT-996）。核验范围只读产品代码与远端真实 WebSocket/V2 runner；生产代码未在本任务中修改。本文是 RIFT-899 九项缺口的当前重核和父级下一批任务输入。
+核验基线：`59249eaf`（本地 `integration`，已包含 RIFT-996 与 RIFT-1016）。核心固定种子实跑先在 `e886dc17` 完成；在 `59249eaf` 又完整复跑同一六局，结论一致。本文是 RIFT-899 九项缺口的当前重核和父级下一批任务输入。
 
 ## 结论
 
-**未达到“两名真人用两个桌面窗口，以 Rumble SFD 对 Fiora SFD 自然打完一局”的 beta 放行条件。** 脚本、本地服务、catalog/preset 闸门、V2 独立会话、预组 UI、归因 ACK 等基础能力已经存在，但真人入口在当前 checkout 会加密重连循环，V2 面板没有完整暴露回合/伤害控制，固定种子双 WS 验收在 `e886dc17` 为 **0/6 自然终局**。这不是隐私泄漏或 catalogs 缺失，而是开局、目标牌/选择回执和 UI 动作面未形成闭合产品链。
+**未达到“两名真人用两个桌面窗口，以 Rumble SFD 对 Fiora SFD 自然打完一局”的 beta 放行条件。** 脚本、本地服务、catalog/preset 闸门、V2 独立会话、预组 UI、归因 ACK 等基础能力已经存在，但真人入口在当前 checkout 会加密重连循环，V2 面板没有完整暴露回合/伤害控制，固定种子双 WS 验收在 `e886dc17` 与当前 `59249eaf` 均为 **0/6 自然终局**。这不是隐私泄漏或 catalogs 缺失，而是开局、目标牌/选择回执和 UI 动作面未形成闭合产品链。
 
 ### 当前实测摘要
 
 | 证据 | 结果 |
 | --- | --- |
-| 一键脚本 Linux 真跑 | 服务端 `33680` health `ok`；Vite `33681`、`33682` 均返回 200，脚本可 `--status`/`--stop` |
+| 一键脚本 Linux 真跑 | 在 `e886dc17` 实际启动服务端 `33680` health `ok`；Vite `33681`、`33682` 均返回 200，脚本可 `--status`/`--stop`。`59249eaf` 上同一进程模型又启动一次，但并行 heavy 门禁排队/争用使三项未在 60 秒内就绪；随后只清理了本任务记录 PID，不能把这次记为通过 |
 | 两独立浏览器 | 首页可加载；V2 地址填 `ws://127.0.0.1:33680/ws` 后均显示已连接；客户端 A 可建房并写入本地 room/session |
-| 建房后的 UI | 客户端进入“连接中”、显示 `Game events are not available before the game starts`；服务端持久化显示该 seat 已断开，页面反复重连 |
-| `RIFT-955` 固定种子（六局） | **6/6 失败**：3 局目标/选择牌 ACK 超时，1 局 `Stupefy` 目的地连续拒绝，1 局 `Frigid Touch` ACK 超时，1 局 `Wages of Pain` ACK 超时；隐私审计均通过 |
+| 建房后的 UI | 在 `e886dc17`，客户端进入“连接中”、显示 `Game events are not available before the game starts`；服务端持久化显示该 seat 已断开，页面反复重连。`59249eaf` 未改变这条会话代码，但未完成 Mac 复验 |
+| `RIFT-955` 固定种子（六局） | `e886dc17`、`59249eaf` 两次均为 **6/6 失败 / 0 natural winners**；主要阻塞为 `Stupefy`/`Wages of Pain`/`Frigid Touch` 的 play destination 拒绝或 ACK 超时，隐私审计均通过 |
 | 预组 program registry | 51 个 canonical identity 中 47 `executable`、4 `no-ability`、0 missing；绑定可执行不等于 51 张卡**整卡 golden 已验收** |
 | 目标投影代码 | RIFT-996 已出现服务端 `targetRequirements` 和客户端目标选择，但本轮 runner/UI 实测仍未进入稳定生产闭环 |
 | 回放 | V2 会话没有接入本地 `liveReplay` 捕获；现有保存按钮依赖旧 `duelProjection`，strict V2 viewer 不在用户可操作路径 |
@@ -30,21 +30,22 @@
 
 ### 2. 共享可信 Rumble/Fiora 预组目录与建房选择 — 已闭合
 
-**证据。** 两套预组来自 tracked `docs/plans/m1-decks.json`，经服务端 catalog 构造为 1/1/39/12/3（`apps/game-server/src/presets/catalog.ts:257-313`）；服务端 `/api/presets` 与 preset digest 白名单（`server.ts:237-250,897-905`）；客户端下拉仅列 `rumble-sfd`、`fiora-sfd`（`V2MatchBoard.tsx:234-246`）。脚本以 `RIFTBOUND_M1_PRESETS_ONLY=1` 启动，实测提交空牌组得到 `M1 beta rooms only accept ...`。两个全新浏览器可建房/显示预组控件；但第 1 项重连缺陷使“持续留在房间并完成准备”无法端到端验收。该项目录/身份边界已完成，真人入座链由第 1 项阻塞。
+**证据。** 两套预组来自 tracked `docs/plans/m1-decks.json`，经服务端 catalog 构造为 1/1/39/12/3（`apps/game-server/src/presets/catalog.ts:257-313`）；服务端 `/api/presets` 与 preset digest 白名单（`server.ts:237-250,905-913`）；客户端下拉仅列 `rumble-sfd`、`fiora-sfd`（`V2MatchBoard.tsx:277-286`）。脚本以 `RIFTBOUND_M1_PRESETS_ONLY=1` 启动，实测 `/api/presets` 返回两项且提交空牌组得到 `M1 beta rooms only accept ...`。两个全新浏览器可建房/显示预组控件；但第 1 项重连缺陷使“持续留在房间并完成准备”无法端到端验收。预组目录/白名单本身已完成；真人入座链 status 为 **部分完成**，不应按整体已闭合放行。
 
 ### 3. 51 张 M1 能力边界与自然局 gate — 未闭合
 
 **现状。** 当前 registry 统计为 47 executable、4 no-ability、0 missing；历史 manifest `docs/plans/m1-two-precons-manifest.json:summaries` 仍记录 24 judge-required、47 unproven、0 fullyAccepted。manifest 是历史证据，不能覆盖当前 registry，也不能把 registry 状态等同于整卡验收。
 
-`e886dc17` 六局固定种子为 0 winners：
+`e886dc17` 与 `59249eaf` 六局固定种子均为 0 winners。`59249eaf` 的结果如下；`e886dc17` 的失败类型相同：
 
-- `RIFT-955-v2-02`、`08`：`Stupefy` 被生成带永久物 `destination` 的 `play`，服务端在 `runtime.ts:493-499` 拒绝，runner 以 `repeated command-rejected` 停止。
+- `RIFT-955-v2-02`：`Stupefy` 的 play 等待 60 秒无 receipt。
 - `03`：`Wages of Pain` 的 play 等待 60 秒无 receipt。
-- `07`：`Frigid Touch` 的 play 等待 60 秒无 receipt。
+- `07`：`Frigid Touch` 被生成带永久物 `destination` 的 `play`，服务端在 `runtime.ts:493-499` 拒绝，runner 以 `repeated command-rejected` 停止。
+- `08`：`Stupefy` 被生成带永久物 `destination` 的 `play`，服务端在 `runtime.ts:493-499` 拒绝，runner 以 `repeated command-rejected` 停止。
 - `10`：`Stupefy` 的 play 等待 60 秒无 receipt。
-- `11`：`Wages of Pain` 的 play 等待 60 秒无 receipt。
+- `11`：`Wages of Pain` 被生成带永久物 `destination` 的 `play`，服务端在 `runtime.ts:493-499` 拒绝，runner 以 `repeated command-rejected` 停止。
 
-六局 privacy 均通过，但自然胜负为 0。原 `6/6` 报告在 `0bf2bd14` 与当前 `e886dc17` 不能互相替代。
+六局 privacy 均通过，但自然胜负为 0。原 `6/6` 报告在 `0bf2bd14` 与当前 `e886dc17`/`59249eaf` 不能互相替代。
 
 **建议写域。** `packages/integration-tests/src/v2-duel/bot.ts`/`runner.ts`，以及 `apps/game-server/src/engine-runtime/runtime.ts` 与各具体卡/效果唯一 owner；不能把目标派生、超时重试或“选第一项”作为卡能力修复。
 
@@ -60,9 +61,9 @@
 
 ### 5. 真实 M1 移动、Showdown/Focus、战斗与 Conquer/Hold/Score — 部分完成
 
-**现状。** 服务端已有 move、advance、combat-damage（`runtime.ts:474-485,543-554,604-655`），投影有 battlefield/combat/priority/focus（`projection.ts:297-339`）。真实旧一轮种子曾完成 move/attack 与 8 分胜负。当前 `e886dc17` 六局没有自然终局，coverage 的 `combat-damage`/`advance`/`rune-power` 均为 0。
+**现状。** 服务端已有 move、advance、combat-damage（`runtime.ts:474-485,543-554,604-655`），投影有 battlefield/combat/priority/focus（`projection.ts:297-339`）。真实旧一轮种子曾完成 move/attack 与 8 分胜负。当前 `e886dc17`/`59249eaf` 六局没有自然终局，coverage 的 `combat-damage`/`advance`/`rune-power` 均为 0。
 
-**UI 缺口。** `V2MatchBoard.tsx:333-355` 有“宣告攻击/防守”按钮，但服务端现明确拒绝这两个命令并说明 CR 466.2.c 自动分配所有在场单位（`runtime.ts:555-557`）；面板没有显式 `end-turn`、`advance` 或 `combat-damage` 命令构造/按钮，只显示战斗和 Focus 文本（`V2MatchBoard.tsx:434-458` 的链区显示位于同名代码末段）。因此当前 UI 无法驱动默认服务端要求的伤害分配/推进步骤。
+**UI 缺口。** `V2MatchBoard.tsx:418-430` 有“宣告攻击/防守”按钮，但服务端现明确拒绝这两个命令并说明 CR 466.2.c 自动分配所有在场单位（`runtime.ts:555-557`）；面板没有显式 `end-turn`、`advance` 或 `combat-damage` 命令构造/按钮，只显示战斗和 Focus 文本（`V2MatchBoard.tsx:441-457`、`519`）。因此当前 UI 无法驱动默认服务端要求的伤害分配/推进步骤。
 
 **建议写域。** `apps/desktop-client/src/full-product/v2/V2MatchBoard.tsx`、`apps/desktop-client/tests/V2PlayableActions.test.tsx`、game-server/engine-core 的唯一战斗 owner。
 
@@ -120,7 +121,8 @@
 ## 证据文件
 
 - `/tmp/RIFT-991-m1-beta-readiness/integration-v2-fixed-seeds-e886.log`：`e886dc17` 六局固定种子 6 failed。
+- `/tmp/RIFT-991-m1-beta-readiness/integration-v2-fixed-seeds-59249.log`：当前 `integration` `59249eaf` 同六局复跑 6 failed。
 - `/tmp/RIFT-991-m1-beta-readiness/v2-duel/*.ndjson`：每局 termination、blockedReason、coverage、privacy、trace。
-- `/tmp/RIFT-991-m1-beta-readiness/start-script-runtime4.log`：服务端+dou 客户端启动、健康打印。
+- `/tmp/RIFT-991-m1-beta-readiness/start-script-runtime4.log`、`start-script-runtime7.log`：服务端与两客户端启动、health/catalog/页面就绪输出。
 - `/tmp/RIFT-991-m1-beta-readiness/cdp-ui-smoke3.log`：两个 CDP 浏览器加载、连接、建房和本地 session 证据。
 - `/tmp/RIFT-991-m1-beta-readiness/beta-runtime4/rooms/**/archive.log`：真实房间 archive（含断开/无 game state；仅供维护者）。
