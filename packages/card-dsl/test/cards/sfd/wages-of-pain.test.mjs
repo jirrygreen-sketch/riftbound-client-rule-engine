@@ -104,9 +104,9 @@ const INTERACTION_EVIDENCE = [
     responseWindow: "CR 811.1.c.2 gives no response window for Hide. The later facedown Play opens a Chain and grants Reaction beginning next turn (811.1.c.3, 811.6).",
     replacement: "No replacement or prevention is involved in Hide or the scope of this card's target choice.",
     layers: "The facedown Reaction grant is turn-scoped permission, not a global numeric Priority. CR 811.6.a keeps it non-public.",
-    lki: "The source Battlefield remains the target scope for the spell. The exact target-only probe proves only bf1 Units satisfy 811.1.d.2.",
+    lki: "The source Battlefield remains the target scope for the spell. The target-only draft narrows the finalized requirement to the exact bf1 LocationRef.",
     timeline: ["Hide/Pending discretionary action", "Pay one [A]", "private facedown state", "opponent projection hides identity", "next turn Reaction", "Finalize target restricted to bf1"],
-    assertions: ["chain stays empty after Hide", "Power becomes empty", "private sidecar has one bf1 card", "owner sees identity and opponent does not", "target-only probe scopes target to bf1"]
+    assertions: ["chain stays empty after Hide", "Power becomes empty", "private sidecar has one bf1 card", "owner sees identity and opponent does not", "target-only draft scopes target to bf1"]
   },
   {
     id: "hidden-gold-scope-gap",
@@ -785,6 +785,7 @@ test("sfd-070-221 Wages of Pain Hidden production: 811.1.d.2 scopes the target t
   assert.equal(draft.speed, "reaction");
   assert.deepEqual(draft.targets.map((target) => target.requirement.location), [HIDDEN_BATTLEFIELD]);
   assert.deepEqual(draft.cost.baseModifications, [{ kind: "ignore-base", ignore: "resources" }]);
+  assert.equal(Object.hasOwn(draft.body[0].args, "location"), false);
   assert.equal(f.kernel.getObject("remote-victim").damage, 0);
   assert.equal(f.kernel.getObject("wages").zone, "board");
   assert.equal(f.flow.hidden().zones.bf1.cards.length, 1);
