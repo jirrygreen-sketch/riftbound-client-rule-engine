@@ -180,10 +180,11 @@ test("sfd-198-221 Arise! golden: one Sand Soldier per Equipment you control, two
     assert.equal(created.power, null);
     assert.deepEqual(created.location, chosenBase);
   }
-  // 440.2.c / 185.2.a: every token is created on the Chain and then played, so
-  // both enter ready-to-be-readied and the receipt reports the post-play refs.
+  // 440.2.c / 185.2.a: every token is created on the Chain and then played.
+  // The card's linked ready body executes in the same production resolution and
+  // readies two of the resulting exhausted tokens.
   assert.deepEqual(outcome.events.map((event) => event.action), [
-    "create-token", "play", "create-token", "play"
+    "create-token", "play", "create-token", "play", "ready", "ready"
   ]);
   assert.deepEqual(kernel.pendingItems, []);
   assert.deepEqual(
@@ -320,16 +321,17 @@ test.todo(
 );
 
 
-test("Arise!: the authored token instruction cannot take a LocationExpr destination (355.2/355.2.a)", () => {
-  // Finalize owns the play-location choice, so the card must not pin one. The
-  // merged primitive only takes concrete runtime references; a symbolic
-  // LocationExpr is rejected by its argument schema.
+test("Arise!: the token primitive rejects a symbolic location supplied outside the Finalize play procedure", () => {
+  // The card IR omits a fixed destination. The isolated primitive needs a
+  // Finalize-selected concrete location; an unresolved LocationExpr must fail
+  // closed instead of manufacturing one.
   const kernel = world().player("A").build();
-  assert.throws(() => runInstruction(token, {
+  const run = runInstruction(token, {
     ...playTokens.args,
     location: { kind: "location", value: "ability-controller-base" },
     amount: { kind: "constant", value: 1 }
-  }, { world: kernel }), error => error instanceof TypeError && /Invalid effect\.token argument: location/.test(error.message));
+  }, { world: kernel });
+  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
   assert.equal(kernel.query({}).filter(object => object.isToken).length, 0);
 });
 

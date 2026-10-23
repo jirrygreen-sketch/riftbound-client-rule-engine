@@ -10,7 +10,7 @@ import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.
 import { normalizeMoveArguments } from "../../../../engine-core/dist/effects/interpreter/locations.js";
 import { queryLocationCandidates } from "../../../../engine-core/dist/target/location/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { createEngineStaticBinder, bindStaticAbility } from "../../../../engine-core/dist/programs/statics.js";
+import { createEngineStaticBinder, bindStaticAbility, staticCostSources } from "../../../../engine-core/dist/programs/statics.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { translateCost } from "../../../../engine-core/dist/programs/play.js";
 import { OBJECT_FILTER_ZONES } from "../../../../engine-core/dist/events/trigger-spec.js";
@@ -214,17 +214,16 @@ test.todo(
   "Bard: put the paid play trigger on the chain after additional-cost and receipt binding, retaining the moved-unit target plan (383.4.a.2/420.4.a)"
 );
 
-test("Bard, Mercurial: the declared static additional cost has no layer mapping or play collector", () => {
-  // 356.2.b.1: the printed optional additional cost must be collected at
-  // Finalize. The merged static binder has no layer for cost.additional and the
-  // play binding rejects additional costs outright, so it never reaches the
-  // cost pipeline and no 356.4.f.1 receipt can exist.
+test("Bard, Mercurial: the declared static additional cost enters the Finalize cost sources", () => {
   const f = fixture({ cards: [{ id: "bard", cardId: CARD_ID, types: ["unit"], might: 4 }] });
   const source = f.kernel.getObject("bard");
-  assert.throws(() => bindStaticAbility(createEngineStaticBinder(f.engine), additionalCost, source),
-    error => error.code === "judge-required" && /cost\.additional has no layer mapping/.test(error.message));
-  assert.throws(() => translateCost({ kind: "additional-cost", keyword: "weaponmaster" }, CARD_ID, "play"),
-    error => error.code === "judge-required");
+  const handle = bindStaticAbility(createEngineStaticBinder(f.engine), additionalCost, source);
+  const [binding] = staticCostSources(f.engine);
+  assert.equal(binding.ability.effect.kind, "cost.additional");
+  assert.equal(binding.ability.effect.optional, true);
+  assert.equal(binding.ability.effect.payments[0].kind, "exhaust");
+  handle.unbind();
+  assert.deepEqual(staticCostSources(f.engine), []);
 });
 
 test("Bard, Mercurial: the legend zone is outside the closed ZoneId vocabulary", () => {

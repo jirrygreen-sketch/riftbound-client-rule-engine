@@ -202,26 +202,12 @@ test("sfd-210-221 Hall of Legends golden: the choose filter only offers the cont
   assert.deepEqual(options, ["legend-1"]);
 });
 
-test("sfd-210-221 Hall of Legends: the conquer here anchor is still rejected by both validation and translation", () => {
-  // 383.4.c / 473.2.a: the Conquer Effect is scoped to this Battlefield. The
-  // closed EventPattern vocabulary has no source-battlefield anchor, so the
-  // validator and the card-program translator both refuse the key. This is the
-  // remaining dependency, recorded without widening the trigger.
-  let issues;
-  try {
-    assertTriggerSpec(ability.trigger);
-  } catch (error) {
-    issues = error.issues;
-  }
-  assert.ok(Array.isArray(issues), "the closed validator must reject the here anchor");
-  assert.deepEqual(
-    issues.filter((issue) => issue.code === "unknown-field").map((issue) => issue.path),
-    ["trigger.filter.here"]
-  );
-  assert.throws(
-    () => translateTriggerFilter(ability.trigger.filter, CANONICAL, "conquer"),
-    /Unsupported filter field here/
-  );
+test("sfd-210-221 Hall of Legends: the conquer here anchor validates and translates", () => {
+  // 383.4.c / 473.2.a: the trigger retains its source-Battlefield scope.
+  assert.doesNotThrow(() => assertTriggerSpec(ability.trigger));
+  assert.deepEqual(translateTriggerFilter(ability.trigger.filter, CANONICAL, "conquer"), {
+    event: "conquer", here: true, player: "self"
+  });
   // Dropping the field would translate but would also widen the trigger to
   // every conquer; the program must not do that silently.
   assertTriggerSpec({ at: "conquer", filter: translateTriggerFilter({ event: "conquered", player: "self" }, CANONICAL, "conquer") });

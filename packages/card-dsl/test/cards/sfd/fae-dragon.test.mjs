@@ -241,7 +241,7 @@ test("sfd-101-221 Fae Dragon: the controller Base really follows the ability con
   }
 });
 
-test("sfd-101-221 Fae Dragon: the real buff-spent trigger is rejected by the event-pattern vocabulary", () => {
+test("sfd-101-221 Fae Dragon: the real buff-spent trigger is accepted by the event-pattern vocabulary", () => {
   const source = world()
     .unit("fae-dragon", { cardId: CARD_ID, controller: "A" })
     .build()
@@ -252,11 +252,7 @@ test("sfd-101-221 Fae Dragon: the real buff-spent trigger is rejected by the eve
   );
   const spendRegistration = registrations.find(registration => registration.spec.at === "buff-spent");
   assert.ok(spendRegistration);
-  assert.throws(
-    () => assertTriggerSpec(spendRegistration.spec),
-    error => error.name === "TriggerSpecValidationError" &&
-      /trigger\.filter\.event/.test(error.message)
-  );
+  assert.doesNotThrow(() => assertTriggerSpec(spendRegistration.spec));
 });
 
 test.todo(

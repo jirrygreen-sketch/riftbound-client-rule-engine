@@ -153,7 +153,7 @@ test("sfd-139-221 Edge of Night golden: a stale host is ignored instead of being
   assert.equal(kernel.getObject("edge-of-night").attachedTo, null);
 });
 
-test("sfd-139-221 Edge of Night: the printed 'here' anchor is still refused at both target-side spellings", () => {
+test("sfd-139-221 Edge of Night: the printed 'here' filter translates while source-location stays closed", () => {
   // The refreshed judgeReason must be reproducible, not asserted from prose.
   // 811.1.d.3 / 359.3.f.1: "here" is this card's battlefield. RIFT-357 merged
   // the symbolic location selector into the interpreter and target-plan
@@ -185,10 +185,9 @@ test("sfd-139-221 Edge of Night: the printed 'here' anchor is still refused at b
     [["$.abilities[0].body[0].targets[0].location.kind", "invalid-location-kind"]]
   );
 
-  assert.throws(
-    () => translateInstructionTargets(triggered.body),
-    (error) => /Unsupported filter field sameLocationAs/.test(error.message)
-  );
+  assert.deepEqual(translateInstructionTargets(triggered.body)[0].targets[0].filter, {
+    type: "unit", controller: "self", zone: "board", sameLocationAs: "self"
+  });
 });
 
 test("sfd-139-221 Edge of Night golden: the merged attach still ignores the printed 'here' restriction", () => {

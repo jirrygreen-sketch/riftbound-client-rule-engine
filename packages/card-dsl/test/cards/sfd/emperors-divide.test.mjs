@@ -5,7 +5,9 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/sfd/emperors-divide.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { createEngineStaticBinder, expandProgram } from "../../../../engine-core/dist/programs/index.js";
+import { createEngineStaticBinder, expandProgram, hiddenPermissionFor } from "../../../../engine-core/dist/programs/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { finalizeTargetPlan, resolveTargetPlan } from "../../../../engine-core/dist/target/target-plan.js";
@@ -187,8 +189,8 @@ test("sfd-043-221 Emperor's Divide golden: choosing zero units is a legal play t
   assert.deepEqual(kernel.getObject("one").location, { type: "battlefield", id: "bf-1" });
 });
 
-test("sfd-043-221 Emperor's Divide: the merged Hidden expansion reaches the binder but has no cost consumer", () => {
-  const source = world()
+test("sfd-043-221 Emperor's Divide: the merged Hidden expansion binds a production permission", () => {
+  const kernel = world()
     .card("divide", {
       cardId: program.canonicalCardId,
       types: ["spell"],
@@ -196,16 +198,25 @@ test("sfd-043-221 Emperor's Divide: the merged Hidden expansion reaches the bind
       energy: 2,
       power: null
     })
-    .build()
-    .getObject("divide");
+    .build();
+  const source = kernel.getObject("divide");
   const expanded = expandProgram(program, source).expanded;
   const hiddenExpansion = expanded.find(ability => ability.kind === "static" && ability.effect.kind === "cost.hidden");
   assert.ok(hiddenExpansion, "Hidden must expand to the merged cost.hidden declaration");
-  const binder = createEngineStaticBinder({ layers: createLayerEngine([source]) });
-  assert.throws(
-    () => binder.bindStatic(hiddenExpansion, source),
-    /Static ability kind cost\.hidden has no layer mapping/
-  );
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => { throw new Error("A static permission must not ask for a choice"); },
+    context: (sourceValue, controller, timingPoint) =>
+      bindResolveContext(kernel, { source: sourceValue, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host });
+  const handle = createEngineStaticBinder(engine).bindStatic(hiddenExpansion, source);
+  assert.equal(hiddenPermissionFor(engine, source), "present");
+  handle.unbind();
+  assert.equal(hiddenPermissionFor(engine, source), "absent");
 });
 
 test("sfd-043-221 Emperor's Divide: the engine zone vocabulary still has no facedown zone (811.1.b)", () => {

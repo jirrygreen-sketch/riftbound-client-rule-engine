@@ -177,20 +177,16 @@ test.todo(
     "(CR 400/402/405-407); programs/activate.ts currently only builds a ChainDraft"
 );
 
-test("sfd-075-221 Prize of Progress: the stored discriminant and player spelling are not registrable", () => {
-  // Direct evidence for both live wiring gaps. The closed EventPattern vocabulary
-  // (events/trigger-spec.ts) has no ability-activated member, so even the
-  // spelling cannot register; and the merged [-choice] PlayerSelector vocabulary
-  // is self/opponent/any/playerId, so "controller" is not accepted either.
-  assert.equal(EVENT_PATTERN_TYPES.includes("ability-activated"), false);
+test("sfd-075-221 Prize of Progress: the ability-activated discriminant is registrable", () => {
+  // The event vocabulary now accepts the authored timing point. The production
+  // activation producer still needs to publish committed activations, whose
+  // remaining gap is isolated in the TODO above.
+  assert.equal(EVENT_PATTERN_TYPES.includes("ability-activated"), true);
   assert.equal(EVENT_PATTERN_TYPES.includes("held"), true);
-  assert.throws(
-    () => assertTriggerSpec(ability.trigger),
-    (error) => error.name === "TriggerSpecValidationError"
-  );
+  assert.doesNotThrow(() => assertTriggerSpec(ability.trigger));
   const validation = validateTriggerSpec(ability.trigger);
-  assert.equal(validation.ok, false);
-  assert.ok(validation.issues.some((issue) => issue.path === "trigger.filter.event"));
+  assert.equal(validation.ok, true);
+  assert.deepEqual(validation.issues, []);
   // "you use" is the activating player (190.6.d); PlayerSelector "self" is the
   // frozen spelling for the ability's own controller. Comment only — the
   // published IR keeps the printed/unresolved form until the vocabulary lands.
@@ -198,11 +194,9 @@ test("sfd-075-221 Prize of Progress: the stored discriminant and player spelling
   assert.equal(ability.trigger.filter.source.type, "gear");
 });
 
-test("sfd-075-221 Prize of Progress: substituting another discriminant would silently validate, so it is not done", () => {
-  // Guard: EventPattern validation is keyed on the discriminant VALUE, not on
-  // whether it names the same event the card prints. Swapping in any other legal
-  // value would therefore "pass" while making the ability fire on the wrong game
-  // occurrence, which is exactly the approximation this program refuses.
+test("sfd-075-221 Prize of Progress: substituting another discriminant is valid vocabulary but not used by the card", () => {
+  // Guard: validation checks vocabulary, not card identity. The card's own IR
+  // remains pinned to ability-activated; substitution would be a semantic change.
   for (const event of ["card-played", "held", "conquered", "scored", "chain-item-finalized"]) {
     assert.equal(
       validateTriggerSpec({ at: ability.trigger.at, filter: { ...ability.trigger.filter, event } }).ok,
@@ -210,11 +204,10 @@ test("sfd-075-221 Prize of Progress: substituting another discriminant would sil
       `${event} would validate even though it is not "use an activated ability"`
     );
   }
-  // The published program keeps the printed semantics and therefore stays
-  // unregistrable: the merged binding rejects the real spelling instead of
-  // accepting a wrong-but-legal one.
-  assert.equal(validateTriggerSpec(ability.trigger).ok, false);
-  assert.throws(() => registerProgramTrigger());
+  // The published program keeps the printed semantics and registers that exact
+  // spelling. The remaining gap is who emits the committed-activation event.
+  assert.equal(validateTriggerSpec(ability.trigger).ok, true);
+  assert.equal(registerProgramTrigger().length, 1);
 });
 
 /** The production adapter path for one trigger registration. */

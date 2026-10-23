@@ -161,10 +161,10 @@ test("sfd-025-221 Rengar, Pouncing: printed Reaction speed allows a real respons
   assert.equal(engine.canAct("B", speed, source.ref, source), true);
   engine.execute(card("rengar", { kind: "unit", controller: "B", speed, body: [] }));
   assert.equal(kernel.player("B").energy, 17);
-  // The chain accepted the printed Fury requirement and emitted the payment;
-  // the legacy TestWorld pay action leaves its Power projection unchanged.
+  // The chain accepted the printed Fury requirement and committed the Power
+  // allocation through the production payment path.
   assert.deepEqual(kernel.events.filter((event) => event.action === "pay").map((event) => event.action), ["pay"]);
-  assert.deepEqual(kernel.player("B").power, ["Fury"]);
+  assert.deepEqual(kernel.player("B").power, []);
   // A Reaction resolves immediately on top of the pending item, leaving the
   // original opponent-draw item as the only chain entry.
   assert.equal(engine.items.length, 1);

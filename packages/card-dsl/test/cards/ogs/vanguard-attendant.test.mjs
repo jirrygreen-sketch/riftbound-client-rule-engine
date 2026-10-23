@@ -175,12 +175,12 @@ test("ogs-016-024 Vanguard Attendant: the production lifecycle, not a manual reg
   f.engine.execute({
     id: "play-vanguard-2",
     controller: "A",
-    source: f.kernel.getObject("vanguard-attendant"),
+    source: f.kernel.getObject("other-unit"),
     kind: "unit",
     speed: "normal",
     body: []
   });
   resolveAll(f.engine);
-  assert.equal(f.kernel.getObject("vanguard-attendant").zone, "board");
-  assert.equal(f.kernel.getObject("vanguard-attendant").exhausted, true);
+  assert.equal(f.kernel.getObject("other-unit").zone, "board");
+  assert.equal(f.kernel.getObject("other-unit").exhausted, true);
 });

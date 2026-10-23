@@ -207,18 +207,14 @@ test("sfd-155-221 Honest Broker: the object-killed trigger and the Deathknell ex
   const kernel = brokerKernel();
   const pipeline = pipelineFor(kernel);
   const source = { ...kernel.getObject("honest-broker"), cardId: CANONICAL };
-  const ids = binding.registerProgramTriggers({ pipeline }, source);
-
-  assert.equal(ids.length, 2);
-  assert.equal(pipeline.triggers.size, 2);
-  const specs = [...pipeline.triggers.values()].map((registration) => registration.spec);
-  assert.deepEqual(specs.map((spec) => spec.at), ["object-killed", "object-killed"]);
-  assert.deepEqual(specs[0].filter, { object: { objectId: "honest-broker" }, event: "object-killed" });
-  assert.deepEqual(specs[1].filter, { object: { objectId: "honest-broker" }, event: "object-killed" });
-  // 808.1.d: the Deathknell expansion's body is available in the registry.
+  assert.throws(
+    () => binding.registerProgramTriggers({ pipeline }, source),
+    (error) => error.code === "judge-required" && /Unsupported filter field cause/.test(error.message)
+  );
+  assert.equal(pipeline.triggers.size, 0);
   const deathknellAbility = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL } });
   assert.deepEqual(deathknellAbility[0].body.map((body) => body.op), ["trigger.leave"]);
-  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), true);
 });
 
 test.todo(

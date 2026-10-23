@@ -8,8 +8,12 @@ import {
   type ReactNode
 } from "react";
 import type { DuelProjectionTransport, DuelWireFrame } from "@riftbound/protocol";
+import type { V2Projection } from "../../../../packages/protocol/src/v2/index.js";
+import { V2ReplayViewer } from "./V2ReplayViewer";
 import {
   findReplayRecording,
+  replayRecordingFrame,
+  replayRecordingFrameCount,
   summarizeReplayFrame,
   type ReplayLibrary,
   type ReplayRecording
@@ -137,10 +141,15 @@ export function replayPhaseLabel(stage: "setup" | "playing", phase: string | nul
  * reads an opponent's hidden zone.
  */
 export function replayRosterNames(
-  frame: DuelProjectionTransport | undefined
+  frame: DuelProjectionTransport | V2Projection | undefined
 ): ReadonlyMap<string, string> {
   const names = new Map<string, string>();
-  for (const person of frame?.match.roster ?? []) names.set(person.playerId, person.displayName);
+  if (frame === undefined) return names;
+  if ("projectionContract" in frame) {
+    for (const person of frame.players) names.set(person.playerId, person.name);
+    return names;
+  }
+  for (const person of frame.match.roster) names.set(person.playerId, person.displayName);
   return names;
 }
 
@@ -189,7 +198,7 @@ export function ReplayPage({
   initialTableFocus = false
 }: ReplayPageProps) {
   const selected = findReplayRecording(library, selectedId);
-  const frameCount = selected ? selected.frames.length : 0;
+  const frameCount = selected ? replayRecordingFrameCount(selected) : 0;
   const clampedIndex = clampFrameIndex(frameCount, selectedFrameIndex);
 
   const [playing, setPlaying] = useState(false);
@@ -201,10 +210,10 @@ export function ReplayPage({
    * single `viewer` node, so the board is never duplicated into two boards.
    */
   const [tableFocus, setTableFocus] = useState(initialTableFocus);
-  const viewerAvailable = replayViewerAvailable(viewer);
   const focusToggleRef = useRef<HTMLButtonElement>(null);
   const focusCloseRef = useRef<HTMLButtonElement>(null);
   const focusLayerRef = useRef<HTMLElement>(null);
+  const previousSelectedId = useRef<string | null>(null);
 
   const enterTableFocus = useCallback(() => {
     setTableFocus(true);
@@ -218,15 +227,32 @@ export function ReplayPage({
   }, []);
 
   const summary = selected ? summarizeReplayFrame(selected, clampedIndex) : null;
+  const selectedFrame = selected ? replayRecordingFrame(selected, clampedIndex) : undefined;
+  const internalV2Viewer = selectedFrame !== undefined && "projectionContract" in selectedFrame
+    ? <V2ReplayViewer projection={selectedFrame} />
+    : null;
+  const resolvedViewer = viewer ?? internalV2Viewer;
+  const viewerAvailable = replayViewerAvailable(resolvedViewer);
   const rosterNames = useMemo(
-    () => replayRosterNames(selected?.frames[clampedIndex]),
-    [selected, clampedIndex]
+    () => replayRosterNames(selectedFrame),
+    [selectedFrame]
   );
+  const protocolLabel = selectedFrame !== undefined && "projectionContract" in selectedFrame
+    ? "协议 v2"
+    : selectedFrame !== undefined ? "旧对局" : "—";
+  const rowUsesInternalV2Viewer = resolvedViewer === internalV2Viewer && selectedFrame !== undefined;
+
+  useEffect(() => {
+    if (previousSelectedId.current === selectedId) return;
+    previousSelectedId.current = selectedId;
+    setPlaying(false);
+    setTableFocus(false);
+  }, [selectedId]);
 
   const selectIndex = useCallback(
     (index: number) => {
       if (!selected) return;
-      const target = clampFrameIndex(selected.frames.length, index);
+      const target = clampFrameIndex(replayRecordingFrameCount(selected), index);
       if (target === clampedIndex) return;
       onSelectFrame(selected, target);
     },
@@ -235,12 +261,12 @@ export function ReplayPage({
 
   useEffect(() => {
     if (!playing || !selected) return;
-    if (!hasNextFrame(selected.frames.length, clampedIndex)) {
+    if (!hasNextFrame(replayRecordingFrameCount(selected), clampedIndex)) {
       setPlaying(false);
       return;
     }
     const handle = setTimeout(
-      () => onSelectFrame(selected, nextFrameIndex(selected.frames.length, clampedIndex)),
+      () => onSelectFrame(selected, nextFrameIndex(replayRecordingFrameCount(selected), clampedIndex)),
       REPLAY_PLAYBACK_INTERVAL_MS
     );
     return () => clearTimeout(handle);
@@ -436,7 +462,7 @@ export function ReplayPage({
             </button>
           </div>
           <div className="replay-viewer replay-focus-viewer" aria-label="回放牌桌">
-            {viewer}
+            {rowUsesInternalV2Viewer ? internalV2Viewer : viewer}
           </div>
         </section>
       ) : (
@@ -465,7 +491,10 @@ export function ReplayPage({
                       >
                         <span className="replay-record-title">{recording.title}</span>
                         <span className="replay-record-meta">
-                          房间 {recording.roomId} · {recording.frames.length} 帧
+                          房间 {recording.roomId} · {replayRecordingFrameCount(recording)} 帧
+                        </span>
+                        <span className="replay-record-protocol">
+                          {recording.v2Frames === undefined ? "旧对局" : "协议 v2"}
                         </span>
                         <span className="replay-record-saved">保存于 {recording.savedAt}</span>
                       </button>
@@ -493,6 +522,10 @@ export function ReplayPage({
             ) : (
               <>
                 <div className="replay-controls">{playbackButtons}</div>
+
+                <p className="replay-record-source" role="note">
+                  回放协议：{protocolLabel} · 仅包含该玩家当时收到的投影
+                </p>
   
                 <label className="replay-range-label" htmlFor="replay-frame-range">
                   画面范围
@@ -551,7 +584,7 @@ export function ReplayPage({
                 </p>
   
                 <div className="replay-viewer" aria-label="回放牌桌">
-                  {viewer ?? (
+                  {(rowUsesInternalV2Viewer ? internalV2Viewer : viewer) ?? (
                     <p className="replay-viewer-empty" role="status">
                       未提供牌桌视图。
                     </p>

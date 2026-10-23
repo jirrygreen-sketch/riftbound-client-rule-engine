@@ -16,7 +16,7 @@ import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.
 import { CombatFlow } from "../../../../engine-core/dist/combat/flow.js";
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
-import { bindStaticAbility, createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { bindStaticAbility, createEngineStaticBinder, staticCostSources } from "../../../../engine-core/dist/programs/statics.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-f83c5d61c7ea4a0d2c54ba2c2a17020893a7a3b5a90d16003fe815b2b61c5c12";
@@ -212,42 +212,70 @@ test("Azir, Sovereign: the real combat start transaction is still blocked (383.4
   assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "attack-declared").length, 0);
 });
 
-test("Azir, Sovereign: the declared accelerate.cost static has no binding, so it never reaches Finalize", () => {
-  // 805.2.b/805.6.a: Accelerate's paid decision must gate the entry replacement.
-  // The keyword's static accelerate.cost has no layer mapping and play.ts
-  // rejects additional costs, so nothing collects or charges it.
+test("Azir, Sovereign: the declared accelerate.cost reaches Finalize's cost sources", () => {
+  // 805.2.b/805.6.a: the keyword's optional additional cost is exposed to
+  // Finalize; the separate entry-source TODO still gates the 805.6 replacement.
   const f = fixture({ cards: [{ id: "azir-sovereign", cardId: CARD_ID, types: ["unit"], might: 4 }] });
   const source = f.kernel.getObject("azir-sovereign");
   const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
   const expanded = expandProgram(registry.get(CARD_ID), source);
   const declared = expanded.abilities.find(candidate => candidate.kind === "static" && candidate.effect.kind === "accelerate.cost");
   assert.equal(declared !== undefined, true);
-  assert.throws(() => bindStaticAbility(createEngineStaticBinder(f.engine), declared, source),
-    error => error.code === "judge-required" && /accelerate\.cost has no layer mapping/.test(error.message));
+  const handle = bindStaticAbility(createEngineStaticBinder(f.engine), declared, source);
+  f.engine.layers.setObjects(f.kernel.objects);
+  assert.deepEqual(staticCostSources(f.engine).map(cost => ({
+    source: cost.source,
+    effect: cost.ability.effect
+  })), [{
+    source: source.ref,
+    effect: {
+      kind: "cost.additional",
+      id: "program:accelerate:program-cost:azir-sovereign:1:0",
+      appliesTo: "self",
+      optional: true,
+      stage: "optional-additional",
+      payments: [
+        { kind: "energy", amount: { kind: "constant", value: 1 } },
+        { kind: "power", amount: { kind: "constant", value: 1 } }
+      ]
+    }
+  }]);
+  handle?.unbind();
+  assert.deepEqual(staticCostSources(f.engine), []);
+  assert.equal(program.status, "judge-required");
 });
 
-test("Azir, Sovereign: the real chain blocks the nested token target before Finalize can lock it", () => {
-  // 355.12/355.13: the "any number of your token units" choice lives inside the
-  // optional body. assertFinalizationSurface only collects top-level targets, so
-  // the production chain refuses the item outright rather than resolving a
-  // possibly-empty group.
-  const f = fixture({ cards: [{ id: "azir-sovereign", cardId: CARD_ID, types: ["unit"], might: 4 }] });
+test("Azir, Sovereign: Finalize accepts the optional body and locks its token target", () => {
+  // 355.12/355.13: the optional decision unlocks the nested target plan, and an
+  // empty "up to" choice remains legal without fabricating a selected object.
+  const f = fixture({
+    cards: [{ id: "azir-sovereign", cardId: CARD_ID, types: ["unit"], might: 4 }],
+    choose: request => request.type === "optional" ? true : undefined
+  });
   const source = f.kernel.getObject("azir-sovereign");
-  assert.throws(
-    () => f.engine.execute({
-      id: "azir-sovereign.attack",
-      controller: "A",
-      source,
-      kind: "triggered",
-      speed: "action",
-      body: program.abilities[1].body
-    }),
-    error => error.name === "ChainContractBlockedError" &&
-      /Nested\/repeated targets require an interpreter target-selection lifecycle adapter/.test(error.message)
-  );
-  // The declared target really is nested inside the choice body, which is why
-  // the surface check fires.
-  assert.equal(program.abilities[1].body[0].args.body.value[1].targets.length, 1);
+  f.engine.execute({
+    id: "azir-sovereign.attack",
+    controller: "A",
+    source,
+    kind: "triggered",
+    speed: "action",
+    body: program.abilities[1].body
+  });
+  const [item] = f.engine.items;
+  assert.equal(item.status, "finalized");
+  assert.deepEqual(item.choicePlan?.optionalChoices.map(choice => [choice.instructionId, choice.accepted]), [
+    ["azir-sovereign.may-move-tokens", true]
+  ]);
+  assert.deepEqual(item.targetPlans.map(plan => ({
+    requirement: plan.requirement.id,
+    selected: plan.selected,
+    retestAtResolve: plan.retestAtResolve
+  })), [{
+    requirement: "azir-sovereign.token-units",
+    selected: [],
+    retestAtResolve: true
+  }]);
+  assert.equal(program.status, "judge-required");
 });
 
 

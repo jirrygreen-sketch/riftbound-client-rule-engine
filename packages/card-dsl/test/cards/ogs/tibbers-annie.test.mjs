@@ -39,7 +39,7 @@ test("ogs-018-024 Tibbers, Annie: the self trigger half translates to a source-b
   const base = world().unit("tibbers-annie", { zone: "board" }).build();
   const played = base.getObject("tibbers-annie");
   const pattern = translateTriggerFilter(ability.trigger.filter, played.ref.id, "card-played");
-  assert.deepEqual(pattern.object, { objectId: "tibbers-annie" });
+  assert.deepEqual(pattern, { objectId: "tibbers-annie" });
   assert.equal(matchesTriggerEvent(pattern, { timingPoint: "card-played", object: played, player: "A" }, "A"), true);
   assert.equal(matchesTriggerEvent(pattern, { timingPoint: "card-played", object: { ...played, ref: { id: "not-tibbers", zoneEntryId: 99 } }, player: "A" }, "A"), false);
 

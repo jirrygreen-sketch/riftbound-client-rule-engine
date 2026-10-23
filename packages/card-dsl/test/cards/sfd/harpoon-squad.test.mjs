@@ -182,21 +182,12 @@ test("sfd-137-221 Harpoon Squad: the trigger filter translates to the host-ancho
   });
 });
 
-test("sfd-137-221 Harpoon Squad boundary: the Move timing exists but the closed event vocabulary refuses the pattern", () => {
-  // 449.1/449.2: the timing point is triggerable and the action adapter maps
-  // move-location onto it, so only the vocabulary entry is missing.
+test("sfd-137-221 Harpoon Squad boundary: the closed event vocabulary admits the origin-filtered Move pattern", () => {
+  // 449.1/449.2: the timing point and its fromZone predicate are both in the
+  // closed vocabulary, preserving the Move origin restriction.
   assert.equal(getTimingPoint("object-moved").triggerable !== false, true);
   const translated = translateTriggerFilter(ability.trigger.filter, "harpoon-1", "object-moved");
-  let issues;
-  try {
-    assertTriggerSpec({ at: "object-moved", filter: translated });
-  } catch (error) {
-    issues = error.issues;
-  }
-  assert.deepEqual(
-    issues?.filter((issue) => issue.code === "invalid-event-type").map((issue) => issue.path),
-    ["trigger.filter.event"]
-  );
+  assert.doesNotThrow(() => assertTriggerSpec({ at: "object-moved", filter: translated }));
 });
 
 test("sfd-137-221 Harpoon Squad boundary: the translated pattern matches a real battlefield Move and no other unit", () => {
@@ -206,7 +197,7 @@ test("sfd-137-221 Harpoon Squad boundary: the translated pattern matches a real 
   assert.equal(matchesTriggerEvent(translated, moveEvent("other-unit", "battlefield"), "A"), false);
 });
 
-test("sfd-137-221 Harpoon Squad boundary: the production binding cannot register the Move trigger", () => {
+test("sfd-137-221 Harpoon Squad boundary: the production binding registers the Move trigger", () => {
   const binding = createProgramBinding({
     cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
   });
@@ -221,11 +212,8 @@ test("sfd-137-221 Harpoon Squad boundary: the production binding cannot register
   }, ["A", "B"], "A");
   const source = { ...kernel.getObject("harpoon"), cardId: CARD_ID };
 
-  assert.throws(
-    () => binding.registerProgramTriggers({ pipeline }, source),
-    (error) => error.name === "TriggerSpecValidationError"
-  );
-  assert.equal(pipeline.triggers.size, 0);
+  assert.equal(binding.registerProgramTriggers({ pipeline }, source).length, 1);
+  assert.equal(pipeline.triggers.size, 1);
 });
 
 test("sfd-137-221 Harpoon Squad boundary: the ObjectFilter fallback would widen the trigger to Base Moves", () => {

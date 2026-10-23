@@ -171,7 +171,7 @@ test("sfd-054-221 Jax, Unmatched: the real Quick-Draw timing expansion enters th
   assert.deepEqual(registered.effect.source, source.ref);
   assert.equal(registered.effect.effect.kind, "continuous.timing");
   // The binder unwraps expressions; assert the real expansion was installed.
-  assert.equal(registered.effect.effect.value, timing.effect.value.value);
+  assert.deepEqual(registered.effect.effect.value, timing.effect.value);
   assert.deepEqual(registered.effect.effect.permissions, ["play", "attach"]);
 });
 

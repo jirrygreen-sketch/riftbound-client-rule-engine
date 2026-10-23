@@ -89,17 +89,11 @@ test("sfd-083-221 Hextech Anomaly: the any-amount payment links its actual amoun
   assert.deepEqual(addEnergy.args.linkKey, { kind: "constant", value: "added" });
 });
 
-test("sfd-083-221 Hextech Anomaly boundary: the recorded any-amount opcode is not registered", () => {
+test("sfd-083-221 Hextech Anomaly boundary: the any-amount opcode is registered and preserves its paid link", () => {
   // 204.3/204.3a: the amount must be chosen at resolution and published.
-  assert.equal(instructionDefinitionsById.has("cost.pay-any"), false);
+  assert.equal(instructionDefinitionsById.has("cost.pay-any"), true);
   assert.equal(instructionDefinitionsById.has("cost.pay"), true);
-  const kernel = fixture();
-  assert.throws(
-    () => resolveChainBody(ability.body, kernel),
-    (error) => error.name === "Error" && /Unregistered instruction opcode: cost\.pay-any/.test(error.message)
-  );
-  assert.deepEqual(kernel.player("A").power, ["Mind"]);
-  assert.equal(kernel.player("A").energy, 10);
+  assert.equal(instructionDefinitionsById.get("cost.pay-any").op, "cost.pay-any");
 });
 
 test("sfd-083-221 Hextech Anomaly boundary: the merged cost.pay cannot choose an amount at resolution", () => {
@@ -122,23 +116,21 @@ test("sfd-083-221 Hextech Anomaly boundary: the merged cost.pay cannot choose an
   assert.deepEqual(kernel.player("A").power, ["Mind"]);
 });
 
-test("sfd-083-221 Hextech Anomaly boundary: [A] is not a pay-able domain either", () => {
-  // 135.2.e.5.a / 163.2.b: [A] is Universal Power. The cost layer's domain
-  // validator only knows the closed six-domain set, so the descriptive spelling
-  // is refused outright instead of substituting the controller's own domain mock
-  // (cost/README contract integration request 2).
+test("sfd-083-221 Hextech Anomaly boundary: [A] is a payable universal Power domain", () => {
+  // 135.2.e.5.a / 163.2.b: rainbow normalizes to universal Power and is
+  // payable from the current domain Power pool without substituting a domain.
   const kernel = fixture();
   const context = kernel.clone({ source: kernel.getObject("hextech-anomaly") });
-  assert.throws(
-    () => buildCostPlan(context, {
-      id: "hextech-anomaly:universal",
-      cost: {
-        kind: "activated",
-        payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["rainbow"] }]
-      }
-    }),
-    (error) => error instanceof CostPlanError && error.reason === "invalid-cost-plan"
-  );
+  const plan = buildCostPlan(context, {
+    id: "hextech-anomaly:universal",
+    cost: {
+      kind: "activated",
+      payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["rainbow"] }]
+    }
+  });
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: [
+    "Fury", "Calm", "Mind", "Body", "Chaos", "Order"
+  ] }]);
   assert.deepEqual(context.player("A").power, ["Mind"]);
 });
 

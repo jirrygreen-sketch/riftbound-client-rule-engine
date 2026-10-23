@@ -206,28 +206,28 @@ test.todo(
     "and permits its later facedown Reaction play"
 );
 
-test("sfd-145-221 Switcheroo: no effect.swap-might opcode is registered, so the body cannot dispatch", () => {
-  // Live evidence for judgeReason (1): the instruction registry has no atomic
-  // Might exchange, and the card's own op is not part of it.
-  assert.equal(instructionDefinitionsById.get("effect.swap-might"), undefined);
+test("sfd-145-221 Switcheroo: the atomic effect.swap-might opcode is registered", () => {
+  // 434.1.a-d / 479.4.b: the production registry now exposes the atomic Might
+  // exchange and validates exactly one target selector per operand.
+  const definition = instructionDefinitionsById.get("effect.swap-might");
+  assert.ok(definition);
   assert.equal(swapInstruction.op, "effect.swap-might");
-  assert.equal(instructionDefinitionsById.get(swapInstruction.op), undefined);
+  assert.equal(instructionDefinitionsById.get(swapInstruction.op), definition);
+  assert.equal(definition.argsSchema.safeParse({
+    targets: { kind: "constant", value: [{ target: "switcheroo.first-unit" }, { target: "switcheroo.second-unit" }] },
+    duration: { kind: "constant", value: "this-turn" }
+  }).success, true);
 });
 
-test("sfd-145-221 Switcheroo: the production target translator rejects both dynamic anchors", () => {
-  // Live evidence for judgeReason (2): the same-battlefield relation and the
-  // exclusion are still outside the production filter vocabulary, so a target
-  // plan cannot be built from the printed second slot.
-  for (const [label, filter] of [
-    ["sameLocationAs", secondSpec.filter],
-    ["exclude", { type: "unit", zone: "board", exclude: { target: "switcheroo.first-unit" } }]
-  ]) {
-    assert.throws(
-      () => translateObjectFilter(filter),
-      /Unsupported filter field/,
-      `${label} must still be rejected by the production translator`
-    );
-  }
+test("sfd-145-221 Switcheroo: the production target translator preserves both dynamic anchors", () => {
+  // 355.9.b: the second target keeps the first target's same-location relation
+  // and the source exclusion through the closed filter vocabulary.
+  assert.deepEqual(translateObjectFilter(secondSpec.filter), {
+    type: "unit",
+    zone: "board",
+    sameLocationAs: { target: "switcheroo.first-unit" },
+    exclude: { target: "switcheroo.first-unit" }
+  });
   // Only the first slot's plain filter survives translation; it carries no
   // relation to the first target.
   assert.deepEqual(

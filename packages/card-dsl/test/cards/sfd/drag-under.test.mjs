@@ -6,7 +6,8 @@ import program from "../../../dist/cards/sfd/drag-under.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createEngineStaticBinder, staticCostSources } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
@@ -140,20 +141,15 @@ test("Drag Under golden: the printed location restriction really selects only a 
   assert.deepEqual(missed.events, []);
 });
 
-test("Drag Under: the merged static binder still refuses the printed cost.modify layer", () => {
-  // CR 366.2 / 356.4: the printed "I cost 2 less" static effect must reach
-  // CostPlanInput.discounts. programs/statics.ts has no layer for the static
-  // cost.modify kind, so the card-static discount still cannot be applied.
-  const kernel = world()
-    .hand("drag-under", { types: ["spell"], energy: 5, power: ["Order"] })
-    .build();
-  const source = kernel.getObject("drag-under");
-  const binder = createEngineStaticBinder({ layers: createLayerEngine(kernel.objects) });
-  assert.throws(
-    () => binder.bindStatic(costModification, source),
-    (error) => error.name === "ProgramBindingError" &&
-      /Static ability kind cost\.modify has no layer mapping/.test(error.message)
-  );
+test("Drag Under: the production binder exposes the printed cost.modify source", () => {
+  const f = fixture({ cards: [{ id: "drag-under", cardId: program.canonicalCardId, types: ["spell"], energy: 5 }] });
+  const source = f.kernel.getObject("drag-under");
+  const handle = createEngineStaticBinder(f.engine).bindStatic(costModification, source);
+  const [binding] = staticCostSources(f.engine);
+  assert.equal(binding.ability.effect.kind, "cost.modify");
+  assert.equal(binding.ability.effect.fromZone, "not-hand");
+  handle.unbind();
+  assert.deepEqual(staticCostSources(f.engine), []);
 });
 
 test("Drag Under golden: the merged cost.modify really reduces the printed energy at plan time", () => {

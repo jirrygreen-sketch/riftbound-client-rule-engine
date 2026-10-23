@@ -169,16 +169,14 @@ test.todo(
     "can represent the any-domain Power requirement once that binding supplies a normal Power payment"
 );
 
-test("sfd-190-221 Forgefire Cape: the production binding rejects the missing Unique KeywordDef", () => {
-  // Evidence for gap (1): the registry refuses judge-required programs, so the
-  // expansion path is exercised with the status lifted; expandProgram still
-  // fails closed on the absent Unique KeywordDef.
+test("sfd-190-221 Forgefire Cape: the production inspection expands the registered Unique keyword", () => {
+  // Unique is a deck-construction constraint with no board effect. Its
+  // registered empty expansion must not block the card's Equip surface.
   const lifted = { ...program, status: "executable", judgeReason: undefined };
   const binding = createProgramBinding({ cardPrograms: [lifted] });
-  assert.throws(
-    () => binding.inspect(capeWorld().getObject("forgefire-cape")),
-    /Keyword unique has no executable KeywordDef/
-  );
+  const inspected = binding.registry.inspect(CARD_ID);
+  assert.equal(inspected.canonicalCardId, CARD_ID);
+  assert.equal(inspected.abilities[0].keyword, "unique");
 });
 
 test("sfd-190-221 Forgefire Cape: the merged cost pipeline still rejects the Equip payment kind", () => {

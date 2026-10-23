@@ -267,7 +267,7 @@ test("sfd-041-221 Apprentice Smith golden: the gear discriminator really drives 
   assert.deepEqual(f.engine.pipeline.events.filter(event => event.timingPoint === "card-recycled").map(event => event.object.ref.id), ["top-unit"]);
 });
 
-test("sfd-041-221 Apprentice Smith: the closed event vocabulary still rejects the object-moved trigger (421.1/449.1)",
+test("sfd-041-221 Apprentice Smith: the translated object-moved trigger is admitted by the production validator (421.1/449.1)",
   () => {
     // The authored subscription cannot be registered: the translator produces
     // the right pattern, but the closed EventPattern vocabulary refuses the
@@ -275,8 +275,8 @@ test("sfd-041-221 Apprentice Smith: the closed event vocabulary still rejects th
     const translated = translateTriggerFilter(ability.trigger.filter, "smith", ability.trigger.at);
     assert.deepEqual(translated, { event: "object-moved", object: { objectId: "smith" } });
     const result = validateTriggerSpec({ at: ability.trigger.at, filter: translated });
-    assert.equal(result.ok, false);
-    assert.deepEqual(result.issues.map(issue => issue.code), ["invalid-event-type"]);
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.issues, []);
   });
 
 

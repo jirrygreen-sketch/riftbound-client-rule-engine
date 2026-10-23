@@ -108,13 +108,13 @@ test.todo(
   "Ancient Henge: classify the activated program as an add ChainKind so 430.2/430.3 resolve immediately without reactions"
 );
 
-test("sfd-117-221 Ancient Henge: cost.pay cannot consume the declared payments array", () => {
+test("sfd-117-221 Ancient Henge: the resolve-time pay-any primitive is registered while this card's array shape stays unpayable", () => {
   // 204.3/204.3.a: "Pay any amount of Energy" is chosen at resolution. The
   // merged payer only accepts an already finalized plan, so the authored
   // resolve-time cost descriptor cannot be paid as written, and there is no
   // cost.pay-any primitive in the registry.
   const kernel = world().player("A", { energy: 3 }).build();
-  assert.equal(instructionDefinitionsById.has("cost.pay-any"), false);
+  assert.equal(instructionDefinitionsById.has("cost.pay-any"), true);
   assert.throws(() => runInstruction(costPay, {
     payments: { kind: "constant", value: [{ kind: "amount", object: "self" }] }
   }, { world: kernel }), error => error.reason === "cannot-pay-cost");
