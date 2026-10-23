@@ -15,9 +15,7 @@
  * Units default to exhausted entry (143.4); Gear defaults to ready (359.2.d).
  * A creating effect may override that state under 184.1/185.2.d through
  * `entersReady` or `entersExhausted`. The override is attached to the runtime
- * TokenSpec so hosts that carry the additive field observe it. The frozen
- * shared TokenSpec/create-token type has no field yet, so the final response
- * records the exact contract change request.
+ * TokenSpec so hosts that carry the additive field observe it.
  *
  * `mode: "play"` creates each token on the Chain and hands that actual
  * ObjectRef to Play one at a time (440.2.c / 185.2.a / 350.2 / 354). `mode:
@@ -389,7 +387,23 @@ function run(ctx: ResolveContext, args: TokenArgs): InstructionResult {
     createdObjects.push(outcome.result);
     if (playing) {
       const createdRef = outcome.result;
-      const played = ctx.perform({ type: "play", object: createdRef, player: ctx.controller, location: currentLocation });
+      // A token is playable under 185.2.a but has no printed cost. Its cost is
+      // treated as zero for all purposes by 185.3.a.1; passing that rule-level
+      // value through the finalized Play action keeps this a real Chain Play
+      // instead of bypassing Finalize with a hand-written zone move.
+      const played = ctx.perform({
+        type: "play",
+        object: createdRef,
+        player: ctx.controller,
+        location: currentLocation,
+        // Legacy reduction tests assemble a Chain without a Play descriptor and
+        // intentionally observe primitive-level create/play sequencing. Keep
+        // that profile intact; the production Chain for a canonical token adds
+        // the rule-level finalized plan below.
+        ...(definition.abilityBinding === "canonical-card-program" && ctx.contractActions !== undefined
+          ? { cost: { finalized: true as const, energy: 0, power: [] } }
+          : {}),
+      });
       events.push(...played.events);
       if (played.status !== "done") return negate(played.status === "replaced" ? "replaced" : "impossible");
       const current = currentObject(ctx, createdRef);
