@@ -6,22 +6,28 @@ import type { CardProgram } from "../../ir/index.js";
  * [Legion] — When you play me, give a unit +2 [M] this turn.
  * (Get the effect if you've played another card this turn.)
  *
- * Legion (CR v1.5 812.1.b.1: "If you have played another card this turn,
- * this card gains [Text]") is a dependent keyword; it gates the dependent
- * ability is a card-played trigger whose body grants +2 Might for the rest
- * of the turn. A duration-bounded Might modifier is continuous.might
- * territory; the merged instruction registers the
- * arithmetic-layer effect through ctx.addContinuous.
+ * Core Rules v1.5 812.1.b.1 defines Legion as "If you have played another
+ * card this turn, this card gains [Text]", and 812.1.c fixes the history time
+ * at a successful Finalize by the same player earlier this turn. The program
+ * expresses that trigger condition with the closed cards-finalized-this-turn
+ * count and the 3.6 exclude:self selector. ProgramBinding converts this exact
+ * shape to TriggerSpec.conditionHistory, which reads ChainEngine's turn-scoped
+ * Finalize records and preserves a different physical same-name card.
+ *
+ * "When you play me" is the Play Effect from 383.4.a; "a unit" is one Board
+ * target (355.7/355.9.a.1) locked when the triggered item finalizes. At
+ * Resolve, +2 Might this turn is an arithmetic-layer continuous.might effect
+ * that lasts through Ending Step FEPR and expires in the Expiration Step
+ * (479.4.f, 317.2.c).
+ *
+ * Status executable: the production ChainEngine golden verifies the printed
+ * cost, card-played trigger, Finalize-time history and target lock, Resolve,
+ * Might change, turn-end expiration, and next-turn history reset.
  */
 export default {
   canonicalCardId: "card.hash-d4e849d845765608b07bf4af4aa19877f6303dfff539b541d0d070320dd05d91",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "缺 continuous.might 正文进链前的 Legion 历史条件适配（CR 812.1.b.1/812.1.c、383.2.c）：" +
-    "普通 count 表达式只查询当前对象，不读取 cards-finalized-this-turn 历史；" +
-    "condition.history 已是解释器指令，HistoryQuery.exclude:self 也已能排除本卡并保留同名的另一实体，但尚无将该查询用于 TriggerSpec.condition 的条件表达式。" +
-    "还须对齐本回合 Finalize 时点的记录与重置；程序触发注册本身已有实现。",
+  status: "executable",
   abilities: [
     {
       kind: "triggered",
