@@ -544,7 +544,9 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     // Board source in its first real event. Resolve only the emitted objects,
     // never the entire derived host view; entries install before publication,
     // and exits retain their registration through the suspended scan wave.
-    for (const emission of emissions) if (emission.object && isEntry(emission)) ensure(emission.object, true);
+    engine.withStableLayers(() => {
+      for (const emission of emissions) if (emission.object && isEntry(emission)) ensure(emission.object, true);
+    });
     const events = run();
     for (const emission of emissions) if (emission.object && isExit(emission)) queueExit(emission.object);
     return events;
@@ -612,7 +614,10 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     return outcome;
   })) as typeof pipeline.commitContract;
   pipeline.onEvent = event => {
-    transaction(() => {
+    // Event bookkeeping only (re)registers sources and collects triggers; it
+    // never changes host objects, so one stable layered view serves it while
+    // the registry revision is unchanged (RIFT-999).
+    engine.withStableLayers(() => transaction(() => {
       // Leave events carry the pre-transition incarnation. Keep their source
       // registration installed through the whole suspended publish wave so it
       // can collect its own death trigger; flushExits detaches after scanning.
@@ -620,7 +625,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       originalOnEvent?.(event);
       if (event.object && isEntry(event)) ensure(event.object, true);
       if (event.object && isExit(event)) queueExit(event.object);
-    });
+    }));
   };
   pipeline.deferTriggerScan = (<T>(run: () => T): T => {
     return transaction(() => originalDeferTriggerScan(run));
@@ -631,9 +636,13 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   // establishes Battlefield carriers through create-token (CR 170.2.b,
   // 170.8-170.10). Setup Battlefields and Champion Legends predate lifecycle
   // attachment, so install their live surfaces during the initial scan.
-  for (const source of pipeline.host.objects()) {
-    if (secretZone(source) || isActiveLegend(source) || isSetupBattlefield(source)) ensure(source);
-  }
+  // One stable layered view for the whole scan while no registration changes
+  // (RIFT-999); every static bound by ensure() bumps the registry revision.
+  engine.withStableLayers(() => {
+    for (const source of pipeline.host.objects()) {
+      if (secretZone(source) || isActiveLegend(source) || isSetupBattlefield(source)) ensure(source);
+    }
+  });
 
   return {
     detach() {
