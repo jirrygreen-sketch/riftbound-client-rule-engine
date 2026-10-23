@@ -52,18 +52,24 @@ test("unl-145-219 Pyke, Returned: identity, status, judgeReason and verbatim sou
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
-test("unl-145-219 Pyke, Returned golden: the printed Gold play is still impossible on the merged token primitive (CR 187.5)", () => {
-  // 187.5: the Gold gear token carries its own Reaction ability, so
-  // effect.token's frozen DEFINITIONS table has no entry for it. Running the
-  // card's own args therefore negates with "impossible" instead of inventing a
-  // definition -- and a supported token definition still cannot model the
-  // printed exhausted entry.
+test("unl-145-219 Pyke, Returned golden: the printed Gold play creates the canonical token", () => {
+  // 187.5: the token is defined and playable through the shared primitive.
   const kernel = world().build();
   const gold = runInstruction(token, playGold.args, { world: kernel });
-  assert.equal(gold.result.status, "negated");
-  assert.equal(gold.result.reason, "impossible");
-  assert.equal(gold.linked.goldToken.amount, 0);
-  assert.deepEqual(gold.events, []);
+  assert.equal(gold.result.status, "executed");
+  assert.equal(gold.linked.goldToken.amount, 1);
+  assert.equal(gold.linked.goldToken.createdAmount, 1);
+  assert.equal(gold.linked.goldToken.blockedReason, undefined);
+  const golds = gold.world.objects.filter(object => object.isToken);
+  assert.equal(golds.length, 1);
+  assert.equal(golds[0].name, "Gold");
+  assert.deepEqual(golds[0].types, ["gear"]);
+  assert.deepEqual(golds[0].location, { type: "base", player: "A" });
+  assert.deepEqual(gold.events.map(event => [event.action, event.timingPoint]), [
+    ["create-token", "chain-item-pending"],
+    ["pay", "main-start"],
+    ["play", "card-played"]
+  ]);
 
   // 184.1 / 185.2.d: entry state is not an effect.token argument; passing one is
   // rejected outright rather than silently ignored.

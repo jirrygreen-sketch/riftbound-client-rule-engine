@@ -132,7 +132,7 @@ test("Blood Money golden: a stale target is ignored instead of being redirected"
   assert.equal(run.events.length, 0);
 });
 
-test("Blood Money golden: the enemy branch runs after killing an enemy unit and stops at the Gold definition", () => {
+test("Blood Money golden: the enemy branch kills the unit and plays one Gold token", () => {
   const kernel = spellWorld("B");
   const outcome = resolveChainBody(play.body, kernel);
 
@@ -141,25 +141,25 @@ test("Blood Money golden: the enemy branch runs after killing an enemy unit and 
     outcome.results.map((entry) => [entry.id, entry.result.status, entry.result.reason ?? null]),
     [
       ["blood-money.kill", "executed", null],
-      // 187.5's Gold has its own activated ability, so the frozen
-      // effect.token definition table refuses it instead of creating a
-      // different token; the branch condition itself is satisfied.
-      ["blood-money.enemy-token", "negated", "impossible"],
+      ["blood-money.enemy-token", "executed", null],
       // The friendly clause's own condition is false, so it never executes.
       ["blood-money.friendly-tokens", "negated", "skipped"]
     ]
   );
-  // The refused play leaves the empty receipt of the actual attempt: nothing
-  // was created or played (no substitute token, no Board creation).
-  assert.deepEqual(outcome.linkedValues["blood-money.enemy-token.goldToken"], {
-    amount: 0,
-    objects: [],
-    objectsComplete: true
-  });
-  assert.deepEqual(outcome.events.map((event) => event.action), ["kill"]);
+  const receipt = outcome.linkedValues["blood-money.enemy-token.goldToken"];
+  assert.equal(receipt.blockedReason, undefined);
+  assert.equal(receipt.amount, 1);
+  assert.equal(receipt.createdAmount, 1);
+  assert.equal(receipt.objectsComplete, true);
+  const golds = kernel.objects.filter((object) => object.isToken);
+  assert.equal(golds.length, 1);
+  assert.equal(golds[0].name, "Gold");
+  assert.deepEqual(golds[0].types, ["gear"]);
+  assert.deepEqual(golds[0].location, { type: "base", player: "A" });
+  assert.deepEqual(outcome.events.map((event) => event.action), ["kill", "create-token", "play"]);
 });
 
-test("Blood Money golden: the friendly branch runs after killing a friendly unit and stops at the Gold definition", () => {
+test("Blood Money golden: the friendly branch kills the unit and plays two Gold tokens", () => {
   const kernel = spellWorld("A");
   const outcome = resolveChainBody(play.body, kernel);
 
@@ -169,16 +169,26 @@ test("Blood Money golden: the friendly branch runs after killing a friendly unit
     [
       ["blood-money.kill", "executed", null],
       ["blood-money.enemy-token", "negated", "skipped"],
-      ["blood-money.friendly-tokens", "negated", "impossible"]
+      ["blood-money.friendly-tokens", "executed", null]
     ]
   );
   // 359.3.e.13: the branch reads the controller the killed unit had before dying.
-  assert.deepEqual(outcome.linkedValues["blood-money.friendly-tokens.goldTokens"], {
-    amount: 0,
-    objects: [],
-    objectsComplete: true
-  });
-  assert.deepEqual(outcome.events.map((event) => event.action), ["kill"]);
+  const receipt = outcome.linkedValues["blood-money.friendly-tokens.goldTokens"];
+  assert.equal(receipt.blockedReason, undefined);
+  assert.equal(receipt.amount, 2);
+  assert.equal(receipt.createdAmount, 2);
+  assert.equal(receipt.objectsComplete, true);
+  const golds = kernel.objects.filter((object) => object.isToken);
+  assert.equal(golds.length, 2);
+  assert.deepEqual(golds.map((gold) => gold.name), ["Gold", "Gold"]);
+  assert.deepEqual(golds.map((gold) => gold.types), [["gear"], ["gear"]]);
+  assert.deepEqual(golds.map((gold) => gold.location), [
+    { type: "base", player: "A" },
+    { type: "base", player: "A" }
+  ]);
+  assert.deepEqual(outcome.events.map((event) => event.action), [
+    "kill", "create-token", "play", "create-token", "play"
+  ]);
 });
 
 test.todo(
@@ -187,26 +197,32 @@ test.todo(
     "the play handoff (440.2.c / 185.2.a); 依赖 Gold token 定义与入场状态改写（token 原语任务）"
 );
 
-test("Blood Money golden: the merged effect.token primitive itself refuses the Gold definition", () => {
+test("Blood Money golden: the merged effect.token primitive creates the canonical Gold definition", () => {
   // The card's clauses name the printed "gold" definition; the merged primitive
-  // reports its own refusal reason for definitions that carry abilities
-  // (CR 187.5), which is the actual evidence for the judge-required token half.
+  // now materializes that canonical CR 187.5 token instead of a substitute.
   const kernel = world().player("A")
     .unit("gear", { types: ["gear"], zone: "board", location: { type: "base", player: "A" } })
     .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("gear") });
   const run = runInstruction(token, {
     token: { kind: "constant", value: "gold" },
     amount: { kind: "constant", value: 1 },
     mode: { kind: "constant", value: "play" },
     location: { kind: "constant", value: { type: "base", player: "A" } },
     linkKey: { kind: "constant", value: "goldToken" }
-  }, { world: kernel.clone({ sourceSnapshot: kernel.getObject("gear") }) });
+  }, { world: scoped });
 
-  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
-  assert.equal(run.linked.goldToken.blockedReason, "token-definition-or-abilities-judge-required");
-  assert.equal(kernel.query({ zone: "board", type: "gear" }).length, 1);
-  // No token object exists after the refusal: the only board object is the host Gear.
-  assert.deepEqual(kernel.objects.filter((object) => object.isToken).map((object) => object.ref.id), []);
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.goldToken.blockedReason, undefined);
+  assert.equal(run.linked.goldToken.amount, 1);
+  assert.equal(run.linked.goldToken.createdAmount, 1);
+  assert.equal(scoped.query({ zone: "board", type: "gear" }).length, 2);
+  const golds = scoped.objects.filter((object) => object.isToken);
+  assert.equal(golds.length, 1);
+  assert.equal(golds[0].name, "Gold");
+  assert.deepEqual(golds[0].types, ["gear"]);
+  assert.deepEqual(golds[0].location, { type: "base", player: "A" });
+  assert.deepEqual(run.events.map((event) => event.action), ["create-token", "pay", "play"]);
 });
 
 test.todo(

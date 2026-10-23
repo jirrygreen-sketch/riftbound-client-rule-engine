@@ -139,17 +139,16 @@ test("unl-018-219 Yeti Brawler golden: the controller Base resolves for either c
   }
 });
 
-test("unl-018-219 Yeti Brawler gap: the Gold definition is absent, so the token half negates instead of substituting", () => {
-  // 187.5 has no merged definition. The primitive must fail closed: the linked
-  // Base is real, but no token is created, so nothing is ever played onto the
-  // board as an approximation of the printed Gold gear.
+test("unl-018-219 Yeti Brawler: the token half creates and plays two canonical Golds", () => {
+  // 187.5 is present, so the linked Base feeds two real token plays. The other
+  // condition and entry-state gaps remain covered separately below.
   const kernel = world().build();
   const context = kernel.clone({ controller: "A" });
   const outcome = resolveChainBody(ability.body, context);
 
   assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
     ["yeti-brawler.base", "executed"],
-    ["yeti-brawler.play-gold", "negated"]
+    ["yeti-brawler.play-gold", "executed"]
   ]);
   // Reproduce the same instruction through the primitive with the Base the
   // preceding instruction produced: the definition lookup is what fails.
@@ -163,10 +162,16 @@ test("unl-018-219 Yeti Brawler gap: the Gold definition is absent, so the token 
     },
     { world: kernel, controller: "A" }
   );
-  assert.equal(baseRun.result.status, "negated");
-  assert.equal(baseRun.linked.token.blockedReason, "token-definition-or-abilities-judge-required");
-  assert.equal(baseRun.linked.token.amount, 0);
-  assert.deepEqual(baseRun.linked.token.objects, []);
+  assert.equal(baseRun.result.status, "executed");
+  assert.equal(baseRun.linked.token.blockedReason, undefined);
+  assert.equal(baseRun.linked.token.amount, 2);
+  assert.equal(baseRun.linked.token.createdAmount, 2);
+  const createdGolds = baseRun.world.objects.filter(object => object.isToken && object.name === "Gold");
+  assert.equal(createdGolds.length, 2);
+  assert.deepEqual(createdGolds.map(gold => gold.location), [
+    { type: "base", player: "A" },
+    { type: "base", player: "A" }
+  ]);
   // A definition the primitive does know still plays, proving the surrounding
   // handoff works and that only the Gold definition is missing.
   const run = runInstruction(

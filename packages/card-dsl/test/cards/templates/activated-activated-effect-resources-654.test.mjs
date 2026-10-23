@@ -120,7 +120,7 @@ const wholeCardRows = defineTemplateSuite("RIFT-654 whole-card activation", [
     },
   },
   {
-    name: "Gold pays Kill+Exhaust and its Universal Power body remains pending",
+    name: "Gold pays Kill+Exhaust and Adds one Universal Power",
     canonicalCardId: gold.canonicalCardId,
     program: gold,
     scenario: {
@@ -138,20 +138,25 @@ const wholeCardRows = defineTemplateSuite("RIFT-654 whole-card activation", [
         power: null,
         might: null,
       }],
-      operations: activate("gold-token"),
+      operations: [{ type: "activate", object: "gold-token", player: "A" }],
       expect: {
-        players: { A: { energy: 3, power: ["Mind"] } },
+        players: { A: { energy: 3, power: ["Mind", "universal"] } },
         objects: { "gold-token": { zone: "trash", energy: null, power: null } },
       },
     },
   },
 ]);
 
-test("RIFT-654: every whole-card row retains its judge-required source program", () => {
+test("RIFT-654: every whole-card row retains its source program admission status", () => {
   assert.deepEqual(wholeCardRows.map(row => row.canonicalCardId), programs.map(program => program.canonicalCardId));
   for (const program of programs) {
-    assert.equal(program.status, "judge-required");
-    assert.ok(program.judgeReason?.trim());
+    if (program.canonicalCardId === gold.canonicalCardId) {
+      assert.equal(program.status, "executable");
+      assert.equal(program.judgeReason, undefined);
+    } else {
+      assert.equal(program.status, "judge-required");
+      assert.ok(program.judgeReason?.trim());
+    }
   }
 });
 
@@ -263,7 +268,7 @@ test("RIFT-654 evidence: Fire pays its original Exhaust cost and original [A] bo
   assertUniversalBodyFailsClosed(fireBelowTheMountain, "fire", { energy: 5, power: ["Calm"] });
 });
 
-test("RIFT-654 evidence: Gold pays its full original Kill+Exhaust cost and [A] body fails closed", () => {
+test("RIFT-654 evidence: Gold pays its full original Kill+Exhaust cost and Adds one Universal Power", () => {
   const initial = { energy: 6, power: ["Mind"] };
   const { ability, context, receipt } = payOriginalCost(gold, "gold-token", initial);
   assert.deepEqual(receipt.actions.map(entry => entry.action.type), ["pay", "exhaust", "kill"]);
@@ -271,30 +276,37 @@ test("RIFT-654 evidence: Gold pays its full original Kill+Exhaust cost and [A] b
   assert.equal(context.player("A").energy, initial.energy);
 
   const outcome = resolveChainBody(ability.body, context);
-  assert.equal(outcome.status, "partial");
-  assert.deepEqual(outcome.results[0].result, { status: "negated", reason: "impossible", events: [] });
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].id, "gold.add-universal-power");
+  assert.equal(outcome.results[0].result.status, "executed");
   assert.equal(context.player("A").energy, initial.energy);
-  assert.deepEqual(context.player("A").power, initial.power);
+  assert.deepEqual(context.player("A").power, [...initial.power, "universal"]);
+  assert.deepEqual(outcome.events.map(event => event.action), ["gain-power"]);
 });
 
-// Negated boundary: all four [A] cards use their original body. The exact
-// Energy and Power snapshots make an unrelated resource mutation observable.
-const negatedRows = [
+// Resource boundary: the four cards use their original body. The exact Energy
+// and Power snapshots make an unrelated resource mutation observable; Gold is
+// the one row whose canonical Universal Power body is now executable.
+const boundaryRows = [
   { program: daughterOfTheVoid, id: "daughter", initial: { energy: 3, power: ["Fury"] } },
   { program: ironRevenant, id: "revenant", initial: { energy: 4, power: ["Order"] } },
   { program: fireBelowTheMountain, id: "fire", initial: { energy: 5, power: ["Calm"] } },
-  { program: gold, id: "gold-token", initial: { energy: 6, power: ["Mind"] } },
+  { program: gold, id: "gold-token", initial: { energy: 6, power: ["Mind"] }, execute: true },
 ];
 
-for (const row of negatedRows) {
-  test(`RIFT-654 boundary negated: ${row.program.canonicalCardId} [${row.id}] preserves the complete resource pool`, () => {
+for (const row of boundaryRows) {
+  test(`RIFT-654 boundary: ${row.program.canonicalCardId} [${row.id}] preserves the complete resource pool`, () => {
     const context = sourceContext(row.program, row.id, row.initial);
     const outcome = resolveChainBody(activatedAbility(row.program).body, context);
-    assert.equal(outcome.status, "partial");
-    assert.deepEqual(outcome.results[0].result, { status: "negated", reason: "impossible", events: [] });
+    assert.equal(outcome.status, row.execute ? "executed" : "partial");
+    if (row.execute) {
+      assert.equal(outcome.results[0].result.status, "executed");
+    } else {
+      assert.deepEqual(outcome.results[0].result, { status: "negated", reason: "impossible", events: [] });
+    }
     assert.equal(context.player("A").energy, row.initial.energy);
-    assert.deepEqual(context.player("A").power, row.initial.power);
-    assert.deepEqual(context.events, []);
+    assert.deepEqual(context.player("A").power, row.execute ? [...row.initial.power, "universal"] : row.initial.power);
+    assert.deepEqual(context.events.map(event => event.action), row.execute ? ["gain-power"] : []);
   });
 }
 
@@ -330,7 +342,7 @@ for (const row of exhaustedRows) {
   });
 }
 
-test("RIFT-654 boundary spent source: Gold in Trash cannot pay its original Kill+Exhaust cost", () => {
+test("RIFT-654 boundary spent source: Gold in Trash refuses its original Kill+Exhaust cost", () => {
   const context = sourceContext(gold, "gold-token", { energy: 6, power: ["Mind"], source: {
     zone: "trash",
     location: null,

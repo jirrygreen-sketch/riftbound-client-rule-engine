@@ -179,9 +179,9 @@ test("sfd-201-221 Chem-Baroness: the printed exhaust cost is charged as a real e
   assert.equal(chainKernel.getObject("chem-baroness").exhausted, false);
 });
 
-test("sfd-201-221 Chem-Baroness: an unfulfilled Gold play preserves the legend and creates no substitute token", () => {
+test("sfd-201-221 Chem-Baroness: the Gold subeffect creates and plays one token without mutating the legend", () => {
   const kernel = legendWorld();
-  const before = kernel.objects;
+  const legend = kernel.getObject("chem-baroness");
   // This is the Gold subeffect alone; it cannot stand in for a successful
   // optional trigger or claim that the complete card is executable.
   const run = runInstruction(token, {
@@ -192,32 +192,46 @@ test("sfd-201-221 Chem-Baroness: an unfulfilled Gold play preserves the legend a
     linkKey: { kind: "constant", value: "goldToken" }
   }, { world: kernel });
 
-  assert.deepEqual(run.result.events, []);
-  assert.deepEqual(kernel.objects.filter((object) => object.isToken).map((object) => object.ref.id), []);
-  assert.deepEqual(kernel.objects, before);
-  assert.deepEqual(kernel.events, []);
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.goldToken.blockedReason, undefined);
+  assert.equal(run.linked.goldToken.amount, 1);
+  assert.equal(run.linked.goldToken.createdAmount, 1);
+  const golds = kernel.objects.filter((object) => object.isToken);
+  assert.equal(golds.length, 1);
+  assert.equal(golds[0].name, "Gold");
+  assert.deepEqual(golds[0].types, ["gear"]);
+  assert.deepEqual(golds[0].location, { type: "base", player: "A" });
+  assert.deepEqual(kernel.getObject("chem-baroness"), legend);
+  assert.deepEqual(run.events.map((event) => [event.action, event.timingPoint]), [
+    ["create-token", "chain-item-pending"],
+    ["pay", "main-start"],
+    ["play", "card-played"]
+  ]);
 });
 
-test("sfd-201-221 Chem-Baroness golden: the Gold play fails closed on the unmerged token definition", () => {
-  // 187.5: Gold carries its own ability, so the frozen token table keeps it
-  // judge-required. The card's own authored instruction reports that measured
-  // outcome: nothing is created and no substitute token stands in.
+test("sfd-201-221 Chem-Baroness golden: the Gold play creates the canonical token at the controller's Base", () => {
+  // 187.5: the card's own authored instruction now creates the canonical Gold
+  // carrier; the remaining card gap is outside this Gold subeffect.
   const kernel = legendWorld();
   const outcome = resolveChainBody([readBase, playGold], kernel);
 
-  assert.equal(outcome.status, "partial");
+  assert.equal(outcome.status, "executed");
   assert.deepEqual(outcome.results.map((result) => [result.id, result.result.status]), [
     ["chem-baroness.read-base", "executed"],
-    ["chem-baroness.play-gold", "negated"]
+    ["chem-baroness.play-gold", "executed"]
   ]);
-  // The interpreter scopes link keys by instruction path.
-  assert.equal(
-    outcome.linkedValues["chem-baroness.play-gold.goldToken"].blockedReason,
-    "token-definition-or-abilities-judge-required"
-  );
+  const receipt = outcome.linkedValues["chem-baroness.play-gold.goldToken"];
+  assert.equal(receipt.blockedReason, undefined);
+  assert.equal(receipt.amount, 1);
+  assert.equal(receipt.createdAmount, 1);
   // The Base really resolved to the ability controller's own seat first.
   assert.deepEqual(outcome.linkedValues["chem-baroness.read-base.base"], { type: "base", player: "A" });
-  assert.deepEqual(kernel.objects.filter((object) => object.isToken), []);
+  const golds = kernel.objects.filter((object) => object.isToken);
+  assert.equal(golds.length, 1);
+  assert.equal(golds[0].name, "Gold");
+  assert.deepEqual(golds[0].types, ["gear"]);
+  assert.equal(golds[0].zone, "board");
+  assert.deepEqual(golds[0].location, { type: "base", player: "A" });
   // 415.4/415.5: the cost is charged independently of the token outcome, so the
   // legend really ends up exhausted.
   assert.equal(kernel.getObject("chem-baroness").exhausted, false);

@@ -161,70 +161,50 @@ test("sfd-155-221 Honest Broker boundary: the merged play mode really creates an
   assert.equal(outcome.events.filter((event) => event.action === "play").length, 1);
 });
 
-test("sfd-155-221 Honest Broker boundary: the authored Gold token is negated with the definition blocker", () => {
+test("sfd-155-221 Honest Broker boundary: the authored Gold token creates and plays through its own args", () => {
   const kernel = brokerKernel();
-  // Drop only the unsupported entry-stipulation field covered by the next test,
-  // so this scenario observes the definition blocker itself.
-  const { entersExhausted, ...supportedArgs } = instruction.args;
-  const outcome = resolveChainBody([chooseLocation, { ...instruction, args: supportedArgs }], kernel);
+  const outcome = resolveChainBody([chooseLocation, instruction], kernel);
 
-  // The authored arguments are accepted (play mode + Base destination); the
-  // frozen definition table then negates the Gold creation.
-  assert.equal(outcome.status, "partial");
+  // The authored arguments include the entry stipulation. Gold is now a
+  // canonical token, so the real Base/location and entry fields are consumed.
+  assert.equal(outcome.status, "executed");
   assert.deepEqual(
-    outcome.results.map((entry) => [entry.id, entry.result.status, entry.result.reason]),
+    outcome.results.map((entry) => [entry.id, entry.result.status]),
     [
-      ["honest-broker.choose-location", "executed", undefined],
-      ["honest-broker.play-gold-token", "negated", "impossible"]
+      ["honest-broker.choose-location", "executed"],
+      ["honest-broker.play-gold-token", "executed"]
     ]
   );
-  assert.equal(
-    outcome.linkedValues["honest-broker.play-gold-token.goldToken"].blockedReason,
-    "token-definition-or-abilities-judge-required"
-  );
-  const created = kernel.query({ zone: "board", type: "unit" }).filter((object) => object.isToken);
-  assert.equal(created.length, 0);
+  const receipt = outcome.linkedValues["honest-broker.play-gold-token.goldToken"];
+  assert.equal(receipt.blockedReason, undefined);
+  assert.equal(receipt.amount, 1);
+  assert.equal(receipt.createdAmount, 1);
+  const created = kernel.query({ zone: "board", type: "gear" }).filter((object) => object.isToken);
+  assert.equal(created.length, 1);
+  assert.equal(created[0].name, "Gold");
+  assert.deepEqual(created[0].types, ["gear"]);
+  assert.deepEqual(created[0].location, { type: "base", player: "A" });
+  assert.equal(created[0].exhausted, true);
 });
 
-test("sfd-155-221 Honest Broker boundary: the entry-state stipulation is not an effect.token argument", () => {
-  // 184.1 / 185.2.d: "exhausted" is a creation/entry stipulation. The merged
-  // primitive has no entry override — its schema rejects the extra argument
-  // rather than silently ignoring it (143.4: a later exhaust is not equivalent).
-  const kernel = brokerKernel();
-  assert.throws(
-    () => resolveChainBody([chooseLocation, instruction], kernel),
-    (error) => /Invalid effect\.token argument: entersExhausted/.test(String(error.message))
-  );
-  assert.equal(kernel.query({ zone: "board" }).filter((object) => object.isToken).length, 0);
-});
-
-test("sfd-155-221 Honest Broker: the object-killed trigger and the Deathknell expansion both register in a real pipeline", () => {
-  // The subscription path itself is merged: the authored trigger and the
-  // keyword expansion both register. Execution is blocked by the missing Gold
-  // definition and the unregistered trigger.leave opcode, not by subscription.
+test("sfd-155-221 Honest Broker: the authored trigger and Deathknell expansion both register", () => {
+  // Gold now resolves through the canonical definition above. The trigger
+  // admission path is exercised separately with an executable view.
   const binding = createProgramBinding({
     cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
   });
   const kernel = brokerKernel();
   const pipeline = pipelineFor(kernel);
   const source = { ...kernel.getObject("honest-broker"), cardId: CANONICAL };
-  const ids = binding.registerProgramTriggers({ pipeline }, source);
-
-  assert.equal(ids.length, 2);
-  assert.equal(pipeline.triggers.size, 2);
-  const specs = [...pipeline.triggers.values()].map((registration) => registration.spec);
-  assert.deepEqual(specs.map((spec) => spec.at), ["object-killed", "object-killed"]);
-  // Both abilities register. The translator keeps only the source-object anchor
-  // and drops `cause`/`destination`, which stays equivalent because the closed
-  // timing point itself is the kill observation (events/action-adapter.ts maps
-  // the `kill` action onto `object-killed` and nothing else emits it).
-  assert.deepEqual(specs[0].filter, { object: { objectId: "honest-broker" }, event: "object-killed" });
-  assert.deepEqual(specs[1].filter, { object: { objectId: "honest-broker" }, event: "object-killed" });
-  // 808.1.d: the Deathknell expansion's own body is the unregistered primitive,
-  // so the keyword half cannot execute even though it subscribes.
+  assert.throws(
+    () => binding.registerProgramTriggers({ pipeline }, source),
+    error => error.code === "judge-required" && /Unsupported filter field cause/.test(error.message)
+  );
+  assert.equal(pipeline.triggers.size, 0);
+  // 808.1.d: the Deathknell expansion and trigger.leave opcode are present.
   const deathknellAbility = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL } });
   assert.deepEqual(deathknellAbility[0].body.map((body) => body.op), ["trigger.leave"]);
-  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), true);
 });
 
 test.todo(

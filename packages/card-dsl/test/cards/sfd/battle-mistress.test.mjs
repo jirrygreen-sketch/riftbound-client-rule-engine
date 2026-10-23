@@ -207,21 +207,28 @@ test("Battle Mistress: the recycle trigger really cannot register through the cl
   assert.equal(f.engine.pipeline.triggers.size, 0);
 });
 
-test("Battle Mistress: the Gold gear token has no playable definition or exhausted entry", () => {
-  // 187.5/143.4/185.2.d: Gold carries its own printed ability and enters
-  // exhausted. The merged token table has no "gold" entry and create-token has
-  // no entry-state override, so the half cannot be approximated by playing a
-  // different token or by exhausting afterwards.
+test("Battle Mistress: the Gold gear token is created and played on the real chain", () => {
+  // 187.5/185.2.a: Gold carries its own printed ability and is a canonical
+  // creatable/playable token. The card's own arguments drive the shared
+  // create-token -> Play handoff.
   const kernel = legendWorld();
   const run = runInstruction(tokenInstruction, { ...playGold.args, location: { kind: "constant", value: { type: "base", player: "A" } } }, { world: kernel });
-  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
-  assert.equal(run.linked.goldToken.blockedReason, "token-definition-or-abilities-judge-required");
-  assert.equal(run.linked.goldToken.amount, 0);
-  assert.equal(kernel.query({ zone: "board", type: "gear" }).length, 0);
-
-  assert.throws(() => runInstruction(tokenInstruction, {
-    ...playGold.args, location: { kind: "constant", value: { type: "base", player: "A" } }, exhausted: { kind: "constant", value: true }
-  }, { world: legendWorld() }), error => /Invalid effect\.token argument: exhausted/.test(error.message));
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.goldToken.blockedReason, undefined);
+  assert.equal(run.linked.goldToken.amount, 1);
+  assert.equal(run.linked.goldToken.createdAmount, 1);
+  const golds = run.world.query({ zone: "board", type: "gear" }).filter(object => object.isToken);
+  assert.equal(golds.length, 1);
+  assert.equal(golds[0].name, "Gold");
+  assert.deepEqual(golds[0].types, ["gear"]);
+  assert.deepEqual(golds[0].location, { type: "base", player: "A" });
+  assert.equal(golds[0].energy, null);
+  assert.equal(golds[0].power, null);
+  assert.deepEqual(run.events.map(event => [event.action, event.timingPoint]), [
+    ["create-token", "chain-item-pending"],
+    ["pay", "main-start"],
+    ["play", "card-played"]
+  ]);
 });
 
 test("Battle Mistress: the trigger base cost has no declaration point or Finalize consumer", () => {

@@ -191,29 +191,28 @@ test("rad-105-167 Reckless Innovator golden: without the Chaos power the payment
   assert.equal(kernel.linked("reckless-innovator.draw-one.drawn"), undefined);
 });
 
-test("rad-105-167 Reckless Innovator: the Gold token definition and exhausted entry are still blocked", () => {
+test("rad-105-167 Reckless Innovator: the Gold mode creates and plays the canonical token exhausted", () => {
   const kernel = world().build();
+  const { locations: _locations, choiceId: _choiceId, ...goldArgs } = playGold.args;
   const run = runInstruction(
     token,
     {
-      token: playGold.args.token,
-      amount: playGold.args.amount,
-      mode: playGold.args.mode,
+      ...goldArgs,
       location: { kind: "constant", value: { type: "base", player: "A" } },
-      linkKey: { kind: "constant", value: "goldToken" }
     },
     { world: kernel }
   );
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  assert.equal(run.linked["goldToken.amount"], 0);
-  assert.deepEqual(run.linked["goldToken.objects"], []);
-  // The receipt records why nothing was created (no separate blockedReason key).
-  assert.equal(
-    run.linked.goldToken.blockedReason,
-    "token-definition-or-abilities-judge-required"
-  );
-  assert.equal(kernel.objects.filter(object => object.isToken).length, 0);
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked["goldToken.amount"], 1);
+  assert.equal(run.linked["goldToken.createdAmount"], 1);
+  assert.equal(run.linked.goldToken.blockedReason, undefined);
+  const golds = kernel.objects.filter(object => object.isToken);
+  assert.equal(golds.length, 1);
+  assert.equal(golds[0].name, "Gold");
+  assert.deepEqual(golds[0].types, ["gear"]);
+  assert.equal(golds[0].zone, "board");
+  assert.deepEqual(golds[0].location, { type: "base", player: "A" });
+  assert.equal(golds[0].exhausted, true);
 
   // [Accelerate]'s KeywordDef (RIFT-266 series) is merged and expands to the
   // cost declaration plus the enter-ready replacement; the card-side consumer

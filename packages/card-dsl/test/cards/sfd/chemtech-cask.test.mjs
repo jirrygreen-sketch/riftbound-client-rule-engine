@@ -106,14 +106,13 @@ test("sfd-063-221 Chemtech Cask: the declared filter matches the merged matcher 
   );
 });
 
-test("sfd-063-221 Chemtech Cask: an unfulfilled Gold play preserves the gear and creates no substitute token", () => {
+test("sfd-063-221 Chemtech Cask: the Gold subeffect creates and plays one token without mutating the host", () => {
   const kernel = world().player("A")
     .unit("cask", { types: ["gear"], zone: "board", location: { type: "base", player: "A" } })
     .build();
   const bound = kernel.clone({ sourceSnapshot: kernel.getObject("cask") });
-  const before = bound.objects;
-  // Preserve the original Gold subeffect's event and state assertions without
-  // asserting that the definition must remain unsupported.
+  const host = bound.getObject("cask");
+  // Exercise the card's own Gold shape through the shared token primitive.
   const run = runInstruction(token, {
     token: { kind: "constant", value: "gold" },
     amount: { kind: "constant", value: 1 },
@@ -122,10 +121,22 @@ test("sfd-063-221 Chemtech Cask: an unfulfilled Gold play preserves the gear and
     linkKey: { kind: "constant", value: "goldToken" }
   }, { world: bound });
 
-  assert.deepEqual(run.result.events, []);
-  assert.deepEqual(bound.objects.filter((object) => object.isToken).map((object) => object.ref.id), []);
-  assert.deepEqual(bound.objects, before);
-  assert.deepEqual(bound.events, []);
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.goldToken.blockedReason, undefined);
+  assert.equal(run.linked.goldToken.amount, 1);
+  assert.equal(run.linked.goldToken.createdAmount, 1);
+  const golds = bound.objects.filter((object) => object.isToken);
+  assert.equal(golds.length, 1);
+  assert.equal(golds[0].name, "Gold");
+  assert.deepEqual(golds[0].types, ["gear"]);
+  assert.equal(golds[0].zone, "board");
+  assert.deepEqual(golds[0].location, { type: "base", player: "A" });
+  assert.deepEqual(bound.getObject("cask"), host);
+  assert.deepEqual(run.events.map((event) => [event.action, event.timingPoint]), [
+    ["create-token", "chain-item-pending"],
+    ["pay", "main-start"],
+    ["play", "card-played"]
+  ]);
 });
 
 test("sfd-063-221 Chemtech Cask: the authored cost-within-instruction array is rejected by the merged payments parser", () => {

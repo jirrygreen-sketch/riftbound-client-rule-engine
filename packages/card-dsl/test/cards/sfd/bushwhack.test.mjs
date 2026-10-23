@@ -51,29 +51,43 @@ test("sfd-004-221 Bushwhack: [Hidden] expands through the merged keyword registr
   assert.ok(definition.ruleRefs.includes("811.1.b"));
 });
 
-test("sfd-004-221 Bushwhack: an unfulfilled Gold play preserves the board and creates no substitute token", () => {
-  // The declared Gold definition is exercised exactly as authored. The token
-  // has no merged definition, so nothing is created and no substitute token
-  // stands in for it; the receipt keeps the actual count.
+test("sfd-004-221 Bushwhack: the authored Gold play creates and plays one exhausted token", () => {
+  // The declared Gold definition and entry stipulation are exercised exactly
+  // as authored through the shared create-token -> Play handoff.
   const kernel = world().player("A")
     .unit("cask", { types: ["gear"], zone: "board", location: { type: "base", player: "A" } })
     .build();
   const bound = kernel.clone({ sourceSnapshot: kernel.getObject("cask") });
-  const before = bound.objects;
+  const host = bound.getObject("cask");
   const run = runInstruction(token, {
     token: { kind: "constant", value: "gold" },
     amount: { kind: "constant", value: 1 },
     mode: { kind: "constant", value: "play" },
     location: { kind: "constant", value: { type: "base", player: "A" } },
+    entersExhausted: goldToken.args.entersExhausted,
     linkKey: { kind: "constant", value: "goldToken" }
   }, { world: bound });
 
-  assert.deepEqual(run.result.events, []);
-  assert.equal(run.linked.goldToken.amount, 0);
-  assert.deepEqual(run.linked["goldToken.objects"], []);
-  assert.deepEqual(bound.objects.filter((object) => object.isToken).map((object) => object.ref.id), []);
-  assert.deepEqual(bound.objects, before);
-  assert.deepEqual(bound.events, []);
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.goldToken.blockedReason, undefined);
+  assert.equal(run.linked.goldToken.amount, 1);
+  assert.equal(run.linked.goldToken.createdAmount, 1);
+  assert.equal(run.linked.goldToken.objectsComplete, true);
+  const [gold] = bound.objects.filter((object) => object.isToken);
+  assert.ok(gold);
+  assert.equal(gold.name, "Gold");
+  assert.deepEqual(gold.types, ["gear"]);
+  assert.equal(gold.zone, "board");
+  assert.deepEqual(gold.location, { type: "base", player: "A" });
+  assert.equal(gold.exhausted, true);
+  assert.equal(gold.energy, null);
+  assert.equal(gold.power, null);
+  assert.deepEqual(bound.objects.find((object) => object.ref.id === "cask"), host);
+  assert.deepEqual(run.events.map((event) => [event.action, event.timingPoint]), [
+    ["create-token", "chain-item-pending"],
+    ["pay", "main-start"],
+    ["play", "card-played"]
+  ]);
 });
 
 test("sfd-004-221 Bushwhack structure: [Hidden], the entry-ready stipulation and the Gold token", () => {

@@ -55,27 +55,35 @@ test("bandle-scouts-academy: the here-scoped card-hidden trigger still cannot be
   );
 });
 
-test("bandle-scouts-academy: the declared Gold token instruction is really refused, with an exhausted entry override impossible", () => {
-  // 187.5: Gold is an ability-bearing gear token, so it is deliberately absent
-  // from the frozen definition table; 143.4 / 185.2.d: the printed "exhausted"
-  // entry stipulation has no argument either.
+test("bandle-scouts-academy: the declared Gold token instruction creates and plays the canonical token", () => {
+  // 187.5: Gold is now a real canonical token definition. The body runs through
+  // the real interpreter so the linked controller-Base location resolves exactly
+  // as it would at resolution time.
   const instruction = trigger.body[1];
   // The body runs through the real interpreter so the linked controller-Base
   // location resolves exactly as it would at resolution time.
   const kernel = world().player("A").unit("bandle", { types: ["battlefield"], zone: "board" }).build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("bandle") });
   const outcome = resolveChainBody(trigger.body, scoped);
-  assert.equal(outcome.status, "partial");
+  assert.equal(outcome.status, "executed");
   assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
     ["bandle-scouts-academy.read-base", "executed"],
-    ["bandle-scouts-academy.play-gold", "negated"]
+    ["bandle-scouts-academy.play-gold", "executed"]
   ]);
   assert.deepEqual(outcome.linkedValues["bandle-scouts-academy.read-base.base"], { type: "base", player: "A" });
-  assert.equal(
-    outcome.linkedValues["bandle-scouts-academy.play-gold.goldToken"].blockedReason,
-    "token-definition-or-abilities-judge-required"
-  );
-  assert.equal(outcome.linkedValues["bandle-scouts-academy.play-gold.goldToken"].amount, 0);
+  const receipt = outcome.linkedValues["bandle-scouts-academy.play-gold.goldToken"];
+  assert.equal(receipt.blockedReason, undefined);
+  assert.equal(receipt.amount, 1);
+  assert.equal(receipt.createdAmount, 1);
+  assert.equal(receipt.objectsComplete, true);
+  const [gold] = scoped.objects.filter(object => object.isToken);
+  assert.ok(gold);
+  assert.equal(gold.name, "Gold");
+  assert.deepEqual(gold.types, ["gear"]);
+  assert.equal(gold.zone, "board");
+  assert.deepEqual(gold.location, { type: "base", player: "A" });
+  assert.equal(gold.energy, null);
+  assert.equal(gold.power, null);
   assert.throws(
     () => runInstruction(token, { ...instruction.args, entriesExhausted: { kind: "constant", value: true } }, { world: world().build() }),
     /Invalid effect\.token argument: entriesExhausted/
