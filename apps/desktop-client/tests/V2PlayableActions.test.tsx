@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server.node";
 import {
   buildV2ChoiceAnswer,
-  buildV2DeclareCombatCommand,
+  buildV2AdvanceCommand,
+  buildV2CombatDamageCommand,
+  buildV2EndTurnCommand,
   buildV2MoveCommand,
   buildV2PlayCommand,
   buildProjectedV2PlayCommand,
@@ -177,11 +179,32 @@ describe("V2 playable action surface", () => {
     expect(html).toContain("客户端不会从手牌或其他对象自行推导");
   });
 
-  it("builds attack and defense packets from selected projected units", () => {
-    expect(buildV2DeclareCombatCommand("declare-attack", "battlefield-1", ["unit-1"]))
-      .toEqual({ type: "declare-attack", battlefieldId: "battlefield-1", attackerObjectIds: ["unit-1"] });
-    expect(buildV2DeclareCombatCommand("declare-defense", "battlefield-1", ["unit-1"]))
-      .toEqual({ type: "declare-defense", battlefieldId: "battlefield-1", defenderObjectIds: ["unit-1"] });
+  it("builds turn and combat commands in the protocol wire shape", () => {
+    expect(buildV2EndTurnCommand()).toEqual({ type: "end-turn" });
+    expect(buildV2AdvanceCommand()).toEqual({ type: "advance" });
+    expect(buildV2CombatDamageCommand("combat-1", 4, [
+      { unitObjectId: "enemy-1", amount: "3" },
+      { unitObjectId: "enemy-2", amount: "1" }
+    ])).toEqual({ type: "combat-damage", combatId: "combat-1", assignments: [
+      { unitObjectId: "enemy-1", amount: 3 },
+      { unitObjectId: "enemy-2", amount: 1 }
+    ] });
+    expect(buildV2CombatDamageCommand("combat-1", 4, [
+      { unitObjectId: "enemy-1", amount: "3" },
+      { unitObjectId: "enemy-2", amount: "2" }
+    ])).toBeNull();
+    expect(buildV2CombatDamageCommand("combat-1", 4, [
+      { unitObjectId: "enemy-1", amount: "2" },
+      { unitObjectId: "enemy-1", amount: "2" }
+    ])).toBeNull();
+    expect(buildV2CombatDamageCommand("combat-1", 4, [
+      { unitObjectId: "enemy-1", amount: "1.5" },
+      { unitObjectId: "enemy-2", amount: "2.5" }
+    ])).toBeNull();
+    expect(buildV2CombatDamageCommand("combat-1", 3, [
+      { unitObjectId: "enemy-1", amount: "3" },
+      { unitObjectId: "enemy-2", amount: "0" }
+    ])).toBeNull();
   });
 
   it("maps complete M1 precon identities to server catalog printings only", () => {
@@ -372,6 +395,35 @@ describe("V2 rejected command rendering", () => {
       { kind: "object", objectId: "unit-1", zoneEntryId: 11 },
       { kind: "object", objectId: "unit-2", zoneEntryId: 12 }
     ] });
+    expect(buildProjectedV2PlayCommand(value, "hand-1", undefined, [
+      { kind: "object", objectId: "unit-2", zoneEntryId: 12 },
+      { kind: "object", objectId: "unit-1", zoneEntryId: 11 }
+    ])).toEqual({ type: "play", cardObjectId: "hand-1", targets: [
+      { kind: "object", objectId: "unit-1", zoneEntryId: 11 },
+      { kind: "object", objectId: "unit-2", zoneEntryId: 12 }
+    ] });
+    expect(renderToStaticMarkup(<V2MatchBoard state={state(value)} initialSelectedCardId="hand-1"
+      onCommand={async () => ({
+        type: "command-receipt", protocolVersion: "2.0.0", commandId: "x", stateVersion: 9,
+        eventSeq: 4, accepted: true, duplicate: false, rejection: null
+      })} />)).not.toContain("永久物落点");
+  });
+
+  it("shows only projected permanent destinations and requires an explicit multi-option choice", () => {
+    const value = projection();
+    value.actionOptions = { canEndTurn: true, canAdvance: false, moves: [], plays: [
+      { cardObjectId: "hand-1", destination: { kind: "base", playerId: "player-1" }, requiresDestination: true },
+      { cardObjectId: "hand-1", destination: { kind: "battlefield", battlefieldId: "battlefield-1" }, requiresDestination: true }
+    ] };
+    const html = renderToStaticMarkup(<V2MatchBoard state={state(value)} initialSelectedCardId="hand-1"
+      onCommand={async () => ({
+        type: "command-receipt", protocolVersion: "2.0.0", commandId: "x", stateVersion: 9,
+        eventSeq: 4, accepted: true, duplicate: false, rejection: null
+      })} />);
+    expect(html).toContain("永久物落点");
+    expect(html).toContain("我的基地");
+    expect(html).toContain("战场 battlefield-1");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>打出手牌<\/button>/u);
   });
 
   it("shows room, session and server URL controls without a legacy projection", () => {
