@@ -62,22 +62,20 @@ test("kogmaw-caustic: identity, ruleset, status, judgeReason and sourceText", ()
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("kogmaw-caustic: the Deathknell expansion still references the unregistered trigger.leave op", () => {
-  // CR 808.1: the keyword expansion exists, but its leave subscription has no
-  // merged InstructionDef, so the expanded trigger would throw at resolution.
+test("kogmaw-caustic: the Deathknell expansion's trigger.leave op is registered", () => {
+  // CR 808.1: the keyword expansion and its leave-body instruction are now both
+  // present. The card still waits on the same-location target binding below.
   const deathknell = keywordDefinitionsById.get("Deathknell");
   assert.ok(deathknell, "the Deathknell KeywordDef must be registered");
   const [expanded] = deathknell.expand({ host: { canonicalCardId: CANONICAL } });
   assert.equal(expanded.trigger.at, "object-killed");
   assert.equal(expanded.body[0].op, "trigger.leave");
-  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), true);
 });
 
-test("kogmaw-caustic: a real chain kill still drops the card's own object-killed trigger", () => {
-  // 808.1.d.2: the trigger must be collected as a Pending Item before the card
-  // leaves the Board. The production lifecycle currently unregisters on
-  // object-leaves-board, so a registered program trigger never reaches the
-  // chain on a real Kill (reproduced here through a real fixture).
+test("kogmaw-caustic: a real chain kill queues the card's own object-killed trigger", () => {
+  // 808.1.d.2: the production lifecycle now retains the source registration
+  // through the suspended exit wave, so a real Kill queues the trigger.
   const f = boardFixture();
   const source = f.kernel.getObject("kogmaw");
   f.engine.pipeline.registerTrigger({
@@ -91,28 +89,21 @@ test("kogmaw-caustic: a real chain kill still drops the card's own object-killed
   const outcome = f.engine.commit({ type: "kill", object: f.kernel.ref("kogmaw") });
   assert.equal(outcome.status, "done");
   assert.deepEqual(f.engine.items.map(item => item.kind), ["triggered"]);
-  // The same registration bound through the production lifecycle is removed by
-  // the leaves-board emission and never enqueues an item.
+  // The same registration bound through the production lifecycle follows the
+  // real Kill before the registration is retired.
   const g = boardFixture();
   const programAsExecutable = { ...program, status: "executable", judgeReason: undefined };
   const handle = createProgramBinding({ cardPrograms: [programAsExecutable] }).attachLifecycle(g.engine);
   g.engine.commit({ type: "kill", object: g.kernel.ref("kogmaw") });
-  assert.deepEqual(g.engine.items.map(item => item.kind), []);
+  assert.deepEqual(g.engine.items.map(item => item.kind), ["triggered"]);
   handle.detach();
 });
 
-test("kogmaw-caustic: the production trigger translator still refuses the body's sameLocationAs anchor", () => {
-  const error = (() => {
-    try {
-      translateObjectFilter(damage.targets[0].filter);
-      return null;
-    } catch (thrown) {
-      return thrown;
-    }
-  })();
-  assert.ok(error, "the merged translator must still refuse `sameLocationAs` while the gap is open");
-  assert.equal(error.code, "judge-required");
-  assert.match(error.message, /Unsupported filter field sameLocationAs/);
+test("kogmaw-caustic: the production trigger translator preserves the body's sameLocationAs anchor", () => {
+  assert.deepEqual(translateObjectFilter(damage.targets[0].filter), {
+    type: "unit",
+    sameLocationAs: "source"
+  });
 });
 
 test("kogmaw-caustic: [Deathknell] + object-killed trigger on the host", () => {

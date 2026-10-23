@@ -119,16 +119,19 @@ test("Defy golden: a spell that already left the chain is ignored (359.3.e)", ()
   assert.equal(run.events.length, 0);
 });
 
-test("Defy current gap: the card's own program cannot even be described for play (translateObjectFilter rejects energyMax)", () => {
-  // programs/filters.ts translateObjectFilter runs over every TargetSpec when a
-  // card program is bound. It allows a fixed key set, so the card's own
-  // descriptive cost keys throw before Finalize can ever consider the target.
+test("Defy golden: the production binder preserves both printed-cost ceilings", () => {
   const state = fixture({ cards: [{ id: "defy", cardId: CANONICAL, types: ["spell"], energy: 1, power: ["Calm"] }] });
   const binding = createProgramBinding({ cardPrograms: [forged] });
-  assert.throws(
-    () => binding.describePlay({ type: "play", object: state.kernel.ref("defy"), player: "A" }, state.kernel.getObject("defy")),
-    error => error instanceof Error && /Unsupported filter field energyMax/.test(error.message)
+  const draft = binding.describePlay(
+    { type: "play", object: state.kernel.ref("defy"), player: "A" },
+    state.kernel.getObject("defy")
   );
+  assert.deepEqual(draft.body[0].targets[0].filter, {
+    type: "spell",
+    zone: "chain",
+    energyMax: 4,
+    powerMax: 1
+  });
 });
 
 test("Defy current gap: RIFT-359's printed-characteristic predicate only reads an event payload, never a target filter", () => {

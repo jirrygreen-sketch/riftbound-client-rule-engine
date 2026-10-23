@@ -63,7 +63,7 @@ test("ogn-066-298 Ahri, Alluring: the merged binding registers the self-anchored
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
 });
 
-test("ogn-066-298 Ahri, Alluring: a real held emission matches nothing self-anchored (383.4.d.2.a gap)", () => {
+test("ogn-066-298 Ahri, Alluring: a real held emission matches the self-anchored host (CR 383.4.d.2.a)", () => {
   const f = fixture({
     fields: [{ id: "bf1", controller: "A" }, { id: "bf2", controller: null }],
     setup: builder => builder.unit("ahri-host", { location: { type: "battlefield", id: "bf1" } })
@@ -77,7 +77,9 @@ test("ogn-066-298 Ahri, Alluring: a real held emission matches nothing self-anch
   assert.equal(f.kernel.getObject("ahri-host").location.id, "bf1");
   const translated = translateTriggerFilter(triggered.trigger.filter, "ahri-host", "hold");
   const matched = matchesTriggerEvent(translated, event, "A");
-  assert.equal(matched, false);
+  // The Hold wave carries Ahri as both event object and source, so the
+  // translated self anchor matches the real production emission.
+  assert.equal(matched, true);
 });
 
 test("ogn-066-298 Ahri, Alluring: 'you score 1 point' is one amount-1 instruction", () => {

@@ -209,11 +209,7 @@ test("Thousand-Tailed Watcher golden: the merged play trigger debuffs enemy unit
   assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "became-target"), false);
 });
 
-test("Thousand-Tailed Watcher boundary: the expanded accelerate.cost has no production binder (CR 805.1.b)", () => {
-  // Re-probed 2026-10-17: the keyword expansion is dense (a static cost
-  // declaration plus the delayed replacement), but the production static binder
-  // used by attachProgramLifecycle refuses the cost declaration, so the plan can
-  // never contain an accelerate component.
+test("Thousand-Tailed Watcher golden: the expanded accelerate.cost registers as a static cost capability (CR 805.1.b)", () => {
   const kernel = world().unit("watcher", { cardId: program.canonicalCardId }).build();
   const expanded = expandProgram(program, kernel.getObject("watcher"));
   const [costDeclaration] = expanded.expanded;
@@ -221,17 +217,12 @@ test("Thousand-Tailed Watcher boundary: the expanded accelerate.cost has no prod
   assert.equal(costDeclaration.effect.kind, "accelerate.cost");
 
   const f = fixture({ cards: [{ id: "watcher", cardId: program.canonicalCardId, types: ["unit"], energy: 1, power: ["Mind"], might: 3 }] });
-  assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic(costDeclaration, f.kernel.getObject("watcher")),
-    (error) => error.code === "judge-required" && /accelerate\.cost/.test(error.message) && /no layer mapping/.test(error.message)
-  );
-  assert.deepEqual(f.engine.layers.registry.list(), []);
+  const handle = createEngineStaticBinder(f.engine).bindStatic(costDeclaration, f.kernel.getObject("watcher"));
+  assert.equal(f.engine.layers.registry.list()[0].effect.effect.capabilityKind, "cost");
+  handle.unbind();
 });
 
-test("Thousand-Tailed Watcher boundary: describePlay forwards no optional additional cost, so Finalize never offers Accelerate (CR 805.2)", () => {
-  // The play draft carries only the ability's own cost field; the expanded
-  // static declaration is not consulted, so a ChainItem never receives a
-  // CostPlan and its selectedAdditional stays empty.
+test("Thousand-Tailed Watcher golden: describePlay forwards the Accelerate optional cost (CR 805.2)", () => {
   const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
   const f = fixture({ cards: [{ id: "watcher", cardId: program.canonicalCardId, types: ["unit"], energy: 1, power: ["Mind"], might: 3 }] });
   f.kernel.addPlayer("A", { power: ["Mind"] });
@@ -239,7 +230,13 @@ test("Thousand-Tailed Watcher boundary: describePlay forwards no optional additi
   f.engine.commit({ type: "move-zone", object: f.kernel.ref("watcher"), to: "chain" });
   f.engine.advance();
   const draft = binding.describePlay({ type: "play", object: f.kernel.ref("watcher"), player: "A" }, f.kernel.getObject("watcher"));
-  assert.equal(draft.cost, undefined);
+  assert.deepEqual(draft.cost.optionalAdditional.map(option => [option.kind, option.cost.payments]), [[
+    "accelerate",
+    [
+      { kind: "energy", amount: { kind: "constant", value: 1 } },
+      { kind: "power", amount: { kind: "constant", value: 1 } }
+    ]
+  ]]);
 });
 
 test("Thousand-Tailed Watcher boundary: the delayed enter-ready replacement readies an UNPAID unit, so it cannot be bound as written (CR 805.2.b / 805.6.a)", () => {

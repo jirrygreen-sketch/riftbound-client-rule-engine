@@ -65,10 +65,10 @@ test("Fading Memories grant sub-body gives Temporary to a battlefield unit or Ba
     // choice; the full disjunctive target gate and Temporary trigger stay TODO.
     f.engine.execute(f.draft("temporary-grant-sub-body", { body: play.body }));
     resolveAll(f.engine);
-    assert.deepEqual(f.engine.layers.snapshot(f.kernel.ref("target")).keywords, [{ id: "Temporary", value: undefined }]);
+    assert.deepEqual(f.engine.layers.snapshot(f.kernel.ref("target")).keywords, [{ id: "Temporary" }]);
     assert.deepEqual(f.engine.pipeline.events.filter(event => event.timingPoint === "became-target").map(event => event.object.ref.id), ["target"]);
     f.engine.emit({ timingPoint: "turn-end", player: "A" });
-    assert.deepEqual(f.engine.layers.snapshot(f.kernel.ref("target")).keywords, [{ id: "Temporary", value: undefined }]);
+    assert.deepEqual(f.engine.layers.snapshot(f.kernel.ref("target")).keywords, [{ id: "Temporary" }]);
   }
 });
 
@@ -81,7 +81,7 @@ test("Fading Memories supported grant stays on its original zone incarnation", (
   f.engine.execute(f.draft("temporary-gear", { body: play.body }));
   resolveAll(f.engine);
   const granted = f.kernel.ref("gear");
-  assert.deepEqual(f.engine.layers.snapshot(granted).keywords, [{ id: "Temporary", value: undefined }]);
+  assert.deepEqual(f.engine.layers.snapshot(granted).keywords, [{ id: "Temporary" }]);
   f.engine.commit({ type: "return-to-hand", object: granted });
   f.engine.commit({ type: "move-zone", object: f.kernel.ref("gear"), to: "base", location: { type: "base", player: "A" } });
   f.engine.advance();

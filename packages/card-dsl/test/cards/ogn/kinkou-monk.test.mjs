@@ -76,22 +76,13 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceTe
   );
 });
 
-test("Kinkou Monk: the production filter translator still refuses the declared exclude anchor", () => {
-  // The real gap behind judge-required: the interpreter executes `exclude`
-  // (golden below), but the CardProgram -> registration translator has no
-  // binding for it, so the card's own trigger cannot be registered.
-  const error = (() => {
-    try {
-      translateObjectFilter(targetSpec.filter);
-      return null;
-    } catch (thrown) {
-      return thrown;
-    }
-  })();
-  assert.ok(error, "the merged translator must still refuse `exclude` while the gap is open");
-  assert.equal(error.name, "ProgramBindingError");
-  assert.equal(error.code, "judge-required");
-  assert.match(error.message, /Unsupported filter field exclude/);
+test("Kinkou Monk: the production filter translator preserves the declared exclude anchor", () => {
+  assert.deepEqual(translateObjectFilter(targetSpec.filter), {
+    type: "unit",
+    zone: "board",
+    controller: "self",
+    exclude: "self"
+  });
 });
 
 test("Kinkou Monk: the Finalize candidate query still offers the source itself (355.7)", () => {

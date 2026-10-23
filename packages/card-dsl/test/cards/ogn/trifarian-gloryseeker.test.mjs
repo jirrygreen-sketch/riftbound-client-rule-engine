@@ -165,66 +165,45 @@ test("Trifarian Gloryseeker: contract history excludes this object but counts an
   assert.equal(runAbilityBody(history, kernel).linkedValues["legion-history.count"], 1);
 });
 
-test("Trifarian Gloryseeker boundary: the authored Legion condition counts live objects, not this turn's plays (CR 812.1.b.1 / 812.1.c)", () => {
-  // Re-probed 2026-10-17: the count expression ignores its subject and only
-  // counts objects passing the (partly unknown) filter, so the gate is satisfied
-  // by an empty board and grows with any object, play history or not.
+test("Trifarian Gloryseeker boundary: the generic expression path fails closed on Finalize history (CR 812.1.b.1 / 812.1.c)", () => {
   const condition = program.abilities[1].trigger.condition;
   assert.equal(condition.left.subject, "cards-finalized-this-turn");
 
   const empty = fixture({ cards: [] });
   const emptyContext = bindResolveContext(empty.kernel, { host: empty.kernel.ref("source") });
-  const emptyCount = evaluateExpression(condition.left, {
-    context: emptyContext, host: empty.kernel.ref("source"), linked: () => undefined,
-    canLookBack: () => true, isIgnored: () => false, query: filter => empty.kernel.query(filter)
-  });
-
-  const busy = fixture({ cards: Array.from({ length: 7 }, (_, index) => ({ id: `u${index}`, owner: "A", controller: "A", types: ["unit"], might: 1 })) });
-  for (let index = 0; index < 7; index += 1) {
-    busy.engine.commit({ type: "move-zone", object: busy.kernel.ref(`u${index}`), to: "board", location: { type: "base", player: "A" } });
-  }
-  const busyContext = bindResolveContext(busy.kernel, { host: busy.kernel.ref("source") });
-  const busyCount = evaluateExpression(condition.left, {
-    context: busyContext, host: busy.kernel.ref("source"), linked: () => undefined,
-    canLookBack: () => true, isIgnored: () => false, query: filter => busy.kernel.query(filter)
-  });
-
-  // Zero plays happened in either world, yet the counts differ and both clear the
-  // gte 1 threshold: the subject field participates in nothing.
-  assert.notEqual(emptyCount, busyCount);
-  assert.ok(emptyCount >= 1 && busyCount >= 1);
+  assert.throws(
+    () => evaluateExpression(condition.left, {
+      context: emptyContext,
+      host: empty.kernel.ref("source"),
+      linked: () => undefined,
+      canLookBack: () => true,
+      isIgnored: () => false,
+      query: filter => empty.kernel.query(filter)
+    }),
+    /Unavailable history subject: cards-finalized-this-turn/
+  );
 });
 
-test("Trifarian Gloryseeker boundary: the trigger body's object:'self' target is refused by the production filter translator (CR 355.10.d.1)", () => {
-  // Re-probed 2026-10-17: the authored target's object:'self' anchor survives
-  // validation but the production translator that registerProgramTriggers uses
-  // rejects it, so the dependent ability cannot be registered at all.
+test("Trifarian Gloryseeker golden: the production lifecycle preserves the trigger body's object:'self' target", () => {
   const f = fixture({ cards: [{ id: "gloryseeker", cardId: program.canonicalCardId, types: ["unit"], energy: 1, power: ["Fury"], might: 2 }] });
   const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
-  assert.throws(
-    () => registerProgramTriggers(registry, f.engine, f.kernel.getObject("gloryseeker")),
-    (error) => error.code === "judge-required" && /Unsupported filter field object/.test(error.message)
+  assert.deepEqual(
+    registerProgramTriggers(registry, f.engine, f.kernel.getObject("gloryseeker")),
+    ["program:gloryseeker:1:1"]
   );
-  assert.equal(f.engine.pipeline.checkpoint().triggers.size, 0);
+  assert.equal(f.engine.pipeline.checkpoint().triggers.size, 1);
 });
 
-test("Trifarian Gloryseeker boundary: the Legion predicate is unbound and its history payload is rejected (CR 812.1.c)", () => {
-  // Re-probed 2026-10-17: the expansion declares condition.predicate, which the
-  // production static binder has no layer for, and the payload's
-  // history.excluding spelling is refused by the interpreter's own history
-  // field whitelist. No path therefore derives "another card finalized this
-  // turn" for the dependent ability.
+test("Trifarian Gloryseeker: the Legion predicate registers while its authored excluding payload still fails closed", () => {
   const kernel = world().unit("gloryseeker", { cardId: program.canonicalCardId }).build();
   const expanded = expandProgram(program, kernel.getObject("gloryseeker"));
   assert.deepEqual(expanded.expanded.map(ability => ability.effect.kind), ["condition.predicate"]);
   assert.equal(expanded.expanded[0].effect.history.excluding, program.canonicalCardId);
 
   const f = fixture({ cards: [{ id: "gloryseeker", cardId: program.canonicalCardId, types: ["unit"], energy: 1, power: ["Fury"], might: 2 }] });
-  assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic(expanded.expanded[0], f.kernel.getObject("gloryseeker")),
-    (error) => error.code === "judge-required" && /condition\.predicate/.test(error.message) && /no layer mapping/.test(error.message)
-  );
-  assert.deepEqual(f.engine.layers.registry.list(), []);
+  const handle = createEngineStaticBinder(f.engine).bindStatic(expanded.expanded[0], f.kernel.getObject("gloryseeker"));
+  assert.equal(f.engine.layers.registry.list()[0].effect.effect.capabilityKind, "predicate");
+  handle.unbind();
 
   const context = bindResolveContext(world().player("A").player("B").build(), {});
   assert.throws(
@@ -233,15 +212,16 @@ test("Trifarian Gloryseeker boundary: the Legion predicate is unbound and its hi
   );
 });
 
-test("Trifarian Gloryseeker boundary: effect.buff still requires a TargetSpec id, so 'buff me' has no non-target form (CR 355.10.d.1 / 702.2.a)", async () => {
-  // Re-probed 2026-10-17: the primitive's argument schema insists on a non-empty
-  // TargetSpec id string; there is no self/selector spelling, which is exactly
-  // why the retained self-unit TargetSpec is blocked authoring data rather than
-  // an executable path.
+test("Trifarian Gloryseeker boundary: effect.buff rejects an empty target form and accepts an object selector (CR 355.10.d.1 / 702.2.a)", async () => {
   const [buff] = program.abilities[1].body;
   assert.deepEqual(buff.args.target, { kind: "constant", value: "self-unit" });
   assert.deepEqual(buff.targets[0].filter, { object: "self", type: "unit", zone: "board" });
   const { default: effectBuff } = await import(new URL("effects/instructions/effect.buff.js", engineCore));
-  assert.throws(() => effectBuff.argsSchema.parse({ mode: "buff" }), /target must be a non-empty TargetSpec id/);
-  assert.throws(() => effectBuff.argsSchema.parse({ mode: "buff", target: { kind: "constant", value: "self-unit" } }), /target must be a non-empty TargetSpec id/);
+  assert.throws(
+    () => effectBuff.argsSchema.parse({ mode: "buff" }),
+    /one of objects, target or pick is required/
+  );
+  assert.doesNotThrow(
+    () => effectBuff.argsSchema.parse({ mode: "buff", objects: { kind: "constant", value: "self" } })
+  );
 });

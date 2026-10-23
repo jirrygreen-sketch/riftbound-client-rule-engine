@@ -117,14 +117,11 @@ test("ogn-061-298 Poro Herder: buff me targets the host through the self selecto
   assert.equal(buffInstruction.linkedTo, undefined);
 });
 
-test("ogn-061-298 Poro Herder: the production instruction-target translator rejects the self-anchored buff filter", () => {
-  // The same reject path the trigger body would hit: the buff target cannot be
-  // bound through the production TriggerRegistration until filter.object:self is
-  // consumed (the judgeReason's third gap).
-  assert.throws(
-    () => translateObjectFilter(buffInstruction.targets[0].filter),
-    /Unsupported filter field object/
-  );
+test("ogn-061-298 Poro Herder: the production translator preserves the self-anchored buff target", () => {
+  assert.deepEqual(translateObjectFilter(buffInstruction.targets[0].filter), {
+    object: "self",
+    type: "unit"
+  });
 });
 
 test("ogn-061-298 Poro Herder: draw 1 is a separate sentence, not linked to the buff", () => {
@@ -202,7 +199,6 @@ test("ogn-061-298 Poro Herder golden: an empty deck still executes Draw 1 with z
 test.todo(
   "ogn-061-298 Poro Herder: the Trigger Condition needs a production evaluator — the event " +
     "pipeline requires a host testTrigger adapter for conditional triggers (only engine-core's " +
-    "test helpers install one), the condition filter's controller placeholder has no resolver on " +
-    "that path, and the production trigger body translator still rejects the self-anchored " +
-    "buff target filter (filter.object: \"self\")."
+    "test helpers install one), and the condition filter's controller placeholder has no resolver " +
+    "on that path."
 );

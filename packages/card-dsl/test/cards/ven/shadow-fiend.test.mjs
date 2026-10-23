@@ -215,28 +215,24 @@ test("ven-014-166 Shadow Fiend gap: the printed 2 Energy + 1 Fury Power Empower 
   );
 });
 
-test("ven-014-166 Shadow Fiend gap: the granted Assault reads a designation no snapshot publishes", () => {
-  // Measured evidence for judgeReason point 3: the grant installs (asserted by
-  // the golden above), but its +3 Might condition reads the attacker
-  // designation, which the merged expression evaluator cannot find on a
-  // contract-shaped snapshot.
+test("ven-014-166 Shadow Fiend golden: the granted Assault reads combatRole as designation", () => {
   const [assaultAbility] = assaultKeyword.expand({ value: 3, host: { canonicalCardId: CARD_ID } });
   assert.deepEqual(assaultAbility.condition.left, {
     kind: "object-property",
     object: "self",
     property: "designation"
   });
-  const kernel = world().unit("fiend", { cardId: CARD_ID, might: 2 }).build();
+  const kernel = world().unit("fiend", { cardId: CARD_ID, might: 2, combatRole: "attacker" }).build();
   const source = kernel.getObject("fiend");
   assert.equal(Object.hasOwn(source, "designation"), false);
-  assert.throws(
-    () => evaluateExpression(assaultAbility.condition.left, {
+  assert.equal(
+    evaluateExpression(assaultAbility.condition.left, {
       context: kernel,
       host: source.ref,
       linked: () => undefined,
       canLookBack: () => true,
       isIgnored: () => false
     }),
-    error => /Unavailable characteristic: designation/.test(error.message)
+    "attacker"
   );
 });

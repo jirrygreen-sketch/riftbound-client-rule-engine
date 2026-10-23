@@ -96,33 +96,25 @@ test("Time Warp golden: the banish half runs through the production chain body u
   assert.equal(kernel.getObject("time-warp").zone, "banishment");
 });
 
-test("Time Warp boundary: effect.additional-turn is not a registered instruction (CR 734/735)", () => {
-  // Re-probed 2026-10-17: the authored opcode has no entry in the merged
-  // instruction registry, so even a direct resolve of the card's own body fails
-  // before any turn-queue question is reached.
-  assert.equal(instructionDefinitionsById.has("effect.additional-turn"), false);
+test("Time Warp supported turn task: effect.additional-turn is a registered instruction (CR 734/735)", () => {
+  assert.equal(instructionDefinitionsById.has("effect.additional-turn"), true);
   const kernel = world().card("time-warp", { types: ["spell"], zone: "chain" }).build();
-  assert.throws(
-    () => resolveChainBody([additionalTurn], kernel.clone({ sourceSnapshot: kernel.getObject("time-warp") })),
-    /Unregistered instruction opcode: effect\.additional-turn/
-  );
-  // The independent banish sentence is unaffected by that gap, which is what
-  // makes this a per-clause block rather than a whole-body failure.
+  // Without the explicit turn-task capability the registered instruction fails
+  // closed; it does not silently mutate a turn queue.
+  assert.throws(() => resolveChainBody(
+    [additionalTurn],
+    kernel.clone({ sourceSnapshot: kernel.getObject("time-warp") })
+  ), /requires the turn-task capability/);
+  // The independent banish sentence remains executable.
   const banishHalf = resolveChainBody([banishThis], kernel.clone({ sourceSnapshot: kernel.getObject("time-warp") }));
   assert.equal(banishHalf.status, "executed");
 });
 
-test("Time Warp boundary: turn/ exposes phase progression but no temporary-turn queue (CR 735–738)", async () => {
-  // Re-probed 2026-10-17: the merged turn module drives awaken/beginning/…/main
-  // phases, and its public surface has no Additional Turn insertion or restore
-  // entry. 735 requires the effect to create a temporary turn inserted after the
-  // current one, and 736–738 require the repeating turn order to stay intact, so
-  // neither the insertion nor the completion-restore half exists yet.
+test("Time Warp supported turn task: turn/ exposes the temporary-turn queue (CR 735-738)", async () => {
   const flow = await import("../../../../engine-core/dist/turn/flow.js");
   assert.equal(typeof flow.TurnFlow, "function");
   const surface = Object.getOwnPropertyNames(flow.TurnFlow.prototype).join(" ");
-  assert.doesNotMatch(surface, /additionalTurn|queueAdditionalTurn|extraTurn/i);
-  // The authored shape still describes the rules contract it cannot execute.
+  assert.match(surface, /queuedAdditionalTurns/);
   assert.deepEqual(additionalTurn.args.after, { kind: "constant", value: "this-turn" });
   assert.deepEqual(additionalTurn.args.owner, { kind: "constant", value: "controller" });
 });

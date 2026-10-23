@@ -153,9 +153,8 @@ test("ogn-094-298 Sprite Call: the frozen token table has no Sprite definition (
   assert.equal(mech.result.status, "executed");
 });
 
-test("ogn-094-298 Sprite Call: effect.token rejects an entry-readiness override (current gap)", () => {
-  // 「ready」是入场状态限定（143.4 / 185.2.d）；原语参数表不接受任何入场改写。
-  for (const key of ["entersReady", "ready", "entryState"]) {
+test("ogn-094-298 Sprite Call: effect.token consumes the ready-entry override", () => {
+  for (const key of ["ready", "entryState"]) {
     assert.throws(
       () => runInstruction(token, {
         ...evaluatedArgs,
@@ -167,19 +166,18 @@ test("ogn-094-298 Sprite Call: effect.token rejects an entry-readiness override 
       }
     );
   }
-  // 默认入场是未横置（ready）——与 143.4 相反——所以本卡必须显式声明该限定，
-  // 不能寄希望于“默认就是 ready”。
   const kernel = world().build();
   const created = runInstruction(token, {
     ...evaluatedArgs,
-    token: { kind: "constant", value: "mech" }
+    token: { kind: "constant", value: "mech" },
+    entersReady: { kind: "constant", value: true }
   }, { world: kernel });
   assert.equal(created.result.status, "executed");
   const tokenObject = kernel.query({ zone: "board", type: "unit" }).find((object) => object.isToken);
-  assert.equal(typeof tokenObject.exhausted, "boolean");
+  assert.equal(tokenObject.exhausted, false);
 });
 
-test("ogn-094-298 Sprite Call: Hidden's cost.hidden expansion has no production consumer (current gap)", () => {
+test("ogn-094-298 Sprite Call: Hidden's cost.hidden binding registers the hidden capability", () => {
   const forged = {
     canonicalCardId: "card.hash-sprite-call-hidden-probe",
     rulesetVersion: "core-1.5",
@@ -197,10 +195,10 @@ test("ogn-094-298 Sprite Call: Hidden's cost.hidden expansion has no production 
     to: "board",
     location: { type: "base", player: "A" }
   });
+  assert.deepEqual(errors, []);
   assert.equal(
-    errors.includes("Static ability kind cost.hidden has no layer mapping"),
-    true,
-    JSON.stringify(errors)
+    state.engine.layers.registry.list().some(entry => entry.effect.effect.capabilityKind === "hidden"),
+    true
   );
 });
 
@@ -231,7 +229,6 @@ test("ogn-094-298 Sprite Call: [Action]'s showdown permission is already consume
 
 test.todo(
   "Sprite Call: the 3 Might domainless Fae Sprite with Temporary (CR 187.2 / 185.3.a null cost) as a " +
-    "resolvable token definition whose beginning-start trigger (816.1.b) is admitted by the closed " +
-    "event vocabulary, plus an entry-readiness override on the creation/play action (143.4 / 185.2.d), " +
-    "and a production consumer for [Hidden]'s cost.hidden expansion (811.1.b/811.1.c/811.1.d)"
+  "resolvable token definition whose beginning-start trigger (816.1.b) is admitted by the closed " +
+    "event vocabulary, plus an entry-readiness override on the creation/play action (143.4 / 185.2.d)"
 );

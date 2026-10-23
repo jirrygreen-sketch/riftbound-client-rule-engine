@@ -92,21 +92,13 @@ test("ogn-274-298 Sprite: the expansion's kill really executes through the chain
   assert.equal(kernel.getObject("sprite").zone, "trash");
 });
 
-test("ogn-274-298 Sprite: the merged trigger vocabulary rejects the Temporary expansion (current gap)", () => {
+test("ogn-274-298 Sprite: the Temporary expansion carries a valid beginning-start trigger", () => {
   const [expansion] = temporary.expand({ host: { canonicalCardId: sprite.canonicalCardId } });
-  assert.throws(
-    () => assertTriggerSpec(expansion.trigger),
-    (error) => {
-      assert.equal(error.name, "TriggerSpecValidationError");
-      assert.equal(error.issues.some((issue) => issue.code === "invalid-event-type"), true);
-      return true;
-    }
-  );
+  assert.doesNotThrow(() => assertTriggerSpec(expansion.trigger));
+  assert.equal(expansion.trigger.at, "beginning-start");
 });
 
-test("ogn-274-298 Sprite: a real attachProgramLifecycle cannot register the Temporary trigger", () => {
-  // 真实绑定路径（programs/lifecycle.ts -> registerProgramTriggers -> assertTriggerSpec）
-  // 对 executable 形态的同卡也失败，证明这不是 status 抖动。
+test("ogn-274-298 Sprite: the real attachProgramLifecycle registers the Temporary trigger", () => {
   const forged = { ...sprite, status: "executable" };
   delete forged.judgeReason;
   assert.equal(validateCardProgram(forged).ok, true);
@@ -122,10 +114,8 @@ test("ogn-274-298 Sprite: a real attachProgramLifecycle cannot register the Temp
     to: "board",
     location: { type: "base", player: "A" }
   });
-  assert.equal(errors.length >= 1, true);
-  for (const error of errors) {
-    assert.equal(error.name, "TriggerSpecValidationError");
-  }
+  assert.deepEqual(errors, []);
+  assert.ok(state.engine.pipeline.checkpoint().triggers.size >= 1);
 });
 
 test("ogn-274-298 Sprite: the frozen token definition table has no sprite definition (current gap)", () => {
