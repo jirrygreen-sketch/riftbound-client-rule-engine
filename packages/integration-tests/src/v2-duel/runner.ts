@@ -27,6 +27,9 @@ export interface V2DuelRunOptions {
   readonly seed: string;
   readonly port?: number;
   readonly maxActions?: number;
+  /** Per-command receipt budget. A timeout is retained as the game's blocked
+   * observation instead of waiting through an unbounded server computation. */
+  readonly actionTimeoutMs?: number;
   /** Stop before the first command whose acknowledgement exceeds this many
    * milliseconds; the incomplete attempt is retained as evidence. */
   readonly acknowledgementTimeoutMs?: number;
@@ -34,7 +37,6 @@ export interface V2DuelRunOptions {
   readonly firstPlayerPrecon?: V2M1PreconId;
   /** Which authenticated room creator is used; precon assignment never changes. */
   readonly creator?: "first" | "second";
-  readonly actionTimeoutMs?: number;
   readonly totalTimeoutMs?: number;
 }
 function currentPhaseLabel(view: V2Projection): string {

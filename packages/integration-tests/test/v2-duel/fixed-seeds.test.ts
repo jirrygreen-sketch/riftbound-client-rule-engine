@@ -13,7 +13,7 @@ describe("RIFT-955 V2 two-client duel", () => {
       await mkdir(outputDirectory, { recursive: true });
       const creator = index % 2 === 0 ? "first" : "second";
       const result = await runV2Duel({ seed, port: portBase + (index % portSpan), outputDirectory,
-        maxActions: 500, creator, actionTimeoutMs: 30_000,
+        maxActions: 500, creator, actionTimeoutMs: 12_000,
         acknowledgementTimeoutMs: 60_000, totalTimeoutMs: 240_000 });
       expect(["player-1", "player-2"]).toContain(result.firstPlayerSeat);
       expect(result.firstPlayerSeat).toBe(creator === "first" ? "player-1" : "player-2");
