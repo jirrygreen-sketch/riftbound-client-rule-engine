@@ -289,13 +289,12 @@ test("sfd-207-221 Emperor's Dais golden: an unaffordable payment aborts before a
   assert.equal(kernel.query({ type: "unit" }).filter(object => object.isToken).length, 0);
 });
 
-test("sfd-207-221 Emperor's Dais: production binding rejects the relative here anchors", () => {
-  assert.throws(
-    () => translateObjectFilter(returnUnit.targets[0].filter),
-    error => error.code === "judge-required" &&
-      /sameLocationAs/.test(error.message)
-  );
-
+test("sfd-207-221 Emperor's Dais: production binding preserves the relative here anchors", () => {
+  assert.deepEqual(translateObjectFilter(returnUnit.targets[0].filter), {
+    type: "unit",
+    controller: "self",
+    sameLocationAs: "source"
+  });
   const source = world()
     .object("dais", {
       cardId: program.canonicalCardId,
@@ -305,11 +304,18 @@ test("sfd-207-221 Emperor's Dais: production binding rejects the relative here a
     .build()
     .getObject("dais");
   const executableProbe = { ...program, status: "executable", judgeReason: undefined };
-  assert.throws(
-    () => triggerRegistrations(new ProgramRegistry([executableProbe]), source),
-    error => error.code === "judge-required" &&
-      /Unsupported filter field sameLocationAs/.test(error.message)
-  );
+  const [registration] = triggerRegistrations(new ProgramRegistry([executableProbe]), source);
+  assert.deepEqual(registration.spec.filter, { event: "conquered", here: true, player: "self" });
+  assert.deepEqual(registration.targets, [{
+    requirement: {
+      id: "emperors-dais.unit-here",
+      filter: { type: "unit", controller: "self", sameLocationAs: "source" },
+      min: 1,
+      max: 1,
+      selection: "one"
+    }
+  }]);
+  assert.equal(program.status, "judge-required");
 });
 
 test.todo(
