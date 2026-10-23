@@ -281,4 +281,3 @@ test.todo(
     "fresh choices (820.1.b/820.1.d/820.2.a); the draft now carries the optional cost but the " +
     "triggered/spell resolution repeat lifecycle is still absent"
 );
-
