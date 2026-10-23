@@ -357,6 +357,12 @@ test("sfd-070-221 Wages of Pain production boundary: pays 3, damages, creates Go
   assert.equal(f.kernel.getObject("victim").damage, 3);
   assert.equal(f.kernel.getObject("base-only").damage, 0);
   assert.equal(f.kernel.getObject("wages").zone, "trash");
+  const timeline = f.engine.pipeline.events.map((event) => event.timingPoint);
+  const pendingAt = timeline.indexOf("chain-item-pending");
+  const finalizeAt = timeline.indexOf("chain-item-finalize", pendingAt);
+  const resolveAt = timeline.indexOf("chain-item-resolve", finalizeAt);
+  assert.ok(pendingAt >= 0 && pendingAt < finalizeAt && finalizeAt < resolveAt,
+    "Play enters the Chain as Pending, then Finalize precedes Resolve");
   assert.equal(f.targetRequests().length, 1);
   assert.deepEqual(f.targetRequests()[0].options, [f.kernel.ref("victim")]);
 
