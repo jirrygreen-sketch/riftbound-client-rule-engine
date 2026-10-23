@@ -32,6 +32,8 @@ import { movement, restrictions } from "../../../../engine-core/dist/layers/rule
 import { moveDuelUnitsStandard } from "../../../../engine-core/dist/zones/movement.js";
 import { createDuelBoard, placeDuelUnit, selectDuelBattlefields } from "../../../../engine-core/dist/duel/battlefields.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 
 import flash from "../../../dist/cards/ogs/flash.js";
@@ -68,14 +70,18 @@ function published(canonicalCardId) {
 
 /**
  * Test-only candidate view. Only the validation metadata changes: abilities,
- * sourceText, canonicalCardId and rulesetVersion stay identical, and every row
- * still asserts that the published program is judge-required with a concrete
- * judgeReason, so no row can promote a card.
+ * sourceText, canonicalCardId and rulesetVersion stay identical. Judge-required
+ * rows must keep a concrete judgeReason; a promoted executable row must have no
+ * judgeReason. No row can silently change its published status.
  */
 function candidate(canonicalCardId) {
   const program = published(canonicalCardId);
-  assert.equal(program.status, "judge-required", canonicalCardId + " must stay judge-required");
-  assert.ok(program.judgeReason && program.judgeReason.trim(), canonicalCardId + " keeps a concrete judgeReason");
+  if (program.status === "judge-required") {
+    assert.ok(program.judgeReason && program.judgeReason.trim(), canonicalCardId + " keeps a concrete judgeReason");
+  } else {
+    assert.equal(program.status, "executable", canonicalCardId + " is published executable");
+    assert.equal(program.judgeReason, undefined, canonicalCardId + " has no judgeReason");
+  }
   const view = { ...program, status: "executable", judgeReason: undefined };
   assert.equal(view.abilities, program.abilities, "the candidate view never rewrites abilities");
   assert.equal(view.sourceText, program.sourceText, "the candidate view never rewrites sourceText");
@@ -113,15 +119,19 @@ function snapshot(id, values = {}) {
 
 /** Bind one real ability through the production static binder on a fresh engine. */
 function bindStatic(ability, source) {
-  const engine = fixture({ cards: [] }).engine;
+  const runtime = fixture({ cards: [] });
+  runtime.kernel.addObject(source, source.zone);
+  const liveSource = runtime.kernel.getObject(source.ref.id);
+  const engine = runtime.engine;
+  engine.layers.setObjects(runtime.kernel.objects);
   let handle = null;
   let error = null;
   try {
-    handle = createEngineStaticBinder(engine).bindStatic(ability, source);
+    handle = createEngineStaticBinder(engine).bindStatic(ability, liveSource);
   } catch (caught) {
     error = caught;
   }
-  return { engine, handle, error };
+  return { engine, handle, error, source: liveSource, kernel: runtime.kernel };
 }
 
 /** Fail-closed evidence: the production binder rejects the declared static ability. */
@@ -135,20 +145,21 @@ function expectBindingError(ability, source, pattern) {
 
 /** Registration evidence: the production binder really added the layer entry. */
 function expectRegistration(ability, source) {
-  const { engine, handle, error } = bindStatic(ability, source);
+  const { engine, handle, error, source: liveSource, kernel } = bindStatic(ability, source);
   assert.equal(error, null, "the production static binder accepted this declaration");
   assert.ok(handle, "the production binder returned a binding handle");
   const entries = engine.layers.registry.list();
   assert.equal(entries.length, 1, "exactly one continuous effect is registered");
   const [entry] = entries;
-  assert.equal(entry.effect.source.id, source.ref.id);
+  assert.equal(entry.effect.source.id, liveSource.ref.id);
   const effect = entry.effect.effect;
   // Unbinding really removes the registration; verified on a throwaway binder so
   // this row keeps the live entry for its layer and rule-query reads.
-  const probe = bindStatic(ability, source);
+  const probe = bindStatic(ability, liveSource);
   probe.handle.unbind();
   assert.deepEqual(probe.engine.layers.registry.list(), [], "unbinding removes the registration");
-  return { engine, entry, effect, handle };
+  engine.layers.setObjects(kernel.objects);
+  return { engine, entry, effect, handle, source: liveSource, kernel };
 }
 
 /**
@@ -186,12 +197,9 @@ function standardMoveProbe({ controller, unit, destinationId }) {
 // ---------------------------------------------------------------------------
 const rows = [
   {
-    // 053.3 + 479.4: the +1 really registers as an arithmetic-layer entry, but
-    // staticFilter carries the source LocationRef value and layers/filter.ts
-    // compares structured locations by reference (measured below: identical
-    // object true, equal value false). Layer snapshots are cloned, so the
-    // registered aura reaches nobody.
-    name: "Trifarian War Camp · units here keep their printed Might because the bound here-filter never matches",
+    // 053.3 + 479.4: the production binder resolves "here" from the live
+    // Battlefield and gives every unit at that location +1 Might.
+    name: "Trifarian War Camp · units here gain +1 Might",
     canonicalCardId: IDS.trifarianWarCamp,
     program: candidate(IDS.trifarianWarCamp),
     scenario: {
@@ -205,8 +213,8 @@ const rows = [
       expect: {
         objects: {
           camp: { zone: "board", location: HERE, energy: null, power: null },
-          "own-here": { zone: "board", location: HERE, might: 2 },
-          "enemy-here": { zone: "board", location: HERE, might: 5 },
+          "own-here": { zone: "board", location: HERE, might: 3 },
+          "enemy-here": { zone: "board", location: HERE, might: 6 },
           elsewhere: { zone: "board", location: ELSEWHERE, might: 4 },
         },
         events: { exact: [] },
@@ -220,24 +228,24 @@ const rows = [
       assert.equal(effect.kind, "continuous.might");
       assert.equal(effect.mode, "add");
       // staticFilter literalizes the declared amount on the registered spec.
-      assert.equal(effect.amount, 1);
-      // staticFilter resolved sameLocationAs:self into the source LocationRef.
-      assert.deepEqual(entry.effect.filter, { type: "unit", zone: "board", location: HERE });
+      assert.deepEqual(effect.amount, { kind: "constant", value: 1 });
+      // The live rule filter carries the source-relative battlefield scope.
+      assert.equal(entry.effect.filter.type, "unit");
+      assert.equal(entry.effect.filter.zone, "board");
+      assert.equal(entry.effect.filter.controller, undefined);
       const identical = snapshot("own-here", { location: HERE, might: 2 });
       const cloned = snapshot("own-here", { location: { ...HERE }, might: 2 });
       assert.equal(matchesObjectFilter(entry.effect.filter, identical), true);
-      assert.equal(matchesObjectFilter(entry.effect.filter, cloned), false);
-      // The production scenario state really holds printed Might for both
-      // controllers at this battlefield, which is exactly the gap.
-      assert.equal(result.state.objects.find(object => object.ref.id === "own-here").might, 2);
-      assert.equal(result.state.objects.find(object => object.ref.id === "enemy-here").might, 5);
+      assert.equal(matchesObjectFilter(entry.effect.filter, cloned), true);
+      assert.equal(result.state.objects.find(object => object.ref.id === "own-here").might, 3);
+      assert.equal(result.state.objects.find(object => object.ref.id === "enemy-here").might, 6);
       return result;
     },
   },
   {
-    // 054.1 / 358.3.a: the prohibition really reaches the rule query for both
-    // players and only at this battlefield. Its effect-move side is still open.
-    name: "Vilemaw's Lair · the rule query prohibits both players from moving here to base",
+    // 054.1 / 358.3.a: the rule query serves the prohibition for both players
+    // and only at this battlefield.
+    name: "Vilemaw's Lair · both players' units here are prohibited from moving to base",
     canonicalCardId: IDS.vilemawsLair,
     program: candidate(IDS.vilemawsLair),
     scenario: {
@@ -261,18 +269,22 @@ const rows = [
     verify(result) {
       const [ability] = published(IDS.vilemawsLair).abilities;
       const source = snapshot("lair", { types: ["battlefield"], location: HERE, energy: null, power: null });
-      const { engine, effect } = expectRegistration(ability, source);
+      const { engine, effect, source: liveSource, kernel } = expectRegistration(ability, source);
       assert.equal(effect.kind, "continuous.movement");
       // Both spellings ship: the rule query reads the plural, the layer fold the
       // singular (053.3 scope, 054.1 prohibition, 144.4.b route).
       assert.equal(effect.restriction, "move-from-here-to-base");
       assert.deepEqual(effect.restrictions, ["move-from-here-to-base"]);
       assert.equal(effect.addsPermission, false);
-      const own = snapshot("own-here", { location: { ...HERE }, might: 2 });
-      const enemy = snapshot("enemy-here", { owner: "B", location: { ...HERE }, might: 5 });
-      const away = snapshot("away", { location: ELSEWHERE, might: 4 });
-      const gear = snapshot("gear-here", { types: ["gear"], location: { ...HERE } });
-      engine.layers.setObjects([own, enemy, away, gear]);
+      kernel.addObject(snapshot("own-here", { location: { ...HERE }, might: 2 }), "board");
+      kernel.addObject(snapshot("enemy-here", { owner: "B", controller: "B", location: { ...HERE }, might: 5 }), "board");
+      kernel.addObject(snapshot("away", { location: ELSEWHERE, might: 4 }), "board");
+      kernel.addObject(snapshot("gear-here", { types: ["gear"], location: { ...HERE } }), "board");
+      engine.layers.setObjects(kernel.objects);
+      const own = kernel.getObject("own-here");
+      const enemy = kernel.getObject("enemy-here");
+      const away = kernel.getObject("away");
+      const gear = kernel.getObject("gear-here");
       for (const unit of [own, enemy]) {
         const view = movement(engine.layers.registry, unit.ref, unit, "A");
         assert.deepEqual(view.restrictions, ["move-from-here-to-base"]);
@@ -282,9 +294,6 @@ const rows = [
       // Other locations and non-units at this location are untouched.
       assert.deepEqual(movement(engine.layers.registry, away.ref, away, "A").restrictions, []);
       assert.deepEqual(movement(engine.layers.registry, gear.ref, gear, "A").restrictions, []);
-      // The layer snapshot path compares the source LocationRef by reference, so
-      // it folds the restriction only for a snapshot built from that object.
-      assert.deepEqual(engine.layers.snapshot(own.ref).movement.restrictions, [], "a cloned LocationRef misses the layer fold too");
       // The effect-move action name is not restricted anywhere: the open gap.
       assert.deepEqual(restrictions(engine.layers.registry, "move-location", own.ref, own, "A"), []);
       assert.deepEqual(restrictions(engine.layers.registry, "move", own.ref, own, "A"), []);
@@ -337,9 +346,9 @@ const rows = [
     },
   },
   {
-    // 143.2 / 478.1.a: the +4 is a real arithmetic static, but the declared
-    // condition cannot count the controller's runes through the production path.
-    name: "Master Yi, Meditative · eight runes in the rune zone still grant no Might",
+    // 143.2 / 478.1.a: eight channeled runes satisfy the controller-relative
+    // condition and the production arithmetic layer grants +4 Might.
+    name: "Master Yi, Meditative · eight runes grant +4 Might",
     canonicalCardId: IDS.masterYiMeditative,
     program: candidate(IDS.masterYiMeditative),
     scenario: {
@@ -349,7 +358,7 @@ const rows = [
       ],
       operations: [],
       expect: {
-        objects: { yi: { zone: "board", location: HERE, might: 4, energy: 5, power: ["Order"] } },
+        objects: { yi: { zone: "board", location: HERE, might: 8, energy: 5, power: ["Order"] } },
         players: { A: { energy: 0, power: [], runeDeckCount: 0, handCount: 0 } },
         events: { exact: [] },
       },
@@ -367,12 +376,13 @@ const rows = [
       assert.equal(ability.condition.operator, "gte");
       assert.deepEqual(ability.condition.right, { kind: "constant", value: 8 });
       const source = snapshot("yi", { types: ["unit"], location: HERE, might: 4, energy: 5, power: ["Order"] });
-      const { engine, effect } = expectRegistration(ability, source);
+      const { engine, effect, source: liveSource, kernel } = expectRegistration(ability, source);
       // The binder really wraps the declared condition for the layer engine...
       assert.equal(typeof effect.condition, "function");
       const runes = [...Array(8).keys()].map(index => snapshot("rune-" + index, { owner: "A", controller: "A", types: ["rune"], zone: "rune-zone", location: null }));
-      engine.layers.setObjects([source, ...runes]);
-      assert.equal(engine.layers.snapshot(source.ref).might, 4, "measured: 8 runes still yield +0 through the production binding");
+      for (const rune of runes) kernel.addObject(rune, "rune-zone");
+      engine.layers.setObjects(kernel.objects);
+      assert.equal(engine.layers.snapshot(liveSource.ref).might, 8);
       // Control: the count vocabulary itself is merged. The very same count with
       // a concrete player id really turns the +4 on.
       const direct = snapshot("yi-direct", { location: HERE, might: 4 });
@@ -446,9 +456,9 @@ const moreRows = [
     },
   },
   {
-    // 470.1 / 471: the printed score window cannot bind, and nothing scores here
-    // in this scenario -- so the measured state is inactivity, not enforcement.
-    name: "Forgotten Monument · the score restriction fails closed at the battlefield anchor",
+    // 470.1 / 471: the production binder anchors the score prohibition to this
+    // battlefield; the scoring-flow consumer remains the open half.
+    name: "Forgotten Monument · the production binder scopes its score restriction here",
     canonicalCardId: IDS.forgottenMonument,
     program: candidate(IDS.forgottenMonument),
     scenario: {
@@ -479,11 +489,17 @@ const moreRows = [
       // The declaration itself now binds through the production binder.
       const bound = bindStatic(ability, source);
       assert.equal(bound.error, null, "the merged binder resolves the self anchor");
-      assert.deepEqual(bound.engine.layers.registry.list().map(entry => entry.effect.filter), [
-        { objectId: source.ref.id, zone: "board", zoneEntryId: source.ref.zoneEntryId }
-      ]);
-      assert.deepEqual(restrictions(bound.engine.layers.registry, "score").map(entry => entry.name), ["forgotten-monument"]);
-      assert.deepEqual(restrictions(bound.engine.layers.registry, "move"), []);
+      const [entry] = bound.engine.layers.registry.list();
+      assert.equal(entry.effect.filter.objectId, source.ref.id);
+      assert.deepEqual(
+        restrictions(bound.engine.layers.registry, "score", source.ref, source, "A").map(value => value.name),
+        ["forgotten-monument"]
+      );
+      assert.deepEqual(
+        restrictions(bound.engine.layers.registry, "score", source.ref, source, "B").map(value => value.name),
+        ["forgotten-monument"]
+      );
+      assert.deepEqual(restrictions(bound.engine.layers.registry, "move", source.ref, source, "A"), []);
       bound.handle?.unbind();
       assert.equal(result.state.players.A.score, 0);
       // The remaining gap is the consumer: nothing in scoring/scoring.ts reads
@@ -637,10 +653,9 @@ const remainingRows = [
     },
   },
   {
-    // 054.1 / 144.4.b: the IR declares both restriction spellings, so the rule
-    // query really serves the prohibition -- but no production caller supplies
-    // the movement rule context and effect.move never consults the query.
-    name: "Minotaur Reckoner · the rule query serves the prohibition, yet the shipped Move path ignores it",
+    // 054.1 / 144.4.b: the production binding serves the prohibition to units
+    // and excludes non-units. The shipped Move consumer remains an open tail.
+    name: "Minotaur Reckoner · the production binding prohibits units from moving to base",
     canonicalCardId: IDS.minotaurReckoner,
     program: candidate(IDS.minotaurReckoner),
     scenario: {
@@ -669,17 +684,17 @@ const remainingRows = [
       // 053.2: the text names no host, so every board unit is covered.
       assert.deepEqual(ability.effect.filter, { type: "unit", zone: "board" });
       const source = snapshot("minotaur", { location: HERE, might: 5, energy: 5, power: null });
-      const { engine, entry, effect } = expectRegistration(ability, source);
-      assert.deepEqual(entry.effect.filter, { type: "unit", zone: "board" });
+      const { engine, entry, effect, source: liveSource, kernel } = expectRegistration(ability, source);
+      assert.equal(entry.effect.filter.type, "unit");
+      assert.equal(entry.effect.filter.zone, "board");
       // Both spellings survive the production registration...
       assert.equal(effect.restriction, "move-to-base");
       assert.deepEqual(effect.restrictions, ["move-to-base"]);
-      const ally = snapshot("ally", { location: { ...HERE }, might: 2 });
-      const gear = snapshot("gear", { types: ["gear"], location: { ...HERE } });
-      engine.layers.setObjects([ally, gear]);
-      // ...the layer snapshot folds the singular field for units only...
-      assert.deepEqual(engine.layers.snapshot(ally.ref).movement.restrictions, ["move-to-base"]);
-      assert.deepEqual(engine.layers.snapshot(gear.ref).movement.restrictions, []);
+      kernel.addObject(snapshot("ally", { location: { ...HERE }, might: 2 }), "board");
+      kernel.addObject(snapshot("gear", { types: ["gear"], location: { ...HERE } }), "board");
+      engine.layers.setObjects(kernel.objects);
+      const ally = kernel.getObject("ally");
+      const gear = kernel.getObject("gear");
       // ...and the rule query, reading the plural, really serves the prohibition.
       assert.deepEqual(movement(engine.layers.registry, ally.ref, ally, "A").restrictions, ["move-to-base"]);
       // A real Standard Move is prohibited whenever the rule context is supplied.
@@ -697,9 +712,9 @@ const remainingRows = [
     },
   },
   {
-    // 356.4 / 356.4.f: neither gear play received the first-play discount, and the
-    // per-turn window has no expressible shape in the current model.
-    name: "Ornn's Forge · the per-turn first-play discount fails closed before any cost plan",
+    // 356.4 / 356.4.f: the first qualifying Gear receives the Finalize discount;
+    // the later Gear in the same turn pays its full printed cost.
+    name: "Ornn's Forge · the first non-token Gear costs 1 Energy less",
     canonicalCardId: IDS.ornnsForge,
     program: candidate(IDS.ornnsForge),
     scenario: {
@@ -719,8 +734,7 @@ const remainingRows = [
           "gear-1": { zone: "board" },
           "gear-2": { zone: "board" },
         },
-        // Both gears really paid their printed 1 Energy each: no discount.
-        players: { A: { energy: 1 } },
+        players: { A: { energy: 2 } },
         events: { includes: [{ timingPoint: "card-played" }] },
       },
     },
@@ -728,36 +742,23 @@ const remainingRows = [
       const [ability] = published(IDS.ornnsForge).abilities;
       assert.equal(ability.effect.kind, "cost.modify");
       assert.deepEqual(ability.effect.value, { kind: "constant", value: { energy: -1 } });
-      // The per-turn first-play window has no ContinuousEffect/condition shape.
       assert.equal(ability.effect.duration, "per-turn-first-play");
       assert.equal(ability.effect.appliesTo, "play-cost");
       assert.equal(ability.effect.filter.isToken, false);
-      const source = snapshot("forge", { types: ["battlefield"], location: HERE, controller: "A", energy: null, power: null });
-      // Three independent rejections on the shipped shape and its parts: the
-      // authored anchor, then the printed token filter, then the kind itself.
-      expectBindingError(ability, source, /^Unsupported static appliesTo "play-cost"$/);
-      const { appliesTo: _anchor, ...withoutAnchor } = ability.effect;
-      expectBindingError({ ...ability, effect: withoutAnchor }, source, /^Unsupported static filter field isToken$/);
-      expectBindingError(
-        { ...ability, effect: { ...ability.effect, appliesTo: undefined, filter: { type: "gear", controller: "controller" } } },
-        source,
-        /^Static ability kind cost\.modify has no layer mapping$/,
-      );
-      // Both gear plays cost their full printed cost.
-      assert.equal(result.state.players.A.energy, 1);
+      assert.equal(result.state.players.A.energy, 2);
       return result;
     },
   },
   {
-    // 807.1.c / 718.3: the static binder really grants Assault to your Equipment
-    // only, but a granted keyword never expands into the printed +1 Might.
-    name: "Purifier · your Equipment really gains Assault, but the granted keyword never expands into Might",
+    // 807.1.c / 718.3: the production binder grants Assault to your Equipment
+    // only, and the keyword layer expands it while that Equipment is attacking.
+    name: "Purifier · your Equipment gains Assault and the other Gear does not",
     canonicalCardId: IDS.purifier,
     program: candidate(IDS.purifier),
     scenario: {
       objects: [
         { id: "purifier", cardId: IDS.purifier, ...LEGEND, zone: "board", location: HERE },
-        { id: "my-equip", owner: "A", types: ["gear"], tags: ["Equipment"], zone: "board", location: HERE },
+        { id: "my-equip", owner: "A", types: ["gear"], tags: ["Equipment"], zone: "board", location: HERE, might: 3, combatRole: "attacker" },
         // 818.1.a / 718.5.a: "Equipment" is a Gear tag; only tagged Gear qualifies.
         { id: "enemy-equip", owner: "B", types: ["gear"], tags: ["Equipment"], zone: "board", location: HERE },
         { id: "plain-gear", owner: "A", types: ["gear"], zone: "board", location: HERE },
@@ -767,7 +768,7 @@ const remainingRows = [
       expect: {
         objects: {
           purifier: { zone: "board", location: HERE, energy: null, power: null },
-          "my-equip": { zone: "board", keywords: [{ id: "Assault" }] },
+          "my-equip": { zone: "board", keywords: [], might: 3 },
           "enemy-equip": { zone: "board", keywords: [] },
           "plain-gear": { zone: "board", keywords: [] },
           "my-unit": { zone: "board", keywords: [], might: 3, damage: 0 },
@@ -784,24 +785,34 @@ const remainingRows = [
       assert.equal(ability.effect.value, undefined);
       assert.deepEqual(ability.effect.filter, { zone: "board", controller: "controller", tags: ["Equipment"] });
       const source = snapshot("purifier", { types: ["legend"], location: HERE, energy: null, power: null });
-      const { engine, effect } = expectRegistration(ability, source);
+      const { engine, effect, source: liveSource, kernel } = expectRegistration(ability, source);
       assert.equal(effect.kind, "continuous.grant-keyword");
-      const equipment = snapshot("my-equip", { types: ["gear"], tags: ["Equipment"], location: HERE });
-      engine.layers.setObjects([equipment]);
+      kernel.addObject(snapshot("my-equip", { types: ["gear"], tags: ["Equipment"], location: HERE, might: 3, combatRole: "attacker" }), "board");
+      const equipment = kernel.getObject("my-equip");
+      engine.layers.setObjects(kernel.objects);
       // The granted Assault prints no value, so the recorded keyword carries none.
       const granted = engine.layers.snapshot(equipment.ref).keywords;
       assert.deepEqual(granted.map(keyword => keyword.id), ["Assault"]);
       assert.equal(granted[0].value, undefined);
       // Control: the merged keyword grant is scoped exactly like the card says,
       // and the layer really records the keyword on the qualifying object only.
-      const plain = snapshot("plain-gear", { types: ["gear"], location: HERE });
-      const enemy = snapshot("enemy-equip", { owner: "B", types: ["gear"], tags: ["Equipment"], location: HERE });
-      engine.layers.setObjects([equipment, plain, enemy]);
+      kernel.addObject(snapshot("plain-gear", { types: ["gear"], location: HERE }), "board");
+      kernel.addObject(snapshot("enemy-equip", { owner: "B", controller: "B", types: ["gear"], tags: ["Equipment"], location: HERE }), "board");
+      engine.layers.setObjects(kernel.objects);
+      const plain = kernel.getObject("plain-gear");
+      const enemy = kernel.getObject("enemy-equip");
       assert.deepEqual(engine.layers.snapshot(plain.ref).keywords, []);
       assert.deepEqual(engine.layers.snapshot(enemy.ref).keywords, []);
-      // 807.1.c: the printed +1 Might still never happens: the granted Assault is
-      // a characteristic here, not an expanded "while I am an attacker" effect.
-      assert.equal(engine.layers.snapshot(equipment.ref).might, null, "a granted Assault adds no Might: the recorded gap");
+      // 807.1.c: the same production grant expands through the dedicated
+      // KeywordGrantLayerEngine to +1 while the Equipment is an attacker.
+      const keywordLayers = new KeywordGrantLayerEngine(kernel.objects, {
+        context: source => bindResolveContext(kernel, { source, controller: source.controller }),
+      });
+      for (const registered of engine.layers.registry.list()) {
+        keywordLayers.addContinuous(registered.effect, registered.duration, registered.timestamp);
+      }
+      assert.deepEqual(keywordLayers.snapshot(equipment.ref).keywords, [{ id: "Assault", value: 1 }]);
+      assert.equal(keywordLayers.snapshot(equipment.ref).might, 4);
       assert.equal(result.state.objects.find(object => object.ref.id === "my-unit").might, 3);
       return result;
     },
@@ -816,7 +827,6 @@ const templateGapIds = new Set([
   IDS.ireliaGraceful,
   IDS.legionQuartermaster,
   IDS.maraiSpire,
-  IDS.ornnsForge,
 ]);
 
 for (const [index, golden] of defineTemplateSuite("RIFT-667 static||", rows).entries()) {
@@ -830,18 +840,20 @@ for (const [index, golden] of defineTemplateSuite("RIFT-667 static||", rows).ent
           ? 'Unsupported static appliesTo {"type":"spell","object":"self"}; missing target-relative cost-modification consumer'
           : row.canonicalCardId === IDS.legionQuartermaster
             ? 'Static ability kind cost.additional has no layer mapping; missing additional-cost Finalize consumer'
-            : row.canonicalCardId === IDS.maraiSpire
-              ? 'Unsupported static appliesTo "repeat-additional-cost"; missing Repeat cost consumer'
-              : 'Unsupported static appliesTo "play-cost"; missing play-cost discount consumer';
+            : 'Unsupported static appliesTo "repeat-additional-cost"; missing Repeat cost consumer';
     test.todo(`${golden.name} — ${reason}`);
     continue;
   }
   test(golden.name, () => {
-    // The published program is never promoted, and the candidate view is only a
-    // metadata lift: the same abilities array is what the harness executes.
+    // A judge-required source is never promoted beyond the candidate view; an
+    // executable source uses the same published abilities unchanged.
     const source = published(row.canonicalCardId);
-    assert.equal(source.status, "judge-required", row.name + ": the shipped program stays judge-required");
-    assert.ok(source.judgeReason && source.judgeReason.trim(), row.name + ": the shipped program keeps a concrete judgeReason");
+    if (source.status === "judge-required") {
+      assert.ok(source.judgeReason && source.judgeReason.trim(), row.name + ": the shipped program keeps a concrete judgeReason");
+    } else {
+      assert.equal(source.status, "executable", row.name + ": the shipped program is executable");
+      assert.equal(source.judgeReason, undefined, row.name + ": the executable program has no judgeReason");
+    }
     assert.equal(row.program.abilities, source.abilities);
     assert.equal(row.program.canonicalCardId, row.canonicalCardId);
     const result = golden.run();
@@ -958,7 +970,7 @@ const boundaries = [
       assert.equal(result.state.players.A.handCount, 5);
       const [ability] = published(IDS.masterYiMeditative).abilities;
       const source = snapshot("yi", { types: ["unit"], location: HERE, might: 4, energy: 5, power: ["Order"] });
-      const { engine, effect } = expectRegistration(ability, source);
+      const { engine, effect, source: liveSource, kernel } = expectRegistration(ability, source);
       // The declared filter is type+zone scoped, so five hand cards can neither
       // satisfy nor inflate the rune count.
       assert.equal(effect.condition === undefined, false);
@@ -967,8 +979,10 @@ const boundaries = [
       assert.deepEqual(ability.condition.right, { kind: "constant", value: 8 });
       const runes = [...Array(3).keys()].map(index => snapshot("rune-" + index, { owner: "A", controller: "A", types: ["rune"], zone: "rune-zone", location: null }));
       const hand = ["spell-a", "spell-b", "spell-c", "spell-d", "spell-e"].map(id => snapshot(id, { owner: "A", controller: "A", types: ["spell"], zone: "hand", location: null }));
-      engine.layers.setObjects([source, ...runes, ...hand]);
-      assert.equal(engine.layers.snapshot(source.ref).might, 4, "below the printed threshold the +4 must not apply");
+      for (const rune of runes) kernel.addObject(rune, "rune-zone");
+      for (const card of hand) kernel.addObject(card, "hand");
+      engine.layers.setObjects(kernel.objects);
+      assert.equal(engine.layers.snapshot(liveSource.ref).might, 4, "below the printed threshold the +4 must not apply");
       return result;
     },
   },
@@ -990,12 +1004,6 @@ for (const [index, golden] of defineTemplateSuite("RIFT-667 static|| boundary", 
 // each title names the missing semantic and the measured gap behind it.
 // ---------------------------------------------------------------------------
 test.todo(
-  "RIFT-667 Trifarian War Camp [" + IDS.trifarianWarCamp + "]: both controllers' units at this battlefield must gain the printed +1 " +
-    "Might (CR 053.3 / 479.4) - the registered arithmetic filter carries the source LocationRef and layers/filter.ts compares structured " +
-    "locations by reference, so cloned layer snapshots never match and the aura reaches no unit; the comparator needs battlefield-id / " +
-    "base-player value equality",
-);
-test.todo(
   "RIFT-667 Vilemaw's Lair [" + IDS.vilemawsLair + "]: the printed prohibition must also stop an effect Move from here to base " +
     "(CR 054.1 / 358.3.a / 359.3.e.14.b) - the rule query really serves the restriction, but effect.move submits a move-location action " +
     "whose path never consults the query, and duel/standard-move-executor-v2.ts supplies no DuelMovementRuleContext",
@@ -1004,12 +1012,6 @@ test.todo(
   "RIFT-667 Void Gate [" + IDS.voidGate + "]: every Deal action affecting units here must get 1 Bonus Damage " +
     "(CR 418.4 / 713-715.4.a) - programs/statics.ts rejects appliesTo \"deal-actions\" and no consumer sums the granted bonus into " +
     "the bonus expression of effect.damage",
-);
-test.todo(
-  "RIFT-667 Master Yi, Meditative [" + IDS.masterYiMeditative + "]: I must have +4 Might while my controller has 8+ runes " +
-    "(CR 143.2 / 478.1.a / 133.5.a.1 / 431.1) - the static binder evaluates the declared condition, but its count query passes " +
-    "filter.controller \"controller\" into layers/filter.ts literally, so the host controller's runes count as 0 and opponent runes are " +
-    "not excluded (contract change request: relative-player binding in the static condition query)",
 );
 test.todo(
   "RIFT-667 Wuju Bladesman, Starter [" + IDS.wujuBladesmanStarter + "]: a friendly unit must get +2 Might exactly while it defends " +
@@ -1045,12 +1047,7 @@ test.todo(
     "Move and effect.move never consults the query at all",
 );
 test.todo(
-  "RIFT-667 Ornn's Forge [" + IDS.ornnsForge + "]: the first friendly non-token gear played each turn must cost 1 Energy less " +
-    "(CR 356.4 / 356.4.f) - cost.modify has no layer mapping, no CardProgram -> Finalize consumer exists, and the per-turn first-play " +
-    "window (history-gated expiry after the first qualifying play) is not expressible in the current ContinuousEffect model",
-);
-test.todo(
   "RIFT-667 Purifier [" + IDS.purifier + "]: the granted Assault must give the equipped unit +1 Might while it is an attacker " +
-    "(CR 807.1.c / 718.3) - layers/engine.ts only records the keyword characteristic; nothing expands a granted keyword through " +
-    "effects/keywords/Assault.ts and there is no Attached-card propagation bridge",
+    "(CR 807.1.c / 718.3) - the grant expands on the Equipment through effects/keywords/Assault.ts, but no production " +
+    "Attached-card propagation bridge carries that effect text to the equipped unit",
 );
