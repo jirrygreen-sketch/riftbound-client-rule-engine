@@ -187,24 +187,39 @@ test("sfd-155-221 Honest Broker boundary: the authored Gold token creates and pl
   assert.equal(created[0].exhausted, true);
 });
 
-test("sfd-155-221 Honest Broker: the authored trigger and Deathknell expansion both register", () => {
-  // Gold now resolves through the canonical definition above. The trigger
-  // admission path is exercised separately with an executable view.
+test("sfd-155-221 Honest Broker boundary: the entry-state stipulation is carried by effect.token", () => {
+  // 184.1 / 185.2.d: the authored `entersExhausted` field is a token entry
+  // stipulation and is applied by the creation Play rather than a later Exhaust.
+  const kernel = brokerKernel();
+  const outcome = resolveChainBody([chooseLocation, instruction], kernel);
+  assert.equal(outcome.status, "executed");
+  const created = kernel.query({ zone: "board", type: "gear" }).filter((object) => object.isToken);
+  assert.equal(created.length, 1);
+  assert.equal(created[0].exhausted, true);
+  assert.equal(outcome.events.filter((event) => event.action === "exhaust").length, 0);
+});
+
+test("sfd-155-221 Honest Broker: the object-killed trigger and the Deathknell expansion both register in a real pipeline", () => {
+  // The subscription path itself is merged: the authored trigger and the
+  // keyword expansion both register.
   const binding = createProgramBinding({
     cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
   });
   const kernel = brokerKernel();
   const pipeline = pipelineFor(kernel);
   const source = { ...kernel.getObject("honest-broker"), cardId: CANONICAL };
-  assert.throws(
-    () => binding.registerProgramTriggers({ pipeline }, source),
-    error => error.code === "judge-required" && /Unsupported filter field cause/.test(error.message)
-  );
-  assert.equal(pipeline.triggers.size, 0);
-  // 808.1.d: the Deathknell expansion and trigger.leave opcode are present.
+  const ids = binding.registerProgramTriggers({ pipeline }, source);
+
+  assert.equal(ids.length, 2);
+  assert.equal(pipeline.triggers.size, 2);
+  const specs = [...pipeline.triggers.values()].map((registration) => registration.spec);
+  assert.deepEqual(specs.map((spec) => spec.at), ["object-killed", "object-killed"]);
+  assert.deepEqual(specs[0].filter, { object: { objectId: "honest-broker" }, event: "object-killed" });
+  assert.deepEqual(specs[1].filter, { object: { objectId: "honest-broker" }, event: "object-killed" });
+  // 808.1.d: the Deathknell expansion's body is available in the registry.
   const deathknellAbility = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL } });
   assert.deepEqual(deathknellAbility[0].body.map((body) => body.op), ["trigger.leave"]);
-  assert.equal(instructionDefinitionsById.has("trigger.leave"), true);
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
 });
 
 test.todo(
