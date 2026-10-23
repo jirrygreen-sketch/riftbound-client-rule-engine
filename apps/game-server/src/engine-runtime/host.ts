@@ -145,6 +145,9 @@ export class EngineRuntimeHost {
   private readonly objectMap = new Map<string, MutableObject>();
   private readonly players = new Map<PlayerId, MutablePlayer>();
   private readonly lastKnown = new Map<string, ObjectSnapshot>();
+  /** A choice may be raised after an uncommitted move; retain only those exact
+   * option incarnations until the caller answers and replays the transaction. */
+  private readonly choiceObjects = new Map<string, ObjectSnapshot>();
   private nextToken = 1;
   private readonly grants: RuntimeVisibilityGrant[] = [];
   private readonly runeDomainsByObject = new Map<string, readonly Domain[]>();
@@ -154,7 +157,7 @@ export class EngineRuntimeHost {
 
   constructor(
     readonly seatNames: Readonly<Record<PlayerId, string>> = { A: "Player A", B: "Player B" },
-    readonly choose: <T>(request: ChoiceRequest<T>) => T,
+    private readonly chooseDelegate: <T>(request: ChoiceRequest<T>) => T,
     catalogDomains: ReadonlyMap<string, readonly Domain[]> = new Map(),
   ) {
     for (const [cardId, values] of catalogDomains) {
@@ -235,7 +238,33 @@ export class EngineRuntimeHost {
 
   object(ref: ObjectRef): ObjectSnapshot | null {
     const object = this.objectMap.get(ref.id);
-    return object && object.ref.zoneEntryId === ref.zoneEntryId ? clone(object) : null;
+    if (object && object.ref.zoneEntryId === ref.zoneEntryId) return clone(object);
+    return clone(this.choiceObjects.get(refKey(ref)) ?? null);
+  }
+
+  /** Ask for exactly one decision. Object options retain the transaction's
+   * precise snapshots across the rollback that suspends the decision. */
+  choose<T>(request: ChoiceRequest<T>): T {
+    const prior = new Map(this.choiceObjects);
+    this.choiceObjects.clear();
+    if (request.type === "select-objects" || request.type === "order") {
+      for (const ref of request.options) {
+        const object = this.objectMap.get(ref.id);
+        if (object?.ref.zoneEntryId === ref.zoneEntryId) this.choiceObjects.set(refKey(ref), clone(object));
+      }
+    }
+    try {
+      const answer = this.chooseDelegate(request);
+      for (const [key, object] of prior) if (!this.choiceObjects.has(key)) this.choiceObjects.set(key, object);
+      this.choiceObjects.clear();
+      return answer;
+    } catch (error) {
+      // The outer transaction owns whether this is a pending choice or a
+      // rejected command. Restore its exact set while the error unwinds; the
+      // next actual state action retires any choice-only view.
+      for (const [key, object] of prior) if (!this.choiceObjects.has(key)) this.choiceObjects.set(key, object);
+      throw error;
+    }
   }
 
   lastKnownObject(ref: ObjectRef): ObjectSnapshot {
@@ -303,6 +332,9 @@ export class EngineRuntimeHost {
   }
 
   perform(action: GameAction): ActionOutcome {
+    // A suspended choice is the only reader allowed to observe the rolled-back
+    // option incarnations. Any new state action retires that narrow view.
+    this.choiceObjects.clear();
     try {
       switch (action.type) {
         case "create-token": return this.createToken(action.player, action.token, action.to, action.location);
@@ -381,6 +413,7 @@ export class EngineRuntimeHost {
 
   /** Versioned direct consumer for actions outside the closed GameAction union. */
   performContract(action: ContractGameAction): ActionOutcome {
+    this.choiceObjects.clear();
     const checkpoint = this.checkpoint();
     const outcome = this.performContractInternal(action);
     if (outcome.status !== "done") this.restore(checkpoint);
