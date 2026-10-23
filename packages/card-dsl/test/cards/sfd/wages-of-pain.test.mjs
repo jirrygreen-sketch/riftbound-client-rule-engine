@@ -231,7 +231,7 @@ test("sfd-070-221 Wages of Pain: names the two exact remaining production gaps",
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /effect\.token\.ts:343-371/);
-  assert.match(program.judgeReason, /effects\/testing\/test-kernel\.ts:651-664/);
+  assert.match(program.judgeReason, /chain\/engine\.ts:1593-1595/);
   assert.match(program.judgeReason, /programs\/play\.ts:126-165/);
   assert.match(program.judgeReason, /811\.1\.d\.5/);
   assert.match(program.judgeReason, /Gold gear token/);
@@ -362,6 +362,8 @@ test("sfd-070-221 Wages of Pain production boundary: pays 3, damages, creates Go
 
   const [gold] = f.kernel.objects.filter((object) => object.isToken && object.cardId === GOLD_ID);
   assert.ok(gold, "Wages of Pain creates and plays its Gold carrier");
+  assert.equal(f.kernel.events.some((event) => event.action === "ready"), true,
+    "ChainEngine applies its Gear-entry ready commit");
   const receipt = f.kernel.linked("play-gold-token.goldToken");
   assert.equal(receipt.amount, 1);
   assert.equal(receipt.createdAmount, 1);
