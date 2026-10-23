@@ -562,6 +562,8 @@ test("sfd-070-221 Wages of Pain: played Gold binds 187.5 and Adds one Universal 
   assert.deepEqual(f.kernel.events.map((event) => event.action).filter(Boolean), [
     "pay", "exhaust", "kill", "gain-power"
   ]);
+  assert.equal(f.engine.trace.some((entry) => entry.step === "priority-granted" && entry.item === draft.id), false,
+    "an Add finalizes and resolves without passing Priority or Focus");
   assert.equal(f.kernel.getObject("gold-token").zone, "trash");
   assert.equal(f.kernel.getObject("gold-token").exhausted, true);
   assert.deepEqual(f.kernel.player("A").power, ["Mind", "universal"]);
@@ -761,6 +763,9 @@ test("sfd-070-221 Wages of Pain Hidden production: Reaction Play applies damage 
   assert.equal(f.flow.hidden().zones.bf1.cards.length, 1);
   assert.equal(f.kernel.getObject("hidden-victim").damage, 0);
   assert.equal(f.kernel.objects.some((object) => object.isToken && object.cardId === GOLD_ID), false);
+  const trace = f.flow.chain.trace;
+  assert.equal(trace.some((entry) => entry.step === "priority-granted"), true,
+    "the ordinary Chain still grants Priority at its legal response window");
 });
 
 test("sfd-070-221 Wages of Pain Hidden production: 811.1.d.2 scopes the target to bf1", () => {
