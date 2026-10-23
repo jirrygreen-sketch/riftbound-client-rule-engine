@@ -6,6 +6,7 @@ import { cardProgramsById } from "../../../../packages/card-dsl/dist/cards/regis
 import rumbleHotheaded from "../../../../packages/card-dsl/dist/cards/sfd/rumble-hotheaded.js";
 import type { ProgramBinding } from "../../../../packages/engine-core/dist/programs/index.js";
 import type { EngineRuntime, EngineRuntimeOptions } from "../../src/engine-runtime/index.js";
+import { createEngineRuntime } from "../../src/engine-runtime/index.js";
 import { loadCardCatalogRuntime } from "../../src/card-catalog.js";
 import { GameRoom } from "../../src/room.js";
 
@@ -192,6 +193,28 @@ describe("RIFT-993 server ProgramBinding printed catalog", () => {
     };
     const booted = await bootRoomFromCatalog(conflicting);
     expect(booted.binding.printedCatalog(BREAKNECK)).toBeUndefined();
+  }, 420_000);
+
+  it("binds the server-projected printed catalog in default MatchRuntime without a room-sized deck", async () => {
+    cardProgramsById.set(RUMBLE, admittedRumble);
+    const booted = await bootRoom();
+    const card = booted.runtimeOptions.decks[0].mainDeck.find(entry => entry.cardId === BREAKNECK);
+    if (card === undefined) throw new Error("Breakneck must remain in the server runtime deck");
+    const runtime = createEngineRuntime({
+      ...booted.runtimeOptions,
+      decks: [
+        { ...booted.runtimeOptions.decks[0], mainDeck: [card, ...booted.runtimeOptions.decks[0].mainDeck.slice(0, 5)] },
+        { ...booted.runtimeOptions.decks[1], mainDeck: booted.runtimeOptions.decks[1].mainDeck.slice(0, 6) },
+      ],
+      seed: "printed-catalog-binding",
+      firstPlayer: "A",
+      battlefieldChoice: [0, 0],
+      mulligans: [[], []],
+    }).start();
+    const binding = (runtime as unknown as { readonly binding: ProgramBinding }).binding;
+    expect(binding.printedCatalog(BREAKNECK)).toEqual({
+      id: "sfd-071-221", cardType: "Unit", domains: ["Mind"], energy: 8, power: 2,
+    });
   }, 420_000);
 
 });
