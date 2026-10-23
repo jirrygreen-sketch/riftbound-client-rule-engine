@@ -70,6 +70,8 @@ interface MutablePlayer {
 }
 interface WorldState {
   objects: Map<string, MutableObject>;
+  /** Exact incarnations created by setup into the Legend Zone (CR 107.4.d). */
+  championLegends: Set<string>;
   players: Map<PlayerId, MutablePlayer>;
   lastKnown: Map<string, ObjectSnapshot>;
   pending: Map<string, TestPendingItem>;
@@ -83,13 +85,18 @@ interface WorldState {
   randomState: number;
 }
 
-const ZONES: readonly ZoneId[] = ["hand", "deck", "rune-deck", "trash", "banishment", "board", "rune-zone", "chain"];
+const ZONES: readonly ZoneId[] = ["hand", "deck", "rune-deck", "trash", "banishment", "board", "rune-zone", "chain", "legend"];
 const DOMAINS: readonly Domain[] = ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"];
-function emptyZones(): Record<ZoneId, string[]> { return { hand: [], deck: [], "rune-deck": [], trash: [], banishment: [], board: [], "rune-zone": [], chain: [] }; }
+function emptyZones(): Record<ZoneId, string[]> { return { hand: [], deck: [], "rune-deck": [], trash: [], banishment: [], board: [], "rune-zone": [], chain: [], legend: [] }; }
 const cloneRef = (ref: ObjectRef): ObjectRef => ({ id: ref.id, zoneEntryId: ref.zoneEntryId });
 const refKey = (ref: ObjectRef): string => `${ref.id}:${ref.zoneEntryId}`;
 const copySnapshot = (snapshot: ObjectSnapshot): ObjectSnapshot => structuredClone(snapshot);
 const asValue = (value: unknown): Value => value as Value;
+function destinationZone(destination: ZoneDestination | "board"): ZoneId {
+  if (destination === "deck-top" || destination === "deck-bottom") return "deck";
+  if (destination === "base" || destination === "battlefield") return "board";
+  return destination;
+}
 
 function makeEvent(state: WorldState, action: ContractGameAction["type"], timingPoint: TimingPointId, details: Record<string, unknown> = {}): TestEvent {
   const event = {
@@ -141,6 +148,7 @@ function defaultObject(id: string, owner: PlayerId, values: Partial<ObjectSnapsh
 function freshState(seed: number): WorldState {
   const state: WorldState = {
     objects: new Map(),
+    championLegends: new Set(),
     players: new Map(),
     lastKnown: new Map(),
     pending: new Map(),
@@ -194,11 +202,21 @@ export class TestWorld implements ResolveContext {
   addReplacement(hook: ReplacementHook): void { this.state.replacements.push(hook); }
   registerReplacement(hook: ReplacementHook): void { this.addReplacement(hook); }
   addObject(object: ObjectSnapshot, zone?: ZoneId): ObjectRef {
+    for (const key of this.state.championLegends) {
+      if (key.startsWith(object.ref.id + ":")) this.state.championLegends.delete(key);
+    }
     const mutable = defaultObject(object.ref.id, object.owner, { ...object, zone: zone ?? object.zone });
     this.removeFromZones(mutable.ref.id);
     this.state.objects.set(mutable.ref.id, mutable);
     this.putInZone(mutable, mutable.zone);
     return cloneRef(mutable.ref);
+  }
+  /** Create a Champion Legend fixture through the same identity rule as setup. */
+  addChampionLegend(object: ObjectSnapshot): ObjectRef {
+    if (!object.types.some(type => type.toLowerCase() === "legend")) throw new TypeError("A Champion Legend must have type legend");
+    const ref = this.addObject({ ...object, zone: "legend", location: null }, "legend");
+    this.state.championLegends.add(refKey(ref));
+    return ref;
   }
   addPlayer(id: PlayerId, values: Partial<Pick<MutablePlayer, "energy" | "power" | "xp" | "score">> = {}): void { if (!this.state.players.has(id)) this.state.players.set(id, { id, energy: 0, power: [], runes: [], xp: 0, score: 0, zones: emptyZones() }); const player = this.state.players.get(id)!; Object.assign(player, values); }
   playerIds(): readonly PlayerId[] { return [...this.state.players.keys()]; }
@@ -373,7 +391,7 @@ export class TestWorld implements ResolveContext {
         events.push(makeEvent(this.state, 'kill', this.timingPoint, { batchId }));
         this.state.history.push({ action: structuredClone(actions[index]!), object: confirmed[index]!, timingPoint: this.timingPoint, turn: 1, combat: 0 });
       }
-      return {
+      const result: ContractActionExecution = {
         outcome: {
           status: 'done',
           events,
@@ -385,6 +403,7 @@ export class TestWorld implements ResolveContext {
         },
         steps,
       };
+      return result;
     } catch (error) {
       this.restore(checkpoint);
       throw error;
@@ -606,13 +625,17 @@ export class TestWorld implements ResolveContext {
       case "add-counter": case "remove-counter": { const object = this.current(action.object); if (!object || action.amount < 0) return fail(); const prior = object.counters.get(action.counter) ?? 0; const next = action.type === "add-counter" ? prior + action.amount : Math.max(0, prior - action.amount); object.counters.set(action.counter, next); return done(next as Value); }
       case "create-token": {
         if (!this.state.players.has(action.player)) return fail();
+        const isLegendToken = action.token.types.some(type => type.toLowerCase() === "legend");
+        if (isLegendToken !== (action.to === "legend") ||
+            action.token.championLegend === true && !isLegendToken) return fail("prevented");
         let id: string;
         do { id = `token-${this.state.nextToken++}`; } while (this.state.objects.has(id));
         const zone = action.to;
         const ref = this.addObject(defaultObject(id, action.player, {
           ...action.token, ref: { id, zoneEntryId: 1 }, zone,
-          location: zone === "chain" ? null : action.location, isToken: true
+          location: zone === "chain" || zone === "legend" ? null : action.location, isToken: true
         }), zone);
+        if (zone === "legend" && action.token.championLegend === true) this.state.championLegends.add(refKey(ref));
         if (zone === "chain") this.state.pending.set(id, { object: cloneRef(ref), controller: action.player, status: "pending" });
         return done(asValue(ref), { objectId: id, ...(zone === "chain" ? { timingPoint: "chain-item-pending" } : {}) });
       }
@@ -620,6 +643,10 @@ export class TestWorld implements ResolveContext {
       case "play": {
         const object = this.current(action.object);
         if (!object || !this.state.players.has(action.player)) return fail();
+        // Legends established in the Legend Zone are never played to Board
+        // (CR v1.5 107.4 / 174.2.a / 174.4). Synthetic legacy fixtures that
+        // already model a Legend on Board remain outside this guard.
+        if (object.zone === "legend" && object.types.some(type => type.toLowerCase() === "legend")) return fail("prevented");
         if (action.cost) {
           const payment = this.apply({ type: "pay", player: action.player, plan: action.cost });
           if (payment.status !== "done") return payment;
@@ -645,6 +672,14 @@ export class TestWorld implements ResolveContext {
   private moveAction(ref: ObjectRef, destination: ZoneDestination | "board", done: (result?: Value, details?: Record<string, unknown>) => ActionOutcome, fail: (status?: "impossible" | "prevented") => ActionOutcome, location?: LocationRef, bottom = destination === "deck-bottom"): ActionOutcome {
     const object = this.current(ref);
     if (!object) return fail();
+    // A Champion Legend is established once and cannot be removed, moved, or
+    // displaced from the Legend Zone (CR v1.5 107.4.d / 174.4). Non-Champion
+    // Legends can leave only into Banishment (107.4.d.2). `create-token` is the
+    // sole establishment path, so arbitrary test fixtures that already place a
+    // Legend on Board remain the explicit legacy setup case.
+    if (object.zone === "legend" && this.state.championLegends.has(refKey(object.ref))) return fail("prevented");
+    if (object.zone === "legend" && object.types.some(type => type.toLowerCase() === "legend") &&
+        destination !== "banishment") return fail("prevented");
     this.moveCurrent(object, destination, location, bottom);
     return done();
   }
@@ -655,7 +690,7 @@ export class TestWorld implements ResolveContext {
     object.ref = { id: object.ref.id, zoneEntryId: object.ref.zoneEntryId + 1 };
     object.combatRole = null;
     object.location = location ?? (destination === "base" ? { type: "base", player: object.controller } : destination === "battlefield" ? { type: "battlefield", id: "battlefield-1" } : null);
-    object.zone = destination === "deck-top" || destination === "deck-bottom" ? "deck" : destination === "rune-deck" ? "rune-deck" : destination === "rune-zone" ? "rune-zone" : destination === "banishment" ? "banishment" : destination === "hand" ? "hand" : destination === "trash" ? "trash" : destination === "chain" ? "chain" : "board";
+    object.zone = destinationZone(destination);
     this.putInZone(object, object.zone, bottom);
   }
   private putInZone(object: MutableObject, zone: ZoneId, bottom = false): void {
@@ -674,6 +709,7 @@ export class TestWorld implements ResolveContext {
     return {
       ...this.state,
       objects: new Map([...this.state.objects].map(([id, object]) => [id, { ...object, ref: cloneRef(object.ref), counters: new Map(object.counters) }])),
+      championLegends: new Set(this.state.championLegends),
       players: new Map([...this.state.players].map(([id, player]) => [id, { ...player, power: [...player.power], runes: [...player.runes], zones: Object.fromEntries(ZONES.map(zone => [zone, [...player.zones[zone]]])) as Record<ZoneId, string[]> }])),
       lastKnown: new Map([...this.state.lastKnown].map(([key, value]) => [key, copySnapshot(value)])),
       pending: new Map([...this.state.pending].map(([id, item]) => [id, { ...item, object: cloneRef(item.object) }])),

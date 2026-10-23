@@ -1,5 +1,5 @@
 import type { EventPattern, ObjectFilter, TargetSpec } from '@riftbound/card-dsl';
-import type { ObjectFilter as EngineObjectFilter } from '../effects/contract.js';
+import type { ObjectFilter as EngineObjectFilter, ObjectSnapshot } from '../effects/contract.js';
 import { EVENT_PATTERN_TYPES, canonicalEventPatternType, validateEventPattern } from '../events/trigger-spec.js';
 import { ProgramBindingError } from './errors.js';
 
@@ -29,6 +29,22 @@ const scalarFields = new Set([
 ]);
 const relations = new Set(['same-location', 'different-location', 'same-controller', 'different-controller', 'same-owner', 'different-owner', 'another', 'other']);
 const symbolicId = /^[a-z][a-z0-9._:-]*$/;
+
+/**
+ * Resolve the Battlefield Location occupied by an object. A Battlefield on the
+ * Board is both a Location and the Game Object at that Location, even when its
+ * runtime Location field is null (CR v1.5 199.1). Units and other Board objects
+ * continue to use their explicit Location.
+ */
+export function battlefieldLocationOf(
+  object: Pick<ObjectSnapshot, 'ref' | 'location' | 'zone' | 'types'> | undefined,
+): string | null {
+  if (object?.location?.type === 'battlefield') return object.location.id;
+  if (object?.zone === 'board' && object.types.some(type => type.toLowerCase() === 'battlefield')) {
+    return object.ref.id;
+  }
+  return null;
+}
 
 function selector(value: unknown): unknown {
   if (value === 'self' || value === 'source') return value;

@@ -1,4 +1,5 @@
 import type { ObjectSnapshot } from '../effects/contract.js';
+import { battlefieldLocationOf } from '../programs/filters.js';
 import { canonicalEventPatternType, type EventPattern, type ObjectFilter, type PlayerSelector } from './trigger-spec.js';
 import type { PipelineEvent } from './pipeline-types.js';
 
@@ -14,10 +15,6 @@ function playerMatches(selector: PlayerSelector | undefined, player: string | un
   if (player === undefined) return false;
   return typeof selector === 'object' ? selector.playerId === player : selector === 'self' ? player === controller : player !== controller;
 }
-function battlefieldId(location: ObjectSnapshot['location'] | undefined): string | null {
-  return location?.type === 'battlefield' ? location.id : null;
-}
-
 function eventBattlefieldId(event: PipelineEvent): string | null {
   const id = (event.details as Readonly<Record<string, unknown>> | undefined)?.battlefieldId;
   return typeof id === 'string' && id.length > 0 ? id : null;
@@ -32,8 +29,8 @@ export function matchesTriggerObject(
 ): boolean {
   if (!object) return Object.keys(filter).length === 0;
   if (filter.here !== undefined) {
-    const anchorField = battlefieldId(source?.location);
-    if (filter.here !== true || anchorField === null || battlefieldId(object.location) !== anchorField ||
+    const anchorField = battlefieldLocationOf(source);
+    if (filter.here !== true || anchorField === null || battlefieldLocationOf(object) !== anchorField ||
         eventField !== undefined && eventField !== anchorField) return false;
   }
   if (filter.objectId !== undefined && object.ref.id !== filter.objectId) return false;
@@ -88,10 +85,10 @@ export function matchesTriggerEvent(
   if (kind !== undefined && (EVENT_NAMES[kind] ?? kind) !== (EVENT_NAMES[actual] ?? actual)) return false;
   const field = eventBattlefieldId(event);
   if (pattern.here !== undefined) {
-    if (pattern.here !== true || field === null || battlefieldId(source?.location) !== field) return false;
+    if (pattern.here !== true || field === null || battlefieldLocationOf(source) !== field) return false;
   }
   if ((pattern.object?.here === true || pattern.it?.here === true) &&
-      (field === null || battlefieldId(source?.location) !== field)) return false;
+      (field === null || battlefieldLocationOf(source) !== field)) return false;
   for (const key of ['object', 'source', 'target'] as const) {
     if (pattern[key] && !matchesTriggerObject(pattern[key], event[key], controller, source, field)) return false;
   }

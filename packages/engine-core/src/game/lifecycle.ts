@@ -247,8 +247,15 @@ function deckIds(zone: DeckZone, host: MatchHost, player: PlayerId): string[] {
     .map(object => object.ref.id);
 }
 
-function createToken(host: MatchHost, player: PlayerId, token: ReturnType<typeof tokenCard>): string {
-  const outcome = execute(host, { type: 'create-token', player, token, to: 'chain' });
+function createToken(
+  host: MatchHost,
+  player: PlayerId,
+  token: ReturnType<typeof tokenCard>,
+  destination: 'chain' | 'legend' = 'chain',
+): string {
+  const outcome = execute(host, destination === 'legend'
+    ? { type: 'create-token', player, token, to: 'legend' }
+    : { type: 'create-token', player, token, to: 'chain' });
   const created = outcome.status === 'done' && 'result' in outcome ? outcome.result as { id: string } | undefined : undefined;
   if (!created || typeof created.id !== 'string') {
     throw new Error('Match setup token was not created');
@@ -324,7 +331,7 @@ function objectPower(card: MatchCard): readonly Domain[] | null {
   return domains;
 }
 
-function tokenCard(card: MatchCard, types: readonly string[]) {
+function tokenCard(card: MatchCard, types: readonly string[], championLegend = false) {
   const normalizedTypes = types.map(type => type.trim().toLowerCase());
   if (normalizedTypes.includes('legend') || normalizedTypes.includes('champion')) {
     return {
@@ -335,6 +342,7 @@ function tokenCard(card: MatchCard, types: readonly string[]) {
       might: null,
       energy: null,
       power: null,
+      ...(championLegend ? { championLegend: true as const } : {}),
     };
   }
   return {
@@ -369,11 +377,20 @@ function pickBattlefields(
   if (!Number.isInteger(pick) || pick < 0 || pick > 2) {
     throw new RangeError('battlefieldChoice must be 0, 1 or 2');
   }
-  const issued: string[] = [];
   for (const [index, card] of deck.battlefields.entries()) {
     const id = createToken(host, player, tokenCard(card, ['battlefield']));
-    issued.push(id);
     if (index === pick) {
+      // CR 133.6.a.1 / 170.2.b / 199.1 / 440.2.b.5 / 487.5: the selected
+      // Battlefield starts on the Board at its own Location. create-token must
+      // produce the object identity first, so this is the same real token
+      // incarnation moved immediately to its self-location rather than a
+      // second registration or a synthetic object written by test code.
+      execute(host, {
+        type: 'move-zone',
+        object: requireRef(host, id),
+        to: 'battlefield',
+        location: { type: 'battlefield', id },
+      });
       report.battlefields.push({ id, cardId: card.cardId ?? null, controller: null, contestedBy: null, staged: 'none' });
     }
     else report.removedBattlefields[player]!.push(card.cardId ?? card.id);
@@ -573,9 +590,11 @@ export function createMatch(options: MatchOptions): Match {
     mulligans: { A: [], B: [] } as Record<PlayerId, string[]>,
     burnOuts: { A: 0, B: 0 } as Record<PlayerId, number>,
   };
-  // CR 111/112 (+ 174.2): legends and the chosen champion start outside every deck.
+  // CR 107.4 / 111: the Champion Legend is established in its public Legend
+  // Zone for the whole game (174.2.b); CR 112 keeps the Chosen Champion in the
+  // existing Champion placement path.
   for (const seat of [{ id: 'A', deck: deckA! }, { id: 'B', deck: deckB! }] as const) {
-    createToken(host, seat.id, tokenCard(seat.deck.championLegend, ['legend']));
+    createToken(host, seat.id, tokenCard(seat.deck.championLegend, ['legend'], true), 'legend');
     report.legendZone[seat.id] = [seat.deck.championLegend.cardId ?? seat.deck.championLegend.id];
     createToken(host, seat.id, tokenCard(seat.deck.chosenChampion, ['champion']));
     report.championZone[seat.id] = [seat.deck.chosenChampion.cardId ?? seat.deck.chosenChampion.id];
@@ -584,6 +603,17 @@ export function createMatch(options: MatchOptions): Match {
   const choices = options.battlefieldChoice;
   pickBattlefields(deckA!, 'A', host, report, choices?.[0], random);
   pickBattlefields(deckB!, 'B', host, report, choices?.[1], random);
+  if (options.battlefieldControllers !== undefined) {
+    if (options.battlefieldControllers.length !== report.battlefields.length) {
+      throw new TypeError('battlefieldControllers must match the selected Battlefields');
+    }
+    for (const [index, controller] of options.battlefieldControllers.entries()) {
+      if (controller !== null && !turnOrder.includes(controller)) {
+        throw new TypeError('battlefieldControllers requires known players');
+      }
+      Object.assign(report.battlefields[index]!, { controller });
+    }
+  }
   // CR 114: create into zones, then shuffle each deck separately from the match seed.
   for (const seat of [{ id: 'A', deck: deckA! }, { id: 'B', deck: deckB! }] as const) {
     for (const zone of DECK_ZONES) {
@@ -629,6 +659,7 @@ export function createMatch(options: MatchOptions): Match {
     ...(programBinding === undefined ? {} : { describePlay: programBinding.describePlay }),
   });
   flow.start();
+  flow.chain.initializeBattlefieldControl(report.battlefields);
   for (const field of flow.battlefields) {
     const reported = report.battlefields.find(value => value.id === field.id);
     if (reported) {
@@ -644,12 +675,6 @@ export function createMatch(options: MatchOptions): Match {
       const object = host.objects().find(candidate => candidate.ref.id === id);
       return object?.cardId ?? id;
     });
-  }
-  if (options.battlefieldControllers) {
-    // Control projection stays host-level; the combat flow derives it from
-    // battlefield occupancy each cleanup (CR 190.4), so any pre-flow write is
-    // stripped before the first cleanup can observe it.
-    throw new TypeError('battlefieldControllers is not supported by this rules layer');
   }
   const match: Match = {
     rulesetVersion: RULESET_VERSION,

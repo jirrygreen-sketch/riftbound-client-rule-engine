@@ -109,7 +109,13 @@ export function executeGameCommand(context: GameCommandExecutionContext, actor: 
         if (source.zone !== 'hand') throw new GameCommandError('illegal-play-zone', 'Play requires a card in your hand');
         draft = context.binding.describePlay({ type: 'play', player: actor, object: source.ref }, source);
       } else {
-        if (source.zone !== 'board') throw new GameCommandError('illegal-activation-zone', 'Activation requires a board object');
+        const isLegend = source.types.some(type => type.toLowerCase() === 'legend');
+        if (isLegend ? source.zone !== 'legend' : source.zone !== 'board') {
+          throw new GameCommandError(
+            'illegal-activation-zone',
+            'Activation requires a board object or a Legend in the Legend Zone',
+          );
+        }
         const index = Number(command.abilityId);
         if (!Number.isSafeInteger(index) || index < 0 || String(index) !== command.abilityId) {
           throw new GameCommandError('unknown-ability', 'Unknown activated ability');

@@ -1,4 +1,4 @@
-import type { CostPlanInput } from '../../cost/plan-types.js';
+import type { CostPlanInput, LeadingCostReceiptBinding } from '../../cost/plan-types.js';
 import type { Instruction, ObjectSnapshot } from '../../effects/contract.js';
 import type { TargetRequirement } from '../../target/target-plan.js';
 import { costPayArgsToCostSpec } from './finalize-cost.js';
@@ -14,11 +14,31 @@ const constantArray = (expression: unknown): readonly unknown[] | undefined =>
 export const isCostPay = (instruction: unknown): instruction is Instruction & { readonly args: Record<string, unknown> } =>
   isRecord(instruction) && (instruction as { op?: unknown }).op === 'cost.pay' && isRecord((instruction as { args?: unknown }).args);
 
+/**
+ * A leading cost is removed from Resolve after Finalize pays it. Keep an
+ * explicit bridge under the authored instruction id so Resolve can read the
+ * exact cost receipt without reviving or paying the instruction again.
+ */
+export const LEADING_COST_RECEIPT_LINK = '__riftbound.leading-cost-receipt' as const;
+
+/** Authored optional nodes below a leading may are resolved by the interpreter. */
+export const LEADING_MAY_RESOLVE_OPTIONAL = '__riftbound.resolve-optional' as const;
+
+type NestedResolveOptional = Instruction & { readonly [LEADING_MAY_RESOLVE_OPTIONAL]?: true };
+
+const isNestedResolveOptional = (instruction: Instruction): boolean =>
+  (instruction as NestedResolveOptional)[LEADING_MAY_RESOLVE_OPTIONAL] === true;
+
 const hasNestedControlBody = (instruction: Instruction): boolean => {
   const body = instruction.args?.body;
   if (!isRecord(body) || !('value' in body)) return false;
   return ['constant', 'literal'].includes(String(body.kind)) && Array.isArray(body.value);
 };
+
+function markResolveOptional(instruction: Instruction): Instruction {
+  if (instruction.op !== 'choice.optional' || isNestedResolveOptional(instruction)) return instruction;
+  return { ...instruction, [LEADING_MAY_RESOLVE_OPTIONAL]: true } as NestedResolveOptional;
+}
 
 function hoistTargets(instruction: Instruction): { readonly instruction: Instruction; readonly targets: readonly TargetRequirement[] } {
   if (!instruction.targets?.length) return { instruction, targets: [] };
@@ -26,16 +46,56 @@ function hoistTargets(instruction: Instruction): { readonly instruction: Instruc
   return { instruction: withoutTargets as Instruction, targets: instruction.targets as readonly TargetRequirement[] };
 }
 
-/** A removed Finalize instruction has no Resolve-scope result or receipt. */
-function referencesInstruction(value: unknown, instructionId: string): boolean {
-  if (Array.isArray(value)) return value.some(item => referencesInstruction(item, instructionId));
-  if (!isRecord(value)) return false;
-  if (['linked', 'linked-value'].includes(String(value.kind)) && value.instructionId === instructionId) return true;
-  return Object.values(value).some(item => referencesInstruction(item, instructionId));
+type CostReference = 'none' | 'receipt' | 'unsupported';
+
+/** Deep linked selectors use the receipt bridge; direct linked-value reads remain unsupported. */
+function costReference(value: unknown, instructionId: string): CostReference {
+  if (Array.isArray(value)) {
+    let result: CostReference = 'none';
+    for (const item of value) {
+      const reference = costReference(item, instructionId);
+      if (reference === 'unsupported') return reference;
+      if (reference === 'receipt') result = reference;
+    }
+    return result;
+  }
+  if (!isRecord(value)) return 'none';
+  if (['linked', 'linked-value'].includes(String(value.kind)) && value.instructionId === instructionId) return 'unsupported';
+  let result: CostReference = value.linked === instructionId ? 'receipt' : 'none';
+  for (const item of Object.values(value)) {
+    const reference = costReference(item, instructionId);
+    if (reference === 'unsupported') return reference;
+    if (reference === 'receipt') result = reference;
+  }
+  return result;
 }
 
-function dependsOnInstruction(instruction: Instruction, instructionId: string): boolean {
-  return Object.values(instruction.args).some(value => referencesInstruction(value, instructionId));
+function instructionCostReference(instruction: Instruction, instructionId: string): CostReference {
+  let result: CostReference = 'none';
+  for (const value of Object.values(instruction.args)) {
+    const reference = costReference(value, instructionId);
+    if (reference === 'unsupported') return reference;
+    if (reference === 'receipt') result = reference;
+  }
+  return result;
+}
+
+type ResolveInstruction = Instruction & { readonly leadingCostReceipt?: LeadingCostReceiptBinding };
+
+function receiptBound(instruction: Instruction, binding: LeadingCostReceiptBinding): ResolveInstruction {
+  return { ...instruction, leadingCostReceipt: binding } as ResolveInstruction;
+}
+
+function costChoiceIds(args: Record<string, unknown>): readonly string[] | undefined {
+  const payments = constantArray(args.payments);
+  if (payments === undefined) return undefined;
+  const ids: string[] = [];
+  for (const payment of payments) {
+    if (!isRecord(payment) || payment.choice === undefined) continue;
+    if (!isRecord(payment.choice) || typeof payment.choice.id !== 'string' || !payment.choice.id.length) return undefined;
+    ids.push(payment.choice.id);
+  }
+  return ids.length ? [...new Set(ids)] : undefined;
 }
 
 function removePaymentGate(instruction: Instruction, instructionId: string): Instruction {
@@ -49,13 +109,15 @@ function removePaymentGate(instruction: Instruction, instructionId: string): Ins
  * leading cost keeps its effect instructions unchanged. A leading cost.pay is
  * also moved into the registration CostPlan (CR 383.3.b.1) and dropped from
  * Resolve so it cannot be paid twice. A pure linkedTo gate is safe because a
- * failed Finalize never resolves; value reads of the removed instruction fail
- * closed because no Resolve-scope receipt exists.
+ * failed Finalize never resolves. Expressions that read the removed cost use
+ * the explicit Resolve receipt link established below; all other reads fail
+ * closed because no Resolve-scope result exists.
  *
  * The adapter covers only the evaluated constant-array effect spelling. A
- * leading choice with any other nested operation is not a safe executable
- * interpretation and must fail closed instead of falling back to the scan-time
- * optional question.
+ * A later choice.optional is a Resolve decision (CR 383.3.a.3), so it remains
+ * in the body with an engine-only stage marker. Other nested control bodies
+ * are not a safe executable interpretation and fail closed instead of falling
+ * back to the scan-time optional question.
  */
 export function adaptLeadingChoice(
   source: ObjectSnapshot,
@@ -75,32 +137,55 @@ export function adaptLeadingChoice(
   const nested = constantArray(args.body);
   if (!nested?.length) return undefined;
   const [first, ...rest] = nested as readonly Instruction[];
+  const outerTargets = (choice.targets ?? []) as readonly TargetRequirement[];
+  const withOuterTargets = (entries: readonly { readonly instruction: Instruction; readonly targets: readonly TargetRequirement[] }[]) => [
+    ...outerTargets.map(requirement => ({ requirement })),
+    ...entries.flatMap(entry => entry.targets.map(requirement => ({ requirement })))
+  ];
   if (!isCostPay(first)) {
     const instructions = nested as readonly Instruction[];
-    if (instructions.some(hasNestedControlBody)) return undefined;
-    const adapted = instructions.map(instruction => hoistTargets(instruction));
+    const nestedChoices = instructions.filter(instruction => instruction.op === 'choice.optional');
+    if (nestedChoices.length > 1) return undefined;
+    const unrelatedControl = instructions.some(instruction => instruction.op !== 'choice.optional' &&
+      (['sequence', 'repeat', 'choice.mode'].includes(instruction.op) || hasNestedControlBody(instruction)));
+    if (unrelatedControl) return undefined;
+    const stageAdjusted = instructions.map(markResolveOptional);
+    const adapted = stageAdjusted.map(instruction => hoistTargets(instruction));
     return {
       mayAtFinalize: true,
       body: adapted.map(entry => entry.instruction),
-      targets: adapted.flatMap(entry => entry.targets.map(requirement => ({ requirement })))
+      targets: withOuterTargets(adapted)
     };
   }
-  if (!rest.length || rest.some(hasNestedControlBody)) return undefined;
-  if (rest.some(instruction => dependsOnInstruction(instruction, first.id))) return undefined;
+  const nestedChoices = rest.filter(instruction => instruction.op === 'choice.optional');
+  if (!rest.length || nestedChoices.length > 0 || rest.some(hasNestedControlBody)) return undefined;
+  const markedRest = rest;
+  const references = markedRest.map(instruction => instructionCostReference(instruction, first.id));
+  if (references.includes('unsupported')) return undefined;
+  const needsReceipt = references.includes('receipt');
+  const choiceIds = costChoiceIds(first.args);
+  if (needsReceipt && !choiceIds) return undefined;
+  const binding: LeadingCostReceiptBinding | undefined = needsReceipt ? {
+    instructionId: first.id,
+    link: LEADING_COST_RECEIPT_LINK,
+    choiceIds: choiceIds!
+  } : undefined;
   // event:it is a frozen referent, but effect.ready's primitive schema cannot
   // consume it until the 835 chain bridge supplies the binding. Do not turn
   // the card's target into a player-selected TargetSpec or claim success.
   if (trigger?.at === 'buff-added' && rest.some(instruction => instruction.op === 'effect.ready')) return undefined;
   const cost = costPayArgsToCostSpec(first.args);
   if (!cost) return undefined;
-  const adapted = rest.map(instruction => {
+  const adapted = markedRest.map(instruction => {
     const ungated = removePaymentGate(instruction, first.id);
-    return hoistTargets(ungated);
+    const bridged = binding !== undefined && instructionCostReference(ungated, first.id) === 'receipt'
+      ? receiptBound(ungated, binding) : ungated;
+    return hoistTargets(bridged);
   });
   return {
     mayAtFinalize: true,
     cost: { id: `cost:${source.ref.id}:${source.ref.zoneEntryId}:${choice.id}`, cost },
     body: adapted.map(entry => entry.instruction),
-    targets: adapted.flatMap(entry => entry.targets.map(requirement => ({ requirement })))
+    targets: withOuterTargets(adapted)
   };
 }

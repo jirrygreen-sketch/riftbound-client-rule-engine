@@ -51,6 +51,13 @@ export interface CostPlanInput {
   readonly costChoices?: CostChoiceLocks;
 }
 
+/** Stable Resolve binding for the cost paid by a removed leading cost.pay. */
+export interface LeadingCostReceiptBinding {
+  readonly instructionId: string;
+  readonly link: string;
+  readonly choiceIds: readonly string[];
+}
+
 export type NonstandardCostAction = Extract<GameAction, {
   type: 'exhaust' | 'discard' | 'recycle' | 'kill' | 'banish' | 'disempower' | 'reveal' | 'spend-buff'
 }>;

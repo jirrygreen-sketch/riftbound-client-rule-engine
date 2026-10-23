@@ -21,13 +21,53 @@ interface Binding {
   readonly signature: string;
 }
 
+interface HandPlayLocationPermission {
+  readonly source: ObjectSnapshot;
+  readonly filter: Readonly<Record<string, unknown>>;
+  readonly scope: 'self' | 'friendly-units';
+}
+
 type Undo = () => void;
+
+type ExpandedAbility = ReturnType<typeof expandProgram>['abilities'][number];
+
+/**
+ * Older authored programs may keep `becomesMighty` inside an event's nested
+ * object filter. The unified matcher consumes the typed equivalent in
+ * `details`. Normalize that fallback shape only for a real might-changed
+ * predicate with the exact boolean `true`; malformed or conflicting shapes
+ * still flow to the matcher and fail closed there.
+ */
+export function normalizeLegacyEventTrigger<T extends ExpandedAbility>(ability: T): T {
+  if (ability.kind !== 'triggered') return ability;
+  const triggerFilter = ability.trigger.filter as Record<string, unknown>;
+  const nested = triggerFilter.filter;
+  if ((triggerFilter.event ?? triggerFilter.kind ?? triggerFilter.type) !== 'might-changed' ||
+      nested === null || typeof nested !== 'object' || Array.isArray(nested) ||
+      (nested as Record<string, unknown>).becameMighty !== true) return ability;
+  const details = triggerFilter.details;
+  if (details !== undefined && (details === null || typeof details !== 'object' || Array.isArray(details) ||
+      Object.hasOwn(details, 'becomesMighty') && (details as Record<string, unknown>).becomesMighty !== true)) return ability;
+  const { becameMighty: _becomesMighty, ...ordinaryFilter } = nested as Record<string, unknown>;
+  return {
+    ...ability,
+    trigger: {
+      ...ability.trigger,
+      filter: {
+        ...triggerFilter,
+        filter: ordinaryFilter,
+        details: { ...(details as Record<string, unknown> | undefined), becomesMighty: true },
+      },
+    },
+  } as T;
+}
 
 export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramRegistry, binder?: ProgramStaticBinder, onError?: (error: unknown, source: ObjectSnapshot) => void): ProgramLifecycleHandle {
   const effectiveBinder = binder ?? createEngineStaticBinder(engine);
   const bindReplacementOnChain = binder === undefined;
   const pipeline = engine.pipeline;
   const bindings = new Map<string, Binding>();
+  const handPlayLocationHandles = new Map<string, StaticBindingHandle[]>();
   const playFollowers = new Set<string>();
   const pendingExits = new Map<string, ObjectSnapshot>();
   const undoStack: Undo[][] = [];
@@ -37,8 +77,29 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   const originalDeferTriggerScan = pipeline.deferTriggerScan.bind(pipeline);
   const originalOnEvent = pipeline.onEvent;
   const originalRouteAction = pipeline.routeAction;
+  const originalHostObjects = pipeline.host.objects.bind(pipeline.host);
+  let completedObjectView: readonly ObjectSnapshot[] = engine.layers.objectsView();
+  let objectViewDepth = 0;
   let depth = 0;
   let detached = false;
+
+  // Static filters/conditions resolve their live binding source through the
+  // pipeline host while the layer engine is already deriving that same host.
+  // Re-entering the complete pass from each source lookup creates a recursive
+  // board-wide evaluation. Nested source lookups use the last completed host
+  // view; the outermost read still refreshes from authoritative state, and the
+  // layer engine derives current characteristics from that view.
+  pipeline.host.objects = () => {
+    if (objectViewDepth > 0) return completedObjectView;
+    objectViewDepth++;
+    try {
+      const current = originalHostObjects();
+      completedObjectView = current;
+      return current;
+    } finally {
+      objectViewDepth--;
+    }
+  };
 
   const refKey = (source: ObjectSnapshot) => `${source.ref.id}:${source.ref.zoneEntryId}`;
   // A same-incarnation Move changes only its location. Static filters bind a
@@ -80,7 +141,12 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     binding.source.ref.id === source.ref.id && binding.source.zone === 'hand' &&
     playFollowers.has(refKey(binding.source)));
   const secretZone = (source: ObjectSnapshot) => source.zone === 'deck' || source.zone === 'rune-deck';
-  const active = (source: ObjectSnapshot) => source.zone === 'board' || source.zone === 'chain' || secretZone(source);
+  const isLegend = (source: ObjectSnapshot) => source.types.some(type => type.toLowerCase() === 'legend');
+  const isActiveLegend = (source: ObjectSnapshot) => isLegend(source) && source.zone === 'legend';
+  const isSetupBattlefield = (source: ObjectSnapshot) => source.isToken && source.zone === 'board' &&
+    source.types.some(type => type.toLowerCase() === 'battlefield');
+  const active = (source: ObjectSnapshot) => isActiveLegend(source) ||
+    !isLegend(source) && (source.zone === 'board' || source.zone === 'chain' || secretZone(source));
   const secretZoneReplacement = (ability: CardProgram['abilities'][number], source: ObjectSnapshot): boolean => {
     if (ability.kind !== 'replacement') return false;
     const pattern = ability.replaces;
@@ -111,6 +177,8 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
 
   const detach = (source: ObjectSnapshot) => {
     const k = refKey(source);
+    for (const handle of handPlayLocationHandles.get(k) ?? []) { try { handle.unbind(); } catch (error) { report(error, source); } }
+    handPlayLocationHandles.delete(k);
     const binding = bindings.get(k);
     if (!binding) return;
     unregisterProgramTriggers(engine, binding.triggerIds);
@@ -119,6 +187,13 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     for (const handle of binding.replacementHandles) { try { handle.unbind(); } catch (error) { report(error, binding.source); } }
     bindings.delete(k);
     playFollowers.delete(k);
+  };
+  const clearPlayLocationHandlesFor = (id: string) => {
+    for (const [key, handles] of handPlayLocationHandles) {
+      if (!key.startsWith(`${id}:`)) continue;
+      for (const handle of handles) { try { handle.unbind(); } catch { /* best effort; preserve the lifecycle transition */ } }
+      handPlayLocationHandles.delete(key);
+    }
   };
 
   const bindingIntact = (binding: Binding): boolean => {
@@ -136,11 +211,16 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
         // Bind each expanded trigger through the normal program adapter. A
         // keyword skeleton with a currently unsupported filter must not erase
         // an unrelated, executable static or replacement on the same card.
-        const isolated = new ProgramRegistry([{ ...program, status: 'executable', sourceText: '[lifecycle isolated trigger]', abilities: [ability] }]);
+        const normalizedAbility = normalizeLegacyEventTrigger(ability);
+        const isolated = new ProgramRegistry([{ ...program, status: 'executable', sourceText: '[lifecycle isolated trigger]', abilities: [normalizedAbility] }]);
         const [registration] = triggerRegistrations(isolated, source);
         if (!registration) throw new Error('Trigger adapter returned no registration');
         const id = `program:${source.ref.id}:${source.ref.zoneEntryId}:${index}`;
-        try { pipeline.registerTrigger({ ...registration, id }); }
+        // Legends have Passive/Triggered/Activated abilities in the Legend
+        // Zone (CR 107.4.c, 174.6-174.8). The generic permanent adapter defaults
+        // to Board, so bind this exact Legend incarnation to its actual zone.
+        const activeZones = isActiveLegend(source) ? ['legend'] : registration.activeZones;
+        try { pipeline.registerTrigger({ ...registration, id, ...(activeZones === undefined ? {} : { activeZones }) }); }
         catch (error) {
           if (!(error instanceof Error) || error.message !== `Duplicate trigger ${id}`) throw error;
         }
@@ -185,7 +265,14 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
         if (abilities.length === 0) { detach(source); return undefined; }
       } else {
         const expanded = expandProgram(program, source);
-        abilities = bindPrintedDeathknellBodies(expanded.abilities, expanded.declared);
+        const bound: ReturnType<typeof expandProgram>['abilities'] = bindPrintedDeathknellBodies(expanded.abilities, expanded.declared);
+        // A Legend is neither a Unit nor Gear. Its live surface consists of its
+        // Passive, Triggered, and Activated abilities (CR 174.6-174.8); Play
+        // and Replacement abilities must not become active merely because the
+        // object shares the generic program lifecycle.
+        abilities = isActiveLegend(source)
+          ? bound.filter(ability => ability.kind === 'static' || ability.kind === 'triggered' || ability.kind === 'activated')
+          : bound;
       }
     } catch (error) {
       report(error, source);
@@ -256,6 +343,93 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     return binding;
   };
 
+  /** Freeze the typed CR 355.2.b predicate while its exact card is public context. */
+  const captureHandPlayLocationPermissions = (source: ObjectSnapshot): readonly HandPlayLocationPermission[] => {
+    const program = registry.inspect(source.cardId);
+    if (program === undefined || program.status !== 'executable') return Object.freeze([]);
+    let abilities: ReturnType<typeof expandProgram>['abilities'];
+    try { abilities = expandProgram(program, source).abilities; }
+    catch (error) { report(error, source); return Object.freeze([]); }
+    const captured: HandPlayLocationPermission[] = [];
+    for (const ability of abilities) {
+      if (ability.kind !== 'static') continue;
+      const effect = ability.effect as unknown as Readonly<Record<string, unknown>>;
+      if (effect.kind !== 'play-location-permission') continue;
+      const value = effect.value;
+      if (value === null || typeof value !== 'object' || Array.isArray(value) || !('kind' in value) || !('value' in value)) {
+        report(new ProgramBindingError('judge-required', 'A while-in-hand play-location permission needs a constant predicate'), source);
+        continue;
+      }
+      const authored = value.value;
+      if (authored === null || typeof authored !== 'object' || Array.isArray(authored)) {
+        report(new ProgramBindingError('judge-required', 'A while-in-hand play-location permission needs a predicate object'), source);
+        continue;
+      }
+      const predicate = authored as Readonly<Record<string, unknown>>;
+      const zone = predicate.zone;
+      const authoredBattlefield = predicate.battlefield;
+      const battlefield = authoredBattlefield as Readonly<Record<string, unknown>>;
+      if ((zone !== 'battlefield' && zone !== 'base') || authoredBattlefield === null || typeof authoredBattlefield !== 'object' || Array.isArray(authoredBattlefield)) {
+        report(new ProgramBindingError('judge-required', 'A while-in-hand play-location permission has an unsupported location shape'), source);
+        continue;
+      }
+      const scope = predicate.appliesTo === 'self' || predicate.appliesTo === undefined ? 'self' as const :
+        predicate.appliesTo === 'friendly-units' ? 'friendly-units' as const : undefined;
+      if (scope === undefined) {
+        report(new ProgramBindingError('judge-required', 'A while-in-hand play-location permission has an unsupported affected scope'), source);
+        continue;
+      }
+      const allowed = new Set([
+        'occupied', 'open', 'controlled', 'contested', 'controller', 'owner', 'hasUnits', 'unitController', 'id',
+      ]);
+      if (Object.keys(battlefield).some(key => !allowed.has(key))) {
+        report(new ProgramBindingError('judge-required', 'A while-in-hand play-location permission has an unsupported predicate'), source);
+        continue;
+      }
+      // Ambush's published IR names the friendly-Unit controller `controller`.
+      // CR 822.1.b scopes that permission by Units controlled there, not by the
+      // Battlefield's control state, so preserve its explicit predicate as
+      // unitController while keeping every other keyword predicate unchanged.
+      const ambushPredicate = abilities.some(candidate => {
+        if (candidate.kind !== 'static') return false;
+        const timing = candidate.effect as unknown as Readonly<Record<string, unknown>>;
+        return timing.kind === 'continuous.timing' &&
+          Array.isArray(timing.grants) && timing.grants.includes('showdown') && timing.grants.includes('closed-state') &&
+          JSON.stringify(timing.location) === JSON.stringify(predicate);
+      });
+      const normalizedBattlefield = ambushPredicate && battlefield.controller === 'controller' ?
+        Object.fromEntries(Object.entries(battlefield).filter(([key]) => key !== 'controller').concat([['unitController', 'controller']])) : battlefield;
+      captured.push({ source, scope, filter: Object.freeze({ type: zone, ...normalizedBattlefield }) });
+    }
+    return Object.freeze(captured);
+  };
+  const installHandPlayLocationPermissions = (
+    source: ObjectSnapshot,
+    object: ObjectSnapshot,
+    permissions: readonly HandPlayLocationPermission[],
+  ) => {
+    if (permissions.length === 0) return;
+    const bindStatic = effectiveBinder.bindStatic;
+    if (bindStatic === undefined) {
+      report(new ProgramBindingError('judge-required', 'The static binder cannot install a while-in-hand play-location permission'), source);
+      return;
+    }
+    for (const permission of permissions) {
+      const handle = bindStatic({
+        kind: 'static',
+        effect: Object.freeze({
+          kind: 'continuous.location', zone: Object.freeze(['hand', 'chain']), location: permission.filter,
+          objectRefs: Object.freeze([object.ref]),
+          ...(permission.scope === 'self' ? {} : { player: source.controller }),
+        }),
+      } as never, object);
+      if (handle === undefined) continue;
+      const handles = handPlayLocationHandles.get(refKey(object)) ?? [];
+      handles.push(handle);
+      handPlayLocationHandles.set(refKey(object), handles);
+    }
+  };
+
   const ensure = (source: ObjectSnapshot, useEntryHandoff = false) => {
     // Entry emissions can carry an older incarnation while the authoritative
     // host already exposes the new one. `sourceFor` exists for that hand-off; it
@@ -264,6 +438,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       ? effectiveBinder.sourceFor?.(source) ?? currentFor(source)
       : currentFor(source);
     const k = refKey(current ?? source);
+    if (current?.zone !== 'chain') clearPlayLocationHandlesFor((current ?? source).ref.id);
     const existing = bindings.get(k);
     if (!current || !active(current)) { if (existing) detach(existing.source); return; }
     // A replacement admitted while the card was in Hand follows its newest
@@ -275,8 +450,9 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     // Replacement abilities must be admitted while a permanent is on Chain.
     // The Chain commit hook installs them before its state transition. Static
     // layers become active only once the Board entry is authoritative.
-    const attached = attach(current, current.zone === 'board',
-      current.zone === 'board' || (bindReplacementOnChain && (current.zone === 'chain' || secretZone(current))));
+    const attached = attach(current, current.zone === 'board' || isActiveLegend(current),
+      current.zone === 'board' || isActiveLegend(current) ||
+      (bindReplacementOnChain && (current.zone === 'chain' || secretZone(current))));
     // The Hand registration follows the card by id only so it can intercept the
     // Board entry move. Once the exact Board incarnation owns its registration,
     // retire the temporary follower so later exits cannot detach the new host.
@@ -318,7 +494,8 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     if (binding.source.zone === source.zone) return;
     if (source.zone === 'chain' && handFollowers(source).length > 0) return;
     detach(binding.source);
-    attach(source, source.zone === 'board', source.zone === 'board' || bindReplacementOnChain);
+    attach(source, source.zone === 'board' || isActiveLegend(source),
+      source.zone === 'board' || isActiveLegend(source) || bindReplacementOnChain);
   };
   /**
    * A token created on the Chain may have no card program of its own. Only in
@@ -345,9 +522,11 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   };
 
   const isEntry = (event: TimingEmission) => event.timingPoint === 'object-enters-board' || event.timingPoint === 'object-enters-chain' ||
-    event.timingPoint === 'object-enters-deck' || event.timingPoint === 'object-enters-rune-deck';
+    event.timingPoint === 'object-enters-deck' || event.timingPoint === 'object-enters-rune-deck' ||
+    event.timingPoint === 'object-enters-zone' && event.object?.zone === 'legend';
   const isExit = (event: TimingEmission) => event.timingPoint === 'object-leaves-board' || event.timingPoint === 'object-killed' ||
-    event.timingPoint === 'object-leaves-deck' || event.timingPoint === 'object-leaves-rune-deck';
+    event.timingPoint === 'object-leaves-deck' || event.timingPoint === 'object-leaves-rune-deck' ||
+    event.timingPoint === 'object-leaves-zone' && event.object?.zone === 'legend';
 
   const actionLeaves = (action: GameAction | ContractGameAction): readonly (GameAction | ContractGameAction)[] =>
     (action as { type?: string }).type === 'batch'
@@ -374,6 +553,8 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   pipeline.emitBatch = ((emissions: readonly TimingEmission[], action?: GameAction, batchId?: string) =>
     observe(emissions, () => originalEmitBatch(emissions, action, batchId))) as typeof pipeline.emitBatch;
   pipeline.commit = ((action: GameAction) => transaction(() => {
+    let handPlayLocationSource: ObjectSnapshot | undefined;
+    let handPlayLocationPermissions: readonly HandPlayLocationPermission[] | undefined;
     if (bindReplacementOnChain && action.type === 'play') {
       const source = currentForRef(action.object);
       if (source?.zone === 'hand' && programExists(source)) {
@@ -386,6 +567,10 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       const followsFromHand = source !== null && handFollowers(source).length > 0;
       if (source && !followsFromHand) {
         attach(source, false, true);
+      }
+      if (source?.zone === 'hand') {
+        handPlayLocationSource = source;
+        handPlayLocationPermissions = captureHandPlayLocationPermissions(source);
       }
     }
     if (canLeaveBoard(action)) {
@@ -400,6 +585,14 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       }
     }
     const outcome = originalCommit(action);
+    if (bindReplacementOnChain && action.type === 'move-zone' && action.to === 'chain' &&
+        handPlayLocationSource !== undefined && handPlayLocationPermissions !== undefined &&
+        (outcome.status === 'done' || outcome.status === 'replaced')) {
+      const moved = pipeline.host.objects().find(object => object.ref.id === action.object.id) ?? null;
+      if (moved !== null) installHandPlayLocationPermissions(
+        handPlayLocationSource, moved, handPlayLocationPermissions,
+      );
+    }
     if (outcome.status === 'done' || outcome.status === 'replaced') syncAction(action);
     return outcome;
   })) as typeof pipeline.commit;
@@ -434,10 +627,12 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   }) as typeof pipeline.deferTriggerScan;
 
   // Main Deck and Rune Deck replacement effects are active only for an event
-  // that involves that same card while it is there (CR 370.1.c.1). Inactive
-  // abilities are not expanded; Board/Chain remain the full active surface.
+  // that involves that same card while it is there (CR 370.1.c.1). Match setup
+  // establishes Battlefield carriers through create-token (CR 170.2.b,
+  // 170.8-170.10). Setup Battlefields and Champion Legends predate lifecycle
+  // attachment, so install their live surfaces during the initial scan.
   for (const source of pipeline.host.objects()) {
-    if (secretZone(source)) ensure(source);
+    if (secretZone(source) || isActiveLegend(source) || isSetupBattlefield(source)) ensure(source);
   }
 
   return {
@@ -450,8 +645,10 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       pipeline.onEvent = originalOnEvent;
       pipeline.deferTriggerScan = originalDeferTriggerScan;
       pipeline.routeAction = originalRouteAction;
+      pipeline.host.objects = originalHostObjects;
       pendingExits.clear();
       playFollowers.clear();
+      handPlayLocationHandles.clear();
       for (const binding of [...bindings.values()]) detach(binding.source);
     }
   };

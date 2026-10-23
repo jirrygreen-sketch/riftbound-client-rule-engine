@@ -528,7 +528,7 @@ export interface EventPattern {
 }
 
 /** A trigger lifetime for which an otherwise matching trigger may fire once. */
-export type TriggerOnce = "per-turn" | "per-combat" | "per-chain" | "per-game";
+export type TriggerOnce = "per-turn" | "per-combat" | "per-chain" | "per-batch" | "per-game";
 
 /** A timing-point subscription aligned with the events/trigger-spec contract. */
 export interface TriggerSpec {
