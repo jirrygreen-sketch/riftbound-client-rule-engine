@@ -324,9 +324,7 @@ export class TestWorld implements ResolveContext {
         });
     }
   }
-  linked(key: string): Value | undefined {
-    return this.linkedValues.get(key);
-  }
+  linked(key: string): Value | undefined { return this.linkedValues.get(key); }
   link(key: string, value: Value): void { this.linkedValues.set(key, value); }
   history(query: HistoryQuery): number {
     const excluded = new Set(query.exclude === undefined ? [] : this.selectedObjects(query.exclude).map(ref => ref.id));

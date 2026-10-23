@@ -43,6 +43,12 @@ export interface TargetBounds {
 }
 
 export interface TargetCandidateOptions {
+  /**
+   * RIFT-999: run the read-only candidate enumeration inside the host's stable
+   * read window (ChainEngine.withStableLayers), so every candidate read shares
+   * one layered view instead of re-deriving it per candidate.
+   */
+  readonly stableReads?: <T>(run: () => T) => T;
   readonly isPending?: (ref: ObjectRef, snapshot: ObjectSnapshot, phase: TargetPlanPhase) => boolean;
   readonly isLegal?: (snapshot: ObjectSnapshot, phase: TargetPlanPhase) => boolean;
   /** Optional ability-layer restrictions for the player choosing the target. */
@@ -357,6 +363,17 @@ function defaultPending(ref: ObjectRef, snapshot: ObjectSnapshot): boolean {
 }
 
 function legalCandidates(
+  context: ResolveContext,
+  requirement: TargetRequirement,
+  phase: TargetPlanPhase,
+  options: TargetCandidateOptions
+): ObjectRef[] {
+  return options.stableReads
+    ? options.stableReads(() => enumerateLegalCandidates(context, requirement, phase, options))
+    : enumerateLegalCandidates(context, requirement, phase, options);
+}
+
+function enumerateLegalCandidates(
   context: ResolveContext,
   requirement: TargetRequirement,
   phase: TargetPlanPhase,

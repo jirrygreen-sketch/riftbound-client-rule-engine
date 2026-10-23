@@ -29,25 +29,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * Resolve condition, so this program does not invent one. There is no once cap,
  * so a later separate 4 -> 5 transition can trigger again.
  *
- * status = judge-required after the 2026-10-22 production recheck. A real
- * Hand -> Chain -> Board lifecycle proves the exact one-Order debit, the
- * decline and unpayable branches, and readiness of the frozen triggering unit.
- * After RIFT-929, the ProgramBinding + ChainEngine path prepares a domainless
- * Universal Power lot for this named Order requirement. The engine's locked
- * `FinalizedCostPlan` keeps that lot separate as `universalPower` instead of
- * pretending it is Order (CR 135.2.e.5.a / 163.2.b).
- *
- * The remaining whole-card gate is the authoritative runtime representation
- * and commit, not the card IR. `PlayerSnapshot.power` is still declared as
- * `readonly Domain[]` (engine-core/src/effects/contract.ts:91), excluding the
- * already-declared `UniversalPowerSource`; the test host reports the generated
- * `pay` plan as done without consuming that lot
- * (engine-core/src/effects/testing/test-kernel.ts:572-590), so the payment
- * owner rejects the post-commit receipt and rolls Finalize back. The server
- * host also fails closed whenever a finalized plan contains `universalPower`
- * (apps/game-server/src/engine-runtime/host.ts:771). Until those owners carry
- * and consume the domainless lot end to end, the published program must not be
- * admitted or have this blocker approximated as a named Domain.
+ * status = executable after the 2026-10-23 production recheck. The real
+ * Hand -> Chain -> Board lifecycle proves both a named Order debit and the
+ * domainless Universal Power debit required by CR 135.2.e.5.a / 163.2.b. The
+ * locked `FinalizedCostPlan` keeps Universal Power separate as
+ * `universalPower`; the engine test host and `EngineRuntimeHost` consume that
+ * exact lot atomically. Decline, insufficient Power, wrong-Domain Power,
+ * non-Mighty transitions, and a stale event incarnation remain fail-closed.
  *
  * Evidence URL: the card text is from the official Spiritforged catalog (the
  * two approved printings above); the CR download and hash are recorded in
@@ -117,11 +105,7 @@ const abilities: Ability[] = [
 const program = {
   canonicalCardId: "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
   rulesetVersion: "core-1.5" as const,
-  status: "judge-required" as const,
-  judgeReason:
-    "The ProgramBinding + ChainEngine path proves the typed Mighty transition, frozen event:it, Finalize payment with named Order, decline, unpayable rollback, and event:it ready effect. " +
-    "RIFT-929 now plans a domainless `any` lot as `universalPower` for the named Order requirement (engine-core/src/cost/payment.ts:184-190), but the authoritative runtime cannot commit it: engine-core/src/effects/contract.ts:91 types PlayerSnapshot.power as `readonly Domain[]` without UniversalPowerSource, engine-core/src/effects/testing/test-kernel.ts:572-590 returns done while leaving `any` unconsumed, and apps/game-server/src/engine-runtime/host.ts:771 rejects `universalPower`. " +
-    "CR 135.2.e.5.a / 163.2.b require Universal Power to pay this Order requirement, so the production host currently fails closed; no named-domain substitution, player target, Fiora source fallback, synthetic payment, or card-specific resolution is used.",
+  status: "executable" as const,
   abilities,
   sourceText:
     "When a unit you control becomes [Mighty], you may pay :rb_rune_order: to ready it. (A unit is Mighty while it has 5+ :rb_might:.)"
