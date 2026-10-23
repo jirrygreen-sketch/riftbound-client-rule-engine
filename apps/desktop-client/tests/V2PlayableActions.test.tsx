@@ -4,6 +4,8 @@ import {
   buildV2ChoiceAnswer,
   buildV2DeclareCombatCommand,
   buildV2MoveCommand,
+  buildV2PlayCommand,
+  buildProjectedV2PlayCommand,
   buildV2RuneCommand,
   V2MatchBoard
 } from "../src/full-product/v2/V2MatchBoard";
@@ -249,6 +251,127 @@ describe("V2 rejected command rendering", () => {
     expect(html).toContain("服务端投影候选目标");
     expect(html).toContain("Rumble");
     expect(html).toContain("出牌");
+  });
+
+  it("renders every projected play-target requirement in Finalize order", () => {
+    const value = projection();
+    value.actionOptions = {
+      canEndTurn: true,
+      canAdvance: false,
+      moves: [],
+      plays: [{
+        cardObjectId: "hand-1",
+        destination: { kind: "base", playerId: "player-1" },
+        targetRequirements: [
+          { id: "friendly-unit", label: "friendly-unit", kind: "object", min: 1, max: 1,
+            options: [{ id: "unit-1", label: "Rumble", objectRef: { objectId: "unit-1", zoneEntryId: 11 } }] },
+          { id: "enemy-unit", label: "enemy-unit", kind: "object", min: 1, max: 1,
+            options: [{ id: "unit-2", label: "Enemy", objectRef: { objectId: "unit-2", zoneEntryId: 12 } }] }
+        ]
+      }]
+    };
+    const html = renderToStaticMarkup(<V2MatchBoard state={state(value)} initialSelectedCardId="hand-1"
+      onCommand={async () => ({
+        type: "command-receipt", protocolVersion: "2.0.0", commandId: "x", stateVersion: 9,
+        eventSeq: 4, accepted: true, duplicate: false, rejection: null
+      })} />);
+    expect(html).toContain("friendly-unit");
+    expect(html).toContain("enemy-unit");
+    expect(html).toContain("Rumble");
+    expect(html).toContain("Enemy");
+  });
+
+  it("keeps the projected play destination and target order in the command", () => {
+    expect(buildV2PlayCommand("hand-1", [
+      { kind: "object", objectId: "unit-1", zoneEntryId: 11 },
+      { kind: "object", objectId: "unit-2", zoneEntryId: 12 }
+    ], { kind: "battlefield", battlefieldId: "battlefield-1" })).toEqual({
+      type: "play", cardObjectId: "hand-1",
+      destination: { kind: "battlefield", battlefieldId: "battlefield-1" },
+      targets: [
+        { kind: "object", objectId: "unit-1", zoneEntryId: 11 },
+        { kind: "object", objectId: "unit-2", zoneEntryId: 12 }
+      ]
+    });
+    expect(buildV2PlayCommand("spell-1", [{ kind: "object", objectId: "unit-1", zoneEntryId: 11 }], undefined))
+      .toEqual({ type: "play", cardObjectId: "spell-1", targets: [
+        { kind: "object", objectId: "unit-1", zoneEntryId: 11 }
+      ] });
+  });
+
+  it("will not build a play command outside the server-projected option and target groups", () => {
+    const value = projection();
+    value.actionOptions = { canEndTurn: true, canAdvance: false, moves: [], plays: [{
+      cardObjectId: "hand-1", destination: { kind: "base", playerId: "player-1" },
+      targetRequirements: [{ id: "friendly", label: "friendly", kind: "object", min: 1, max: 1,
+        options: [{ id: "unit-1", label: "Rumble", objectRef: { objectId: "unit-1", zoneEntryId: 11 } }] }]
+    }] };
+    expect(buildProjectedV2PlayCommand(value, "hand-1", { kind: "base", playerId: "player-1" }, [
+      { kind: "object", objectId: "unit-1", zoneEntryId: 11 }
+    ])).toEqual({ type: "play", cardObjectId: "hand-1",
+      destination: { kind: "base", playerId: "player-1" },
+      targets: [{ kind: "object", objectId: "unit-1", zoneEntryId: 11 }] });
+    expect(buildProjectedV2PlayCommand(value, "hand-1", { kind: "base", playerId: "player-2" }, [
+      { kind: "object", objectId: "unit-1", zoneEntryId: 11 }
+    ])).toBeNull();
+    expect(buildProjectedV2PlayCommand(value, "hand-1", { kind: "base", playerId: "player-1" }, [
+      { kind: "object", objectId: "unit-2", zoneEntryId: 12 }
+    ])).toBeNull();
+  });
+
+  it("orders overlapping target groups without conflating their selections", () => {
+    const value = projection();
+    value.actionOptions = { canEndTurn: true, canAdvance: false, moves: [], plays: [{
+      cardObjectId: "hand-1", destination: { kind: "base", playerId: "player-1" },
+      targetRequirements: [
+        { id: "first", label: "first", kind: "object", min: 1, max: 1,
+          options: [{ id: "shared", label: "Shared", objectRef: { objectId: "shared", zoneEntryId: 3 } },
+            { id: "first-only", label: "First only", objectRef: { objectId: "first-only", zoneEntryId: 4 } }] },
+        { id: "second", label: "second", kind: "object", min: 1, max: 1,
+          options: [{ id: "shared", label: "Shared", objectRef: { objectId: "shared", zoneEntryId: 3 } },
+            { id: "second-only", label: "Second only", objectRef: { objectId: "second-only", zoneEntryId: 5 } }] }
+      ]
+    }] };
+    expect(buildProjectedV2PlayCommand(value, "hand-1", { kind: "base", playerId: "player-1" }, [
+      { kind: "object", objectId: "first-only", zoneEntryId: 4 },
+      { kind: "object", objectId: "shared", zoneEntryId: 3 }
+    ])).toBeNull();
+    expect(buildProjectedV2PlayCommand(value, "hand-1", { kind: "base", playerId: "player-1" }, [
+      { kind: "object", objectId: "first-only", zoneEntryId: 4 },
+      { kind: "object", objectId: "second-only", zoneEntryId: 5 }
+    ])).toEqual({ type: "play", cardObjectId: "hand-1",
+      destination: { kind: "base", playerId: "player-1" },
+      targets: [
+        { kind: "object", objectId: "first-only", zoneEntryId: 4 },
+        { kind: "object", objectId: "second-only", zoneEntryId: 5 }
+      ] });
+    expect(buildProjectedV2PlayCommand(value, "hand-1", { kind: "base", playerId: "player-1" }, [
+      { kind: "object", objectId: "shared", zoneEntryId: 3 },
+      { kind: "object", objectId: "shared", zoneEntryId: 3 }
+    ])).toBeNull();
+    expect(buildProjectedV2PlayCommand(value, "hand-1", { kind: "base", playerId: "player-1" }, [
+      { kind: "object", objectId: "first-only", zoneEntryId: 4 }
+    ])).toBeNull();
+  });
+
+  it("omits destination for a projected spell play and keeps target groups in Finalize order", () => {
+    const value = projection();
+    value.actionOptions = { canEndTurn: true, canAdvance: false, moves: [], plays: [{
+      cardObjectId: "hand-1", destination: { kind: "base", playerId: "player-1" }, requiresDestination: false,
+      targetRequirements: [
+        { id: "equipped", label: "equipped friendly unit", kind: "object", min: 1, max: 1,
+          options: [{ id: "unit-1", label: "Rumble", objectRef: { objectId: "unit-1", zoneEntryId: 11 } }] },
+        { id: "enemy", label: "enemy unit", kind: "object", min: 1, max: 1,
+          options: [{ id: "unit-2", label: "Enemy", objectRef: { objectId: "unit-2", zoneEntryId: 12 } }] }
+      ]
+    }] };
+    expect(buildProjectedV2PlayCommand(value, "hand-1", { kind: "base", playerId: "player-1" }, [
+      { kind: "object", objectId: "unit-2", zoneEntryId: 12 },
+      { kind: "object", objectId: "unit-1", zoneEntryId: 11 }
+    ])).toEqual({ type: "play", cardObjectId: "hand-1", targets: [
+      { kind: "object", objectId: "unit-1", zoneEntryId: 11 },
+      { kind: "object", objectId: "unit-2", zoneEntryId: 12 }
+    ] });
   });
 
   it("shows room, session and server URL controls without a legacy projection", () => {

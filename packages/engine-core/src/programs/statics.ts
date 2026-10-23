@@ -1,6 +1,7 @@
 import type { Ability, EventPattern, Instruction } from '@riftbound/card-dsl';
 import type { ObjectFilter } from '@riftbound/card-dsl';
 import type { ChainEngine } from '../chain/engine.js';
+import { withStableLayersOf } from './stable-layers.js';
 import type { ContinuousEffectSpec, ObjectRef, ObjectSnapshot } from '../effects/contract.js';
 import { bindStaticTriggerRule } from '../events/trigger-rules/index.js';
 import { isDurationActive } from '../layers/duration.js';
@@ -305,7 +306,7 @@ function installKeywordReexpansion(engine: ChainEngine): void {
   protocol.keywordTriggerRegistrations = keywordTriggerRegistrations;
   const add = engine.layers.addContinuous.bind(engine.layers);
   const remove = engine.layers.removeContinuous.bind(engine.layers);
-  const sweepAll = () => engine.withStableLayers(() => {
+  const sweepAll = () => withStableLayersOf(engine, () => {
     const objects = engine.pipeline.host.objects();
     exp.setObjects(objects);
     keywordEngine.setObjects(objects);
