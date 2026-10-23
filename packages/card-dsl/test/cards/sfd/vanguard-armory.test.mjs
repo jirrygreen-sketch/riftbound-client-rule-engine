@@ -268,12 +268,7 @@ test("sfd-168-221 Vanguard Armory golden: each token really chooses its own loca
   }
 });
 
-test("sfd-168-221 Vanguard Armory: the legal-location source still omits an empty controlled battlefield (355.2.a)", () => {
-  // Live evidence for the judgeReason gap. CR 355.2.a allows playing a unit to a
-  // Battlefield the controller controls, but target/location/candidates.ts
-  // allRefs collects locations only from objects that already sit at one plus
-  // the players' Bases. An empty controlled battlefield is therefore absent
-  // from the choice set, so a card program cannot express the printed option.
+test("sfd-168-221 Vanguard Armory: the legal-location source includes an empty controlled battlefield (355.2.a)", () => {
   const kernel = world()
     .player("A")
     .player("B")
@@ -285,36 +280,14 @@ test("sfd-168-221 Vanguard Armory: the legal-location source still omits an empt
     })
     .build();
 
-  // With no unit standing anywhere, the only controlled candidate is the Base.
+  // CR 355.2.a: a controlled empty Battlefield is a legal Play destination.
   assert.deepEqual(
     queryLocationCandidates(kernel, { controller: "controller" }, { players: ["A", "B"] }),
-    [{ type: "base", player: "A" }]
+    [{ type: "battlefield", id: "bf-a" }, { type: "base", player: "A" }]
   );
   assert.deepEqual(
     kernel.query({ zone: "board", type: "battlefield" }).map((object) => object.ref.id),
     ["bf-a", "bf-b"],
-    "the empty battlefields are real Board objects; only the candidate source misses them"
-  );
-
-  // Once a friendly unit stands on battlefield-a, it appears — the candidate
-  // source is the occupying object, not the battlefield itself.
-  const occupied = world()
-    .player("A")
-    .player("B")
-    .object("bf-a", {
-      owner: "A", controller: "A", types: ["battlefield"], zone: "board", location: null, might: null, energy: null, power: null
-    })
-    .unit("scout", { owner: "A", controller: "A", location: { type: "battlefield", id: "bf-a" }, might: 1 })
-    .build();
-  assert.deepEqual(
-    queryLocationCandidates(occupied, { controller: "controller" }, { players: ["A", "B"] }),
-    [{ type: "battlefield", id: "bf-a" }, { type: "base", player: "A" }]
-  );
-
-  // The battlefield objects themselves are visible to a Board query, so the
-  // missing link is the candidate source, not the object model.
-  assert.deepEqual(
-    occupied.query({ zone: "board", type: "battlefield" }).map((object) => object.ref.id),
-    ["bf-a"]
+    "both empty battlefields are real Board objects"
   );
 });
