@@ -157,54 +157,29 @@ test("unl-105-219 Imposing Challenger golden: accepting the option tries the rec
   });
 });
 
-test("unl-105-219 Imposing Challenger: the production target translator rejects both target anchors", () => {
-  // 053.3 / 143.2.a.1: "here" is the sameLocationAs anchor and "less Might than me"
-  // needs a candidate-relative comparison. programs/filters.ts accepts neither, so
-  // the target specification cannot reach Finalize.
+test("unl-105-219 Imposing Challenger: both target anchors preserve their relative meaning", () => {
+  // 053.3 / 143.2.a.1: "here" and "less Might than me" both survive the
+  // production object-filter translation.
   const [spec] = moveEnemy.targets;
   // The card's own filter carries both anchors; the translator rejects the first
   // unsupported key it walks, so each is checked with its own filter below.
-  assert.throws(
-    () => translateObjectFilter(spec.filter),
-    error => {
-      assert.equal(error.name, "ProgramBindingError");
-      assert.match(error.message, /Unsupported filter field (mightLessThan|sameLocationAs)/);
-      return true;
-    }
-  );
-  assert.throws(
-    () => translateObjectFilter({ type: "unit", zone: "board", controller: "opponent", sameLocationAs: "self" }),
-    error => {
-      assert.equal(error.name, "ProgramBindingError");
-      assert.match(error.message, /Unsupported filter field sameLocationAs/);
-      return true;
-    }
-  );
-  assert.throws(
-    () => translateObjectFilter({ type: "unit", zone: "board", controller: "opponent", mightLessThan: "self" }),
-    error => {
-      assert.equal(error.name, "ProgramBindingError");
-      assert.match(error.message, /Unsupported filter field mightLessThan/);
-      return true;
-    }
-  );
+  assert.equal(translateObjectFilter({ type: "unit", zone: "board", controller: "opponent", sameLocationAs: "self" }).sameLocationAs, "self");
+  assert.equal(translateObjectFilter({ type: "unit", zone: "board", controller: "opponent", mightLessThan: "self" }).mightLessThan, "self");
 });
 
-test("unl-105-219 Imposing Challenger: object-moved exists as a timing point but is not in the EventPattern vocabulary", () => {
-  // 421.1 / 449.2: the closed timing point table defines object-moved, but the
-  // closed EventPattern vocabulary (events/trigger-spec.ts) has no such spelling,
-  // so validateTriggerSpec rejects this card's subscription with invalid-event-type.
+test("unl-105-219 Imposing Challenger: object-moved validates in the EventPattern vocabulary", () => {
+  // 421.1 / 449.2: both the timing point and event spelling now validate.
   assert.equal(isTimingPointId("object-moved"), true);
-  assert.equal(EVENT_PATTERN_TYPES.includes("object-moved"), false);
+  assert.equal(EVENT_PATTERN_TYPES.includes("object-moved"), true);
   const translated = translateTriggerFilter(ability.trigger.filter, "imposing-challenger", "object-moved");
   // The host anchor survives translation (it was dropped for the old nested form).
   assert.deepEqual(translated, { event: "object-moved", object: { objectId: "imposing-challenger" } });
   const result = validateTriggerSpec({ at: "object-moved", filter: translated });
-  assert.equal(result.ok, false);
-  assert.deepEqual(result.issues.map(issue => issue.code), ["invalid-event-type"]);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.issues, []);
 });
 
-test("unl-105-219 Imposing Challenger: the host anchor survives translation while the nested form is dropped", () => {
+test("unl-105-219 Imposing Challenger: both source spellings resolve to the host object", () => {
   // 449.1/449.2: "When I move" must stay scoped to this card. programs/filters.ts
   // normalizes source:"self" to the host object filter; the old nested object:"self"
   // form produced an unscoped pattern that would match any unit's Move.
@@ -214,7 +189,7 @@ test("unl-105-219 Imposing Challenger: the host anchor survives translation whil
   );
   assert.deepEqual(
     translateTriggerFilter({ event: "object-moved", filter: { object: "self" } }, "imposing-challenger"),
-    { event: "object-moved" }
+    { event: "object-moved", object: { objectId: "imposing-challenger" } }
   );
 });
 

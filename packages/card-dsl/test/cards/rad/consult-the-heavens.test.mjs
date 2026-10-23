@@ -538,11 +538,9 @@ test("Consult the Heavens re-sweep: the merged re-expansion engine honours the d
   assert.equal(engine.layers.constructor.name, "LayerEngine");
 });
 
-test("Consult the Heavens re-sweep: the default condition matcher ignores the Shield comparison and would add Might for every role", () => {
-  // layers/engine.ts conditionMatches only implements always/never/type/
-  // has-tag/has-keyword and returns true for anything else. Registering the
-  // expanded Shield Might on that engine therefore loses the 814.1.d.1
-  // defender gate entirely: every role reads +2.
+test("Consult the Heavens re-sweep: the default layer engine honors the Shield defender gate", () => {
+  // 814.1.d.1: Shield 2 adds Might only while the unit is a Defender. An
+  // Attacker or an un-designated unit keeps its printed Might.
   const [shieldMight] = keywordDefinitionsById.get("Shield").expand({ value: 2, host: { canonicalCardId: CANONICAL } });
   for (const combatRole of ["defender", "attacker", null]) {
     const kernel = world().unit("hero", { zone: "board", controller: "A", might: 3, combatRole }).build();
@@ -560,6 +558,6 @@ test("Consult the Heavens re-sweep: the default condition matcher ignores the Sh
       },
       duration: { type: "permanent" }
     }]);
-    assert.equal(engine.evaluate(kernel.ref("hero")).might, 5, "combatRole=" + combatRole);
+    assert.equal(engine.evaluate(kernel.ref("hero")).might, combatRole === "defender" ? 5 : 3, "combatRole=" + combatRole);
   }
 });

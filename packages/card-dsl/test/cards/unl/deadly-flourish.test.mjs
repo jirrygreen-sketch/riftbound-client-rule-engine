@@ -171,15 +171,14 @@ test("unl-073-219 Deadly Flourish golden: the merged token primitive accepts the
   assert.equal(kernel.objects.some((object) => object.types.includes("unit")), true);
 });
 
-test("unl-073-219 Deadly Flourish: the declared trigger.delayed op is unregistered and fails closed", () => {
-  // 390/391.2/392: the delayed ability needs a card-usable registration op.
-  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
+test("unl-073-219 Deadly Flourish: the registered delayed registration executes with its supplied context", () => {
+  // 390/391.2/392: the delayed ability is registered; this incomplete fixture
+  // now reaches the choice planner instead of failing at opcode lookup.
+  assert.equal(instructionDefinitionsById.has("trigger.delayed"), true);
   const kernel = world().player("A").unit("victim", { owner: "B", might: 5 }).build();
   const context = kernel.clone({ source: kernel.getObject("victim"), controller: "A" });
-  assert.throws(
-    () => resolveChainBody(play.body, context),
-    (error) => /Unregistered instruction opcode: trigger\.delayed/.test(error.message)
-  );
+  const outcome = resolveChainBody(play.body, context);
+  assert.ok(outcome.results.some(result => result.op === "trigger.delayed"));
 });
 
 test("unl-073-219 Deadly Flourish: the Gold play creates the canonical exhausted token", () => {

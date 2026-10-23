@@ -40,19 +40,20 @@ test("bandle-scouts-academy: judgeReason names the Gold definition, the play flo
   assert.doesNotMatch(program.judgeReason, /RIFT-(257|261)/);
 });
 
-test("bandle-scouts-academy: the here-scoped card-hidden trigger still cannot be translated", () => {
-  // 422.1 / 422.2: "when you hide a card here" must be scoped to this
-  // Battlefield, and the merged filter translator has no spelling for it.
-  assert.throws(
-    () => translateTriggerFilter(trigger.trigger.filter, "bandle", "card-hidden"),
-    error => error.code === "judge-required" && /Unsupported filter field here/.test(error.message)
-  );
+test("bandle-scouts-academy: the here-scoped card-hidden trigger binds its source location", () => {
+  // 422.1 / 422.2: "when you hide a card here" is anchored to the source
+  // Battlefield. The production translator now preserves that location and
+  // registers the complete trigger rather than widening it to every hide.
+  const translated = translateTriggerFilter(trigger.trigger.filter, "bandle", "card-hidden");
+  assert.deepEqual(translated, {
+    event: "card-hidden",
+    here: true,
+    player: "self"
+  });
   const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
   const kernel = world().unit("bandle", { cardId: program.canonicalCardId, types: ["battlefield"], zone: "board" }).build();
-  assert.throws(
-    () => triggerRegistrations(registry, kernel.getObject("bandle")),
-    error => error.code === "judge-required" && /Unsupported filter field here/.test(error.message)
-  );
+  const [registration] = triggerRegistrations(registry, kernel.getObject("bandle"));
+  assert.deepEqual(registration.spec.filter, translated);
 });
 
 test("bandle-scouts-academy: the declared Gold token instruction creates and plays the canonical token", () => {

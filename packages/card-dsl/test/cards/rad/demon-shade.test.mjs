@@ -120,11 +120,10 @@ test("Demon Shade structure: [Hidden], printed cost, and the two exclusive modes
   ]);
 });
 
-test("Demon Shade: the open-battlefield destination really resolves through the merged location selector", () => {
-  // 170.11.c: "open" means the Battlefield is unoccupied and uncontrolled. The
-  // merged Location selector already evaluates that predicate (it offers each
-  // candidate Battlefield the state knows about), and the merged effect.move
-  // bridge resolves the Expr before submitting the relocation.
+test("Demon Shade: only unoccupied Battlefields become destination candidates", () => {
+  // 170.11.c: "open" means the Battlefield is unoccupied and uncontrolled. A
+  // Battlefield inferred only from an occupant is excluded; when the state has
+  // no open Battlefield, the effect ignores the Move instead of guessing.
   const occupied = world()
     .player("A").player("B")
     .unit("mover", { owner: "A", controller: "A", location: { type: "base", player: "A" } })
@@ -133,12 +132,9 @@ test("Demon Shade: the open-battlefield destination really resolves through the 
   const scoped = occupied.clone({ sourceSnapshot: occupied.getObject("mover") });
   scoped.setTargets("demon-shade.moved-unit", [occupied.ref("mover")]);
 
-  // A Battlefield that has a Unit on it is not open, so the choice has no
-  // option: the merged resolver blocks instead of moving to the wrong place.
-  assert.throws(
-    () => resolveChainBody([{ ...moveInstruction, targets: undefined }], scoped),
-    /Location choice has no options/
-  );
+  const occupiedOutcome = resolveChainBody([{ ...moveInstruction, targets: undefined }], scoped);
+  assert.equal(occupiedOutcome.status, "partial");
+  assert.deepEqual(occupiedOutcome.results.map(entry => [entry.id, entry.result.status]), [["demon-shade.move-unit", "ignored"]]);
   assert.deepEqual(scoped.getObject("mover").location, { type: "base", player: "A" });
 
   // Without an unoccupied Battlefield among the known locations the merged
@@ -148,10 +144,9 @@ test("Demon Shade: the open-battlefield destination really resolves through the 
     .build();
   const scopedNoFields = noFields.clone({ sourceSnapshot: noFields.getObject("mover") });
   scopedNoFields.setTargets("demon-shade.moved-unit", [noFields.ref("mover")]);
-  assert.throws(
-    () => resolveChainBody([{ ...moveInstruction, targets: undefined }], scopedNoFields),
-    /Location choice has no options/
-  );
+  const emptyOutcome = resolveChainBody([{ ...moveInstruction, targets: undefined }], scopedNoFields);
+  assert.equal(emptyOutcome.status, "partial");
+  assert.deepEqual(emptyOutcome.results.map(entry => [entry.id, entry.result.status]), [["demon-shade.move-unit", "ignored"]]);
 });
 
 test.todo(

@@ -104,7 +104,7 @@ test("rad-063-167 Kai'Sa, Rebel: the merged Disarm expansion registers a tempora
   assert.equal(createLayerEngine(kernel.objects, kernel.continuousEffects).evaluate(kernel.ref("enemy")).might, 2);
 });
 
-test("rad-063-167 Kai'Sa, Rebel: production trigger registration rejects the Disarm sameLocationAs filter", () => {
+test("rad-063-167 Kai'Sa, Rebel: production trigger registration preserves the Disarm sameLocationAs filter", () => {
   // The merged KeywordDef is complete, but the *body* target filter still carries
   // sameLocationAs, which programs/filters.ts translateInstructionTargets refuses
   // while translating a trigger body, so the trigger cannot subscribe (831.1.d).
@@ -135,14 +135,11 @@ test("rad-063-167 Kai'Sa, Rebel: production trigger registration rejects the Dis
   const binding = createProgramBinding({
     cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
   });
-  assert.throws(
-    () => binding.registerProgramTriggers(engine, source),
-    error => error instanceof ProgramBindingError && error.code === "judge-required" && /Unsupported filter field sameLocationAs/.test(error.message)
-  );
-  assert.equal(registered.length, 0);
+  const ids = binding.registerProgramTriggers(engine, source);
+  assert.ok(ids.length > 0);
+  assert.equal(registered.length, ids.length);
 
-  // The event-side filter alone *is* translatable: it is the expanded body's
-  // target anchor that blocks registration, not the attack-declared pattern.
+  // The event-side filter remains independently translatable.
   assert.deepEqual(
     translateTriggerFilter(
       { event: "attack-declared", filter: { source: "self" } },
@@ -209,7 +206,7 @@ test("rad-063-167 Kai'Sa, Rebel: the authored in-showdown condition is fail-clos
     effect: { ...entry.effect, effect: { ...entry.effect.effect, condition: undefined } },
     duration: { type: "permanent" }
   }]);
-  assert.deepEqual(unconditional.evaluate(base.ref("spell-in-chain")).keywords, [{ id: "reaction", value: undefined }]);
+  assert.deepEqual(unconditional.evaluate(base.ref("spell-in-chain")).keywords, [{ id: "reaction" }]);
 });
 
 test("rad-063-167 Kai'Sa, Rebel: production static binding grants Reaction to a chain spell when the condition is true", () => {
@@ -238,12 +235,12 @@ test("rad-063-167 Kai'Sa, Rebel: production static binding grants Reaction to a 
   assert.ok(handle);
   assert.equal(engine.layers.registry.list().length, 1);
   const entry = engine.layers.registry.list()[0];
-  assert.deepEqual(entry.effect.filter, { type: "spell", controller: "A", zone: "chain" });
+  assert.deepEqual(entry.effect.filter, { type: "spell", controller: "controller", zone: "chain" });
   assert.equal(entry.effect.effect.keyword, "reaction");
   assert.equal(typeof entry.effect.effect.condition, "function");
   assert.equal(entry.effect.effect.condition(base.getObject("spell-in-chain")), true);
   assert.deepEqual(engine.layers.evaluate(base.ref("spell-in-chain")).keywords, [
-    { id: "reaction", value: undefined }
+    { id: "reaction" }
   ]);
   handle?.unbind();
   assert.equal(engine.layers.registry.list().length, 0);

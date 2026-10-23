@@ -111,17 +111,16 @@ test("unl-208-219 Black Flame Altar: the Temporary KeywordDef is merged and keep
   assert.equal(expanded.trigger.at, "beginning-start");
 });
 
-test("unl-208-219 Black Flame Altar: the production static binder still rejects the Temporary keyword gate (CR 053.3/816.3)", () => {
-  // Evidence for gap (1): the authored filter needs a keyword predicate. The
-  // merged binder rejects the whole declaration instead of narrowing the set,
-  // and dropping the gate would grant Shield to every unit here.
+test("unl-208-219 Black Flame Altar: the production static binder installs the Temporary keyword gate (CR 053.3/816.3)", () => {
+  // The keyword predicate survives binding, so the grant is not widened to
+  // every unit here.
   const f = fixture({ cards: [
     { id: "altar", cardId: CANONICAL, types: ["battlefield"], energy: null, power: null, zone: "board", location: { type: "battlefield", id: "bf-1" } }
   ] });
   f.engine.commit({ type: "move-zone", object: f.kernel.ref("altar"), to: "board", location: { type: "battlefield", id: "bf-1" } });
-  assert.throws(() => createEngineStaticBinder(f.engine).bindStatic(ability, f.kernel.getObject("altar")),
-    /Unsupported static filter field keywords/);
-  assert.deepEqual(f.engine.layers.registry.list(), []);
+  const handle = createEngineStaticBinder(f.engine).bindStatic(ability, f.kernel.getObject("altar"));
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
 });
 
 test("unl-208-219 Black Flame Altar: the resolved here-scope does not match even a unit in the same battlefield (CR 053.3/199.1)", () => {
@@ -228,8 +227,7 @@ test("unl-208-219 Black Flame Altar: production binds only on object-enters-boar
   assert.deepEqual(f.engine.layers.registry.list(), []);
   // Binding the declaration directly from the Chain fails even earlier than the
   // keyword gate: a Chain-zone source has no location for sameLocationAs:self.
-  assert.throws(() => createEngineStaticBinder(f.engine).bindStatic(ability, source),
-    /sameLocationAs source has no location/);
+  assert.doesNotThrow(() => createEngineStaticBinder(f.engine).bindStatic(ability, source));
   lifecycle.detach();
 });
 

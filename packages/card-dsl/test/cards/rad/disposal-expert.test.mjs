@@ -216,13 +216,12 @@ test("disposal-expert: the Disarm expansion's sameLocationAs filter really narro
   assert.equal(engine.evaluate(kernel.ref("here-enemy")).might, 4);
 });
 
-test("disposal-expert: the program-binding translator still refuses sameLocationAs in a card filter", () => {
-  // The card program must declare the restriction for the ability to be
-  // complete; the merged program translator has no vocabulary for it, so the
-  // CardProgram registration path fails loudly instead of dropping the anchor.
-  assert.throws(
-    () => translateObjectFilter({ type: "unit", zone: "board", controller: "opponent", sameLocationAs: "source" }),
-    /Unsupported filter field sameLocationAs/
+test("disposal-expert: production translation preserves sameLocationAs", () => {
+  // The card's source-relative location restriction survives the program
+  // translator instead of widening to every opposing unit.
+  assert.deepEqual(
+    translateObjectFilter({ type: "unit", zone: "board", controller: "opponent", sameLocationAs: "source" }),
+    { type: "unit", zone: "board", controller: "opponent", sameLocationAs: "source" }
   );
 });
 

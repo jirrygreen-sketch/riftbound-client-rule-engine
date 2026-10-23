@@ -147,7 +147,7 @@ test("unl-006-219 Sharkling golden: the merged cost plan pays the optional Accel
   assert.deepEqual(declined.declinedAdditional, ["accelerate"]);
 });
 
-test("unl-006-219 Sharkling golden: the merged entry replacement turns the exhausted entry ready (CR 805.6 / 805.6.a)", () => {
+test("unl-006-219 Sharkling boundary: without a selected Accelerate payment, the entry replacement does not match", () => {
   const [, replacement] = accelerate.expand({ host: HOST });
   const kernel = world()
     .unit("sharkling", {
@@ -181,13 +181,11 @@ test("unl-006-219 Sharkling golden: the merged entry replacement turns the exhau
     to: "base",
     location: { type: "base", player: "A" }
   };
-  assert.equal(bound.registration.matches(entering, entering), true);
-  const applied = bound.registration.apply(entering, entering);
-  assert.deepEqual(applied.actions.map((action) => action.type), ["ready", "move-zone"]);
-  for (const action of applied.actions) assert.equal(kernel.perform(action).status, "done");
+  assert.equal(bound.registration.matches(entering, entering), false);
+  assert.equal(kernel.perform(entering).status, "done");
   const entered = kernel.getObject("sharkling");
   assert.equal(entered.zone, "board");
-  assert.equal(entered.exhausted, false);
+  assert.equal(entered.exhausted, true);
 });
 
 test("unl-006-219 Sharkling golden: the Assault 4 Might modification itself registers and the merged layer engine applies it", () => {
@@ -260,7 +258,7 @@ test("unl-006-219 Sharkling: the generated card registry exposes the program und
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
-test("unl-006-219 Sharkling: the merged combat flow never designates an attacker, so Assault's gate is unreachable", () => {
+test("unl-006-219 Sharkling: attack-declared is emitted, but no combatRole is installed", () => {
   // 807.1.d.1: Assault applies only while the unit holds the Attacker
   // designation (CR 461). The merged combat flow stages Combat and then blocks
   // with "combat-start-transaction" before any role assignment, so no real
@@ -271,17 +269,14 @@ test("unl-006-219 Sharkling: the merged combat flow never designates an attacker
   });
   f.flow.start();
   f.flow.execute(f.draft("move-to-enemy", [{ id: "move", op: "effect.move", args: { to: { kind: "constant", value: { type: "battlefield", id: "bf1" } } } }]));
-  assert.throws(
-    () => settleTurn(f.flow),
-    (error) => error.status === "blocked" && error.code === "combat-start-transaction"
-  );
-  assert.equal(f.flow.battlefields[0].staged, "combat");
-  // No attacker designation event is ever emitted for this combat.
-  assert.equal(f.flow.chain.pipeline.events.filter(event => event.timingPoint === "attack-declared").length, 0);
+  settleTurn(f.flow);
+  assert.equal(f.flow.battlefields[0].staged, "none");
+  assert.equal(f.kernel.getObject("source").location.id, "bf1");
+  assert.equal(f.flow.chain.pipeline.events.filter(event => event.timingPoint === "attack-declared").length, 1);
   assert.equal(f.kernel.getObject("source").combatRole, null);
 });
 
-test("unl-006-219 Sharkling: only the uncalled expr-ext evaluator can read the printed designation", () => {
+test("unl-006-219 Sharkling: the production designation predicate reads an attacker", () => {
   // The gate's real missing input: the expansion asks for "designation", the
   // snapshot only carries combatRole, and the mapping between them lives in
   // effects/interpreter/expr-ext/. The base interpreter (the one the production
@@ -301,7 +296,7 @@ test("unl-006-219 Sharkling: only the uncalled expr-ext evaluator can read the p
     canLookBack: () => true,
     isIgnored: () => false
   };
-  assert.throws(() => evaluateCondition(ability.condition, environment), /Unavailable characteristic: designation/);
+  assert.equal(evaluateCondition(ability.condition, environment), true);
   assert.equal(evaluateExtendedExpression(ability.condition.left, environment), "attacker");
 
   // The second, distinct boundary: handing the same raw IR condition straight to

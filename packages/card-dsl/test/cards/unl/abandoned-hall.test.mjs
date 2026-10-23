@@ -228,6 +228,7 @@ test("unl-205-219 Abandoned Hall: the merged trigger binder registers the card-p
   assert.deepEqual(ids, [registration.id]);
   assert.deepEqual(registration.spec.filter, { event: "card-played", object: { type: "spell" }, player: "any" });
   assert.equal(registration.spec.at, "card-played");
-  assert.equal(registration.optional, true);
+  assert.equal(registration.optional, false);
+  assert.equal(registration.mayAtFinalize, true);
   assert.equal(registration.controller, "A");
 });

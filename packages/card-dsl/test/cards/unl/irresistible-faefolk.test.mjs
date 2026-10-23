@@ -183,13 +183,13 @@ test("unl-112-219 Irresistible Faefolk golden: the original move subinstruction 
   assert.deepEqual(context.getObject("enemy-unit").location, HERE);
 });
 
-test("unl-112-219 Irresistible Faefolk: object-moved exists as a timing point but is outside the EventPattern vocabulary", () => {
+test("unl-112-219 Irresistible Faefolk: object-moved and its destination gate validate", () => {
   // 421.1 / 449.2: object-moved is a closed timing point, yet the closed
   // EventPattern vocabulary has no such spelling, so the production registration
   // rejects the subscription before the Destination could ever be tested. The
   // card's own anchor and Destination gate survive program translation.
   assert.equal(isTimingPointId("object-moved"), true);
-  assert.equal(EVENT_PATTERN_TYPES.includes("object-moved"), false);
+  assert.equal(EVENT_PATTERN_TYPES.includes("object-moved"), true);
   assert.deepEqual(translateTriggerFilter(ability.trigger.filter, "faefolk", "object-moved"), {
     event: "object-moved",
     object: { objectId: "faefolk" },
@@ -199,8 +199,8 @@ test("unl-112-219 Irresistible Faefolk: object-moved exists as a timing point bu
     at: "object-moved",
     filter: translateTriggerFilter(ability.trigger.filter, "faefolk", "object-moved")
   });
-  assert.equal(result.ok, false);
-  assert.deepEqual(result.issues.map(issue => issue.code), ["invalid-event-type"]);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.issues, []);
 });
 
 test.todo(

@@ -128,7 +128,7 @@ test("rad-151-167 Starry-Eyed Songstress: cost.modify really prices the optional
   assert.equal(declinedPlan.total.energy, 3, "the primitive applies the discount as a caller-supplied modifier; the card-side gate is the gap");
 });
 
-test("rad-151-167 Starry-Eyed Songstress: the declared static still has no production consumer", () => {
+test("rad-151-167 Starry-Eyed Songstress: the declared static enters the production cost layer", () => {
   // The real static binder refuses this declaration twice over: staticTarget
   // rejects appliesTo "play-spell-cost", and the same effect with a bindable
   // appliesTo still fails because layerFor has no cost.modify mapping.
@@ -142,14 +142,14 @@ test("rad-151-167 Starry-Eyed Songstress: the declared static still has no produ
     context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
   });
   const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
-  assert.throws(
-    () => bindStaticAbility(createEngineStaticBinder(engine), ability, kernel.getObject("songstress")),
-    /Unsupported static appliesTo "play-spell-cost"/
-  );
-  assert.throws(
-    () => bindStaticAbility(createEngineStaticBinder(engine), { ...ability, effect: { ...ability.effect, appliesTo: "self" } }, kernel.getObject("songstress")),
-    /Static ability kind cost\.modify has no layer mapping/
-  );
+  const handle = bindStaticAbility(createEngineStaticBinder(engine), ability, kernel.getObject("songstress"));
+  const [registration] = engine.layers.registry.list();
+  assert.equal(registration.effect.effect.kind, "static.capability");
+  assert.equal(registration.effect.effect.capabilityKind, "cost");
+  assert.equal(registration.effect.effect.ability.effect.kind, "cost.modify");
+  assert.equal(registration.effect.effect.ability.effect.appliesTo, "play-spell-cost");
+  assert.deepEqual(registration.effect.effect.ability.effect.filter, { type: "spell", controller: "controller" });
+  handle.unbind();
 });
 
 test("rad-151-167 Starry-Eyed Songstress: the merged collector refuses the declared optional additional cost", () => {

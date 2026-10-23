@@ -303,12 +303,10 @@ test("rad-033-167 Command: Attack golden: declining the may recycles every looke
   ]);
 });
 
-test("rad-033-167 Command: Attack golden: without an upstream ordered range the look sees nothing", () => {
-  // The card names its ordered range, but no upstream provider filled it (the
-  // production Finalize surface locks instruction targets only). The merged
-  // effect.inspect therefore looks at zero cards and never falls back to the
-  // unordered set query, so no card is reordered or moved (contract 3.6; the
-  // same reading the merged sfd/called-shot golden records).
+test("rad-033-167 Command: Attack golden: the look derives its ordered top-five range without a hand-filled lock", () => {
+  // The production instruction now derives the deck's ordered top five from
+  // the real deck. The optional reveal asks for the player's choice before the
+  // rest of the range is recycled.
   const kernel = world()
     .player("A")
     .deck(["gear-a", "spell-b", "gear-c", "unit-d", "spell-e", "deeper"], { owner: "A" })
@@ -316,28 +314,14 @@ test("rad-033-167 Command: Attack golden: without an upstream ordered range the 
     .build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("src") });
 
-  const outcome = resolveChainBody([bindController, lookInstruction, recycleInstruction], scoped);
-
-  assert.equal(outcome.status, "executed");
-  assert.deepEqual(
-    outcome.results.map((entry) => [entry.id, entry.result.status]),
-    [
-      ["command-attack.bind-controller", "executed"],
-      ["command-attack.look-top-5", "executed"],
-      ["command-attack.recycle-rest", "executed"]
-    ]
+  assert.throws(
+    () => resolveChainBody([bindController, lookInstruction, recycleInstruction], scoped),
+    error => error.name === "AwaitChoice" &&
+      error.message.includes("command-attack.look-top-5/pick%3Acommand-attack.top-five")
   );
-  assert.equal(outcome.linkedValues["command-attack.look-top-5.command-attack-looked"].length, 0);
-  assert.equal(outcome.linkedValues["command-attack.recycle-rest.recycledCount"], 0);
   assert.deepEqual(scoped.objectsInZone("A", "deck").map((ref) => ref.id), [
-    "gear-a",
-    "spell-b",
-    "gear-c",
-    "unit-d",
-    "spell-e",
-    "deeper"
+    "gear-a", "spell-b", "gear-c", "unit-d", "spell-e", "deeper"
   ]);
-  assert.deepEqual(outcome.events, []);
 });
 
 test("rad-033-167 Command: Attack golden: mode 1 really moves the Deploy gear to the chosen battlefield", () => {
@@ -378,10 +362,10 @@ test("rad-033-167 Command: Attack golden: mode 1 really moves the Deploy gear to
   assert.deepEqual(scoped.events.map((event) => event.action), ["move-location"]);
 });
 
-test("rad-033-167 Command: Attack golden: a battlefield-less board offers no destination and moves nothing", () => {
-  // 355.4.a: only valid Battlefield locations are legal destinations. With no
-  // such location in the game state the Location choice has no options, so the
-  // Move is negated instead of guessing a destination.
+test("rad-033-167 Command: Attack golden: a battlefield-less board keeps the Gear at Base", () => {
+  // 355.4.a: a Move requires a valid destination other than the current
+  // location. With no Battlefield in the state, the instruction has no legal
+  // move and leaves the Gear at its Base.
   const kernel = world()
     .unit("deploy-gear", {
       types: ["gear"],
@@ -394,15 +378,17 @@ test("rad-033-167 Command: Attack golden: a battlefield-less board offers no des
   scoped.setTargets("command-attack.friendly-deploy-gear", [kernel.ref("deploy-gear")]);
   const bodyWithoutTargetSpec = moveMode.body.map(({ targets, ...rest }) => rest);
 
-  assert.throws(() => resolveChainBody(bodyWithoutTargetSpec, scoped), /Location choice has no options/);
+  const outcome = resolveChainBody(bodyWithoutTargetSpec, scoped);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [["command-attack.move", "ignored"]]);
   assert.deepEqual(scoped.getObject("deploy-gear").location, { type: "base", player: "A" });
 });
 
-test("rad-033-167 Command: Attack: an empty Battlefield is not among the destination candidates", () => {
-  // 355.4.a allows moving to a Battlefield that has no Unit on it. The merged
-  // candidate source derives Battlefield locations only from objects already
-  // sitting in one (plus Bases), so an empty Battlefield never becomes an
-  // option — the ability cannot yet offer every legal destination.
+test("rad-033-167 Command: Attack: an empty Battlefield is offered as an open destination", () => {
+  // 355.4.a allows moving to a Battlefield that has no Unit on it. The
+  // production destination resolver now includes the registered Battlefield
+  // object itself, so the empty location is available rather than inferred
+  // from an occupant.
   const kernel = world()
     .unit("deploy-gear", {
       types: ["gear"],
@@ -421,11 +407,11 @@ test("rad-033-167 Command: Attack: an empty Battlefield is not among the destina
   scoped.setTargets("command-attack.friendly-deploy-gear", [kernel.ref("deploy-gear")]);
   const bodyWithoutTargetSpec = moveMode.body.map(({ targets, ...rest }) => rest);
 
-  assert.throws(
-    () => resolveChainBody(bodyWithoutTargetSpec, scoped),
-    /Location choice has no options/
-  );
-  assert.deepEqual(scoped.getObject("deploy-gear").location, { type: "base", player: "A" });
+  scoped.setAnswers({ "command-attack.move/command-attack.battlefield-destination": { type: "battlefield", id: "empty-battlefield" } });
+  const outcome = resolveChainBody(bodyWithoutTargetSpec, scoped);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [["command-attack.move", "executed"]]);
+  assert.deepEqual(scoped.getObject("deploy-gear").location, { type: "battlefield", id: "empty-battlefield" });
 });
 
 test.todo(

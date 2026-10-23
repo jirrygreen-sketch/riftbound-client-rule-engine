@@ -188,19 +188,21 @@ test("rad-045-167 K'Sante, Dauntless boundary: continuous.keyword can only add a
   );
 });
 
-test("rad-045-167 K'Sante, Dauntless boundary: the 'here' target filter is not expressible with the merged vocabularies", () => {
-  // "a unit you control here" (383.4.e/464.2.b). The card IR filter itself is
-  // legal and the reference interpreter's set query honors the anchor; only the
-  // production translator refuses it, so nothing can reach the chain yet.
+test("rad-045-167 K'Sante, Dauntless: the 'here' target filter reaches production", () => {
+  // "a unit you control here" (383.4.e/464.2.b) now keeps both the relative
+  // player and the source-location anchors through production translation.
   assert.equal(
     validateCardProgram(program).ok,
     true,
     "the declared sameLocationAs filter passes the card-side validator"
   );
-  assert.throws(
-    () => translateInstructionTargets(attackAbility.body),
-    /Unsupported filter field sameLocationAs/
-  );
+  const [translated] = translateInstructionTargets(attackAbility.body);
+  assert.deepEqual(translated.targets[0].filter, {
+    type: "unit",
+    controller: "self",
+    zone: "board",
+    sameLocationAs: "self"
+  });
   const kernel = world().player("A")
     .unit("ksante", { might: 4, controller: "A", location: { type: "battlefield", id: "bf-1" } })
     .unit("ally-here", { might: 2, controller: "A", location: { type: "battlefield", id: "bf-1" } })
@@ -274,10 +276,9 @@ test("rad-045-167 K'Sante, Dauntless boundary: the 'here' target filter is not e
   }
 });
 
-test("rad-045-167 K'Sante, Dauntless boundary: the [Shield] expansion leaves the printed Might unchanged", () => {
-  // 814.1.c: the defender bonus reads `designation`, which the merged
-  // ObjectSnapshot does not provide (it exposes combatRole); binding therefore
-  // produces no Might change rather than an invented +1.
+test("rad-045-167 K'Sante, Dauntless: [Shield] adds 1 Might to a defender", () => {
+  // 814.1.c: the production designation predicate resolves from the defender's
+  // live combat role.
   const expansion = Shield.expand({ value: undefined, host: { canonicalCardId: CANONICAL } });
   assert.deepEqual(expansion[0].condition.left, {
     kind: "object-property", object: "self", property: "designation"
@@ -294,5 +295,5 @@ test("rad-045-167 K'Sante, Dauntless boundary: the [Shield] expansion leaves the
   const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
   createEngineStaticBinder(engine).bindStatic(expansion[0], kernel.getObject("ksante"));
   engine.layers.setObjects(kernel.objects);
-  assert.equal(engine.layers.evaluate(kernel.ref("ksante")).might, 4);
+  assert.equal(engine.layers.evaluate(kernel.ref("ksante")).might, 5);
 });

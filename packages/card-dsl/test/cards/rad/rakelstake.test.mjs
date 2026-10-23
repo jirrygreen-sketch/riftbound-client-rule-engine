@@ -64,7 +64,7 @@ test("rad-165-167 Rakelstake: per-turn play trigger for units and gear played he
   assert.match(program.judgeReason, /TriggerSpec\.once/);
 });
 
-test("rad-165-167 Rakelstake: normal trigger binding drops here before strict validation", () => {
+test("rad-165-167 Rakelstake: normal trigger binding preserves here", () => {
   const lifted = { ...program, status: "executable" };
   delete lifted.judgeReason;
   const registry = new ProgramRegistry([lifted]);
@@ -81,12 +81,11 @@ test("rad-165-167 Rakelstake: normal trigger binding drops here before strict va
 
   assert.deepEqual(registration.spec.filter, {
     event: "card-played",
+    here: true,
     object: { type: ["unit", "gear"] }
   });
   assert.equal(validateTriggerSpec(registration.spec).ok, true);
-  // The adapter has registered a valid-looking filter, but the destination
-  // Battlefield restriction was discarded during translation.
-  assert.equal("here" in registration.spec.filter, false);
+  assert.equal(registration.spec.filter.here, true);
 });
 
 test("rad-165-167 Rakelstake: Predict is inspect-top-one-then-optionally-recycle", () => {

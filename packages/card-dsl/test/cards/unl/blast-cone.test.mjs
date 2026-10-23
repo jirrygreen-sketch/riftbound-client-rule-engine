@@ -397,8 +397,12 @@ test("unl-133-219 Blast Cone: the merged trigger registration carries neither a 
   };
   const registrations = triggerRegistrations(registry, source);
   assert.deepEqual(registrations.map(entry => entry.spec.at), ["card-played", "object-moved"]);
-  assert.deepEqual(registrations.map(entry => entry.cost ?? null), [null, null]);
-  assert.deepEqual(registrations.map(entry => entry.mayAtFinalize ?? null), [null, null]);
+  assert.equal(registrations[0].cost, undefined);
+  assert.deepEqual(registrations[1].cost, {
+    id: "cost:blast-cone:1:blast-cone.may-exhaust-to-stun",
+    cost: { payments: [{ kind: "exhaust", object: "self" }] }
+  });
+  assert.deepEqual(registrations.map(entry => entry.mayAtFinalize ?? null), [true, true]);
   // The move trigger's filter really binds through the production translator;
   // the responsibility payload (412.4/412.5) is what is still missing.
   assert.deepEqual(

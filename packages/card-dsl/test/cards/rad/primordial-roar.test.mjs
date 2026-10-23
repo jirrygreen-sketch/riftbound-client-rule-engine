@@ -167,7 +167,7 @@ test("rad-082-167 Primordial Roar: a missing Show Off link makes the damage inst
 
 // The two TODO entries above are replaced by executor-backed gap tests; the
 // remaining Show Off work is pinned to the merged code that actually rejects it.
-test("rad-082-167 Primordial Roar: the authored keyword slug is not in the merged keyword registry", () => {
+test("rad-082-167 Primordial Roar: the authored slug expands through the registered Show Off definition", () => {
   // effects/keywords/ShowOff.ts registers the printed name while the EffectIR
   // validator forces a lowercase symbol id, and programs/keywords.ts definitionFor
   // only compares case-insensitively, so neither spelling works today.
@@ -189,11 +189,12 @@ test("rad-082-167 Primordial Roar: the authored keyword slug is not in the merge
   );
 
   const kernel = world().unit("host", { keywords: [{ id: "Show Off" }] }).build();
-  assert.throws(
-    () => expandProgram(program, { ...kernel.getObject("host"), cardId: CANONICAL }),
-    (error) => error.code === "judge-required" &&
-      /Keyword show-off has no executable KeywordDef/.test(error.message)
-  );
+  const authored = expandProgram(program, { ...kernel.getObject("host"), cardId: CANONICAL });
+  assert.deepEqual(authored.expanded.map(ability => [ability.kind, ability.effect?.kind]), [
+    ["static", "cost.reveal"],
+    ["static", "cost.reveal"]
+  ]);
+  assert.deepEqual(authored.expanded[0].effect.sources, ["hand", "board"]);
 
   // Control: the merged expansion does produce the cost.reveal declaration under
   // the registry key, so the failure is the id spelling/normalisation, not ShowOff.

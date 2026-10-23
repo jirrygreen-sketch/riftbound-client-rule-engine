@@ -16,6 +16,7 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import deploy from "../../../../engine-core/dist/effects/keywords/Deploy.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-c23ae2a28f5e64f8b56146faf62b3012c3c1902a3ebdd597858ac9d76f814fdc";
 const SOURCE_TEXT =
@@ -207,36 +208,28 @@ test.todo(
     "location data and for the hold kill (CR 830.1.b); the binding layer rejects here:true fail-closed"
 );
 
-// The three TODO entries above/below are replaced by real executor evidence so
-// the remaining gaps are pinned to the merged code that actually rejects them.
-test("rad-087-167 Portable Portal: the merged Deploy expansion cannot bind (static layer + hold trigger)", () => {
-  // CR 830.1.b: the Deploy expansion exists, but neither half has a complete
-  // production consumer.
+// The TODO entries above/below are paired with real executor evidence so the
+// remaining gaps stay pinned to the merged code that actually rejects them.
+test("rad-087-167 Portable Portal: the Deploy expansion binds and keeps the opponent-Hold anchor", () => {
+  // CR 830.1.b: both parts of Deploy cross the production binding surfaces.
   const expansion = deploy.expand({ host: { canonicalCardId: CARD_ID } });
   assert.deepEqual(expansion.map(ability => ability.kind), ["static", "triggered"]);
   assert.equal(expansion[0].effect.kind, "continuous.location");
 
-  const kernel = world()
-    .unit("portal-gear", {
-      types: ["gear"],
-      zone: "board",
-      location: { type: "battlefield", id: "bf-1" }
-    })
-    .build();
-  const source = kernel.getObject("portal-gear");
-  const binder = createEngineStaticBinder({
-    layers: { addContinuous() {}, removeContinuous() {}, currentTimingPoint: "cleanup-start" }
+  const f = fixture({ cards: [{ id: "portal-gear", cardId: CARD_ID, types: ["gear"], might: null, energy: 1, power: null }] });
+  f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("portal-gear"),
+    to: "board",
+    location: { type: "battlefield", id: "bf-1" }
   });
+  const source = f.kernel.getObject("portal-gear");
+  const handle = createEngineStaticBinder(f.engine).bindStatic(expansion[0], source);
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
 
-  // 830.1.b placement permission: layerFor has no mapping for continuous.location.
-  assert.throws(
-    () => binder.bindStatic(expansion[0], source),
-    (error) => error.code === "judge-required" &&
-      /Static ability kind continuous\.location has no layer mapping/.test(error.message)
-  );
-
-  // 830.1.b opponent-Hold clause: here:true is rejected fail-closed while the
-  // remaining filter still translates, so the registration looks valid.
+  // 830.1.b opponent-Hold clause: the production trigger adapter preserves
+  // "here" and the opponent player as separate predicates.
   const registry = new ProgramRegistry([{
     canonicalCardId: CARD_ID,
     rulesetVersion: "core-1.5",
@@ -244,10 +237,8 @@ test("rad-087-167 Portable Portal: the merged Deploy expansion cannot bind (stat
     sourceText: "[Deploy]",
     abilities: expansion
   }]);
-  assert.throws(
-    () => triggerRegistrations(registry, { ...source, cardId: CARD_ID }),
-    (error) => error.code === "judge-required" && /Unsupported filter field here/.test(error.message)
-  );
+  const [hold] = triggerRegistrations(registry, source);
+  assert.deepEqual(hold.spec.filter, { event: "hold", here: true, player: "opponent" });
 });
 
 test("rad-087-167 Portable Portal: the optional body declares the real Power payment before ready", () => {
@@ -259,54 +250,36 @@ test("rad-087-167 Portable Portal: the optional body declares the real Power pay
   assert.match(program.judgeReason, /success-gated/);
 });
 
-test("rad-087-167 Portable Portal: the production static grant installs but never matches its location filter", () => {
-  // The merged production path really does install the Ganking grant
-  // (createEngineStaticBinder -> bindStaticToLayers resolves sameLocationAs:self
-  // into a concrete {type:'battlefield', id}). layers/filter.ts's
-  // matchesObjectFilter compares `location` against location.type only, so the
-  // structured LocationRef matches nothing — including a unit on the same
-  // battlefield.
-  const kernel = world()
-    .unit("portal", { types: ["unit"], location: { type: "battlefield", id: "bf-1" } })
-    .unit("unit-here", { location: { type: "battlefield", id: "bf-1" } })
-    .unit("unit-elsewhere", { location: { type: "battlefield", id: "bf-2" } })
-    .build();
-  const engine = createLayerEngine(kernel.objects, []);
-  const binder = createEngineStaticBinder({ layers: engine });
+test("rad-087-167 Portable Portal: the production static grant reaches only units here", () => {
+  // The production binder resolves sameLocationAs:self against the live host.
+  const f = fixture({ cards: [
+    { id: "portal", cardId: CARD_ID, types: ["unit"], might: 2 },
+    { id: "unit-here", cardId: "here-card", types: ["unit"], might: 2 },
+    { id: "unit-elsewhere", cardId: "elsewhere-card", types: ["unit"], might: 2 }
+  ] });
+  for (const [id, battlefield] of [["portal", "bf-1"], ["unit-here", "bf-1"], ["unit-elsewhere", "bf-2"]]) {
+    f.engine.commit({ type: "move-zone", object: f.kernel.ref(id), to: "board", location: { type: "battlefield", id: battlefield } });
+  }
+  const source = f.kernel.getObject("portal");
   const grant = program.abilities[2];
-  binder.bindStatic(grant, kernel.getObject("portal"));
-
-  const [spec] = engine.registry.list();
-  assert.equal(spec.effect.layer, "ability");
-  assert.equal(spec.effect.effect.kind, "continuous.grant-keyword");
-  assert.deepEqual(spec.effect.filter, {
-    type: "unit",
-    controller: "A",
-    zone: "board",
-    location: { type: "battlefield", id: "bf-1" }
-  });
-  engine.setObjects(kernel.objects);
-  assert.deepEqual(engine.evaluate(kernel.ref("unit-here")).keywords, []);
-  assert.deepEqual(engine.evaluate(kernel.ref("unit-elsewhere")).keywords, []);
-
-  // Control: the same filter written as a location-type string does grant.
-  const control = createLayerEngine(kernel.objects, []);
-  control.register({
-    id: "control",
-    layer: "ability",
-    source: kernel.ref("portal"),
-    filter: { type: "unit", zone: "board", location: "battlefield" },
-    effect: { kind: "continuous.grant-keyword", keyword: "Ganking" }
-  }, { type: "permanent" });
-  control.setObjects(kernel.objects);
-  assert.deepEqual(control.evaluate(kernel.ref("unit-here")).keywords.map(k => k.id), ["Ganking"]);
+  assert.equal(grant.effect.filter.sameLocationAs, "self");
+  const handle = createEngineStaticBinder(f.engine).bindStatic(grant, source);
+  f.engine.layers.setObjects(f.kernel.objects);
+  assert.deepEqual(f.engine.layers.evaluate(f.kernel.ref("unit-here")).keywords.map(keyword => keyword.id), ["Ganking"]);
+  assert.deepEqual(f.engine.layers.evaluate(f.kernel.ref("unit-elsewhere")).keywords, []);
+  handle.unbind();
 });
 
-test("rad-087-167 Portable Portal: the sameLocationAs TargetSpec is rejected by the merged translator", () => {
-  assert.throws(
-    () => translateInstructionTargets(program.abilities[1].body),
-    (error) => error.code === "judge-required" && /Unsupported filter field sameLocationAs/.test(error.message)
-  );
+test("rad-087-167 Portable Portal: the sameLocationAs TargetSpec translates", () => {
+  const translated = translateInstructionTargets(program.abilities[1].body);
+  const nested = translated[0].args.body.value;
+  assert.deepEqual(nested[1].targets, [{
+    id: TARGET_ID,
+    filter: { type: "unit", zone: "board", sameLocationAs: "self" },
+    min: 1,
+    max: 1,
+    selection: "one"
+  }]);
 });
 
 function optionalWorld(power = ["Body"], owner = "A") {
