@@ -1706,7 +1706,14 @@ export class ChainEngine {
         const hasEntryReplacement = this.pipeline.hasReplacementRegistration(
           `replacement:${item.object.id}:${item.object.zoneEntryId}`,
         );
-        const ready = item.kind === 'gear' || acceleratePaid && !hasEntryReplacement;
+        // Gear enters ready (359.2.d) unless the effect that plays it
+        // stipulates otherwise (184.1 / 185.2.d). A token Played by an effect
+        // carries that stipulated entry state on the object it created on the
+        // Chain, so resolution keeps it instead of applying the Gear default.
+        const onChain = this.options.host.objects().find(object =>
+          object.ref.id === item.object.id && object.ref.zoneEntryId === item.object.zoneEntryId);
+        const stipulatedExhausted = item.kind === 'gear' && onChain?.isToken === true && onChain.exhausted === true;
+        const ready = item.kind === 'gear' ? !stipulatedExhausted : acceleratePaid && !hasEntryReplacement;
         const state = this.pipeline.commit({ type: ready ? 'ready' : 'exhaust', object: item.object });
         if (state.status !== 'done') throw new Error('Permanent entry state could not be applied');
         const evidence = this.playCostEvidence(item, move);
