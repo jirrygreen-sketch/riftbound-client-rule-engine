@@ -109,6 +109,11 @@ const emptyZones = (): Record<RuntimeZone, string[]> => ({
 });
 
 const clone = <T>(value: T): T => structuredClone(value);
+const deepFreeze = <T>(value: T): T => {
+  if (value === null || typeof value !== "object" || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value as Readonly<Record<string, unknown>>)) deepFreeze(child);
+  return Object.freeze(value);
+};
 const refKey = (ref: ObjectRef): string => `${ref.id}:${ref.zoneEntryId ?? 0}`;
 const KNOWN_DOMAINS = new Set<Domain>(["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]);
 
@@ -160,6 +165,8 @@ export class EngineRuntimeHost {
   private readonly catalogDomainsByCardId = new Map<string, readonly Domain[]>();
   private readonly championLegends = new Set<string>();
   private hidden: HiddenRuntimeState = { turn: 1, zones: new Map(), played: new Map() };
+  /** One immutable public view per host write generation. */
+  private objectsSnapshot: readonly ObjectSnapshot[] | null = null;
 
   constructor(
     readonly seatNames: Readonly<Record<PlayerId, string>> = { A: "Player A", B: "Player B" },
@@ -175,7 +182,10 @@ export class EngineRuntimeHost {
   }
 
   addPlayer(id: PlayerId, name = id): void {
-    if (!this.players.has(id)) this.players.set(id, { id, name, energy: 0, power: [], xp: 0, score: 0, zones: emptyZones() });
+    if (!this.players.has(id)) {
+      this.players.set(id, { id, name, energy: 0, power: [], xp: 0, score: 0, zones: emptyZones() });
+      this.invalidateObjectCache();
+    }
   }
 
   addCard(player: PlayerId, card: RuntimeCard, zone: ZoneId): ObjectRef {
@@ -203,6 +213,7 @@ export class EngineRuntimeHost {
     this.objectMap.set(id, object);
     if (cardDomains !== undefined) this.runeDomainsByObject.set(id, cardDomains);
     this.players.get(player)!.zones[zone].push(id);
+    this.invalidateObjectCache();
     return objectRef(object);
   }
 
@@ -238,11 +249,17 @@ export class EngineRuntimeHost {
     this.hidden = saved.hidden === undefined
       ? { turn: 1, zones: new Map(), played: new Map() }
       : { turn: saved.hidden.turn, zones: new Map(clone(saved.hidden.zones)), played: new Map(clone(saved.hidden.played)) };
+    this.invalidateObjectCache();
   }
 
   objects(): readonly ObjectSnapshot[] {
-    return clone([...this.objectMap.values()]).map(object => ({ ...object, counters: clone(object.counters) }));
+    if (this.objectsSnapshot !== null) return this.objectsSnapshot;
+    this.objectsSnapshot = deepFreeze(clone([...this.objectMap.values()]));
+    return this.objectsSnapshot;
   }
+
+  /** Subclasses that adapt authoritative zones must retire the public view. */
+  protected invalidateObjectCache(): void { this.objectsSnapshot = null; }
 
   object(ref: ObjectRef): ObjectSnapshot | null {
     const object = this.objectMap.get(ref.id);
@@ -346,6 +363,7 @@ export class EngineRuntimeHost {
     // A suspended choice is the only reader allowed to observe the rolled-back
     // option incarnations. Any new state action retires that narrow view.
     this.choiceObjects.clear();
+    this.invalidateObjectCache();
     try {
       switch (action.type) {
         case "create-token": return this.createToken(action.player, action.token, action.to, action.location);
@@ -424,6 +442,8 @@ export class EngineRuntimeHost {
       return this.impossible();
     } catch {
       return this.impossible();
+    } finally {
+      this.invalidateObjectCache();
     }
   }
 
@@ -431,9 +451,14 @@ export class EngineRuntimeHost {
   performContract(action: ContractGameAction): ActionOutcome {
     this.choiceObjects.clear();
     const checkpoint = this.checkpoint();
-    const outcome = this.performContractInternal(action);
-    if (outcome.status !== "done") this.restore(checkpoint);
-    return outcome;
+    this.invalidateObjectCache();
+    try {
+      const outcome = this.performContractInternal(action);
+      if (outcome.status !== "done") this.restore(checkpoint);
+      return outcome;
+    } finally {
+      this.invalidateObjectCache();
+    }
   }
 
   /** Install the authoritative Facedown Zone capacity/controller for one Battlefield. */
@@ -476,12 +501,15 @@ export class EngineRuntimeHost {
     const object = this.object(action.object);
     if (object === null || object.zone !== "board") return this.impossible();
     const checkpoint = this.checkpoint();
+    this.invalidateObjectCache();
     try {
       boundary([object]);
       return this.move(action.object, "trash");
     } catch (error) {
       this.restore(checkpoint);
       throw error;
+    } finally {
+      this.invalidateObjectCache();
     }
   }
 
@@ -499,6 +527,7 @@ export class EngineRuntimeHost {
       return { outcome: this.impossible(), steps: [] };
     }
     const checkpoint = this.checkpoint();
+    this.invalidateObjectCache();
     const confirmed: ObjectSnapshot[] = [];
     try {
       for (const action of actions) {
@@ -532,6 +561,8 @@ export class EngineRuntimeHost {
     } catch (error) {
       this.restore(checkpoint);
       throw error;
+    } finally {
+      this.invalidateObjectCache();
     }
   }
 
