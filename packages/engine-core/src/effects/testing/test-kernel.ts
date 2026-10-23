@@ -31,6 +31,7 @@ import { arithmetic, equalValues } from "../interpreter/values.js";
 import { resolveObjectSelector } from "../interpreter/selectors.js";
 import { executeContractAction, isKnownContractAction, type ContractActionExecution } from "../../events/contract-actions/bridge.js";
 import { disempowerTransition } from "../../zones/empower-state.js";
+import type { BurnOutInstructionCapability } from "../../turn/burn-out.js";
 
 export { AwaitChoice } from "../contract.js";
 
@@ -174,6 +175,7 @@ export class TestWorld implements ResolveContext {
   private readonly pickSets: Map<string, readonly (ObjectRef | PlayerId | string)[]>;
   private answers: Map<string, unknown>;
   private readonly linkedValues: Map<string, Value>;
+  private burnOutVictoryScore = 8;
 
   constructor(options: { seed?: number; source?: ObjectRef; sourceSnapshot?: ObjectSnapshot; controller?: PlayerId; timingPoint?: TimingPointId; state?: WorldState; targets?: Map<string, ObjectRef[]>; picks?: Map<string, readonly (ObjectRef | PlayerId | string)[]>; answers?: Map<string, unknown>; linked?: Map<string, Value> } = {}) {
     this.state = options.state ?? freshState(options.seed ?? 0x52494654);
@@ -194,8 +196,49 @@ export class TestWorld implements ResolveContext {
   get continuousEffects(): readonly { effect: ContinuousEffectSpec; duration: Duration }[] { return this.state.continuous; }
   get delayedTriggers(): readonly { at: TriggerSpec; body: readonly Instruction[] }[] { return this.state.delayed; }
   get randomState(): number { return this.state.randomState; }
+  /** Ordered action log for production-path assertions (no state mutation). */
+  get actionHistory(): readonly { readonly action: GameAction; readonly object?: ObjectSnapshot }[] {
+    return this.state.history.map(entry => ({
+      action: structuredClone(entry.action) as GameAction,
+      ...(entry.object === undefined ? {} : { object: copySnapshot(entry.object) }),
+    }));
+  }
   ref(id: string): ObjectRef { const object = this.state.objects.get(id); if (!object) throw new Error(`Unknown object ${id}`); return cloneRef(object.ref); }
   setAnswers(answers: Record<string, unknown>): void { this.answers = new Map(Object.entries(answers)); }
+  /** Test-state owner's Victory Score for a Burn Out point-gain terminal. */
+  setBurnOutVictoryScore(value: number): void {
+    if (!Number.isSafeInteger(value) || value < 1) throw new RangeError("Burn Out Victory Score must be a positive safe integer");
+    this.burnOutVictoryScore = value;
+  }
+  /** Non-wire capability consumed by effect.mill's exact production context. */
+  burnOutInstructionCapability(): BurnOutInstructionCapability {
+    return {
+      participants: () => this.playerIds().map(id => ({
+        id,
+        deckCount: this.state.players.get(id)!.zones.deck.length,
+        trashCount: this.state.players.get(id)!.zones.trash.length,
+      })),
+      trash: owner => this.objectsInZone(owner, "trash"),
+      performPoint: action => {
+        const outcome = this.apply(action);
+        if (outcome.status === 'done') this.state.history.push({ action: structuredClone(action), timingPoint: this.timingPoint, turn: 1, combat: 0 });
+        return outcome;
+      },
+      afterBurnOut: sequence => {
+        if (sequence === 0) return true;
+        const winner = this.burnOutWinner();
+        if (winner === undefined) return true;
+        this.apply({ type: 'win', player: winner });
+        this.state.history.push({ action: { type: 'win', player: winner }, timingPoint: this.timingPoint, turn: 1, combat: 0 });
+        return false;
+      },
+    };
+  }
+  private burnOutWinner(): PlayerId | undefined {
+    const players = [...this.state.players.values()];
+    return players.find(candidate => candidate.score >= this.burnOutVictoryScore &&
+      players.every(other => other === candidate || candidate.score > other.score))?.id;
+  }
   setTargets(id: string, refs: readonly ObjectRef[]): void { this.targetSets.set(id, refs.map(cloneRef)); }
   setPicks(id: string, picks: readonly (ObjectRef | PlayerId | string)[]): void { this.pickSets.set(id, picks.map(pick => typeof pick === "object" ? cloneRef(pick) : pick)); }
   addReplacement(hook: ReplacementHook): void { this.state.replacements.push(hook); }
@@ -281,7 +324,9 @@ export class TestWorld implements ResolveContext {
         });
     }
   }
-  linked(key: string): Value | undefined { return this.linkedValues.get(key); }
+  linked(key: string): Value | undefined {
+    return this.linkedValues.get(key);
+  }
   link(key: string, value: Value): void { this.linkedValues.set(key, value); }
   history(query: HistoryQuery): number {
     const excluded = new Set(query.exclude === undefined ? [] : this.selectedObjects(query.exclude).map(ref => ref.id));

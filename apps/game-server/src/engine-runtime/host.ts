@@ -24,6 +24,10 @@ import { executeContractAction as executeTypedContractAction }
   from "../../../../packages/engine-core/dist/events/contract-actions/bridge.js";
 import { disempowerTransition, empoweredState, empowerTransition, readEmpowered }
   from "../../../../packages/engine-core/dist/zones/empower-state.js";
+import {
+  bindBurnOutInstructionCapability,
+  type BurnOutInstructionCapability,
+} from "../../../../packages/engine-core/dist/turn/burn-out.js";
 
 export interface RuntimeCard {
   readonly id: string;
@@ -66,6 +70,7 @@ export interface RuntimeHostCheckpoint {
   readonly runeDomains?: readonly [string, readonly Domain[]][];
   readonly hidden?: HiddenRuntimeCheckpoint;
   readonly championLegends?: readonly string[];
+  readonly burnOutWinner?: PlayerId | null;
 }
 
 interface HiddenRuntimeCard {
@@ -144,6 +149,7 @@ function asZone(destination: ZoneDestination): { zone: ZoneId; bottom: boolean }
 export class EngineRuntimeHost {
   private readonly objectMap = new Map<string, MutableObject>();
   private readonly players = new Map<PlayerId, MutablePlayer>();
+  private publicWinner: PlayerId | null = null;
   private readonly lastKnown = new Map<string, ObjectSnapshot>();
   /** A choice may be raised after an uncommitted move; retain only those exact
    * option incarnations until the caller answers and replays the transaction. */
@@ -207,6 +213,7 @@ export class EngineRuntimeHost {
       runeDomains: clone([...this.runeDomainsByObject.entries()]),
       hidden: clone({ turn: this.hidden.turn, zones: [...this.hidden.zones.entries()], played: [...this.hidden.played.entries()] }),
       championLegends: [...this.championLegends],
+      burnOutWinner: this.publicWinner,
     };
   }
 
@@ -221,6 +228,7 @@ export class EngineRuntimeHost {
     const savedDomains = clone(saved.runeDomains ?? []);
     for (const [key, value] of savedDomains) this.runeDomainsByObject.set(key, value);
     for (const key of saved.championLegends ?? []) this.championLegends.add(key);
+    this.publicWinner = saved.burnOutWinner ?? null;
     if (saved.runeDomains === undefined) {
       for (const object of this.objectMap.values()) {
         const value = object.cardId === null ? undefined : this.catalogDomainsByCardId.get(object.cardId);
@@ -298,6 +306,9 @@ export class EngineRuntimeHost {
   playerNames(): Readonly<Record<PlayerId, string>> {
     return Object.fromEntries([...this.players].map(([id, player]) => [id, player.name]));
   }
+
+  /** Winner committed by a state-owner Burn Out continuation, if any. */
+  burnOutWinner(): PlayerId | null { return this.publicWinner; }
 
   zoneObjects(player: PlayerId, zone: ZoneId | string): readonly ObjectSnapshot[] {
     if (Object.hasOwn(emptyZones(), zone)) {
@@ -526,8 +537,9 @@ export class EngineRuntimeHost {
 
   context(source: ObjectSnapshot, controller: PlayerId, timingPoint: ResolveContext["timingPoint"]): ResolveContext {
     const links = new Map<string, unknown>();
+    const effectSource = bindBurnOutInstructionCapability(source, this.burnOutCapability());
     return {
-      source, controller, timingPoint,
+      source: effectSource, controller, timingPoint,
       object: ref => this.object(ref), lastKnown: ref => this.lastKnownObject(ref),
       query: filter => this.objects().filter(object => matchesFilter(object, filter)),
       zoneSlice: (player, zone, from, count) => {
@@ -546,6 +558,29 @@ export class EngineRuntimeHost {
 
   private requirePlayer(id: PlayerId): MutablePlayer {
     const player = this.players.get(id); if (!player) throw new Error(`Unknown player ${id}`); return player;
+  }
+
+  private burnOutCapability(): BurnOutInstructionCapability {
+    return {
+      participants: () => [...this.players.values()].map(player => ({
+        id: player.id,
+        deckCount: player.zones.deck.length,
+        trashCount: player.zones.trash.length,
+      })),
+      trash: owner => this.zoneObjects(owner, "trash").map(objectRef),
+      // A later Burn Out point is unreplaceable by CR 432.3.b, so this direct
+      // state-owner seam intentionally does not re-enter replacement matching.
+      performPoint: action => this.perform(action),
+      afterBurnOut: sequence => {
+        if (sequence === 0) return true;
+        const players = [...this.players.values()];
+        const winner = players.find(player => player.score >= 8 &&
+          players.every(other => other === player || player.score > other.score));
+        if (winner === undefined) return true;
+        this.publicWinner = winner.id;
+        return false;
+      },
+    };
   }
 
   private requireObject(ref: ObjectRef): MutableObject {
