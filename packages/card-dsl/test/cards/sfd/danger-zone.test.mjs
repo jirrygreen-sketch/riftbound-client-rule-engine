@@ -22,6 +22,22 @@ import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { productionPlay } from "../../fixtures/production-play.mjs";
 
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-3c1c01b405853556e3e1c12bbd758e94d73f5ed474a5643bb068eaa7cb549c6e.
+// Reaction is 159.2.b/813.1.c; Repeat is an optional additional cost decided
+// and paid at Finalize under 355.1.a, 356.4.f.1 and 820.1.b-d, while the card is
+// Played once under 820.3.a. Each of the controller's friendly Mech Units is a
+// programmatic set selected by criteria, not a target (355.10.d); the
+// arithmetic-layer +1 this turn follows 478/479 and expires at 317.2.c. The
+// finalized spell waits for the ordinary Priority/response window before
+// 359.3.d Resolve.
+// Outside a Showdown it creates no Focus. No target leaves Board for the set
+// query, so the arithmetic effect consumes no departed-object LKI.
+
 const CARD_ID = "card.hash-3c1c01b405853556e3e1c12bbd758e94d73f5ed474a5643bb068eaa7cb549c6e";
 const SOURCE_TEXT =
   "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +

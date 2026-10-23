@@ -12,6 +12,21 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { productionPlay } from "../../fixtures/production-play.mjs";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-cab923a670e4baa826aa3de381c8b992bf33987fcb0d65feb75ca538a8681010.
+// The Gear's base Play is Pending and Finalizes under 354/356/357; 359.2.d
+// puts the Gear at Base ready. Quick-Draw is 819.1.b-d: it grants Reaction and
+// a Play Effect that Finalize-locks a friendly Unit before attachment resolves.
+// Equip is 818.1.c.2/818.1.c.3 and 818.2: its one Fury Power is an activated
+// cost, not Energy, and the legal target must still be a controlled Unit.
+// The normal 337/338 Priority response window precedes Resolve under 359.3.d.
+// The Main-phase interactions create no Focus and read only the live Gear and
+// selected Unit incarnations; no departed-object LKI is consumed.
+
 const CANONICAL_ID = "card.hash-cab923a670e4baa826aa3de381c8b992bf33987fcb0d65feb75ca538a8681010";
 
 test("Long Sword card program passes validateCardProgram", () => {

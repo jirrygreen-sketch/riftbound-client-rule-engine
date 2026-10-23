@@ -22,6 +22,20 @@ const RADIANCE_URL = "https://playriftbound.com/en-us/news/announcements/core-ru
 const SFD_ERRATA_URL = "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/";
 const SFD_PATCH_URL = "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-core-rules-spiritforged-patch-notes/";
 const field = id => ({ type: "battlefield", id });
+// Official interaction evidence (also pinned by OFFICIAL_EVIDENCE below):
+// Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+// https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// Radiance patch notes, effective 2026-10-16:
+// https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-0c36f22df8ffa7bed49f59fd138d24b9b0a52a7b8ad4c720afcaa12ec816eee4.
+// At a real 383.4.c.2.b/471.1 Conquer, "here" identifies this exact Battlefield
+// (053.3/383.4.c); the mandatory ability is Pending, Finalize selects no target,
+// then players receive Priority under 337.1.a/338 and Resolve under 359.3.d.
+// "Put the top 2 cards into Trash" follows 441.4; short decks resolve as much
+// as possible under 055/359.3.e.11 and 432.3/432.4 handles Burn Out. A
+// replacement of the point gain under 383.4.c.2.c cannot suppress this trigger.
+// The trigger reads the current Battlefield incarnation; no departed-object LKI
+// is needed for the mill. The normal Priority window creates no extra Focus.
 const PRODUCTION_TEST_NAMES = Object.freeze({
   setup: "minefield: default setup and two Units produce one mill through Priority, Finalize and Resolve",
   currentController: "minefield: current controller B conquers through real combat and burns B, not creator A",

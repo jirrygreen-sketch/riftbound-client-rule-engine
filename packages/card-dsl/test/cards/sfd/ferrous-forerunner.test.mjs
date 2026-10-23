@@ -8,6 +8,23 @@ import { validateCardProgram } from "../../../../../packages/card-dsl/dist/ir/in
 import program from "../../../../../packages/card-dsl/dist/cards/sfd/ferrous-forerunner.js";
 import { productionPlay } from "../../fixtures/production-play.mjs";
 
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3.
+// Deathknell is 808.1.c: the self Permanent is Killed into Trash; 808.1.d.2
+// places its Pending item before the Trash move and 808.1.d.3 preserves the
+// source/LKI needed by the effect. The Pending item is Finalized, then waits
+// under 337.1.a/338 for the response window before 359.3.d Resolve. It plays two
+// 187.4 Mech tokens through 440.2.c/185.2.a; Unit tokens enter exhausted under
+// 143.4/185.2.d and their absent printed Energy/Power remain null under 185.3.a.
+// No Focus is created outside a Showdown. LKI records the dead Forerunner's
+// Board location, controller, and other effect-relevant state; the token effect
+// reads no later incarnation. Priority begins with the resolving trigger's
+// controller and passes through the ordinary Chain before Resolve.
+
 const CANONICAL = "card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3";
 const BATTLEFIELD = { type: "battlefield", id: "bf-ferrous" };
 const base = player => ({ type: "base", player });
