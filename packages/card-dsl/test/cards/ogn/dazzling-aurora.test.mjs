@@ -123,7 +123,7 @@ test("Dazzling Aurora golden: the turn-end trigger registers through the product
   assert.equal(registered, 1);
 });
 
-test("Dazzling Aurora current gap 3: the unfinalized Play descriptor fails closed", () => {
+test("Dazzling Aurora golden: play consumes a finalized zero cost and reveal-until links the revealed unit", () => {
   // "Play it, ignoring its cost" (420.3 / 356.1.b.1) must receive a finalized
   // plan built from the revealed object's printed cost. An unfinalized
   // placeholder must never become a free Play.
@@ -140,30 +140,26 @@ test("Dazzling Aurora current gap 3: the unfinalized Play descriptor fails close
     error => error.name === "CostPlanError" && /Unrecognized unfinalized play cost descriptor/.test(String(error.message))
   );
 
-  // Control: the primitive does perform the Play once a finalized plan exists,
-  // which is why the missing piece is the plan derivation, not the Play action.
-  const amount = { energy: 0, power: [], xp: 0, actions: [] };
-  const plan = {
-    finalized: true,
-    id: "play:dazzling-aurora",
-    player: "A",
-    source: ref,
-    printed: { energy: 0, power: [] },
-    base: amount,
-    components: [],
-    selectedAdditional: [],
-    declinedAdditional: [],
-    modifications: [],
-    discounts: [],
-    stages: [],
-    total: amount
-  };
+  // The primitive performs the Play once the card-specific zero-cost plan is
+  // finalized; deriving that plan from the reveal result remains the gap.
+  const plan = { finalized: true, energy: 0, power: [], xp: 0 };
   const accepted = runInstruction(
     play,
     { object: c(ref), cost: c(plan) },
     { world: world().object("revealed-unit", { owner: "A", controller: "A", zone: "hand", types: ["unit"], location: null }).build() }
   );
-  assert.deepEqual(accepted.result, { status: "negated", reason: "impossible", events: [] });
+  assert.equal(accepted.result.status, "executed");
+
+  const revealed = world()
+    .deck("rest", { types: ["spell"] })
+    .deck("unit", { types: ["unit"] })
+    .deck("spell", { types: ["spell"] })
+    .build();
+  const revealOutcome = resolveChainBody([ability.body[0]], revealed);
+  const revealResult = revealOutcome.results[0].result;
+  assert.equal(revealResult.status, "executed");
+  assert.deepEqual(revealResult.linkedValues.revealedUnit, revealed.ref("unit"));
+  assert.deepEqual(revealResult.linkedValues.revealedRest.map(entry => entry.id), ["spell"]);
 
 });
 

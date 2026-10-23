@@ -27,7 +27,14 @@ function engineFor() {
   const kernel = world()
     .player("A", { energy: 20 })
     .player("B", { energy: 20 })
-    .unit("warden", { cardId: CANONICAL, owner: "A", controller: "A", types: ["unit"], might: 3 })
+    .unit("warden", {
+      cardId: CANONICAL,
+      owner: "A",
+      controller: "A",
+      types: ["unit"],
+      might: 3,
+      location: { type: "base", player: "A" }
+    })
     .unit("enemy", { owner: "B", controller: "B", types: ["unit"], might: 3 })
     .build();
   const host = createActionPipelineHost({
@@ -111,30 +118,38 @@ test("Mageseeker Warden: the registered restriction query scopes the ready actio
   handle.unbind();
 });
 
-test("Mageseeker Warden: the self-at-battlefield condition follows the host location", () => {
+test("Mageseeker Warden: the play restriction exists only while the host is at a battlefield", () => {
   const { engine, kernel } = engineFor();
-  kernel.perform({ type: "move-location", object: kernel.ref("warden"), to: { type: "base", player: "A" } });
-  engine.layers.setObjects(kernel.objects);
-  const source = kernel.getObject("warden");
-  const condition = program.abilities[0].condition;
-  // Use an absolute target controller to isolate the host-location condition.
-  const absolute = {
+  // Use an absolute target controller so this test isolates the host-location
+  // gate from the separately tested relative-opponent consumer gap.
+  const ability = {
     ...program.abilities[0],
     effect: { ...program.abilities[0].effect, filter: { type: "unit", controller: "B" } }
   };
-  const handle = createEngineStaticBinder(engine).bindStatic(absolute, source);
-  const predicate = engine.layers.registry.list()[0].effect.effect.condition;
-  assert.equal(predicate, undefined);
-  kernel.perform({ type: "move-location", object: source.ref, to: { type: "battlefield", id: "bf-1" } });
-  assert.deepEqual(kernel.getObject("warden").location, { type: "battlefield", id: "bf-1" });
-  // Objects on a battlefield remain in the board zone; the corrected IR
-  // checks location through the production static binder's predicate.
+  const handle = createEngineStaticBinder(engine).bindStatic(ability, kernel.getObject("warden"));
+  const restricted = () => {
+    const enemy = kernel.getObject("enemy");
+    return restrictions(engine.layers.registry, "play", enemy.ref, enemy, "A").length;
+  };
+
   engine.layers.setObjects(kernel.objects);
-  assert.deepEqual(condition.left.filter, { object: "self", location: "battlefield" });
-  assert.equal(condition.left.subject, "objects");
-  kernel.perform({ type: "move-location", object: source.ref, to: { type: "base", player: "A" } });
-  assert.deepEqual(kernel.getObject("warden").location, { type: "base", player: "A" });
+  assert.equal(restricted(), 0, "inactive at the controller's Base");
+
+  assert.equal(kernel.perform({
+    type: "move-location",
+    object: kernel.ref("warden"),
+    to: { type: "battlefield", id: "battlefield-1" }
+  }).status, "done");
   engine.layers.setObjects(kernel.objects);
+  assert.equal(restricted(), 1, "active at a battlefield");
+
+  assert.equal(kernel.perform({
+    type: "move-location",
+    object: kernel.ref("warden"),
+    to: { type: "base", player: "A" }
+  }).status, "done");
+  engine.layers.setObjects(kernel.objects);
+  assert.equal(restricted(), 0, "inactive again after leaving the battlefield");
   handle.unbind();
 });
 

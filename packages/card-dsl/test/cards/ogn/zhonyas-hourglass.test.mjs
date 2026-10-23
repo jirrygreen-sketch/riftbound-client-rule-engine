@@ -220,7 +220,7 @@ test("zhonyas-hourglass: [Hidden]'s cost.hidden declaration registers as a hidde
   handle.unbind();
 });
 
-test("zhonyas-hourglass golden: Recall moves the unit to its controller's Base without changing status", () => {
+test("generic Recall primitive moves the unit to its controller's Base and leaves ordinary status unchanged (CR 457-460)", () => {
   const kernel = world()
     .player("A", { energy: 20 })
     .player("B", { energy: 20 })

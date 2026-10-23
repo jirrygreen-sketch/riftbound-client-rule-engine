@@ -111,7 +111,7 @@ test("tideturner: the friendly unit is a target and both original locations are 
   assert.deepEqual(moveChosen.targets, [spec]);
 });
 
-test("tideturner boundary: the ignored nested target leaves both units in place", () => {
+test("tideturner golden: accepting swaps the two units' locations", () => {
   const base = world()
     .unit("tideturner", { location: { type: "battlefield", id: "bf-1" } })
     .unit("ally", { location: { type: "battlefield", id: "bf-2" } })
@@ -126,18 +126,18 @@ test("tideturner boundary: the ignored nested target leaves both units in place"
       query: filter => kernel.query({ ...filter, controller: filter.controller === "self" ? kernel.controller : filter.controller })
     })
   );
-  assert.equal(outcome.status, "partial");
+  assert.equal(outcome.status, "executed");
   assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status]), [
     ["tideturner.origin", "executed"],
-    ["tideturner.chosen-location", "ignored"],
-    ["tideturner.move-me", "ignored"],
-    ["tideturner.move-chosen", "ignored"],
+    ["tideturner.chosen-location", "executed"],
+    ["tideturner.move-me", "executed"],
+    ["tideturner.move-chosen", "executed"],
     ["tideturner.swap", "executed"]
   ]);
-  assert.deepEqual(kernel.getObject("tideturner").location, { type: "battlefield", id: "bf-1" });
-  assert.deepEqual(kernel.getObject("ally").location, { type: "battlefield", id: "bf-2" });
-  assert.equal(outcome.linkedValues["tideturner.swap/tideturner.move-me.movedMe"], undefined);
-  assert.equal(outcome.linkedValues["tideturner.swap/tideturner.move-chosen.movedChosen"], undefined);
+  assert.deepEqual(kernel.getObject("tideturner").location, { type: "battlefield", id: "bf-2" });
+  assert.deepEqual(kernel.getObject("ally").location, { type: "battlefield", id: "bf-1" });
+  assert.equal(outcome.linkedValues["tideturner.swap/tideturner.move-me.movedMe"].count, 1);
+  assert.equal(outcome.linkedValues["tideturner.swap/tideturner.move-chosen.movedChosen"].count, 1);
 });
 
 test("tideturner golden: declining performs no move", () => {
@@ -177,11 +177,11 @@ test("Tideturner golden: the Hidden expansion registers as a hidden capability (
   handle.unbind();
 });
 
-test("Tideturner boundary: the real chain asks for its optional branch but does not yet reach resolution (CR 355.5 / 355.12)", async () => {
-  // Re-probed 2026-10-17: the trigger itself registers, but Finalize rejects the
-  // TargetSpec nested inside choice.optional's body, so the swap can never be
-  // reached through the card's real play path. The test drives the production
-  // lifecycle and reads the actual blocked error rather than restating prose.
+test("Tideturner boundary: the real chain reaches the optional Finalize choice for the nested target (CR 355.5 / 355.12)", async () => {
+  // The trigger registers and the production lifecycle reaches the optional
+  // Finalize choice. Supplying that choice and resolving the nested target is
+  // the remaining engine gap; do not replace this boundary with the ignored
+  // reference-rule body above.
   const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
   const f = fixture({ cards: [{ id: "tideturner", cardId: program.canonicalCardId, types: ["unit"], energy: 2, power: ["Mind"], might: 2 }] });
   binding.attachLifecycle(f.engine, () => {});
