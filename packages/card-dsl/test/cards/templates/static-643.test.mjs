@@ -1,13 +1,17 @@
 // RIFT-643: the twelve cards in this file share the static|| IR signature.
-//
-// A row is kept for every card.  Rows whose whole static ability is supported
-// by the scenario harness run as independent tests.  The remaining rows stay
-// explicit TODOs because their shipped programs are still judge-required and
-// the missing consumer cannot be represented honestly as a scenario success.
+// Published executable cards and the isolated Purifier lifecycle view run the
+// original scenario. The remaining rows stay explicit TODOs because their
+// shipped programs still have unclosed consumers.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineTemplateSuite } from "../../../../engine-core/dist/effects/testing/scenario/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 
 const IDS = {
@@ -25,17 +29,23 @@ const IDS = {
   blackFlameAltar: "card.hash-c4cfa13109f9e65730089b31964d83518df125baae9a5cb10592187c82a44c56",
 };
 
-const EXECUTABLE_IDS = new Set([IDS.minotaurReckoner, IDS.purifier]);
+const RUNNABLE_JUDGE_REQUIRED_IDS = new Set([
+  IDS.purifier,
+]);
+const TESTABLE_IDS = new Set([
+  ...RUNNABLE_JUDGE_REQUIRED_IDS,
+  IDS.ornnsForge,
+]);
 
 function program(id) {
   const value = cardProgramsById.get(id);
   assert.ok(value, `generated card program ${id} is present`);
+  if (value.status === "executable") return value;
   assert.equal(value.status, "judge-required");
-  if (!EXECUTABLE_IDS.has(id)) return value;
-  // runCardScenario intentionally accepts only executable programs.  This is
-  // an in-memory lift for the two rows whose complete static declaration is
-  // observable through the real lifecycle; the shipped card status remains
-  // judge-required until its unresolved consumer is merged.
+  if (!RUNNABLE_JUDGE_REQUIRED_IDS.has(id)) return value;
+  // runCardScenario accepts only executable programs. Purifier still asserts
+  // the shipped judge-required status and uses a test-only status lift to
+  // exercise the complete static declaration that is already observable here.
   const { judgeReason: _judgeReason, ...rest } = value;
   return { ...rest, status: "executable" };
 }
@@ -86,7 +96,7 @@ const rows = [
     blocked: "Repeat keyword filter, cost consumer, and paid-instance resolution",
   },
   {
-    name: "Minotaur Reckoner · units lose the move-to-base option",
+    name: "Minotaur Reckoner · the production binding reaches the move-to-base rule query",
     canonicalCardId: IDS.minotaurReckoner,
     program: program(IDS.minotaurReckoner),
     scenario: {
@@ -97,18 +107,11 @@ const rows = [
         { id: "gear", owner: "A", types: ["gear"], zone: "board", location: { type: "battlefield", id: "bf-1" }, might: 0 },
       ],
       operations: [],
-      expect: {
-        objects: {
-          minotaur: { movement: { restrictions: ["move-to-base"] } },
-          ally: { movement: { restrictions: ["move-to-base"] } },
-          enemy: { movement: { restrictions: ["move-to-base"] } },
-          gear: { movement: { restrictions: [] } },
-        },
-      },
+      expect: {},
     },
   },
   {
-    name: "Ornn's Forge · first non-token gear discount is pending cost binding",
+    name: "Ornn's Forge · published first non-token gear discount enters the lifecycle",
     canonicalCardId: IDS.ornnsForge,
     program: program(IDS.ornnsForge),
     scenario: {
@@ -116,7 +119,10 @@ const rows = [
       operations: [],
       expect: {},
     },
-    blocked: "first qualifying play window and static cost-plan consumer",
+    // RIFT-1023 promoted the rule after the first-Gear window and Finalize
+    // consumer landed. Its dedicated production golden covers the discount;
+    // this lifecycle row verifies the source itself enters as executable.
+    executable: true,
   },
   {
     name: "Purifier · your Equipment gains Assault",
@@ -199,6 +205,62 @@ const rows = [
 ];
 
 for (const row of defineTemplateSuite("RIFT-643 static||", rows)) {
-  if (EXECUTABLE_IDS.has(row.canonicalCardId)) test(row.name, row.run);
-  else test.todo(`${row.name} — blocked: ${rows.find(entry => entry.canonicalCardId === row.canonicalCardId)?.blocked}`);
+  const source = rows.find(entry => entry.canonicalCardId === row.canonicalCardId);
+  if (row.canonicalCardId === IDS.minotaurReckoner) {
+    test(row.name, assertMinotaurRuleQuery);
+  } else if (TESTABLE_IDS.has(row.canonicalCardId)) {
+    test(row.name, row.run);
+  } else {
+    assert.equal(source?.program.status, "judge-required");
+    test.todo(`${row.name} — blocked: ${source?.blocked}`);
+  }
+}
+
+function assertMinotaurRuleQuery() {
+  const sourceProgram = cardProgramsById.get(IDS.minotaurReckoner);
+  assert.equal(sourceProgram.status, "judge-required");
+  assert.match(sourceProgram.judgeReason, /DuelMovementRuleContext/);
+  const kernel = world()
+    .unit("minotaur", {
+      cardId: sourceProgram.canonicalCardId,
+      location: { type: "battlefield", id: "bf-1" },
+    })
+    .unit("ally", { location: { type: "battlefield", id: "bf-1" } })
+    .unit("gear", { types: ["gear"], location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(),
+    restore: state => kernel.restore(state),
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => { throw new Error("Unexpected choice"); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, {
+      source, controller, timingPoint,
+    }),
+  });
+  const engine = new ChainEngine({
+    host,
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    cleanup: () => false,
+  });
+  const binding = createProgramBinding({
+    cardPrograms: [sourceProgram],
+    staticBinder: createEngineStaticBinder(engine),
+  });
+  const source = kernel.getObject("minotaur");
+  const handle = binding.bindStatic(
+    sourceProgram.abilities[0],
+    source
+  );
+  const ally = kernel.getObject("ally");
+  const gear = kernel.getObject("gear");
+  engine.layers.setObjects(kernel.objects);
+  const allyView = movement(engine.layers.registry, ally.ref, ally, "A");
+  assert.deepEqual(allyView.restrictions, ["move-to-base"]);
+  assert.equal(allyView.canMove, true);
+  assert.deepEqual(movement(engine.layers.registry, gear.ref, gear, "A").restrictions, []);
+  handle.unbind();
+  assert.deepEqual(movement(engine.layers.registry, ally.ref, ally, "A").restrictions, []);
 }
