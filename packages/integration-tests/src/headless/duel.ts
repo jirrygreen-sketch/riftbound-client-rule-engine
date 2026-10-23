@@ -324,6 +324,7 @@ export interface HeadlessMatrixSummary {
 interface MutableCounters {
   judgeRequiredRejections: number;
   readonly judgeRequiredCards: Map<string, { readonly name: string | null; count: number }>;
+  readonly setupBlockers: HeadlessFailure[];
   readonly actionCoverage: {
     readonly commands: Record<HeadlessCommandType, number>;
     readonly choices: Record<HeadlessChoiceType, number>;
@@ -358,6 +359,8 @@ export interface HeadlessJournal {
   readonly commands: readonly HeadlessJournalEntry[];
   readonly events: readonly PipelineEvent[];
   readonly final: Readonly<Record<string, unknown>>;
+  /** Present only for a Match that cannot establish its complete active surface. */
+  readonly setupBlockers?: readonly HeadlessFailure[];
   /** Digest of all replay inputs. Older journals without it remain replayable. */
   readonly integrity?: string;
 }
@@ -396,14 +399,17 @@ function journalHasValidIntegrity(journal: HeadlessJournal): boolean {
 function replayHeadlessGame(journal: HeadlessJournal): boolean {
   try {
     if (!journalHasValidIntegrity(journal)) return false;
-    const context = createHeadlessContext(journal.seed, journal.mulligans, journal.decks);
+    const context = createHeadlessContext(journal.seed, journal.mulligans, journal.decks,
+      journal.setupBlockers);
     for (const entry of journal.commands) {
       let failure: HeadlessFailure | null = null;
       try { executeCommand(context, entry.command); }
       catch (error) { failure = failureOf(error); }
       if (digest(failure) !== digest(entry.failure)) return false;
     }
-    return digest(context.match.events()) === digest(journal.events) &&
+    return (journal.setupBlockers === undefined ||
+        digest(context.state.counters.setupBlockers) === digest(journal.setupBlockers)) &&
+      digest(context.match.events()) === digest(journal.events) &&
       digest(finalState(context)) === digest(journal.final);
   } catch { return false; }
 }
@@ -581,6 +587,7 @@ function makeWorld(seed: string): HeadlessWorld {
   const counters: MutableCounters = {
     judgeRequiredRejections: 0,
     judgeRequiredCards: new Map(),
+    setupBlockers: [],
     actionCoverage: emptyActionCoverage(),
   };
   const checkpoints = createHeadlessCheckpointManager(kernel);
@@ -649,6 +656,29 @@ function cardProgramStatus(cardId: string | null): "executable" | "judge-require
     .find(candidate => candidate.canonicalCardId === cardId);
   if (!program) return "missing";
   return program.status === "executable" ? "executable" : "judge-required";
+}
+
+/**
+ * `attachLifecycle` validates every setup source against the authoritative
+ * registry. The headless runner also needs a bounded way to surface a known
+ * active setup blocker before a general layer evaluation can run. This mirrors
+ * the lifecycle's program-status gate without registering or altering state.
+ */
+function setupProgramBlockers(
+  programs: ReturnType<typeof createProgramBinding>,
+  sources: readonly ObjectSnapshot[],
+): readonly (HeadlessFailure & { readonly source: ObjectSnapshot })[] {
+  return sources.flatMap(source => {
+    if (source.zone !== "legend" && source.zone !== "board") return [];
+    const program = programs.registry.inspect(source.cardId);
+    if (program === undefined || program.status === "executable") return [];
+    return [{
+      source,
+      name: "ProgramBindingError",
+      code: program.status === "judge-required" ? "judge-required" : "invalid-program",
+      message: program.judgeReason ?? `Card program ${program.canonicalCardId} has no executable ability`,
+    }];
+  });
 }
 
 function createBotDraft(
@@ -884,6 +914,7 @@ function createHeadlessContext(
   seed: string,
   requestedMulligans?: readonly [readonly string[], readonly string[]],
   pair: HeadlessDeckPair = DEFAULT_DECK_PAIR,
+  expectedSetupBlockers?: readonly HeadlessFailure[],
 ): HeadlessContext {
   const decks = [cloneDeck(buildM1Deck(pair.A, "A"), "A"), cloneDeck(buildM1Deck(pair.B, "B"), "B")] as const;
   const programs = createProgramBinding({ cardPrograms: cardPrograms as unknown as readonly CardProgram[] });
@@ -903,13 +934,31 @@ function createHeadlessContext(
       }
     }
   }
+  const blockers = setupProgramBlockers(programs, state.host.objects());
+  state.counters.setupBlockers.push(...blockers.map(({ source: _source, ...blocker }) => blocker));
+  for (const blocker of blockers) {
+    recordJudgeRequired(state.counters, blocker.source.cardId ?? blocker.source.ref.id, blocker.source.name);
+  }
+  if (expectedSetupBlockers !== undefined &&
+      digest(state.counters.setupBlockers) !== digest(expectedSetupBlockers)) {
+    throw new Error("Setup blocker changed during replay");
+  }
+  if (state.counters.setupBlockers.length > 0) {
+    return { state, decks: pair, mulligans, programs,
+      basicRuneDomain: cardId => cardId === null ? null : runeDomains.get(cardId) ?? null,
+      basicRuneIdentity: cardId => runeIdentities.get(cardId) ?? null,
+      m1Pair: pair.A === "rumble-sfd" && pair.B === "fiora-sfd" ||
+        pair.A === "fiora-sfd" && pair.B === "rumble-sfd", match };
+  }
   programs.attachLifecycle(match.flow.chain, (error, source) => {
     if (cardProgramStatus(source.cardId) !== "executable" || error instanceof TriggerSpecValidationError ||
       error instanceof Error && "code" in error && error.code === "judge-required") {
       recordJudgeRequired(state.counters, source.cardId ?? source.ref.id, source.name);
     }
-    // Unsupported lifecycle work must block, never silently drop a trigger.
-    throw error;
+    // A supported setup surface still passes through the real lifecycle. If it
+    // discovers a further unsupported binding, retain that as setup evidence.
+    if (isBlocked(error)) state.counters.setupBlockers.push(failureOf(error));
+    else throw error;
   });
   return { state, decks: pair, mulligans, programs,
     basicRuneDomain: cardId => cardId === null ? null : runeDomains.get(cardId) ?? null,
@@ -1356,8 +1405,9 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
   const random = new BotRandom(`${seed}:bot`);
   const commands: HeadlessJournalEntry[] = [];
   const exceptions: string[] = [];
-  const blockers: HeadlessFailure[] = [];
-  let termination: HeadlessStats["termination"] = "guard";
+  const setupBlockers = [...state.counters.setupBlockers];
+  const blockers: HeadlessFailure[] = [...setupBlockers];
+  let termination: HeadlessStats["termination"] = setupBlockers.length > 0 ? "blocked" : "guard";
   let guardReason: HeadlessStats["guardReason"] = null;
   let privacySafe = true;
   let privacyChecks = 0;
@@ -1376,7 +1426,7 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
   checkPrivacy();
   const rejected = new Set<string>();
   const noProgress = createNoProgressCache();
-  while (!match.result().winner) {
+  while (!match.result().winner && setupBlockers.length === 0) {
     if (match.flow.turn > maxTurns) { guardReason = "turn-limit"; break; }
     if (commands.length >= maxActions) { guardReason = "action-limit"; break; }
     noProgress.before = noProgress.peek(context);
@@ -1417,7 +1467,8 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
   const observedActions = observedActionCoverage(commands, { commands: { ...state.counters.actionCoverage.commands },
     choices: { ...state.counters.actionCoverage.choices } });
   const content: Omit<HeadlessJournal, "integrity"> = { seed, decks, mulligans: context.mulligans, commands,
-    events: structuredClone(events), final: finalState(context) };
+    events: structuredClone(events), final: finalState(context),
+    ...(setupBlockers.length > 0 ? { setupBlockers } : {}) };
   const journal: HeadlessJournal = { ...content, integrity: digest(content) };
   options.onJournal?.(structuredClone(journal));
   const projections = { A: projectionForKernel(state, "A", match), B: projectionForKernel(state, "B", match) };

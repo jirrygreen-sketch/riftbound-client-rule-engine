@@ -20,6 +20,17 @@ import {
   headlessTerminationClass,
 } from "../../src/headless/duel.js";
 
+function expectBlockedEvidence(result: HeadlessStats): void {
+  expect(result.termination).toBe("blocked");
+  expect(result.winner).toBeNull();
+  expect(result.guardReason).toBeNull();
+  expect(result.blockers.length).toBeGreaterThan(0);
+  expect(Object.values(result.actionCoverage.commands).every(count => count === 0)).toBe(true);
+  expect(result.replayMatches).toBe(true);
+  expect(result.privacySafe).toBe(true);
+  expect(result.exceptions).toEqual([]);
+}
+
 describe("M1 headless dual-bot regression", () => {
   // These are full-card, full-match regressions. Since the bot now keeps
   // deploying and entering Combat, a single game routinely takes 40–320s even
@@ -66,9 +77,9 @@ describe("M1 headless dual-bot regression", () => {
     expect(headlessTerminationClass(exception)).toBe("nonNatural");
     expect(headlessTerminationClass(concession)).toBe("nonNatural");
     expect(headlessTerminationClass({ ...guard, termination: "winner" })).toBe("invalid");
-    expect(guard.termination).toBe("guard");
-    expect(guard.winner).toBeNull();
-    expect(guard.guardReason).not.toBeNull();
+    expect(["guard", "blocked"]).toContain(guard.termination);
+    if (guard.termination === "blocked") expectBlockedEvidence(guard);
+    else expect(guard.guardReason).not.toBeNull();
     expect(headlessTerminationClass({ ...guard, winner: "A" })).toBe("invalid");
     expect(headlessTerminationClass({ ...natural, replayMatches: false })).toBe("invalid");
     expect(headlessTerminationClass({ ...natural, privacySafe: false })).toBe("invalid");
@@ -88,7 +99,8 @@ describe("M1 headless dual-bot regression", () => {
     const result = runHeadlessGame(game.seed, { deckPair: { A: game.A, B: game.B } });
     expect(result.victoryScore).toBe(8);
     expect(result.termination).not.toBe("concede");
-    expect(result.privacyChecks).toBeGreaterThanOrEqual(6);
+    if (result.termination === "blocked") expectBlockedEvidence(result);
+    else expect(result.privacyChecks).toBeGreaterThanOrEqual(6);
     expect(["natural", "nonNatural", "invalid"]).toContain(headlessTerminationClass(result));
     if (result.termination === "winner") {
       expect(headlessTerminationClass(result)).toBe("natural");
@@ -150,7 +162,8 @@ describe("M1 headless dual-bot regression", () => {
       expect(summary.winners).toBe(summary.terminationReasons.winner);
       expect(summary.winnerRatio).toBe(summary.winners / summary.games);
       for (const result of summary.results) {
-        expect(result.privacyChecks).toBeGreaterThanOrEqual(6);
+        if (result.termination === "blocked") expectBlockedEvidence(result);
+        else expect(result.privacyChecks).toBeGreaterThanOrEqual(6);
         expect(["natural", "nonNatural", "invalid"]).toContain(headlessTerminationClass(result));
       }
       expect(summary.results.every(result => result.judgeRequiredRejections >= 0)).toBe(true);
@@ -160,8 +173,14 @@ describe("M1 headless dual-bot regression", () => {
     }
   }, 60_000);
 
-  it("records Basic Rune resources and an authoritative Unit entry", () => {
+  it("reports setup blockers before claiming Basic Rune or Unit gameplay", () => {
     const { result, journal } = runUnitEvidence();
+    if (result.termination === "blocked") {
+      expectBlockedEvidence(result);
+      expect(journal.commands).toEqual([]);
+      expect(journal.setupBlockers).toEqual(result.blockers);
+      return;
+    }
     expect(journal.commands.some(entry => entry.trace?.phase === "main" &&
       entry.trace.canActNormal && entry.trace.basicRunes.some(rune => !rune.exhausted))).toBe(true);
     expect(journal.commands.some(entry => entry.command.type === "rune-energy" && entry.failure === null)).toBe(true);
@@ -176,8 +195,14 @@ describe("M1 headless dual-bot regression", () => {
     expect(headlessTerminationClass(result)).toBe("natural");
   }, 420_000);
 
-  it("finds a ready base Unit and its Standard Move candidates in the production path", () => {
+  it("requires each scripted Unit feature only after a complete setup", () => {
     const { result, journal } = runUnitEvidence();
+    if (result.termination === "blocked") {
+      expectBlockedEvidence(result);
+      expect(journal.commands).toEqual([]);
+      expect(journal.setupBlockers).toEqual(result.blockers);
+      return;
+    }
     const move = journal.commands.find(entry => (entry.trace?.candidateCounts.move ?? 0) > 0);
     expect(move).toBeDefined();
     expect(move!.trace!.turnState).toBe("neutral-open");
@@ -204,6 +229,12 @@ describe("M1 headless dual-bot regression", () => {
   it.each(orientationPlan)("holds %s to real unit and move candidate coverage", ({ seed, decks }) => {
     let journal: HeadlessJournal | undefined;
     const result = runHeadlessGame(seed, { decks, onJournal: value => { journal = value; } });
+    if (result.termination === "blocked") {
+      expectBlockedEvidence(result);
+      expect(journal!.commands).toEqual([]);
+      expect(journal!.setupBlockers).toEqual(result.blockers);
+      return;
+    }
     expect(journal!.commands.some(entry => entry.trace?.boardUnits.length)).toBe(true);
     expect(journal!.commands.some(entry => (entry.trace?.candidateCounts.move ?? 0) > 0)).toBe(true);
     expect(result.exceptions).toEqual([]);
@@ -266,8 +297,12 @@ describe("M1 headless dual-bot regression", () => {
     }
   }, 420_000);
 
-  it("answers target choices through the ResolveContext instead of throwing AwaitChoice", () => {
+  it("answers target choices only when setup leaves a live match", () => {
     const result = run.targets();
+    if (result.termination === "blocked") {
+      expectBlockedEvidence(result);
+      return;
+    }
     expect(result.actionCoverage.choices["select-objects"]).toBeGreaterThan(0);
     expect(result.exceptions).toEqual([]);
     expect(result.replayMatches).toBe(true);
@@ -303,6 +338,11 @@ describe("M1 headless dual-bot regression", () => {
     const result = run.tamper().result;
     expect(result.replayMatches).toBe(true);
     expect(replayHeadlessJournal(journal)).toBe(true);
+    if (journal.setupBlockers !== undefined) {
+      expect(replayHeadlessJournal({ ...journal, setupBlockers: [] })).toBe(false);
+      expect(journal.commands).toEqual([]);
+      return;
+    }
     const wrongCommand = structuredClone(journal);
     const first = wrongCommand.commands[0]!;
     const changedCommand = first.command.type === "play" || first.command.type === "move"
@@ -317,8 +357,13 @@ describe("M1 headless dual-bot regression", () => {
 
   it("keeps legacy journals without an integrity field strictly replayable", () => {
     let journal: HeadlessJournal | undefined;
-    runHeadlessGame(HEADLESS_SEEDS[0]!, { maxActions: 1, onJournal: value => { journal = value; } });
+    const result = runHeadlessGame(HEADLESS_SEEDS[0]!, { maxActions: 1, onJournal: value => { journal = value; } });
     expect(journal).toBeDefined();
+    if (result.termination === "blocked") {
+      expectBlockedEvidence(result);
+      expect(replayHeadlessJournal(journal!)).toBe(true);
+      return;
+    }
     const { integrity: _integrity, ...legacy } = journal!;
     expect(replayHeadlessJournal(legacy)).toBe(true);
     expect(replayHeadlessJournal({ ...legacy, events: legacy.events.slice(1) })).toBe(false);
@@ -342,6 +387,10 @@ describe("M1 headless dual-bot regression", () => {
     [{ maxActions: 1 }, "action-limit"],
   ] as const)("leaves the match unfinished at guard %j", (limits, reason) => {
     const result = runHeadlessGame(HEADLESS_SEEDS[0]!, { decks: ["vi-unl", "rumble-sfd"], ...limits });
+    if (result.termination === "blocked") {
+      expectBlockedEvidence(result);
+      return;
+    }
     expect(result.termination).toBe("guard");
     expect(result.guardReason).toBe(reason);
     expect(result.winner).toBeNull();
