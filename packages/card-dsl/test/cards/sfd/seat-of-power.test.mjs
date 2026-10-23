@@ -156,27 +156,24 @@ test("sfd-217-221: zero qualifying battlefields draws zero cards", () => {
   assert.deepEqual(kernel.events, []);
 });
 
-test("sfd-217-221: the trigger keeps the printed battlefield-relative here restriction instead of a substitute event", () => {
+test("sfd-217-221: the trigger registers its battlefield-relative here restriction", () => {
   // Durable guard: the card must keep the printed "conquer here" restriction.
-  // The discriminant is now a legal closed value, but the battlefield-relative
-  // anchor still has no vocabulary, so the spec must keep failing closed — never
-  // silently register a broader conquer trigger that would draw on every
+  // The discriminant and the battlefield-relative anchor are both represented
+  // in the closed vocabulary, so the faithful trigger must register instead of
+  // widening to every conquer or rejecting the card.
   // battlefield. A static program cannot substitute a concrete battlefield id
   // either, because the id only exists at runtime in details.battlefieldId.
   assert.equal(ability.trigger.at, "conquer");
   assert.equal(ability.trigger.filter.here, true);
   const validation = validateTriggerSpec(ability.trigger);
-  assert.equal(validation.ok, false, "the printed here restriction still has no vocabulary");
-  assert.deepEqual([...new Set(validation.issues.map((issue) => issue.path))], ["trigger.filter.here"]);
+  assert.equal(validation.ok, true);
+  assert.deepEqual(validation.issues, []);
   assert.equal(ability.trigger.filter.event, "conquered");
   assert.equal(ability.trigger.filter.player, "self");
 
-  // The merged card-program adapter rejects the same placeholder, so no
-  // faithful registration exists yet (RIFT-257 binding path).
-  assert.throws(
-    () => translateTriggerFilter(ability.trigger.filter, "seat", "conquer"),
-    (error) => error.code === "judge-required" && /Unsupported filter field here/.test(error.message)
-  );
+  assert.deepEqual(translateTriggerFilter(ability.trigger.filter, "seat", "conquer"), {
+    event: "conquered", here: true, player: "self"
+  });
 });
 
 test.todo(
