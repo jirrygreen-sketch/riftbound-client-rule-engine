@@ -154,13 +154,12 @@ test("sfd-016-221 Recurve Bow: the merged Equip expansion really attaches this G
   assert.deepEqual(run.events.map((event) => event.action), ["attach"]);
 });
 
-test.todo("sfd-016-221 Recurve Bow: paying the printed Fury Equip cost (CR 818.1.b / 818.1.c.3) needs an equip payment kind in cost/plan-values.ts; the KeywordDef.expand signature already exposes params.cost but Equip.ts does not read it yet (contract 3.8 item 3).");
-test.todo("sfd-016-221 Recurve Bow: the card-program -> keyword expansion path is merged (programs/keywords.ts); the activation cost becomes payable once the equip payment kind and the printed-cost binding exist, at which point payCostPlan can be exercised end to end.");
+test.todo("sfd-016-221 Recurve Bow: feed the card's printed Fury cost into KeywordDef.expand params.cost during card-program activation binding and pay it before attachment (CR 818.1.b / 818.1.c.3; contract 3.8 item 3).");
 // Direct evidence for the two printed-cost gaps recorded in the judgeReason:
 // the merged cost pipeline (including RIFT-261's cost.pay / cost.modify kinds)
 // refuses the equip payment kind outright, and the Equip KeywordDef still
 // ignores the params.cost carrier promised by contract 3.8 item 3.
-import { buildCostPlan, CostPlanError } from "../../../../engine-core/dist/cost/index.js";
+import { buildCostPlan, CostPlanError, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 
 test("sfd-016-221 Recurve Bow: the merged cost pipeline rejects the equip payment kind (CR 818.1.b / 818.1.c.2)", () => {
   const kernel = equipWorld();
@@ -177,13 +176,9 @@ test("sfd-016-221 Recurve Bow: the merged cost pipeline rejects the equip paymen
   );
 });
 
-test("sfd-016-221 Recurve Bow: Equip.expand still ignores params.cost, so the printed Fury cost never reaches the plan", () => {
-  // Contract 3.8 item 3: the caller may pass the printed equip cost through
-  // params.cost. The merged Equip.ts signature accepts the carrier but its
-  // expand body never reads it — the returned activation cost stays the bare
-  // equip payment kind, which the cost pipeline then blocks (see the test
-  // above). This locks the exact unbound shape while the printed-cost binding
-  // (contract 3.8 item 3) is still missing.
+test("sfd-016-221 Recurve Bow: Equip.expand preserves and pays the supplied printed Fury cost", () => {
+  // Contract 3.8 item 3: a caller-supplied printed cost is authoritative and
+  // reaches a real Finalize cost plan without an equip placeholder.
   const definition = keywordDefinitionsById.get("Equip");
   const [expansion] = definition.expand({
     value: equip.value,
@@ -191,7 +186,18 @@ test("sfd-016-221 Recurve Bow: Equip.expand still ignores params.cost, so the pr
     params: { cost: { kind: "explicit", power: { kind: "constant", value: 1 } } }
   });
   assert.deepEqual(expansion.cost, {
-    kind: "activated",
-    payments: [{ kind: "equip", value: { kind: "constant", value: { kind: "source" } } }]
+    kind: "explicit",
+    power: { kind: "constant", value: 1 }
   });
+  const context = equipWorld();
+  context.addPlayer("A", { power: ["Fury"] });
+  const plan = buildCostPlan(context, {
+    id: "recurve-bow.equip",
+    cost: expansion.cost,
+    domains: ["Fury"]
+  });
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Fury"] }]);
+  const receipt = payCostPlan(context, plan);
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.power.power, [{ requirementIndex: 0, from: "Fury", amount: 1 }]);
 });
