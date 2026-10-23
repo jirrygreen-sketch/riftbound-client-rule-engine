@@ -107,12 +107,6 @@ export function botCommand(
     if (name === "Pit Rookie") return friendlyBoardUnits.length > 0;
     return true;
   };
-  // These executable programs currently recurse in the public boolean without
-  // a receipt. Avoid selecting them until their server owners progress; the
-  // full projection remains authoritative for whether a play is available.
-  const stalledPrograms = new Set(["Forecaster", "Gem Jammer"]);
-  const runtimeSafe = (option: V2Projection["actionOptions"]["plays"][number]) =>
-    !stalledPrograms.has(cardName(option) ?? "");
   const targetPrograms = new Set(["Dangerous Duo", "Pit Rookie"]);
   const targetSafe = (option: V2Projection["actionOptions"]["plays"][number]) => {
     if (!targetPrograms.has(cardName(option) ?? "")) return true;
@@ -180,7 +174,7 @@ export function botCommand(
   }
   const safeOptions = projection.actionOptions.plays.filter(option =>
     !rejectedPlayIds.has(option.cardObjectId) && payable(option) &&
-    avoidsEquipmentChoice(option) && avoidsEmptyTriggerTarget(option) && runtimeSafe(option) &&
+    avoidsEquipmentChoice(option) && avoidsEmptyTriggerTarget(option) &&
     targetSafe(option));
   const safeUnit = safeOptions
     .filter(option => factFor(option)?.kind === "unit")
