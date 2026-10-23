@@ -305,7 +305,7 @@ test("ogs-020-024 Highlander, Yi golden: the chain interpreter drops the replace
   assert.equal(kernel.getObject("chosen").zone, "trash");
 });
 
-test("ogs-020-024 Highlander, Yi golden: the Recall primitive commits a distinct Recall action", () => {
+test("ogs-020-024 Highlander, Yi golden: Recall remains blocked rather than approximated as a Move", () => {
   const kernel = world().unit("friendly", { owner: "A", location: { type: "battlefield", id: "bf-1" } }).build();
   const run = runInstruction(
     move,
@@ -325,12 +325,13 @@ test("ogs-020-024 Highlander, Yi golden: the Recall primitive commits a distinct
       targets: { "highlander-yi.chosen-unit": [kernel.ref("friendly")] }
     }
   );
-  // 457-460: Recall is a distinct committed action, never a move-location.
-  assert.equal(run.result.status, "executed");
-  assert.equal(run.linked.moved.mode, "recall");
-  assert.equal(run.linked.moved.count, 1);
-  assert.deepEqual(run.events.map((event) => event.action), ["recall"]);
-  assert.deepEqual(kernel.getObject("friendly").location, { type: "base", player: "A" });
+  // 457-460: Recall is a distinct action and effect.move fails closed rather
+  // than silently submitting an ordinary move-location action.
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.result.reason, "impossible");
+  assert.match(run.linked.moved.blockedReason, /Recall/);
+  assert.deepEqual(run.events, []);
+  assert.deepEqual(kernel.getObject("friendly").location, { type: "battlefield", id: "bf-1" });
   assert.equal(kernel.getObject("friendly").exhausted, false);
   assert.equal(instructionDefinitionsById.has("effect.recall"), false);
 });
