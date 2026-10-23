@@ -243,46 +243,42 @@ test("sfd-114-221 Marching Orders golden: an enemy in a Base is not a legal batt
   assert.deepEqual(kernel.events, []);
 });
 
-test("sfd-114-221 Marching Orders: the printed Repeat cost still fails closed at the production adapter", () => {
+test("sfd-114-221 Marching Orders: the base-cost translator keeps Repeat out of the base plan", () => {
   assert.throws(() => translateCost(play.cost, program.canonicalCardId, "play"), error => {
     assert.equal(error.code, "judge-required");
-    assert.match(error.message, /cost field keyword|Additional costs/);
+    assert.match(error.message, /Additional costs require the program cost adapter/);
     return true;
   });
 });
 
-test("sfd-114-221 Marching Orders: [Action] speed is derivable but the play adapter never reaches a draft", () => {
-  // 806.1.b/806.1.c: [Action] is a permissive keyword the adapter already
-  // understands (abilitySpeed returns 'action'), yet describePlay cannot build
-  // the draft because translateCost refuses the printed Repeat component. Both
-  // facts are asserted so neither half is misreported.
+test("sfd-114-221 Marching Orders: the play adapter builds an Action draft with its Repeat option", () => {
+  // 806.1.b/806.1.c: [Action] is a permissive keyword, and the program cost
+  // adapter carries the printed Repeat option beside the base cost.
   const { judgeReason, ...binding } = program;
   const kernel = world().hand("orders", {
     cardId: program.canonicalCardId, types: ["spell"], energy: 3, power: null
   }).build();
   const source = kernel.getObject("orders");
   assert.equal(abilitySpeed(program.abilities, source), "action");
-  assert.throws(
-    () => describePlay(new ProgramRegistry([{ ...binding, status: "executable" }]),
-      { type: "play", object: kernel.ref("orders"), player: "A" }, source),
-    error => {
-      assert.equal(error.code, "judge-required");
-      assert.match(error.message, /Unsupported play cost field keyword/);
-      return true;
-    }
-  );
+  const draft = describePlay(new ProgramRegistry([{ ...binding, status: "executable" }]),
+    { type: "play", object: kernel.ref("orders"), player: "A" }, source);
+  assert.equal(draft.speed, "action");
+  assert.deepEqual(draft.cost.cost, { kind: "printed" });
+  assert.deepEqual(draft.cost.optionalAdditional, [{
+    id: `${CANONICAL}:play:additional`,
+    kind: "repeat",
+    cost: { energy: { kind: "literal", value: 3 } }
+  }]);
+  assert.deepEqual(draft.body.map(instruction => instruction.id), [
+    "marching-orders.friendly-deals",
+    "marching-orders.enemy-deals"
+  ]);
+  assert.equal(program.status, "judge-required");
 });
 
 test.todo(
-  "sfd-114-221 Marching Orders: [Repeat] :rb_energy_3: — collecting the optional additional cost at " +
-    "Finalize and executing the effect one extra time per paid instance with re-made choices " +
-    "(820.1.b/820.1.d/820.2.a) needs the card-program adapter to bind the additional-cost field " +
-    "(programs/play.ts currently rejects it) and a paid-instance count at resolution"
+  "sfd-114-221 Marching Orders: execute one extra effect iteration per paid Repeat instance with " +
+    "fresh choices (820.1.b/820.1.d/820.2.a); the draft now carries the optional cost but the " +
+    "triggered/spell resolution repeat lifecycle is still absent"
 );
 
-test.todo(
-  "sfd-114-221 Marching Orders: the printed [Action] Showdown permission must be enforced through the " +
-    "continuous.timing consumer and a CardProgram -> ChainDraft play adapter " +
-    "(chain/engine.ts describePlay, contract 3.7) — abilitySpeed derives 'action', but describePlay " +
-    "still rejects the additional-cost field before a draft exists"
-);
