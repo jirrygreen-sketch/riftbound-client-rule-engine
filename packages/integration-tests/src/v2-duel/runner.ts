@@ -505,6 +505,12 @@ async function runV2DuelInternal(options: V2DuelRunOptions, deadline: number): P
       winnerPlayerId: terminalView.winnerPlayerId,
       termination,
       blockedReason,
+      ...(process.env.V2_DUEL_DEBUG === "1" ? {
+        protocolTrace: [
+          { playerId: playerIds[0], packets: pair.first.trace() },
+          { playerId: playerIds[1], packets: pair.second.trace() }
+        ]
+      } : {}),
       rejectedCommands: rejectionCounts,
       rejectionReasons: Object.fromEntries(playerIds.map(playerId => [playerId,
         rejected.filter(item => item.playerId === playerId).slice(0, 5)])),

@@ -63,6 +63,11 @@ export interface V2DuelResult {
   };
   readonly commandCount: number;
   readonly coverage: Readonly<Record<V2DuelCoverageAction, number>>;
+  /** Opt-in diagnostic history; omitted from the default bounded NDJSON. */
+  readonly protocolTrace?: readonly {
+    readonly playerId: string;
+    readonly packets: readonly Readonly<Record<string, unknown>>[];
+  }[];
   readonly trace: readonly {
     readonly index: number;
     readonly playerId: string;
