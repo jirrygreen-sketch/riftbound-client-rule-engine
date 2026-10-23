@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import goldProgram from "../../../dist/cards/sfd/gold.js";
 import program from "../../../dist/cards/sfd/treasure-hoard.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { getTokenDefinition } from "../../../../engine-core/dist/effects/tokens/definitions.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
@@ -13,11 +14,6 @@ import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipelin
 import { createMatch } from "../../../../engine-core/dist/game/lifecycle.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
-import {
-  executeBasicRuneResourcePlan,
-  planBasicRuneResourceActivation
-} from "../../../../engine-core/dist/runes/index.js";
-import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
 
 const CANONICAL = "card.hash-77763eae5320de558954776a37677e8638b6d4af73399e5a7c4f5d5321a2b564";
 const SOURCE_TEXT = "When you conquer here, you may pay :rb_energy_1: to play a Gold gear token exhausted.";
@@ -73,6 +69,11 @@ const OFFICIAL_EVIDENCE = Object.freeze({
         "production MatchCommandAdapter binds one exact Board trigger, and repeated attachment is idempotent",
         "here matcher: a Battlefield with null location self-anchors by ObjectRef id; another field still fails closed"
       ]),
+      productionTestNames: Object.freeze([
+        "sfd-220-221 Treasure Hoard production golden: default setup Conquers, pays at Finalize, creates Gold, and exposes the exhausted-entry failure",
+        "sfd-220-221 Treasure Hoard production counterexample: conquering another battlefield does not fire here",
+        "sfd-220-221 Treasure Hoard production boundary: default setup and MatchCommandAdapter bind the Board Battlefield exactly once"
+      ]),
       priorityFocus: "The card defines no numeric priority. Once Conquer creates the Pending trigger, the ordinary Chain grants Priority and any Showdown Focus by CR 311-313; the card adds no timing permission.",
       responseWindow: "A legal Reaction may be played in the ordinary Execute step while the triggered ability remains on the Chain (CR 338.1.a.2). No special response window is invented for this card.",
       replacement: "Treasure Hoard supplies no replacement or prevention effect. CR 383.4.c.2.c therefore has no card-specific branch; replacing the point gain would not suppress the Conquer trigger.",
@@ -87,34 +88,91 @@ const OFFICIAL_EVIDENCE = Object.freeze({
       timeline: Object.freeze([
         "Play/Pending: Conquer creates the triggered ability as a Pending Item.",
         "Finalize: the leading may is selected, then the printed one Energy is paid; declining or an unpayable cost removes the trigger without a free Gold.",
-        "Resolve: effect.token would create Gold on the Chain and play it to the controller's Base, entering exhausted.",
-        "Current fail-closed boundary: Finalize pays one Energy, then Resolve negates Gold creation because the token definition intentionally blocks an intrinsic Add [A] that the resource contract cannot represent."
+        "Resolve: effect.token creates the canonical Gold on the Chain with exhausted=true, then plays that same token to the controller's Base.",
+        "Current failure: the nested Play is hard-coded by TurnFlow to ready the Gear before entering the Base, overriding the creating effect's required exhausted entry."
       ]),
       productionAssertions: Object.freeze([
-        "production golden: accepted Finalize emits exactly one pay event and reduces Energy before the resolved Gold receipt is blocked",
+        "production golden: accepted Finalize emits exactly one pay event, reduces Energy, and creates a complete canonical Gold receipt",
         "production counterexamples: declining and insufficient-Energy cases pay nothing and create no substitute Token",
-        "Gold boundary: the token definition is blocked and an admitted exact-body Gold program still rejects its [rainbow] Add shape"
+        "Gold entry boundary: the produced Gold is on the controller's Base but is ready, so the printed exhausted requirement is not carried through nested Play"
+      ]),
+      productionTestNames: Object.freeze([
+        "sfd-220-221 Treasure Hoard production golden: default setup Conquers, pays at Finalize, creates Gold, and exposes the exhausted-entry failure",
+        "sfd-220-221 Treasure Hoard production counterexample: declining Finalize pays nothing and creates no token",
+        "sfd-220-221 Treasure Hoard production counterexample: insufficient Energy removes the trigger without a free Gold",
+        "sfd-220-221 Treasure Hoard production boundary: Gold's canonical intrinsic ability pays Kill this + Exhaust and adds Universal Power"
       ]),
       priorityFocus: "CR 383.3.a makes the leading may a Finalize decision. Paying the one Energy follows CR 405.1; CR 430.2.a is not applicable to this Energy payment, and this card cannot pass Priority or Focus during Finalize.",
       responseWindow: "Other players respond to the finalized triggered ability through the ordinary Chain (CR 338.1.a.2). The optional payment itself creates no separate response window.",
       replacement: "No replacement effect is involved in the choice or Energy payment. CR 405.2 governs declining an incurred triggered-ability cost: remove the Pending Ability without paying or resolving it.",
-      layers: "Gold is created and played, then enters exhausted by the creating effect. No continuous-effect layering is needed to implement the shrunk clause (CR 184.1 / 440.2.c).",
-      lki: "The template and payment do not use LKI. If Gold could be created, its intrinsic ability would belong to the new token incarnation; this card does not synthesize a replacement ability."
+      layers: "Gold's required exhausted entry is set by the creating effect (CR 184.1 / 185.2.d) and is not a continuous-effect layer. The current Chain Play incorrectly readies it under CR 359.2.d.",
+      lki: "The template, payment, and entry state do not depend on LKI. Gold's intrinsic ability belongs to the created token incarnation and is not synthesized by Treasure Hoard."
+    }),
+    goldIntrinsicAbility: Object.freeze({
+      canonicalCardId: goldProgram.canonicalCardId,
+      sourceCanonicalCardId: CANONICAL,
+      ruleRefs: Object.freeze(["135.2.e.5.a", "135.2.e.5.b", "187.5", "357.2", "430.2.a", "430.3", "813.1.c.2"]),
+      timeline: Object.freeze([
+        "Gold is a Reaction Add, so its ordinary legality is evaluated without a separate card-created response window.",
+        "Finalize pays Exhaust this and Kill this from the created token incarnation.",
+        "The Add resolves immediately under CR 430.2.a and places one Universal Power lot in the controller's Rune Pool."
+      ]),
+      productionTestNames: Object.freeze([
+        "sfd-220-221 Treasure Hoard production boundary: Gold's canonical intrinsic ability pays Kill this + Exhaust and adds Universal Power"
+      ])
     })
   })
 });
 
 // ProgramRegistry rejects judge-required programs. This transparent lift keeps
 // the authored IR unchanged while allowing the production binder, TurnFlow,
-// ChainEngine, Finalize and Resolve to execute the exact blocked card body.
+// ChainEngine, Finalize and Resolve to execute the exact card body. The engine
+// boundary below remains a live failure, so the production definition of this
+// card stays judge-required.
 const admitted = { ...program, status: "executable" };
 delete admitted.judgeReason;
 
-function settle(flow, budget = 100) {
+function card(id, type = "unit") {
+  return {
+    id,
+    cardId: id,
+    canonicalCardId: id,
+    name: id,
+    types: [type],
+    cardType: type,
+    tags: [],
+    domains: [],
+    energy: type === "unit" ? 1 : null,
+    power: type === "unit" ? [] : null,
+    might: type === "unit" ? 5 : null
+  };
+}
+
+function deck({ treasure = false } = {}) {
+  return {
+    mainDeck: Array.from({ length: 16 }, (_, index) => card(`main-${index}`)),
+    runeDeck: Array.from({ length: 8 }, (_, index) => card(`rune-${index}`, "rune")),
+    championLegend: card("legend", "legend"),
+    chosenChampion: card("champion", "champion"),
+    battlefields: [
+      treasure
+        ? {
+            ...card("sfd-220-221", "battlefield"),
+            cardId: "sfd-220-221",
+            canonicalCardId: CANONICAL
+          }
+        : card("ordinary-field-0", "battlefield"),
+      card("ordinary-field-1", "battlefield"),
+      card("ordinary-field-2", "battlefield")
+    ]
+  };
+}
+
+function settleMatch(match, budget = 160) {
+  const flow = match.flow;
   for (let index = 0; index < budget; index++) {
     if (flow.chain.items.length) {
-      if (flow.chain.priority === null) flow.chain.advance();
-      else flow.pass(flow.chain.priority);
+      flow.pass(flow.chain.priority);
       continue;
     }
     if (flow.chain.focus !== null) {
@@ -123,92 +181,51 @@ function settle(flow, budget = 100) {
     }
     return;
   }
-  throw new Error("production TurnFlow did not settle");
+  throw new Error("production Match did not settle");
 }
 
-function basicRuneDeck(prefix = "A") {
-  const mindRune = "card.hash-a8a4cb783649a0339782e2d3808d6144661c621634da7c9f79b4f87981fac97b";
-  return Array.from({ length: 8 }, (_, index) => ({
-    ref: { id: `${prefix}:basic-mind-rune:${index}`, zoneEntryId: 1 },
-    cardId: mindRune,
-    name: "Mind Rune",
-    types: ["rune"],
-    tags: ["Basic"],
-    domains: ["Mind"],
-    energy: null,
-    power: null
-  }));
+function addRaider(kernel, { owner = "A", id = "raider", might = 5 } = {}) {
+  return kernel.addObject({
+    ref: { id, zoneEntryId: 1 },
+    cardId: `synthetic:${id}`,
+    canonicalCardId: `synthetic:${id}`,
+    name: id,
+    types: ["unit"],
+    tags: [],
+    keywords: [],
+    owner,
+    controller: owner,
+    zone: "board",
+    location: { type: "base", player: owner },
+    combatRole: null,
+    might,
+    energy: 1,
+    power: [],
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  }, "board");
 }
 
-function fundEnergyFromBasicRune(kernel, flow, amount = 1) {
-  const identity = (cardId) => cardId === "card.hash-a8a4cb783649a0339782e2d3808d6144661c621634da7c9f79b4f87981fac97b"
-    ? { cardId, canonicalCardId: cardId, domain: "Mind" }
-    : null;
-  for (let index = 0; index < amount; index++) {
-    // Fund this card's payment only through the real Basic Rune priority
-    // activation, whose Finalize cost exhausts the Rune and whose Add action
-    // commits the one Energy.
-    const rune = kernel.objectsInZone("A", "rune-zone")
-      .map((ref) => kernel.getObject(ref.id))
-      .find((candidate) => !candidate.exhausted && candidate.cardId === "card.hash-a8a4cb783649a0339782e2d3808d6144661c621634da7c9f79b4f87981fac97b");
-    assert.ok(rune, "a ready Basic Rune must be available for real resource funding");
-    const plan = planBasicRuneResourceActivation({
-      chain: flow.chain,
-      state: { objects: () => kernel.objects, player: (id) => kernel.player(id) },
-      resolveIdentity: identity,
-      request: {
-        actor: "A",
-        activationId: `treasure-hoard-basic-rune-${index}`,
-        intent: { type: "rune-energy", runeObjectId: rune.ref.id, zoneEntryId: rune.ref.zoneEntryId },
-        window: { kind: "priority" }
-      }
-    });
-    const receipt = executeBasicRuneResourcePlan(plan);
-    assert.equal(receipt.energyAdded, 1);
-  }
-  // Resolve the last Basic Rune Add. The pass that resolves it also advances
-  // Main and may run one no-op turn, so wait for the originally pending Batch
-  // identity rather than for the global items array to become empty.
-  const pendingRuneBatch = flow.chain.items.at(-1)?.id;
-  assert.equal(pendingRuneBatch, undefined, "Basic Rune Add finalizes and resolves immediately (CR 430.2)");
-  assert.equal(kernel.player("A").energy, amount);
-}
-
-function productionScene({ accepted = true, energy = 1, sourceField = "bf1", fund = true } = {}) {
-  const builder = world().player("A").player("B")
-    .deck(Array.from({ length: 8 }, (_, index) => `A:deck:${index}`), { owner: "A" })
-    .deck(Array.from({ length: 8 }, (_, index) => `B:deck:${index}`), { owner: "B" })
-    .unit("hoard-card", {
-      cardId: CANONICAL,
-      owner: "A",
-      controller: "A",
-      types: ["battlefield"],
-      might: null,
-      energy: null,
-      power: null,
-      location: { type: "battlefield", id: sourceField }
-    })
-    .unit("raider", {
-      owner: "A",
-      controller: "A",
-      types: ["unit"],
-      might: 5,
-      location: { type: "base", player: "A" }
-    });
-  for (const rune of basicRuneDeck("A")) builder.object(rune.ref.id, { ...rune, owner: "A", zone: "rune-zone" });
-  for (const rune of basicRuneDeck("B")) builder.object(rune.ref.id, { ...rune, owner: "B", zone: "rune-zone" });
-  const kernel = builder.build();
+function productionMatch({ accepted = true, energy = 1 } = {}) {
+  const kernel = world().player("A").player("B").build();
   const requests = [];
   const energyAtOptional = [];
+  const lifecycleErrors = [];
   const choose = (request) => {
-    requests.push({ id: request.id, type: request.type });
+    requests.push(structuredClone(request));
     if (request.type === "optional") {
-      energyAtOptional.push(kernel.player("A").energy);
+      if (request.id.startsWith("finalize:")) energyAtOptional.push(kernel.player(request.chooser).energy);
       return accepted;
     }
-    if (request.type === "select-objects" && request.options.length === request.min) {
-      return [...request.options];
-    }
+    if (request.type === "mode") return request.options[0];
+    if (request.type === "order") return [...request.options];
+    if (request.type === "select-objects" && request.options.length === request.min) return [...request.options];
+    if (request.type === "select-objects" && request.min === 0) return [];
     throw new Error(`Unexpected production choice ${request.type} ${request.id}`);
   };
   const host = createActionPipelineHost({
@@ -219,59 +236,45 @@ function productionScene({ accepted = true, energy = 1, sourceField = "bf1", fun
     },
     objects: () => kernel.objects,
     perform: (action) => kernel.perform(action),
+    performContract: (action) => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
     choose,
     context: (source, controller, timingPoint) =>
       bindResolveContext(kernel, { source, controller, timingPoint, choose }),
     testTrigger: (registration) => kernel.test(registration.spec.condition)
   });
-  const flow = new TurnFlow({
+  host.player = (id) => kernel.player(id);
+  const binding = createProgramBinding({ cardPrograms: [admitted, goldProgram] });
+  const match = createMatch({
     host,
-    player: (id) => kernel.player(id),
-    turnOrder: ["A", "B"],
-    battlefields: [{ id: "bf1", controller: null }, { id: "bf2", controller: null }]
+    decks: [deck({ treasure: true }), deck()],
+    programs: binding,
+    seed: "treasure-hoard-production",
+    battlefieldChoice: [0, 0],
+    mulligans: [[], []],
+    victoryScore: 20
   });
-  const binding = createProgramBinding({ cardPrograms: [admitted] });
-  const lifecycleErrors = [];
-  binding.attachLifecycle(flow.chain, (error) => lifecycleErrors.push(error));
-  const registered = binding.registerProgramTriggers(flow.chain, kernel.getObject("hoard-card"));
-  flow.start();
-  if (fund) fundEnergyFromBasicRune(kernel, flow, energy);
-  const move = () => flow.execute({
-    id: "treasure-hoard-production-move",
-    controller: "A",
-    source: kernel.getObject("raider"),
-    kind: "activated",
-    speed: "normal",
-    body: [{
-      id: "treasure-hoard-production-move-effect",
-      op: "effect.move",
-      args: { to: { kind: "constant", value: { type: "battlefield", id: "bf1" } } }
-    }]
-  });
-  return { kernel, flow, registered, lifecycleErrors, requests, energyAtOptional, move, settle: () => settle(flow) };
-}
-
-function card(id, types = ["unit"], extra = {}) {
-  return { id, cardId: `card:${id}`, types, ...extra };
-}
-
-function deck({ treasure = false } = {}) {
+  const hoard = kernel.objects.find((object) => object.cardId === CANONICAL);
+  assert.ok(hoard, "Treasure Hoard must enter through default Match setup");
+  binding.attachLifecycle(match.flow.chain, (error) => lifecycleErrors.push(error));
+  settleMatch(match);
+  const player = "A";
+  if (energy > 0) match.flow.chain.commit({ type: "gain-energy", player, amount: energy });
+  settleMatch(match);
   return {
-    mainDeck: Array.from({ length: 16 }, (_, index) => card(`main-${index}`)),
-    runeDeck: Array.from({ length: 4 }, (_, index) => card(`rune-${index}`, ["rune"])),
-    championLegend: card("legend", ["legend"]),
-    chosenChampion: card("champion", ["champion"]),
-    battlefields: [
-      treasure
-        ? { id: "treasure-hoard", cardId: "sfd-220-221", canonicalCardId: CANONICAL, types: ["battlefield"] }
-        : card("ordinary-field-0", ["battlefield"]),
-      card("ordinary-field-1", ["battlefield"]),
-      card("ordinary-field-2", ["battlefield"])
-    ]
+    kernel,
+    match,
+    binding,
+    hoard,
+    player,
+    requests,
+    energyAtOptional,
+    lifecycleErrors,
+    settle: () => settleMatch(match)
   };
 }
 
-test("sfd-220-221 Treasure Hoard: validates, is registered and names the current judge-required blockers", () => {
+test("sfd-220-221 Treasure Hoard: validates, is registered and names the current exhausted-entry blocker", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.issues));
   assert.deepEqual(result.issues, []);
@@ -281,24 +284,26 @@ test("sfd-220-221 Treasure Hoard: validates, is registered and names the current
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 
+  assert.match(program.judgeReason, /chain\/engine\.ts:1593-1595/);
+  assert.match(program.judgeReason, /184\.1/);
+  assert.match(program.judgeReason, /185\.2\.d/);
   assert.match(program.judgeReason, /187\.5/);
-  assert.match(program.judgeReason, /definitions\.ts:83-102/);
-  assert.match(program.judgeReason, /effect\.token\.ts:340-342/);
-  assert.match(program.judgeReason, /\[A\]/);
-  assert.match(program.judgeReason, /已支持 \[A\] 支付/);
-  assert.match(program.judgeReason, /RIFT-929/);
-  assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
-  assert.match(program.judgeReason, /135\.2\.e\.5\.b/);
-  assert.match(program.judgeReason, /仍无生产 Add 路径/);
+  assert.match(program.judgeReason, /RIFT-987/);
+  assert.match(program.judgeReason, /Universal Power/);
+  assert.match(program.judgeReason, /entersExhausted=true/);
+  assert.match(program.judgeReason, /ready/);
+  assert.match(program.judgeReason, /exhausted/);
   assert.match(program.judgeReason, /默认 Match.*Board/);
-  assert.match(program.judgeReason, /RIFT-973/);
-  assert.match(program.judgeReason, /ObjectRef 自锚/);
-  assert.match(program.judgeReason, /entersExhausted/);
+  assert.match(program.judgeReason, /自锚/);
   assert.match(program.judgeReason, /Finalize/);
-  assert.equal(goldProgram.status, "judge-required");
-  assert.match(goldProgram.judgeReason, /rainbow/);
-  assert.match(goldProgram.judgeReason, /135\.2\.e\.5/);
+  assert.match(program.judgeReason, /mode=play/);
+  assert.equal(goldProgram.status, "executable");
+  assert.equal(Object.hasOwn(goldProgram, "judgeReason"), false);
   // These diagnoses were disproved by the current sources and must not return.
+  assert.doesNotMatch(program.judgeReason, /仍为 abilityBinding="blocked"/);
+  assert.doesNotMatch(program.judgeReason, /effect\.token\.ts:340-342/);
+  assert.doesNotMatch(program.judgeReason, /unverified Add shape/);
+  assert.doesNotMatch(program.judgeReason, /仍无生产 Add 路径/);
   assert.doesNotMatch(program.judgeReason, /Unsupported filter field here/);
   assert.doesNotMatch(program.judgeReason, /entry overrides? are not supported/i);
   assert.doesNotMatch(program.judgeReason, /Gold.*absent from the frozen/i);
@@ -340,9 +345,16 @@ test("sfd-220-221 Treasure Hoard: official CR, Radiance, SFD and processing evid
   assert.deepEqual(OFFICIAL_EVIDENCE.interactions.optionalPaymentAndGold.timeline, [
     "Play/Pending: Conquer creates the triggered ability as a Pending Item.",
     "Finalize: the leading may is selected, then the printed one Energy is paid; declining or an unpayable cost removes the trigger without a free Gold.",
-    "Resolve: effect.token would create Gold on the Chain and play it to the controller's Base, entering exhausted.",
-    "Current fail-closed boundary: Finalize pays one Energy, then Resolve negates Gold creation because the token definition intentionally blocks an intrinsic Add [A] that the resource contract cannot represent."
+    "Resolve: effect.token creates the canonical Gold on the Chain with exhausted=true, then plays that same token to the controller's Base.",
+    "Current failure: the nested Play is hard-coded by TurnFlow to ready the Gear before entering the Base, overriding the creating effect's required exhausted entry."
   ]);
+  assert.deepEqual(OFFICIAL_EVIDENCE.interactions.goldIntrinsicAbility.ruleRefs, [
+    "135.2.e.5.a", "135.2.e.5.b", "187.5", "357.2", "430.2.a", "430.3", "813.1.c.2"
+  ]);
+  for (const interaction of Object.values(OFFICIAL_EVIDENCE.interactions)) {
+    assert.ok(interaction.productionTestNames.length > 0);
+    assert.ok(interaction.productionTestNames.every((name) => typeof name === "string" && name.length > 0));
+  }
 });
 
 test("sfd-220-221 Treasure Hoard: optional Conquer, one Energy, Gold play and exhausted entry shape", () => {
@@ -409,118 +421,216 @@ test("sfd-220-221 Treasure Hoard: here matches the source Battlefield by explici
   assert.equal(matchesTriggerEvent(translated, { ...selfConquer, details: { battlefieldId: "bf1" } }, "A", selfLocated), false);
 });
 
-test("sfd-220-221 Treasure Hoard production golden: Finalize pays one Energy, then Gold fails closed before creation", () => {
-  const f = productionScene();
-  assert.deepEqual(f.registered, ["program:hoard-card:1:0"]);
+test("sfd-220-221 Treasure Hoard production golden: default setup Conquers, pays at Finalize, creates Gold, and exposes the exhausted-entry failure", () => {
+  const f = productionMatch();
   assert.deepEqual(f.lifecycleErrors, []);
-  const energyBeforeConquer = f.kernel.player("A").energy;
-  assert.ok(energyBeforeConquer > 0, "Basic Rune funding must leave a real Main-phase Energy pool");
-  const payEventsBeforeConquer = f.kernel.events.filter((event) => event.action === "pay").length;
+  assert.equal(f.kernel.player("A").energy, 1);
+  const registrations = f.match.flow.chain.pipeline.registeredTriggers()
+    .filter((registration) => registration.source.cardId === CANONICAL);
+  assert.deepEqual(registrations.map((registration) => registration.id),
+    [`program:${f.hoard.ref.id}:${f.hoard.ref.zoneEntryId}:0`]);
+  assert.deepEqual(registrations[0].spec.filter, { event: "conquer", here: true, player: "self" });
 
-  f.move();
+  const raider = addRaider(f.kernel);
+  const move = f.match.flow.move("A", raider, f.hoard.ref.id);
+  assert.deepEqual(move.moved, [raider]);
   f.settle();
 
-  assert.deepEqual(f.requests, [{ id: "finalize:trigger:1:optional", type: "optional" }]);
-  assert.deepEqual(f.energyAtOptional, [energyBeforeConquer], "the optional choice is made before the Finalize payment");
-  assert.equal(f.kernel.player("A").energy, energyBeforeConquer - 1, "the printed one Energy is paid during Finalize");
-  assert.equal(
-    f.kernel.events.filter((event) => event.action === "pay").length,
-    payEventsBeforeConquer + 1,
-    "Finalize adds exactly one real pay event"
-  );
-  assert.equal(f.kernel.linked("treasure-hoard.pay"), undefined);
+  assert.deepEqual(f.requests.map((request) => request.id), ["finalize:trigger:1:optional"]);
+  assert.deepEqual(f.energyAtOptional, [1], "the leading may is decided before its Finalize payment");
+  assert.equal(f.kernel.player("A").energy, 0, "Finalize pays exactly the printed one Energy");
+  assert.equal(f.kernel.player("A").score, 1);
+  assert.equal(f.match.flow.battlefields.find((field) => field.id === f.hoard.ref.id).controller, "A");
 
   const receipt = f.kernel.linked("treasure-hoard.create.goldToken");
-  assert.deepEqual(receipt, {
-    amount: 0,
-    objects: [],
-    objectsComplete: true,
-    createdAmount: 0,
-    createdObjects: [],
-    blockedReason: "token-definition-or-abilities-judge-required"
-  });
-  assert.deepEqual(f.kernel.objects.filter((object) => object.isToken), []);
+  assert.equal(receipt.blockedReason, undefined);
+  assert.equal(receipt.amount, 1);
+  assert.equal(receipt.createdAmount, 1);
+  assert.equal(receipt.objectsComplete, true);
+  assert.equal(receipt.createdObjects.length, 1);
+  const gold = f.kernel.getObject(receipt.createdObjects[0].id);
+  assert.ok(gold);
+  assert.equal(gold.cardId, goldProgram.canonicalCardId);
+  assert.equal(gold.name, "Gold");
+  assert.equal(gold.isToken, true);
+  assert.deepEqual(gold.types, ["gear"]);
+  assert.deepEqual(gold.location, { type: "base", player: "A" });
+  assert.equal(gold.exhausted, false,
+    "current production failure: the creating effect required exhausted, but TurnFlow readies played Gear");
+  const goldDraft = f.binding.describeActivate(gold, "A", 0);
+  assert.equal(goldDraft.kind, "add");
+  assert.equal(goldDraft.speed, "reaction");
+  assert.deepEqual(goldDraft.body.map((instruction) => instruction.op), ["effect.resources"]);
 
-  const timeline = f.flow.chain.pipeline.events.map((event) => event.timingPoint);
+  const events = f.match.events();
+  const conquerAt = events.findIndex((event) => event.timingPoint === "conquer");
+  const pendingAt = events.findIndex((event, index) => index > conquerAt && event.timingPoint === "chain-item-pending");
+  const finalizeAt = events.findIndex((event, index) => index > pendingAt && event.timingPoint === "chain-item-finalize" && event.details?.item === "trigger:1");
+  const resolveAt = events.findIndex((event, index) => index > finalizeAt && event.timingPoint === "chain-item-resolve" && event.details?.item === "trigger:1");
+  assert.ok(conquerAt >= 0 && conquerAt < pendingAt && pendingAt < finalizeAt && finalizeAt < resolveAt);
+  assert.ok(f.match.flow.chain.trace.some((entry) => entry.step === "finalized" && entry.item === "trigger:1"));
+  assert.ok(f.match.flow.chain.trace.some((entry) => entry.step === "resolved" && entry.item === "trigger:1"));
+  const trace = f.match.flow.chain.trace.filter((entry) => entry.step === "focus-granted" || entry.step === "pass");
+  assert.deepEqual(trace.slice(-4), [
+    { step: "focus-granted", player: "A" },
+    { step: "focus-granted", player: "B" },
+    { step: "pass", player: "A" },
+    { step: "pass", player: "B" }
+  ], "A/B receive the ordinary Showdown Focus and post-Finalize Priority windows");
+
+  const goldDefinition = getTokenDefinition("gold");
+  assert.ok(goldDefinition);
+  assert.deepEqual(goldDefinition.spec.types, ["gear"]);
+  assert.equal(goldDefinition.spec.energy, null);
+  assert.equal(goldDefinition.spec.power, null);
+  assert.equal(goldDefinition.abilityBinding, "canonical-card-program");
+});
+
+test("sfd-220-221 Treasure Hoard production boundary: Gold's canonical intrinsic ability pays Kill this + Exhaust and adds Universal Power", () => {
+  const kernel = world().player("A").player("B").build();
+  const goldRef = kernel.addObject({
+    ref: { id: "gold-intrinsic", zoneEntryId: 1 },
+    cardId: goldProgram.canonicalCardId,
+    name: "Gold",
+    types: ["gear"],
+    tags: ["Token"],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "base", player: "A" },
+    combatRole: null,
+    might: null,
+    energy: null,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: true
+  }, "board");
+  const requests = [];
+  const choose = (request) => {
+    requests.push(structuredClone(request));
+    if (request.type === "select-objects" && request.options.length === request.min) return [...request.options];
+    throw new Error(`Unexpected intrinsic Gold choice ${request.type} ${request.id}`);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (saved) => {
+      kernel.restore(saved.state);
+      kernel.copyLinkedFrom(saved.links);
+    },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    performContract: (action) => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: (registration) => kernel.test(registration.spec.condition)
+  });
+  const binding = createProgramBinding({ cardPrograms: [goldProgram] });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host,
+    cleanup: () => false,
+    describePlay: binding.describePlay
+  });
+  const lifecycleErrors = [];
+  binding.attachLifecycle(engine, (error) => lifecycleErrors.push(error));
+  const source = kernel.getObject(goldRef.id);
+  const draft = binding.describeActivate(source, "A", 0);
+  assert.equal(draft.kind, "add");
+  assert.equal(draft.speed, "reaction");
+  assert.deepEqual(draft.body.map((instruction) => instruction.id), ["gold.add-universal-power"]);
+  assert.deepEqual(draft.cost.cost.payments.map((payment) => payment.kind), ["exhaust", "kill"]);
+
+  engine.execute(draft);
+  while (engine.items.length) engine.pass(engine.priority);
+  assert.deepEqual(lifecycleErrors, []);
+  assert.deepEqual(requests, []);
+  assert.deepEqual(kernel.player("A").power, ["universal"]);
+  assert.equal(kernel.getObject(goldRef.id).zone, "trash");
+  assert.deepEqual(kernel.events.filter((event) => ["exhaust", "kill", "gain-power"].includes(event.action))
+    .map((event) => event.action), ["exhaust", "kill", "gain-power"]);
+  assert.deepEqual(kernel.linked("gold.add-universal-power.resources"), {
+    player: "A",
+    energy: 0,
+    power: ["universal"]
+  });
+
+});
+
+test("sfd-220-221 Treasure Hoard production counterexample: finalize order is Conquer -> Pending -> Finalize -> Resolve", () => {
+  const f = productionMatch();
+  const raider = addRaider(f.kernel, { id: "order-raider" });
+  f.match.flow.move("A", raider, f.hoard.ref.id);
+  f.settle();
+  const timeline = f.match.events().map((event) => event.timingPoint);
   const conquerAt = timeline.indexOf("conquer");
   const pendingAt = timeline.indexOf("chain-item-pending", conquerAt);
   const finalizeAt = timeline.indexOf("chain-item-finalize", pendingAt);
   const resolveAt = timeline.indexOf("chain-item-resolve", finalizeAt);
   assert.ok(conquerAt >= 0 && conquerAt < pendingAt && pendingAt < finalizeAt && finalizeAt < resolveAt);
-  assert.ok(f.flow.chain.trace.some((entry) => entry.step === "finalize-start"));
-  assert.ok(f.flow.chain.trace.some((entry) => entry.step === "resolved"));
-
-  const gold = getTokenDefinition("gold");
-  assert.ok(gold);
-  assert.deepEqual(gold.spec.types, ["gear"]);
-  assert.equal(gold.spec.energy, null);
-  assert.equal(gold.spec.power, null);
-  assert.equal(gold.abilityBinding, "blocked");
-  assert.equal(gold.blockedReason, "token-definition-or-abilities-judge-required");
-  // The Gold program itself is a separate guard. Even if a caller lifts only
-  // the card status for a probe, the default production binder rejects the
-  // authored [rainbow] Add shape instead of coercing it to a named Domain.
-  const admittedGold = { ...goldProgram, status: "executable", judgeReason: undefined };
-  const goldBinding = createProgramBinding({ cardPrograms: [admittedGold] });
-  const goldSource = world().player("A").base("gold-probe", {
-    cardId: goldProgram.canonicalCardId,
-    types: ["gear"],
-    tags: ["Token"],
-    keywords: [{ id: "Reaction" }],
-    might: null,
-    energy: null,
-    power: null,
-    exhausted: false
-  }).build().getObject("gold-probe");
-  assert.throws(
-    () => goldBinding.describeActivate(goldSource, "A"),
-    (error) => error?.code === "judge-required" && /unverified Add shape/.test(error.message)
-  );
+  assert.ok(f.match.flow.chain.trace.some((entry) => entry.step === "finalized" && entry.item === "trigger:1"));
+  assert.ok(f.match.flow.chain.trace.some((entry) => entry.step === "resolved" && entry.item === "trigger:1"));
 });
 
 test("sfd-220-221 Treasure Hoard production counterexample: declining Finalize pays nothing and creates no token", () => {
-  const f = productionScene({ accepted: false });
+  const f = productionMatch({ accepted: false });
   const energyBeforeConquer = f.kernel.player("A").energy;
   const payEventsBeforeConquer = f.kernel.events.filter((event) => event.action === "pay").length;
-  f.move();
+  const raider = addRaider(f.kernel, { id: "decline-raider" });
+  f.match.flow.move("A", raider, f.hoard.ref.id);
   f.settle();
 
-  assert.deepEqual(f.requests, [{ id: "finalize:trigger:1:optional", type: "optional" }]);
+  assert.deepEqual(f.requests.map(({ id, type }) => ({ id, type })),
+    [{ id: "finalize:trigger:1:optional", type: "optional" }]);
   assert.deepEqual(f.energyAtOptional, [energyBeforeConquer]);
   assert.equal(f.kernel.player("A").energy, energyBeforeConquer);
   assert.equal(f.kernel.events.filter((event) => event.action === "pay").length, payEventsBeforeConquer);
   assert.equal(f.kernel.linked("treasure-hoard.create.goldToken"), undefined);
-  assert.deepEqual(f.kernel.objects.filter((object) => object.isToken), []);
+  assert.equal(f.kernel.objects.filter((object) => object.cardId === goldProgram.canonicalCardId).length, 0);
   // The triggering Move resolves normally; only the declined trigger is removed
   // without a Resolve. Do not confuse those two chain items.
-  assert.equal(f.flow.chain.trace.some((entry) => entry.step === "removed" && entry.reason === "declined"), true);
+  assert.equal(f.match.flow.chain.trace.some((entry) => entry.step === "removed" && entry.reason === "declined"), true);
 });
 
 test("sfd-220-221 Treasure Hoard production counterexample: insufficient Energy removes the trigger without a free Gold", () => {
-  const f = productionScene({ energy: 0, fund: false });
-  f.move();
+  const f = productionMatch({ energy: 0 });
+  const raider = addRaider(f.kernel, { id: "unpayable-raider" });
+  f.match.flow.move("A", raider, f.hoard.ref.id);
   f.settle();
 
-  assert.deepEqual(f.requests, [{ id: "finalize:trigger:1:optional", type: "optional" }]);
+  assert.deepEqual(f.requests.map(({ id, type }) => ({ id, type })),
+    [{ id: "finalize:trigger:1:optional", type: "optional" }]);
   assert.deepEqual(f.energyAtOptional, [0]);
   assert.equal(f.kernel.player("A").energy, 0);
   assert.equal(f.kernel.events.filter((event) => event.action === "pay").length, 0);
   assert.equal(f.kernel.linked("treasure-hoard.create.goldToken"), undefined);
-  assert.deepEqual(f.kernel.objects.filter((object) => object.isToken), []);
-  assert.ok(f.flow.chain.trace.some((entry) => entry.step === "removed" && entry.reason === "unperformable-trigger"));
+  assert.equal(f.kernel.objects.filter((object) => object.cardId === goldProgram.canonicalCardId).length, 0);
+  assert.ok(f.match.flow.chain.trace.some((entry) => entry.step === "removed" && entry.reason === "unperformable-trigger"));
 });
 
 test("sfd-220-221 Treasure Hoard production counterexample: conquering another battlefield does not fire here", () => {
-  const f = productionScene({ sourceField: "bf2" });
+  const f = productionMatch();
+  const other = f.match.flow.battlefields.find((field) => field.id !== f.hoard.ref.id);
+  assert.ok(other);
+  const raider = addRaider(f.kernel, { id: "elsewhere-raider" });
   const energyBeforeConquer = f.kernel.player("A").energy;
-  f.move();
+  f.match.flow.move("A", raider, other.id);
   f.settle();
 
   assert.deepEqual(f.lifecycleErrors, []);
   assert.deepEqual(f.requests, []);
   assert.equal(f.kernel.player("A").energy, energyBeforeConquer);
   assert.equal(f.kernel.linked("treasure-hoard.create.goldToken"), undefined);
-  assert.deepEqual(f.kernel.objects.filter((object) => object.isToken), []);
+  assert.equal(f.kernel.objects.filter((object) => object.cardId === goldProgram.canonicalCardId).length, 0);
 });
 
 test("sfd-220-221 Treasure Hoard production boundary: default setup and MatchCommandAdapter bind the Board Battlefield exactly once", () => {
