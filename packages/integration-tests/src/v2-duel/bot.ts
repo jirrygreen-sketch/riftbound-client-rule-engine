@@ -56,13 +56,18 @@ export function botCommand(
   cardFacts: ReadonlyMap<string, {
     readonly energy: number | null;
     readonly power: number | null;
-    readonly hasComplexAbility: boolean;
+    /** Generated card-program admission status; pending means no registry entry. */
+    readonly status: string;
     readonly kind: "unit" | "gear" | "spell";
   }> = new Map()
 ): V2Command | null {
   const choice = chooseCommand(projection, viewerPlayerId, commandId);
   if (choice) return choice;
   if (projection.winnerPlayerId !== null) return null;
+  // The projection identifies its authenticated viewer. Never let a runner's
+  // seat bookkeeping turn a different player's view into an action request.
+  if (projection.viewerPlayerId !== viewerPlayerId) return null;
+  if (projection.priority.playerId !== viewerPlayerId) return null;
   // A pending request may be answered only by its owner with projected
   // candidates. Passing would resolve the surrounding Finalize without an
   // answer, so report that the current client cannot act instead.
@@ -72,41 +77,48 @@ export function botCommand(
     const card = hand.find(candidate => candidate.objectId === option.cardObjectId);
     if (!card) return false;
     const fact = card.cardId === undefined ? undefined : cardFacts.get(card.cardId);
-    return fact === undefined || fact.power === null || fact.power === 0;
+    return fact !== undefined && fact.status === "executable" &&
+      (fact.power === null || fact.power === 0);
   };
-  // Some dynamic card abilities currently suspend without a receipt in the
-  // server runtime. Choose plain permanents first while the server remains
-  // authoritative over every legal play and destination.
-  const choiceSafe = (option: V2Projection["actionOptions"]["plays"][number]) =>
-    !cardFacts.get(hand.find(candidate => candidate.objectId === option.cardObjectId)?.cardId ?? "")
-      ?.hasComplexAbility;
-  const blockedProjectedPlay = new Set([
-    "Plundering Poro", "Dangerous Duo", "Gem Jammer", "Frigid Touch"
-  ]);
-  const projectedPlayName = (option: V2Projection["actionOptions"]["plays"][number]) =>
-    hand.find(card => card.objectId === option.cardObjectId)?.name ?? "";
-  const playable = projection.actionOptions.plays.find(option =>
-    !rejectedPlayIds.has(option.cardObjectId) && payable(option) &&
-    choiceSafe(option) &&
-    !blockedProjectedPlay.has(projectedPlayName(option)));
-  const playableToBase = projection.actionOptions.plays.find(option =>
-    option.destination.kind === "base" && !rejectedPlayIds.has(option.cardObjectId) && payable(option) &&
-    choiceSafe(option) &&
-    !blockedProjectedPlay.has(projectedPlayName(option)));
-  const unitPlay = projection.actionOptions.plays.find(option => {
-    const card = hand.find(candidate => candidate.objectId === option.cardObjectId);
-    return !rejectedPlayIds.has(option.cardObjectId) && payable(option) &&
-      card?.cardId !== undefined && cardFacts.get(card.cardId)?.kind === "unit" &&
-      choiceSafe(option) && !blockedProjectedPlay.has(projectedPlayName(option));
-  });
+  const factFor = (option: V2Projection["actionOptions"]["plays"][number]) => {
+    const cardId = hand.find(candidate => candidate.objectId === option.cardObjectId)?.cardId;
+    return cardId === undefined ? undefined : cardFacts.get(cardId);
+  };
+  const playable = projection.actionOptions.plays.some(option =>
+    !rejectedPlayIds.has(option.cardObjectId) && payable(option));
+  const playableToBase = projection.actionOptions.plays.some(option =>
+    option.destination.kind === "base" && !rejectedPlayIds.has(option.cardObjectId) && payable(option));
   const readyRune = readyRunes(projection, viewerPlayerId)[0];
   const energy = projection.players.find(player => player.playerId === viewerPlayerId)?.energy ?? 0;
+  const equipmentOnBoard = projection.objects.some(object =>
+    object.controllerPlayerId === viewerPlayerId && object.zone === "board" &&
+    (object.name?.includes("Armor") === true || object.name?.includes("Blade") === true ||
+      object.name === "B.F. Sword" || object.name === "Sacred Shears"));
+  const cardName = (option: V2Projection["actionOptions"]["plays"][number]) =>
+    hand.find(card => card.objectId === option.cardObjectId)?.name;
+  const avoidsEquipmentChoice = (option: V2Projection["actionOptions"]["plays"][number]) =>
+    cardName(option) !== "Veteran Poro" || equipmentOnBoard;
+  const friendlyBoardUnits = projection.objects.filter(object =>
+    object.zone === "board" && object.controllerPlayerId === viewerPlayerId && object.might !== undefined);
+  const avoidsEmptyTriggerTarget = (option: V2Projection["actionOptions"]["plays"][number]) => {
+    const name = hand.find(card => card.objectId === option.cardObjectId)?.name;
+    if (name === "Bubble Bot") return friendlyBoardUnits.some(object =>
+      object.objectId !== option.cardObjectId && (object.name ?? "").length > 0);
+    if (name === "Pit Rookie") return friendlyBoardUnits.length > 0;
+    return true;
+  };
+  // These executable programs currently recurse in the public boolean without
+  // a receipt. Avoid selecting them until their server owners progress; the
+  // full projection remains authoritative for whether a play is available.
+  const stalledPrograms = new Set(["Forecaster", "Gem Jammer"]);
+  const runtimeSafe = (option: V2Projection["actionOptions"]["plays"][number]) =>
+    !stalledPrograms.has(cardName(option) ?? "");
   // There are no non-permanent Action/Reaction cards in the V2 action surface.
   // Use a whole Main Phase to Channel Runes or play an affordable permanent;
   // ending first would otherwise close every turn with zero resources.
   if (projection.phase === "main" && projection.combat.status === "none" &&
       projection.chain.items.length === 0 && projection.actionOptions.canEndTurn &&
-      !playable && projection.actionOptions.moves.length === 0 && !readyRune) {
+    !playable && !playableToBase && projection.actionOptions.moves.length === 0 && !readyRune) {
     return { type: "end-turn", commandId, stateVersion: projection.stateVersion };
   }
   if (projection.combat.status === "active") {
@@ -150,26 +162,36 @@ export function botCommand(
   const fieldMoves = projection.actionOptions.moves.flatMap(candidate =>
     candidate.destination.kind === "battlefield" ? [{ candidate, field: projection.battlefields.find(value =>
       value.battlefieldId === (candidate.destination.kind === "battlefield" ? candidate.destination.battlefieldId : "")) }] : []);
-  const move = (fieldMoves.find(({ field }) => field?.controllerPlayerId === null ||
-    field?.controllerPlayerId === viewerPlayerId) ?? fieldMoves[0])?.candidate;
+  // Prefer an uncontested open field, then move into an existing combat. The
+  // final server move validator remains authoritative over the route.
+  const move = (fieldMoves.find(({ field }) => field?.controllerPlayerId === null) ??
+    fieldMoves.find(({ field }) => field?.controllerPlayerId === viewerPlayerId) ??
+    fieldMoves[0])?.candidate;
   if (move) {
     return { type: "move", commandId, stateVersion: projection.stateVersion, objectId: move.objectId,
       to: move.destination.kind === "base"
         ? { zone: "base", playerId: move.destination.playerId }
         : { zone: "battlefield", locationId: move.destination.battlefieldId } };
   }
-  if (unitPlay ?? playableToBase ?? playable) {
-    const play = unitPlay ?? playableToBase ?? playable!;
+  const safeOptions = projection.actionOptions.plays.filter(option =>
+    !rejectedPlayIds.has(option.cardObjectId) && payable(option) &&
+    avoidsEquipmentChoice(option) && avoidsEmptyTriggerTarget(option) && runtimeSafe(option));
+  const safeUnit = safeOptions
+    .filter(option => factFor(option)?.kind === "unit")
+    .sort((left, right) => (factFor(left)?.energy ?? Infinity) - (factFor(right)?.energy ?? Infinity))[0];
+  const safeBasePlay = safeOptions.find(option => option.destination.kind === "base");
+  if (safeUnit ?? safeBasePlay) {
+    const play = safeUnit ?? safeBasePlay!;
     return { type: "play", commandId, stateVersion: projection.stateVersion,
       cardObjectId: play.cardObjectId, destination: play.destination };
   }
   // Preserve enough Energy to attempt the cheapest projected permanent on the
   // next turn. The projection only lists cards whose printed cost is payable.
-  if (readyRune && energy === 0) {
+  if (readyRune && energy === 0 && readyRunes(projection, viewerPlayerId).length < 6) {
     return { type: "rune-energy", commandId, stateVersion: projection.stateVersion,
       runeObjectId: readyRune.objectId, zoneEntryId: readyRune.zoneEntryId };
   }
-  if (readyRune) {
+  if (readyRune && projection.actionOptions.plays.length === 0) {
     if (energy < 3) {
       return { type: "rune-energy", commandId, stateVersion: projection.stateVersion,
         runeObjectId: readyRune.objectId, zoneEntryId: readyRune.zoneEntryId };

@@ -31,7 +31,8 @@ export interface V2DuelRunOptions {
    * observation instead of waiting through an unbounded server computation. */
   readonly actionTimeoutMs?: number;
   /** Stop before the first command whose acknowledgement exceeds this many
-   * milliseconds; the incomplete attempt is retained as evidence. */
+   * milliseconds. This budget applies to each command rather than accumulating
+   * across a whole match; total runner duration remains a separate option. */
   readonly acknowledgementTimeoutMs?: number;
   readonly outputDirectory?: string;
   readonly firstPlayerPrecon?: V2M1PreconId;
@@ -209,19 +210,30 @@ async function runV2DuelInternal(options: V2DuelRunOptions, deadline: number): P
     const address = server.httpServer.address();
     if (!address || typeof address === "string") throw new Error("Game server did not expose a TCP port");
     const url = `ws://127.0.0.1:${address.port}/ws`;
-    const pair = await Promise.race([
+    const startup = await Promise.race([
       startPair(url, options.seed, options.firstPlayerPrecon ?? "rumble-sfd",
-        "fiora-sfd", options.creator ?? "first", sessions),
+        "fiora-sfd", options.creator ?? "first", sessions).then(
+          pair => ({ pair, reason: null }),
+          error => ({ pair: null, reason: error instanceof Error ? error.message : String(error) })
+        ),
       new Promise<null>(resolve => setTimeout(() => resolve(null),
         Math.max(1, deadline - Date.now())))
     ]);
     // Both snapshots were populated by projection callbacks before startPair
     // completed; no second projection is expected for a waiting room.
-    if (pair === null) {
-      const blocked = blockedBeforeMatch(options, started, "startup timed out before both private projections arrived");
+    if (startup === null || startup.pair === null) {
+      const blocked = blockedBeforeMatch(options, started, startup?.reason ??
+        "startup timed out before both private projections arrived");
+      if (startup?.reason !== null && startup?.reason !== undefined && process.env.V2_DUEL_DEBUG === "1") {
+        Object.assign(blocked, { protocolTrace: sessions.map(session => ({
+          playerId: session.snapshot.session.playerId,
+          packets: session.trace()
+        })) });
+      }
       if (options.outputDirectory) await persistNdjson(options.outputDirectory, blocked);
       return blocked;
     }
+    const pair = startup.pair;
     const playerIds = [pair.first.snapshot.session.playerId, pair.second.snapshot.session.playerId] as const;
     const firstPlayerId = pair.firstView.activePlayerId;
     let privacy: PrivacyAudit = { checkedProjections: 0, violations: [] };
@@ -249,8 +261,6 @@ async function runV2DuelInternal(options: V2DuelRunOptions, deadline: number): P
     ].map(action => [action, 0])) as Record<V2DuelCoverageAction, number>;
     const rejectionCounts: Record<string, number> = { [playerIds[0]]: 0, [playerIds[1]]: 0 };
     let actionCount = 0;
-    const acknowledgementDeadline = options.acknowledgementTimeoutMs === undefined
-      ? null : performance.now() + Math.max(1, options.acknowledgementTimeoutMs);
     let repeatSignature: string | null = null;
     let repeated = 0;
     let lastAcceptedSignature: string | null = null;
@@ -261,15 +271,13 @@ async function runV2DuelInternal(options: V2DuelRunOptions, deadline: number): P
     let terminalView = pair.first.snapshot.projection ?? views[0];
     const rejectedPlays = new Map<string, Set<string>>();
     const cardFacts = new Map(Object.values(V2_M1_PRECONS).flatMap(precon => precon.cards.map(card => {
-      const abilities = cardProgramsById.get(card.canonicalCardId)?.abilities ?? [];
+      const program = cardProgramsById.get(card.canonicalCardId) as unknown as CardProgram | undefined;
       return [card.canonicalCardId, {
         energy: card.energy ?? null,
         power: card.power ?? null,
         kind: card.cardType.toLowerCase() === "unit" ? "unit" :
           card.cardType.toLowerCase() === "gear" ? "gear" : "spell",
-        hasComplexAbility: [...abilities].some(ability =>
-          ability.kind === "triggered" ||
-          (ability.kind === "static" && JSON.stringify(ability).includes("continuous.grant-keyword")))
+        status: String(program?.status ?? "pending")
       }] as const;
     })));
     while (actionCount < maxActions) {
@@ -301,10 +309,7 @@ async function runV2DuelInternal(options: V2DuelRunOptions, deadline: number): P
       }
       observeProjection(live[0]);
       observeProjection(live[1]);
-      const actor = pickActor(
-        current.activePlayerId === playerIds[1] ? [live[1], live[0]] : [live[0], live[1]],
-        playerIds
-      );
+      const actor = projectedActor(current);
       if (actor === null) {
         blockedReason = `no actor exposed at ${current.phase}/${current.priority.window}, state ${current.stateVersion}`;
         break;
@@ -312,7 +317,14 @@ async function runV2DuelInternal(options: V2DuelRunOptions, deadline: number): P
       const selected = chooseSession(pair, actor);
       const commandId = nextCommandId(options.seed, playerIds.indexOf(actor), actionCount);
       const rejectedForActor = rejectedPlays.get(actor) ?? new Set<string>();
-      const authoritativeView = playerIds.indexOf(actor) === 0 ? live[0] : live[1];
+      const authoritativeView = selected.view;
+      // Each client is an independent protocol participant. The actor's command
+      // is generated solely from that socket's private projection; the other
+      // view participates in privacy auditing and clock convergence only.
+      if (authoritativeView.viewerPlayerId !== actor) {
+        blockedReason = `projection viewer ${String(authoritativeView.viewerPlayerId)} does not match actor ${actor}`;
+        break;
+      }
       const command = botCommand(authoritativeView, actor, commandId, rejectedForActor, cardFacts);
       const choiceDebug = authoritativeView.pendingChoice.status === "pending" ? {
         owner: authoritativeView.pendingChoice.ownerPlayerId,
@@ -346,15 +358,8 @@ async function runV2DuelInternal(options: V2DuelRunOptions, deadline: number): P
       actionCount += 1;
       let receipt: V2CommandReceipt;
       try {
-        const remaining = acknowledgementDeadline === null ? undefined :
-          Math.floor(acknowledgementDeadline - performance.now());
-        if (remaining !== undefined && remaining <= 0) {
-          blockedReason = `observation window exhausted before ${command.type} acknowledgement at state ${current.stateVersion}`;
-          actionCount -= 1;
-          break;
-        }
         receipt = await selected.session.sendCommandWithin(command,
-          remaining === undefined ? options.actionTimeoutMs ?? 12_000 : Math.max(1, Math.min(options.actionTimeoutMs ?? 12_000, remaining)));
+          Math.min(options.actionTimeoutMs ?? 12_000, options.acknowledgementTimeoutMs ?? 12_000));
       } catch (error) {
         if (error instanceof V2CommandFailure) {
           const failedView = selected.session.snapshot.projection ?? selected.view;
@@ -388,11 +393,14 @@ async function runV2DuelInternal(options: V2DuelRunOptions, deadline: number): P
           continue;
         }
         const queued = pair.first.trace().slice(-4).map(packet => packet.type);
+        const authoritative = server.rooms.get(options.seed);
         blockedReason = JSON.stringify({ kind: error instanceof Error && error.message.includes("timed out")
           ? "acknowledgement-timeout" : "command-transport-error", command: command.type,
           commandId, cardName: cardNameFor(selected.view, command),
           phase: current.phase, window: selected.view.priority.window,
           priority: selected.view.priority.playerId, stateVersion: current.stateVersion,
+          roomClock: authoritative === undefined ? null : authoritative.runtimeClock,
+          journalRevision: authoritative?.currentJournalRevision ?? null,
           recentPackets: queued, error: error instanceof Error ? error.message : String(error) });
         break;
       }
@@ -555,28 +563,23 @@ function nextCommandId(seed: string, seat: number, actionCount: number): string 
   return `v2-${seed}-${seat}-${actionCount}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function pickActor(
-  views: readonly [V2Projection, V2Projection],
-  playerIds: readonly [string, string]
-): string | null {
-  const readable = views.find(view => view.pendingChoice.status === "pending") ??
-    views.find(view => view.priority.playerId !== null) ?? views[0];
-  const pending = readable.pendingChoice;
+function projectedActor(projection: V2Projection): string | null {
+  const pending = projection.pendingChoice;
   if (pending.status === "pending") return pending.ownerPlayerId;
-  if (readable.combat.status === "active") {
-    if (readable.combat.step === "damage" && readable.combat.damage) return readable.combat.damage.expectedPlayerId;
-    if (readable.priority.playerId !== null) return readable.priority.playerId;
+  if (projection.combat.status === "active") {
+    if (projection.combat.step === "damage" && projection.combat.damage) return projection.combat.damage.expectedPlayerId;
+    if (projection.priority.playerId !== null) return projection.priority.playerId;
   }
-  if (readable.priority.playerId !== null) return readable.priority.playerId;
-  if (readable.actionOptions.canAdvance) return readable.activePlayerId;
-  if (readable.actionOptions.canEndTurn) return readable.activePlayerId;
+  if (projection.priority.playerId !== null) return projection.priority.playerId;
+  if (projection.actionOptions.canAdvance) return projection.activePlayerId;
+  if (projection.actionOptions.canEndTurn) return projection.activePlayerId;
   // A waiting Main Phase can have no current Priority until the first
   // discretionary command. The projected Turn Player remains the actor who
   // can open that work through a legal play, move, or end-turn.
-  if (readable.phase === "main" && readable.chain.items.length === 0 && readable.combat.status === "none") {
-    return readable.activePlayerId;
+  if (projection.phase === "main" && projection.chain.items.length === 0 && projection.combat.status === "none") {
+    return projection.activePlayerId;
   }
-  return readable.priority.playerId;
+  return projection.priority.playerId;
 }
 
 export async function runV2DuelBatch(options: {

@@ -50,6 +50,16 @@ function opaqueTrace(packet: ServerPacket): ServerPacket {
   return clone;
 }
 
+function queuedSummary(packet: ServerPacket): Readonly<Record<string, unknown>> {
+  return {
+    type: packet.type,
+    ...(typeof packet.requestId === "string" ? { requestId: packet.requestId } : {}),
+    ...(typeof packet.commandId === "string" ? { commandId: packet.commandId } : {}),
+    ...(typeof packet.code === "string" ? { code: packet.code } : {}),
+    ...(typeof packet.message === "string" ? { message: packet.message } : {})
+  };
+}
+
 export class V2WebSocketSession {
   private readonly messages: ServerPacket[] = [];
   private readonly traffic: Record<string, unknown>[] = [];
@@ -188,6 +198,7 @@ export class V2WebSocketSession {
 
   async sendCommand(command: V2Command, requestedTimeoutMs = 15_000): Promise<V2CommandReceipt> {
     const startIndex = this.messages.length;
+    const requestedAt = Date.now();
     this.send({ type: "command", protocolVersion: PROTOCOL_V2_VERSION, command });
     const deadline = Date.now() + Math.max(1, requestedTimeoutMs);
     for (;;) {
@@ -196,6 +207,11 @@ export class V2WebSocketSession {
         (candidate.commandId === command.commandId || candidate.requestId === command.commandId));
       if (index >= 0) {
         const receipt = this.messages.splice(index, 1)[0] as unknown as V2CommandReceipt;
+        if (process.env.V2_DUEL_DEBUG === "1") process.stderr.write(JSON.stringify({
+          name: this.name, event: "command-receipt", commandId: command.commandId,
+          command: command.type, waitedMs: Date.now() - requestedAt,
+          receiptStateVersion: receipt.stateVersion, receiptEventSeq: receipt.eventSeq
+        }) + "\n");
         return receipt;
       }
       const errorIndex = this.messages.findIndex((candidate, index) => index >= startIndex &&
@@ -211,6 +227,16 @@ export class V2WebSocketSession {
         );
       }
       if (Date.now() >= deadline) {
+        if (process.env.V2_DUEL_DEBUG === "1") process.stderr.write(JSON.stringify({
+          name: this.name, event: "command-timeout", commandId: command.commandId,
+          command: command.type, waitedMs: Date.now() - requestedAt,
+          recentPackets: this.trace().slice(-12).map(packet => ({
+            type: packet.type,
+            ...(typeof packet.requestId === "string" ? { requestId: packet.requestId } : {}),
+            ...(typeof packet.commandId === "string" ? { commandId: packet.commandId } : {}),
+            ...(typeof packet.code === "string" ? { code: packet.code } : {})
+          }))
+        }) + "\n");
         throw new Error(`${this.name}: timed out waiting for ${this.name} receipt ${command.commandId} ` +
           JSON.stringify({ type: command.type, phase: this.state?.projection?.phase,
             stateVersion: this.state?.projection?.stateVersion, priority: this.state?.projection?.priority,
@@ -376,7 +402,7 @@ export class V2WebSocketSession {
       this.waiters.add(wake);
       await new Promise<void>(resolve => { resolveWait = resolve; });
     }
-    throw new Error(`${this.name}: timed out waiting for ${label}; queued ${JSON.stringify(this.messages)}`);
+    throw new Error(`${this.name}: timed out waiting for ${label}; queued ${JSON.stringify(this.messages.map(queuedSummary))}`);
   }
 
   get socketReadyState(): number { return this.alive && this.socket.readyState === WebSocket.OPEN ? 1 : 0; }

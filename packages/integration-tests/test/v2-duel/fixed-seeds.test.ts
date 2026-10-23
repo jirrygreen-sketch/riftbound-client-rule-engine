@@ -13,15 +13,17 @@ describe("RIFT-955 V2 two-client duel", () => {
       await mkdir(outputDirectory, { recursive: true });
       const creator = index % 2 === 0 ? "first" : "second";
       const result = await runV2Duel({ seed, port: portBase + (index % portSpan), outputDirectory,
-        maxActions: 500, creator, actionTimeoutMs: 12_000,
-        acknowledgementTimeoutMs: 60_000, totalTimeoutMs: 240_000 });
+        maxActions: 500, creator, actionTimeoutMs: 45_000,
+        acknowledgementTimeoutMs: 60_000, totalTimeoutMs: 780_000 });
       expect(["player-1", "player-2"]).toContain(result.firstPlayerSeat);
       expect(result.firstPlayerSeat).toBe(creator === "first" ? "player-1" : "player-2");
       expect(result.privacy.violations).toEqual([]);
       expect(result.privacy.checkedProjections).toBeGreaterThan(0);
-      expect(["winner", "blocked"]).toContain(result.termination);
-      if (result.termination === "winner") expect(result.winnerPlayerId).not.toBeNull();
-      else expect(result.blockedReason).toBeTruthy();
-    }, 300_000);
+      // The fixed acceptance line requires a natural authoritative result.
+      // A command timeout or no-op guard is evidence for the parent/owner, not
+      // an acceptable terminal state for this gate.
+      expect(result.termination, result.blockedReason ?? undefined).toBe("winner");
+      expect(result.winnerPlayerId).not.toBeNull();
+    }, 850_000);
   }
 });
