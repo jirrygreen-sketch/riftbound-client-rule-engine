@@ -1,7 +1,11 @@
 import type { CardProgram } from "../../../../packages/card-dsl/dist/ir/index.js";
 import { createMatch, concede, type Match, type MatchDeck } from "../../../../packages/engine-core/dist/game/lifecycle.js";
 import { createActionPipelineHost } from "../../../../packages/engine-core/dist/events/action-adapter.js";
-import { createProgramBinding, type ProgramBinding } from "../../../../packages/engine-core/dist/programs/index.js";
+import {
+  createProgramBinding,
+  type ProgramBinding,
+  type ProgramPrintedCatalogCard,
+} from "../../../../packages/engine-core/dist/programs/index.js";
 import { createEngineStaticBinder } from "../../../../packages/engine-core/dist/programs/statics.js";
 import { playPermissionAllows } from "../../../../packages/engine-core/dist/programs/play-permissions.js";
 import { moveUnits } from "../../../../packages/engine-core/dist/game/commands/movement.js";
@@ -44,6 +48,8 @@ export interface EngineRuntimeOptions {
   readonly mulligans?: readonly [readonly string[], readonly string[]];
   readonly catalogDigest?: string;
   readonly programs?: readonly CardProgram[] | ReadonlyMap<string, CardProgram>;
+  /** Trusted canonical-card printed costs loaded by the server catalog. */
+  readonly printedCatalog?: readonly ProgramPrintedCatalogCard[];
   readonly engineVersion?: string;
   readonly createdAt?: string;
   /** Non-wire lifecycle seam for asserting post-execution transaction failure. */
@@ -268,6 +274,9 @@ class MatchRuntime implements EngineRuntime {
     if (this.runtimeOptions.programs) {
       this.binding = createProgramBinding({
         cardPrograms: this.runtimeOptions.programs,
+        ...(this.runtimeOptions.printedCatalog === undefined
+          ? {}
+          : { printedCatalog: this.runtimeOptions.printedCatalog }),
         staticBinder: createEngineStaticBinder(this.match.flow.chain),
       });
       this.binding.attachLifecycle(this.match.flow.chain);
