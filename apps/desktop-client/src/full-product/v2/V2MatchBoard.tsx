@@ -11,6 +11,7 @@ import type {
   V2EventPayload,
   V2PendingChoice,
   V2PlayerSnapshot,
+  V2PlayOption,
   V2ProjectedObject,
   V2Projection,
   V2Target
@@ -46,14 +47,18 @@ export interface V2MatchBoardProps {
   readonly onJoinRoom?: (roomId: string, playerName: string) => Promise<RoomView>;
   readonly onSubmitDeck?: (deck: RoomDeckSubmission) => Promise<RoomView>;
   readonly onSetReady?: (ready: boolean) => Promise<RoomView>;
+  /** Test/static-render seam for a preselected hand incarnation; still validated against the projection. */
+  readonly initialSelectedCardId?: string | null;
   readonly onCommand: (request: V2CommandRequest) => Promise<V2CommandReceipt>;
 }
 
 export function buildV2PlayCommand(
   cardObjectId: string,
-  targets: readonly V2Target[] = []
+  targets: readonly V2Target[] = [],
+  destination?: V2PlayOption["destination"]
 ): V2CommandRequest {
-  return { type: "play", cardObjectId, ...(targets.length === 0 ? {} : { targets }) };
+  return { type: "play", cardObjectId, ...(destination === undefined ? {} : { destination }),
+    ...(targets.length === 0 ? {} : { targets }) };
 }
 
 export function buildV2PassCommand(): V2CommandRequest {
@@ -103,6 +108,40 @@ export function visibleV2Objects(
   return projection.objects.filter(object => object.zone === zone);
 }
 
+/** Build a play command only when the projection offers the exact card and destination. */
+export function buildProjectedV2PlayCommand(
+  projection: V2Projection,
+  cardObjectId: string,
+  destination: V2PlayOption["destination"] | undefined,
+  targets: readonly V2Target[] = []
+): V2CommandRequest | null {
+  const option = projection.actionOptions.plays.find(candidate => candidate.cardObjectId === cardObjectId &&
+    candidate.destination.kind === destination?.kind &&
+    (candidate.destination.kind === "base" && destination?.kind === "base" && candidate.destination.playerId === destination.playerId ||
+      candidate.destination.kind === "battlefield" && destination?.kind === "battlefield" &&
+        candidate.destination.battlefieldId === destination.battlefieldId));
+  if (option === undefined) return null;
+  let ordered = targets;
+  if (option.targetRequirements !== undefined) {
+    const remaining = [...targets];
+    ordered = option.targetRequirements.flatMap(requirement => {
+      const matches = (target: V2Target) => target.kind === "object" && requirement.options.some(candidate =>
+        candidate.objectRef?.objectId === target.objectId && candidate.objectRef.zoneEntryId === target.zoneEntryId);
+      const selected = remaining.filter(matches);
+      for (let index = remaining.length - 1; index >= 0; index -= 1) {
+        if (matches(remaining[index]!)) remaining.splice(index, 1);
+      }
+      return selected;
+    });
+    if (remaining.length > 0 || option.targetRequirements.some(requirement => {
+      const count = targets.filter(target => target.kind === "object" && requirement.options.some(candidate =>
+        candidate.objectRef?.objectId === target.objectId && candidate.objectRef.zoneEntryId === target.zoneEntryId)).length;
+      return count < requirement.min || count > requirement.max;
+    })) return null;
+  }
+  return buildV2PlayCommand(cardObjectId, ordered, option.requiresDestination === false ? undefined : option.destination);
+}
+
 export function V2MatchBoard({
   state,
   lastReceipt = null,
@@ -119,6 +158,7 @@ export function V2MatchBoard({
   onJoinRoom,
   onSubmitDeck,
   onSetReady,
+  initialSelectedCardId = null,
   onCommand
 }: V2MatchBoardProps) {
   const projection = state.projection;
@@ -131,8 +171,9 @@ export function V2MatchBoard({
   const [selectedChoiceIds, setSelectedChoiceIds] = useState<readonly string[]>([]);
   const [optionalChoiceAnswer, setOptionalChoiceAnswer] = useState(true);
   const [numberAnswer, setNumberAnswer] = useState("");
-  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(initialSelectedCardId);
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
+  const [selectedPlayTargets, setSelectedPlayTargets] = useState<Readonly<Record<string, readonly string[]>>>({});
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [selectedDestination, setSelectedDestination] = useState<string>("");
   const [commandError, setCommandError] = useState<string | null>(null);
@@ -146,6 +187,7 @@ export function V2MatchBoard({
     setNumberAnswer("");
     setSelectedCardId(null);
     setSelectedTargetId(null);
+    setSelectedPlayTargets({});
     setSelectedUnitId(null);
     setSelectedDestination("");
     setCommandError(null);
@@ -263,6 +305,22 @@ export function V2MatchBoard({
   const ownUnits = [...baseObjects, ...battlefieldObjects].filter(object =>
     (object.controllerPlayerId ?? object.ownerPlayerId) === projection.viewerPlayerId);
   const targetCandidates = projectedTargetCandidates(projection);
+  const playOptions = useMemo(() => selectedCardId === null ? [] :
+    projection.actionOptions.plays.filter(option => option.cardObjectId === selectedCardId), [projection, selectedCardId]);
+  const selectedPlayOption = playOptions.find(option => option.requiresDestination !== false) ?? playOptions[0] ?? null;
+  const playTargetRequirements = useMemo(() => {
+    if (playOptions.length === 0) return [];
+    const signatures = playOptions.map(option => JSON.stringify(option.targetRequirements ?? null));
+    return new Set(signatures).size !== 1 ? [] : playOptions[0]!.targetRequirements ?? [];
+  }, [playOptions]);
+  const selectedPlayTargetRefs = playTargetRequirements.flatMap(requirement => {
+    const selected = selectedPlayTargets[requirement.id] ?? [];
+    return selected.flatMap(refKey => {
+      const option = requirement.options.find(candidate =>
+        `${candidate.objectRef?.objectId}:${String(candidate.objectRef?.zoneEntryId)}` === refKey);
+      return option?.objectRef === undefined ? [] : [option.objectRef];
+    });
+  });
   const destinationOptions = projectedMoveDestinations(projection);
   const setup = projection.phase === "setup";
   const hasPriority = projection.priority.playerId === projection.viewerPlayerId;
@@ -319,11 +377,38 @@ export function V2MatchBoard({
       </section>
       {!setup ? <section className="v2-action-panel" aria-label="出牌目标" data-v2-ui-hook="play-card-placement-and-target-candidates">
         <div className="v2-section-heading"><h3>出牌</h3><span>{selectedCard?.name ?? "先选择手牌"}</span></div>
-        {targetCandidates.length > 0 ? <div className="v2-choice-options" aria-label="服务端投影候选目标">{targetCandidates.map(target => <button key={target.objectId} type="button" aria-pressed={selectedTargetId === target.objectId} onClick={() => setSelectedTargetId(target.objectId)}>{target.name ?? target.cardId ?? target.objectId}</button>)}</div> : <p className="v2-muted">投影未公布出牌目标候选；将提交基础 play，由服务端校验/拒绝。</p>}
-        <button type="button" className="v2-primary-action" disabled={!canPlay || selectedCard === null} onClick={() => {
+        {playTargetRequirements.length > 0 ? <div aria-label="服务端投影出牌目标要求">{playTargetRequirements.map(requirement =>
+          <fieldset key={requirement.id} disabled={!canPlay}><legend>{requirement.label}（{requirement.min === requirement.max ? requirement.min : `${requirement.min}-${requirement.max}`}）</legend>
+            <div className="v2-choice-options">{requirement.options.map(option => <button key={option.id} type="button"
+              aria-label={`选择${requirement.label}：${option.label}`}
+              aria-pressed={(selectedPlayTargets[requirement.id] ?? []).includes(
+                `${option.objectRef?.objectId}:${String(option.objectRef?.zoneEntryId)}`)}
+              onClick={() => setSelectedPlayTargets(current => {
+                const refKey = `${option.objectRef?.objectId}:${String(option.objectRef?.zoneEntryId)}`;
+                const selectedForGroup = current[requirement.id] ?? [];
+                const selected = selectedForGroup.includes(refKey);
+                const next = selected ? selectedForGroup.filter(id => id !== refKey)
+                  : selectedForGroup.length >= requirement.max
+                    ? [...selectedForGroup.slice(-(requirement.max - 1)), refKey]
+                    : [...selectedForGroup, refKey];
+                return { ...current, [requirement.id]: next };
+              })}>{option.label}</button>)}</div>
+          </fieldset>)}
+        </div> : targetCandidates.length > 0 ? <div className="v2-choice-options" aria-label="服务端投影候选目标">{targetCandidates.map(target => <button key={target.objectId} type="button" aria-pressed={selectedTargetId === target.objectId} onClick={() => setSelectedTargetId(target.objectId)}>{target.name ?? target.cardId ?? target.objectId}</button>)}</div> : <p className="v2-muted">服务端未公布该次出牌的目标要求。</p>}
+        <button type="button" className="v2-primary-action" disabled={!canPlay || selectedCard === null ||
+          playTargetRequirements.some(requirement => {
+            const count = (selectedPlayTargets[requirement.id] ?? []).length;
+            return count < requirement.min || count > requirement.max;
+          })} onClick={() => {
           if (!selectedCard) return;
-          const zoneEntryId = selectedTarget?.zoneEntryId;
-          submit(buildV2PlayCommand(selectedCard.objectId, selectedTarget ? [{ kind: "object", objectId: selectedTarget.objectId, ...(zoneEntryId === undefined ? {} : { zoneEntryId }) }] : []));
+          const option = selectedPlayOption;
+          if (!option) return;
+          const targets: V2Target[] = playTargetRequirements.length > 0
+            ? selectedPlayTargetRefs.map(ref => ({ kind: "object", objectId: ref.objectId, zoneEntryId: ref.zoneEntryId }))
+            : selectedTarget ? [{ kind: "object", objectId: selectedTarget.objectId,
+              ...(selectedTarget.zoneEntryId === undefined ? {} : { zoneEntryId: selectedTarget.zoneEntryId }) }] : [];
+          const command = buildProjectedV2PlayCommand(projection, selectedCard.objectId, option.destination, targets);
+          if (command !== null) submit(command);
         }}>打出手牌</button>
       </section> : null}
       <section className="v2-action-panel" aria-label="符文操作">

@@ -116,6 +116,21 @@ export interface V2CombatSnapshot {
 export interface V2PlayOption {
   readonly cardObjectId: string;
   readonly destination: V2Location;
+  /** Send `destination` only for permanent cards; spells omit it. */
+  readonly requiresDestination?: boolean;
+  /** Required Finalize object groups, in the same order as `play.targets`. */
+  readonly targetRequirements?: readonly V2PlayTargetRequirement[];
+}
+
+/** One server-authorized Finalize target choice for an offered play. */
+export interface V2PlayTargetRequirement {
+  readonly id: string;
+  readonly label: string;
+  readonly kind: "object";
+  readonly min: number;
+  readonly max: number;
+  /** Present only on the player's own action bytes; uses ChoiceObjectRef identity. */
+  readonly options: readonly V2ChoiceOption[];
 }
 
 export interface V2MoveOption {
@@ -312,8 +327,28 @@ function commandLocation(value: unknown): value is V2Location {
   return value.kind === "battlefield" && exact(value, ["kind", "battlefieldId"]) && text(value.battlefieldId);
 }
 function playOption(value: unknown): boolean {
-  return data(value) && exact(value, ["cardObjectId", "destination"]) &&
-    text(value.cardObjectId) && commandLocation(value.destination);
+  if (!data(value) || !exact(value, ["cardObjectId", "destination"], ["requiresDestination", "targetRequirements"]) ||
+      !text(value.cardObjectId) || !commandLocation(value.destination)) return false;
+  if (value.requiresDestination !== undefined && typeof value.requiresDestination !== "boolean") return false;
+  if (value.targetRequirements === undefined) return true;
+  if (!Array.isArray(value.targetRequirements) || value.targetRequirements.length === 0) return false;
+  if (!value.targetRequirements.every(playTargetRequirement)) return false;
+  const ids = value.targetRequirements.map(requirement => (requirement as unknown as Data).id as string);
+  return new Set(ids).size === ids.length;
+}
+function playTargetRequirement(value: unknown): value is V2PlayTargetRequirement {
+  if (!data(value) || !exact(value, ["id", "label", "kind", "min", "max", "options"]) ||
+      !text(value.id) || !text(value.label) || value.kind !== "object" ||
+      !count(value.min) || !count(value.max) || value.min > value.max ||
+      !Array.isArray(value.options) || value.options.length === 0 || value.max === 0 ||
+      value.min > value.options.length) return false;
+  if (!value.options.every(option => choiceOption(option, "play-target"))) return false;
+  const identities = value.options.map(option => {
+    const ref = (option as unknown as Data).objectRef;
+    if (!data(ref) || !text(ref.objectId) || !count(ref.zoneEntryId)) return "";
+    return `${String(ref.objectId)}:${String(ref.zoneEntryId)}`;
+  });
+  return new Set(identities).size === identities.length;
 }
 function moveOption(value: unknown): boolean {
   return data(value) && exact(value, ["objectId", "destination"]) &&
@@ -352,8 +387,10 @@ function choiceOption(value: unknown, kind: string): value is V2ChoiceOption {
   if (!data(value) || !exact(value, ["id", "label"], ["value", "objectRef"]) ||
       !text(value.id) || !text(value.label)) return false;
   if (value.value !== undefined && !["string", "number", "boolean"].includes(typeof value.value)) return false;
-  if (value.objectRef === undefined) return true;
-  if (kind !== "select-objects" && kind !== "order") return false;
+  // A play target is always an object choice. Unlike the general pending
+  // choice union, an omitted objectRef must therefore be rejected here.
+  if (value.objectRef === undefined) return kind !== "play-target";
+  if (kind !== "select-objects" && kind !== "order" && kind !== "play-target") return false;
   const ref = value.objectRef;
   return data(ref) && exact(ref, ["objectId", "zoneEntryId"]) &&
     text(ref.objectId) && count(ref.zoneEntryId) && value.id === ref.objectId;

@@ -23,6 +23,9 @@ test("v2 admits every engine command with idempotency and state version", () => 
       targets: [{ kind: "object", objectId: "b-unit-1" }], picks: [{ kind: "value", value: "mode-a" }] },
     { ...base, type: "play", cardObjectId: "a-hand-2",
       destination: { kind: "battlefield", battlefieldId: "field-1" } },
+    { ...base, type: "play", cardObjectId: "a-hand-3",
+      destination: { kind: "battlefield", battlefieldId: "field-1" },
+      targets: [{ kind: "object", objectId: "a-unit-1", zoneEntryId: 2 }] },
     { ...base, type: "activate", sourceObjectId: "a-gear-1", abilityId: "equip",
       cost: { power: [{ domains: ["Fury"], amount: 1 }] } },
     { ...base, type: "pass" },
@@ -207,6 +210,57 @@ test("object choice candidates require complete object refs and remain chooser-o
   const opponent = projection("bob");
   opponent.pendingChoice.options = objectChoice.pendingChoice.options;
   assert.equal(isV2Projection(opponent), false);
+});
+
+test("play options may publish complete, chooser-visible target requirements", () => {
+  const value = projection("alice");
+  value.objects[0].zoneEntryId = 1;
+  value.actionOptions.plays = [{
+    cardObjectId: "a-hand-1",
+    destination: { kind: "base", playerId: "alice" },
+    requiresDestination: false,
+    targetRequirements: [{
+      id: "friendly-unit",
+      label: "friendly unit",
+      kind: "object",
+      min: 1,
+      max: 1,
+      options: [{
+        id: "a-unit-1",
+        label: "Unit",
+        value: "a-unit-1",
+        objectRef: { objectId: "a-unit-1", zoneEntryId: 1 }
+      }]
+    }]
+  }];
+  assert.equal(isV2Projection(value), true);
+  const malformed = [
+    { ...value.actionOptions.plays[0], targetRequirements: [] },
+    { ...value.actionOptions.plays[0], requiresDestination: "no" },
+    { ...value.actionOptions.plays[0], targetRequirements: [{
+      ...value.actionOptions.plays[0].targetRequirements[0], min: 2
+    }] },
+    { ...value.actionOptions.plays[0], targetRequirements: [{
+      ...value.actionOptions.plays[0].targetRequirements[0],
+      options: [{ id: "a-unit-1", label: "Unit", value: "a-unit-1" }]
+    }] },
+    { ...value.actionOptions.plays[0], targetRequirements: [{
+      ...value.actionOptions.plays[0].targetRequirements[0],
+      options: [{ ...value.actionOptions.plays[0].targetRequirements[0].options[0], id: "forged-id" }]
+    }] },
+    { ...value.actionOptions.plays[0], targetRequirements: [{
+      ...value.actionOptions.plays[0].targetRequirements[0],
+      options: [{ ...value.actionOptions.plays[0].targetRequirements[0].options[0],
+        objectRef: { objectId: "a-unit-1", zoneEntryId: 1, viewerPlayerId: "alice" } }]
+    }] },
+    { ...value.actionOptions.plays[0], targetRequirements: [
+      value.actionOptions.plays[0].targetRequirements[0],
+      value.actionOptions.plays[0].targetRequirements[0]
+    ] }
+  ];
+  for (const play of malformed) {
+    assert.equal(isV2Projection({ ...value, actionOptions: { ...value.actionOptions, plays: [play] } }), false);
+  }
 });
 
 test("choose command arrays retain legacy object-ref acceptance", () => {
