@@ -217,7 +217,7 @@ test("unl-156-219 Loyal Poro: [Deathknell] executes trigger.leave against the ki
 test.todo(
   "unl-156-219 Loyal Poro: expand [Deathknell] (subscribe object-killed, removal from the chain when " +
     "the death is replaced per 808.1.d.1, last-known information recorded pre-chain per 808.1.d.3) — " +
-    "the registered KeywordDef still references the unregistered trigger.leave op"
+    "trigger.leave is registered and tested above, while replacement-time removal still needs a producer"
 );
 test.todo(
   "unl-156-219 Loyal Poro: normalize the 'controller' player placeholder so the registered condition sees " +

@@ -287,9 +287,8 @@ test("rad-119-167 Hunting Dog golden: your base follows the ability controller e
   }
 });
 test.todo(
-  "rad-119-167 Hunting Dog: the full Deathknell expansion — the trigger.leave subscription and removal " +
-    "from the chain when the death is replaced (CR 808.1.d.1/808.1.d.3); the op is still unregistered, " +
-    "so the merged expansion body cannot execute"
+  "rad-119-167 Hunting Dog: removal from the chain when the death is replaced " +
+    "(CR 808.1.d.1/808.1.d.3); trigger.leave itself is registered and tested above"
 );
 test.todo(
   "rad-119-167 Hunting Dog: [Deflect] as the mandatory target additional cost on the created token " +

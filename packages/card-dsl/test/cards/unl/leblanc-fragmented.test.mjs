@@ -219,8 +219,8 @@ test.todo(
 );
 test.todo(
   "unl-172-219 LeBlanc, Fragmented: [Deathknell] keyword expansion (808.1.d.1 replaced death leaves the chain, " +
-    "808.1.d.2/.d.3 last-known info before the zone change) — the registered KeywordDef still references " +
-    "the unregistered trigger.leave primitive"
+    "808.1.d.2/.d.3 last-known info before the zone change) — trigger.leave is registered and tested above, " +
+    "while replacement-time removal from the chain still needs a production consumer"
 );
 test.todo(
   "unl-172-219 LeBlanc, Fragmented: [Assault] expansion consumer (807.1.c attacker designation, contract 3.8 " +

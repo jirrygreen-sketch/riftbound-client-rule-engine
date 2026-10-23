@@ -254,11 +254,9 @@ test("unl-139-219 Bone Skewer fail-closed: the merged effect.play refuses the un
   assert.deepEqual(kernel.events, []);
 });
 
-test("Bone Skewer: the merged Hidden expansion is only the static cost.hidden marker", () => {
-  // 811: the keyword registry's Hidden KeywordDef still expands to a single
-  // static cost.hidden ability. The production static binder has no layer
-  // mapping for it, and no Hide action / facedown-zone restriction / free
-  // facedown play consumes it.
+test("Bone Skewer: the Hidden marker binds into the production capability registry", () => {
+  // 811: Hidden expands to one static cost.hidden capability. The Hide action's
+  // own timing and free facedown play remain separate consumers.
   const hidden = keywordDefinitionsById.get("Hidden");
   assert.ok(hidden, "effects/keywords/Hidden.ts must be registered");
   assert.deepEqual(hidden.expand(), [{ kind: "static", effect: { kind: "cost.hidden" } }]);
@@ -266,10 +264,25 @@ test("Bone Skewer: the merged Hidden expansion is only the static cost.hidden ma
   const kernel = world()
     .unit("skewer", { types: ["spell"], owner: "A", controller: "A" })
     .build();
-  assert.throws(
-    () => binderFor(kernel).bindStatic(hidden.expand()[0], kernel.getObject("skewer")),
-    /has no layer mapping/
-  );
+  const source = kernel.getObject("skewer");
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main",
+    host: {
+      checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+      restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+      objects: () => kernel.objects,
+      perform: action => kernel.perform(action),
+      choose: request => { throw new Error(`Unexpected choice: ${request.id}`); },
+      context: (sourceObject, controller, timingPoint) => bindResolveContext(kernel, { source: sourceObject, controller, timingPoint })
+    },
+    cleanup: () => false
+  });
+  const handle = createEngineStaticBinder(engine).bindStatic(hidden.expand()[0], source);
+  const [registration] = engine.layers.registry.list();
+  assert.equal(registration.effect.id, "program-hidden:skewer:1:0");
+  assert.equal(registration.effect.effect.kind, "static.capability");
+  assert.equal(registration.effect.effect.capabilityKind, "hidden");
+  handle.unbind();
 });
 
 test("Bone Skewer: the registered player choice waits for an opponent selection", () => {
@@ -286,7 +299,7 @@ test("Bone Skewer: the registered player choice waits for an opponent selection"
   assert.throws(() => resolveChainBody([battlefieldInstruction, chooseOpponent], scoped), error => error.name === "AwaitChoice");
 });
 
-test("Bone Skewer fail-closed: the ignore-all-costs rewrite cannot reach a finalized plan", () => {
+test("Bone Skewer: the chain adapter decodes ignore-all-costs into a zero total", () => {
   // 356.5.a: "ignoring any and all costs" sets the total cost to [0]. The merged
   // cost.modify exposes ignoreAllCosts, but the chain adapter does not decode its
   // declared literal arguments, so the interpreter path cannot produce that
@@ -297,17 +310,20 @@ test("Bone Skewer fail-closed: the ignore-all-costs rewrite cannot reach a final
     .unit("skewer", { types: ["spell"], owner: "A", controller: "A" })
     .build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("skewer") });
-  assert.throws(
-    () => resolveChainBody(
-      [{
-        id: "bone-skewer.ignore-costs",
-        op: "cost.modify",
-        args: { id: { kind: "constant", value: "ignore" }, ignoreAllCosts: { kind: "constant", value: true } }
-      }],
-      scoped
-    ),
-    /cost\.modify id must be a non-empty string/
-  );
+  const outcome = resolveChainBody([
+    {
+      id: "bone-skewer.ignore-costs",
+      op: "cost.modify",
+      args: { id: { kind: "constant", value: "ignore" }, ignoreAllCosts: { kind: "constant", value: true } }
+    }
+  ], scoped);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.linkedValues["bone-skewer.ignore-costs.cost"].total, {
+    energy: 0,
+    power: [],
+    xp: 0,
+    actions: []
+  });
   const direct = runInstruction(costModify, { id: "ignore", ignoreAllCosts: true }, { world: kernel });
   assert.equal(direct.result.status, "executed");
   assert.deepEqual(direct.linked.cost.total, { energy: 0, power: [], xp: 0, actions: [] });

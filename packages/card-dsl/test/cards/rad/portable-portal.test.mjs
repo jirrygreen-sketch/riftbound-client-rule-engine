@@ -208,8 +208,8 @@ test.todo(
     "location data and for the hold kill (CR 830.1.b); the binding layer rejects here:true fail-closed"
 );
 
-// The three TODO entries above/below are replaced by real executor evidence so
-// the remaining gaps are pinned to the merged code that actually rejects them.
+// The TODO entries above/below are paired with real executor evidence so the
+// remaining gaps stay pinned to the merged code that actually rejects them.
 test("rad-087-167 Portable Portal: the Deploy expansion binds and keeps the opponent-Hold anchor", () => {
   // CR 830.1.b: both parts of Deploy cross the production binding surfaces.
   const expansion = deploy.expand({ host: { canonicalCardId: CARD_ID } });
