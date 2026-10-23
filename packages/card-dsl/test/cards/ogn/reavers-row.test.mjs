@@ -50,16 +50,15 @@ test("ogn-285-298 Reaver's Row: program validates and is judge-required", () => 
   assert.equal(program.sourceText, "When you defend here, you may move a friendly unit here to base.");
 });
 
-test("ogn-285-298: production target translation still rejects the same-location anchor", () => {
-  // The IR shape is accepted, but the production adapter is the remaining
-  // blocker for Finalize: it cannot translate sameLocationAs into the frozen
-  // target query. The execution goldens below deliberately supply a locked
-  // target to exercise the already merged move primitive without hiding this
-  // adapter gap.
-  assert.throws(
-    () => translateInstructionTargets(program.abilities[0].body),
-    /Unsupported filter field sameLocationAs/
-  );
+test("ogn-285-298: production target translation preserves the same-location anchor", () => {
+  const [translatedOptional] = translateInstructionTargets(program.abilities[0].body);
+  const [translatedMove] = translatedOptional.args.body.value;
+  assert.deepEqual(translatedMove.targets[0].filter, {
+    type: "unit",
+    zone: "board",
+    controller: "self",
+    sameLocationAs: "self"
+  });
 });
 
 test("ogn-285-298: defend trigger with an optional move wrapped in choice.optional", () => {
@@ -164,16 +163,10 @@ test("ogn-285-298: the trigger names the defense-declared timing point with the 
   assert.deepEqual(getTimingPoint("defense-declared").ruleRefs, ["323.2", "383.4.f", "466.2.c"]);
 });
 
-test("ogn-285-298: trigger validation isolates the unsupported battlefield-relative here anchor", () => {
+test("ogn-285-298: trigger validation accepts the battlefield-relative here anchor", () => {
   const result = validateTriggerSpec(ability.trigger);
-  assert.equal(result.ok, false);
-  assert.deepEqual(result.issues, [
-    {
-      path: "trigger.filter.here",
-      code: "unknown-field",
-      message: "EventPattern 不允许此字段。"
-    }
-  ]);
+  assert.deepEqual(result.issues, []);
+  assert.equal(result.ok, true);
 });
 
 test.todo(

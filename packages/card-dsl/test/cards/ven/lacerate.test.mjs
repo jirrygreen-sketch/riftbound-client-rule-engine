@@ -103,7 +103,9 @@ test("ven-127-166 Lacerate golden: a 2-Might unit is disempowered and killed", (
     ["lacerate.disempower", "executed"],
     ["lacerate.kill-if-small", "executed"]
   ]);
-  assert.deepEqual(outcome.events.map((event) => event.action), ["disempower", "kill"]);
+  // 443.1.a.1: an unempowered chosen unit is not a state transition, so only
+  // the subsequent kill has a committed event.
+  assert.deepEqual(outcome.events.map((event) => event.action), ["kill"]);
   assert.equal(kernel.getObject("small").zone, "trash");
 });
 
@@ -122,7 +124,7 @@ test("ven-127-166 Lacerate golden: a 4-Might unit is disempowered but not killed
   ]);
   assert.deepEqual(outcome.results[1].result, { status: "negated", reason: "skipped", events: [] });
   assert.equal(kernel.getObject("big").zone, "board");
-  assert.deepEqual(outcome.events.map((event) => event.action), ["disempower"]);
+  assert.deepEqual(outcome.events.map((event) => event.action), []);
 });
 
 test("ven-127-166 Lacerate golden: exactly 3 Might still dies (the clause is 'or less')", () => {
@@ -205,10 +207,7 @@ test("ven-127-166 Lacerate evidence: the [Flow] expansion still cannot bind and 
   );
 });
 
-test("ven-127-166 Lacerate evidence: disempower clears every stacked status (443.1.b)", () => {
-  // The reference kernel's disempower action sets the counter to 0, so a card
-  // that was Empowered twice loses both statuses instead of one. This is the
-  // measured reason the Disempower half cannot be called executable yet.
+test("ven-127-166 Lacerate evidence: disempower removes exactly one stacked status (CR 443.1.b)", () => {
   const kernel = world().unit("stacked", { owner: "B", controller: "B", might: 4 }).build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("stacked") });
   assert.equal(scoped.perform({ type: "empower", object: scoped.ref("stacked"), amount: 2 }).status, "done");
@@ -216,19 +215,17 @@ test("ven-127-166 Lacerate evidence: disempower clears every stacked status (443
   scoped.setTargets(TARGET_ID, [scoped.ref("stacked")]);
   const outcome = resolveOn(scoped);
   assert.equal(outcome.results[0].result.status, "executed");
-  // 443.1.b requires removing exactly one status; the merged action removes all.
-  assert.equal(scoped.getObject("stacked").empowered, 0);
+  // 443.1.b removes one of the two Empowered statuses.
+  assert.equal(scoped.getObject("stacked").empowered, 1);
 });
 
-test("ven-127-166 Lacerate evidence: disempowering an unempowered unit still reports an action (443.1.a.1)", () => {
-  // 443.1.a.1 says the instruction does nothing to an object that is not
-  // Empowered, but the merged action still submits a disempower GameAction and
-  // emits the event; the board state is unchanged, which is what the golden
-  // above asserts.
+test("ven-127-166 Lacerate evidence: disempowering an unempowered unit emits no action (CR 443.1.a.1)", () => {
+  // 443.1.a.1 does nothing to an object that is not Empowered, so the merged
+  // primitive submits no redundant disempower GameAction or event.
   const kernel = world().unit("plain", { owner: "B", controller: "B", might: 4 }).build();
   kernel.setTargets(TARGET_ID, [kernel.ref("plain")]);
   const outcome = resolveOn(kernel);
-  assert.deepEqual(outcome.events.map((event) => event.action), ["disempower"]);
+  assert.deepEqual(outcome.events.map((event) => event.action), []);
   assert.equal(kernel.getObject("plain").empowered, 0);
   assert.equal(kernel.getObject("plain").zone, "board");
 });

@@ -90,8 +90,8 @@ test("Imperial Decree: the delayed kill body itself is a valid, executable effec
   assert.deepEqual(outcome.events.map(event => event.action), ["kill"]);
 });
 
-test("Imperial Decree current gap: the card-facing delayed-trigger opcode is not registered", () => {
-  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
+test("Imperial Decree supported delayed registration: the card-facing opcode is registered", () => {
+  assert.equal(instructionDefinitionsById.has("trigger.delayed"), true);
 });
 
 test.todo(

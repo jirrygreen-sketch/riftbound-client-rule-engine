@@ -85,7 +85,7 @@ test("ogn-056-298 Adaptatron: the merged binding registers the self-anchored con
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
 });
 
-test("ogn-056-298 Adaptatron: a real conquered emission matches nothing self-anchored (383.4.c.1 gap)", () => {
+test("ogn-056-298 Adaptatron: a real conquered emission matches the self-anchored host (CR 383.4.c.1)", () => {
   // Produce the conquer through real movement, showdown passes and scoring.
   const f = fixture();
   f.flow.start();
@@ -101,7 +101,9 @@ test("ogn-056-298 Adaptatron: a real conquered emission matches nothing self-anc
   assert.equal(f.kernel.player("A").score, 1);
   const translated = translateTriggerFilter(triggered.trigger.filter, "source", "conquer");
   const matched = matchesTriggerEvent(translated, event, "A");
-  assert.equal(matched, false);
+  // The Score wave carries the conquering unit as both event object and source;
+  // the translated self anchor therefore matches the real production emission.
+  assert.equal(matched, true);
 });
 
 test("ogn-056-298 Adaptatron: structure — optional wrapper containing kill then gated buff", () => {

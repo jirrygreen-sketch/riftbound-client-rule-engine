@@ -173,18 +173,7 @@ test("ogn-238-298 Leona, Determined: a stun target that already left the board i
   assert.equal(kernel.getObject("enemy-unit").stunned, false);
 });
 
-test.todo(
-  "ogn-238-298 Leona, Determined: [Shield]'s continuous.might consumer and its Defender " +
-    "designation condition (CR 814.1.c/814.1.d.1) need the designation -> combatRole dispatch in " +
-    "effects/interpreter/expr.ts / programs/statics.ts (RIFT-711's expr-ext/evaluate.ts implements " +
-    "the mapping but no default consumer calls it)"
-);
-
-test("ogn-238-298 Leona, Determined: the Shield static registers but its designation condition reads false", () => {
-  // CR 814.1.c/814.1.d.1. The KeywordDef's continuous.might binds, but the
-  // bundled condition is evaluated by effects/interpreter/condition.ts ->
-  // expr.ts, which throws MissingInformation for the "designation"
-  // characteristic; programs/statics.ts swallows it and reports false.
+test("ogn-238-298 Leona, Determined: Shield's designation condition reads combatRole", () => {
   const kernel = world().player("A").player("B")
     .unit("leona", { cardId: CANONICAL, owner: "A", controller: "A", types: ["unit"], might: 4, combatRole: "defender" })
     .build();
@@ -202,38 +191,32 @@ test("ogn-238-298 Leona, Determined: the Shield static registers but its designa
   const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
   const expandedShield = binding.inspect(source).abilities.find(ability => ability.kind === "static" && ability.effect.kind === "continuous.might");
   assert.equal(expandedShield.condition.left.property, "designation");
-  assert.throws(
-    () => evaluateCondition(expandedShield.condition, {
+  assert.equal(evaluateCondition(expandedShield.condition, {
       context: bindResolveContext(kernel, { source, controller: "A", timingPoint: "main-start" }),
       host: source.ref,
       linked: () => undefined,
       canLookBack: () => true,
       isIgnored: () => false,
       query: filter => kernel.query(filter)
-    }),
-    /Unavailable characteristic: designation/
-  );
+    }), true);
   const handle = createEngineStaticBinder(engine).bindStatic(expandedShield, source);
-  assert.equal(engine.layers.registry.list()[0].effect.effect.condition(source), false);
-  assert.equal(engine.layers.evaluate(source.ref).might, 4);
+  assert.equal(engine.layers.registry.list()[0].effect.effect.condition(source), true);
+  assert.equal(engine.layers.evaluate(source.ref).might, 5);
   handle.unbind();
 });
 
-test("ogn-238-298 Leona, Determined: the attack trigger cannot register while sameLocationAs has no translation", () => {
-  // 359.3.f.1/f.2: "here" = the source's location, authored with the
-  // sameLocationAs anchor. programs/filters.ts allows neither the anchor key
-  // nor the rest of the declared TargetSpec, so the whole trigger registration
-  // fails instead of silently dropping the location constraint.
+test("ogn-238-298 Leona, Determined: the attack trigger registers with its source-location anchor", () => {
   const kernel = world().unit("leona", { cardId: CANONICAL, owner: "A", controller: "A", types: ["unit"] }).build();
   const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
   const registered = [];
-  assert.throws(
-    () => binding.registerProgramTriggers({ pipeline: { registerTrigger: registration => registered.push(registration) } }, kernel.getObject("leona")),
-    /Unsupported filter field sameLocationAs/
+  assert.doesNotThrow(
+    () => binding.registerProgramTriggers({ pipeline: { registerTrigger: registration => registered.push(registration) } }, kernel.getObject("leona"))
   );
-  assert.deepEqual(registered, []);
-  assert.throws(
-    () => translateInstructionTargets(attackTrigger.body),
-    /Unsupported filter field sameLocationAs/
-  );
+  assert.equal(registered.length, 1);
+  assert.deepEqual(registered[0].body[0].targets[0].filter, {
+    type: "unit",
+    zone: "board",
+    controller: "opponent",
+    sameLocationAs: "source"
+  });
 });

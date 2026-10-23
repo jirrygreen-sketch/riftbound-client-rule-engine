@@ -107,26 +107,14 @@ test("golden: the +2 Might grant registers and expires at turn-end", () => {
   assert.equal(layers.evaluate(kernel.ref("drake")).might, 5);
 });
 
-test("current gap 1: the merged query paths disagree on the relative player anchor, so the condition never holds", () => {
-  // The card's filter says controller:"opponent". interpreter/selectors.ts
-  // compares controller/owner as plain scalars, so "opponent" never equals a
-  // real id; layers/filter.ts instead treats it as "not the owner". The
-  // production ChainEngine goes through the layer matcher and additionally
-  // widens "opponent" to "any" before excluding the controller.
+test("golden: the ready-enemy-here condition resolves relative player and location anchors", () => {
   const filter = attackTrigger.trigger.condition.left.filter;
   assert.equal(filter.controller, "opponent");
-  // The production translator rejects the location anchor outright, so the card
-  // program cannot even be bound as written.
-  assert.throws(
-    () => translateObjectFilter(filter),
-    error => error instanceof Error && /Unsupported filter field sameLocationAs/.test(error.message)
-  );
-  // Stripping the anchor to get past the translator changes the meaning: the
-  // relative player then still never matches, so the condition stays false.
-  assert.deepEqual(translateObjectFilter({ type: "unit", controller: "opponent", states: "ready" }), {
+  assert.deepEqual(translateObjectFilter(filter), {
     type: "unit",
     controller: "opponent",
-    states: "ready"
+    states: ["ready"],
+    sameLocationAs: "source"
   });
 
   const kernel = world()
@@ -134,22 +122,6 @@ test("current gap 1: the merged query paths disagree on the relative player anch
     .unit("enemy-ready", { owner: "B", controller: "B", might: 2, location: BATTLEFIELD("bf1"), exhausted: false })
     .unit("enemy-far", { owner: "B", controller: "B", might: 2, location: { type: "base", player: "B" }, exhausted: false })
     .build();
-  assert.equal(kernel.query({ type: "unit", controller: "opponent", states: "ready" }).length, 0);
-  // The layer matcher resolves "opponent" against the candidate object itself
-  // (selectorMatches compares the value to object.controller and passes
-  // object.controller as the owner), so an opponent filter can never match any
-  // object - it also drops the sameLocationAs anchor entirely.
-  const enemyReady = kernel.getObject("enemy-ready");
-  const enemyFar = kernel.getObject("enemy-far");
-  assert.equal(matchesObjectFilter({ type: "unit", controller: "opponent", states: "ready" }, enemyReady), false);
-  assert.equal(matchesObjectFilter({ type: "unit", controller: "opponent", states: "ready" }, enemyFar), false);
-  // An absolute id works, and both enemies match it because the location anchor
-  // is not part of the matcher's field list at all.
-  assert.equal(matchesObjectFilter({ type: "unit", controller: "B", states: "ready" }, enemyReady), true);
-  assert.equal(matchesObjectFilter({ type: "unit", controller: "B", states: "ready" }, enemyFar), true, "the location anchor is dropped by the layer matcher");
-
-  // Evaluating the whole condition through the interpreter is therefore false
-  // in every arrangement: the relative-player spelling can never match.
   const source = kernel.getObject("drake");
   const bound = kernel.clone({ source: source.ref, sourceSnapshot: source, controller: "A" });
   const evaluate = (condition) => {
@@ -160,22 +132,21 @@ test("current gap 1: the merged query paths disagree on the relative player anch
     assert.equal(outcome.results[0].result.status, "executed");
     return outcome.linkedValues["probe-condition.value"];
   };
-  assert.equal(
-    evaluate(attackTrigger.trigger.condition),
-    false,
-    "1 ready enemy at the source location must satisfy the condition but does not"
-  );
+  assert.equal(evaluate(attackTrigger.trigger.condition), true);
 
-  // Control: switching the anchor to an absolute player id makes the same
-  // arrangement satisfy the condition, which isolates the gap to the relative
-  // player spelling rather than to states/sameLocationAs handling.
-  const absolute = {
-    kind: "compare",
-    left: { kind: "count", subject: "ready-enemy-units-here", filter: { type: "unit", controller: "B", states: "ready", sameLocationAs: "source" } },
-    operator: "gte",
-    right: c(1)
-  };
-  assert.equal(evaluate(absolute), true);
+  // The anchor limits the count to the ready opponent Unit at the source's
+  // battlefield; the opponent Unit at its Base must not satisfy the Condition.
+  const farOnly = world()
+    .unit("drake", { might: 5, owner: "A", controller: "A", location: BATTLEFIELD("bf1") })
+    .unit("enemy-far", { owner: "B", controller: "B", might: 2, location: { type: "base", player: "B" }, exhausted: false })
+    .build();
+  const farSource = farOnly.getObject("drake");
+  const farBound = farOnly.clone({ source: farSource.ref, sourceSnapshot: farSource, controller: "A" });
+  const farOutcome = runAbilityBody(
+    [{ id: "probe-condition", op: "condition.predicate", args: { condition: c(attackTrigger.trigger.condition) } }],
+    farBound
+  );
+  assert.equal(farOutcome.linkedValues["probe-condition.value"], false);
 });
 
 test("current gap 2: combat cannot designate an Attacker, so attack-declared is never produced", () => {
