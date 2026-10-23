@@ -7,8 +7,10 @@
  * CR 821.1.c.1-.5: the production binder supplies the current controlled
  * Equipment target. `cost.modify` reads the authoritative Equip CostSpec from
  * that object's printed keyword parameters, discounts one original [A], and
- * only then lets `cost.pay` and `effect.attach` run. Missing, ambiguous or
- * non-universal Equip costs fail closed without activating Equip.
+ * only then lets `cost.pay` and `effect.attach` run. A selected Equipment with
+ * no Equip cost (821.1.c.4) produces a bound no-attachment result; ordinary
+ * insufficient resources (821.1.c.5) roll back and end the trigger without an
+ * attachment. Malformed or ambiguous authoritative costs still fail closed.
  */
 import type { Ability, Value } from "@riftbound/card-dsl";
 import type { KeywordDef } from "../keyword-contract.js";
