@@ -133,9 +133,6 @@ export function botCommand(
           combatId: projection.combat.combatId, assignments }
         : null;
     }
-    if (projection.actionOptions.canAdvance === true && projection.activePlayerId === viewerPlayerId) {
-      return { type: "advance", commandId, stateVersion: projection.stateVersion };
-    }
     return projection.priority.playerId === viewerPlayerId ?
       { type: "pass", commandId, stateVersion: projection.stateVersion } : null;
   }
