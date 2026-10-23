@@ -171,35 +171,20 @@ function boundStatics({ combatRole = null } = {}) {
   return { kernel, engine, source, statics };
 }
 
-test("unl-002-219 Inferna: the merged static binder rejects both Ambush declarations", () => {
-  // 822.1.b / 822.1.c: the [Ambush] expansion declares a play-location permission
-  // plus the conditional Reaction timing. programs/statics.ts has no layer for the
-  // first and no card-scoped appliesTo for the second, so neither can enter the
-  // layer system; the card stays judge-required instead of granting a global Reaction.
+test("unl-002-219 Inferna: both Ambush declarations bind through the production static binder", () => {
   const { engine, source, statics } = boundStatics();
   const ambushKinds = statics.map(ability => ability.effect.kind);
   assert.deepEqual(ambushKinds, ["play-location-permission", "continuous.timing", "continuous.might"]);
   const binder = createEngineStaticBinder(engine);
 
-  assert.throws(
-    () => binder.bindStatic(statics[0], source),
-    error => {
-      assert.equal(error.name, "ProgramBindingError");
-      assert.equal(error.code, "judge-required");
-      assert.match(error.message, /play-location-permission has no layer mapping/);
-      return true;
-    }
-  );
-  assert.throws(
-    () => binder.bindStatic(statics[1], source),
-    error => {
-      assert.equal(error.name, "ProgramBindingError");
-      assert.match(error.message, /Unsupported static appliesTo \["card"\]/);
-      return true;
-    }
-  );
-  // Neither rejection leaves a registration behind: the card grants nothing.
-  assert.deepEqual(engine.layers.registry.list(), []);
+  const location = binder.bindStatic(statics[0], source);
+  const timing = binder.bindStatic(statics[1], source);
+  assert.deepEqual(engine.layers.registry.list().map(entry => entry.effect.effect.kind), [
+    "location",
+    "continuous.timing"
+  ]);
+  timing.unbind();
+  location.unbind();
 });
 
 test("unl-002-219 Inferna: the merged Assault 2 static binds but leaves an attacker at printed Might", () => {

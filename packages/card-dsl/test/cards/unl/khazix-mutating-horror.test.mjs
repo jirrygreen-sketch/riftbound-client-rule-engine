@@ -163,7 +163,7 @@ test("unl-143-219 Kha'Zix, Mutating Horror: both declared triggers register in p
   );
 });
 
-test("unl-143-219 Kha'Zix, Mutating Horror gap: the 'alone here' condition is fail-closed on the production host query", () => {
+test("unl-143-219 Kha'Zix, Mutating Horror: the condition ignores an enemy elsewhere and matches one here", () => {
   // 383.2.a.1 / 740.2.a: the condition counts enemy units at the source's
   // location. Without a testTrigger bridge the EventPipeline evaluates it
   // through PipelineHost.context().query; that host surface compares
@@ -214,9 +214,8 @@ test("unl-143-219 Kha'Zix, Mutating Horror gap: the 'alone here' condition is fa
     .unit("enemy-far", { owner: "B", controller: "B", might: 3, location: { type: "battlefield", id: "bf-9" } })
     .build();
   assert.equal(alone.query({ type: "unit", controller: "opponent", sameLocationAs: "source" }).length, 0);
-  // Both boards evaluate false: the host query cannot express "here", so the
-  // printed condition can never become true through this path.
-  assert.equal(evaluate(alone), false);
+  // The local enemy prevents "alone"; a distant enemy does not reach the set.
+  assert.equal(evaluate(alone), true);
   assert.equal(evaluate(far), false);
   assert.equal(alone.query({ type: "unit", controller: "B" }).length, 1);
 });

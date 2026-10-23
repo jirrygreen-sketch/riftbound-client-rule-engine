@@ -42,20 +42,15 @@ test("unl-121-219 Bewitching Spirit: identity, status, judgeReason and verbatim 
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
-test("unl-121-219 Bewitching Spirit: the declared player choice is not a registered instruction opcode (355.7/355.9.a)", () => {
-  // Evidence for the remaining gap: the interpreter fails on the opcode before
-  // any player could be locked, and the contract has no player-target request.
-  assert.equal(instructionDefinitionsById.has("target.player"), false);
+test("unl-121-219 Bewitching Spirit: the registered player choice asks its Finalize question (355.7/355.9.a)", () => {
+  assert.equal(instructionDefinitionsById.has("target.player"), true);
   const kernel = world().hand("b1", { owner: "B" }).build();
-  assert.throws(() => runAbilityBody([choosePlayer], kernel), /Unregistered instruction opcode: target\.player/);
+  assert.throws(() => runAbilityBody([choosePlayer], kernel), error => error.name === "AwaitChoice");
 });
 
-test("unl-121-219 Bewitching Spirit: the declared body fails as a whole while the discard primitive alone succeeds", () => {
-  // Evidence for the remaining gap: card-played binding and effect.discard are
-  // merged (the discard half executes), but running the authored body through
-  // the merged interpreter stops at the unregistered player choice.
+test("unl-121-219 Bewitching Spirit: the authored body dispatches its player choice before discard", () => {
   const kernel = world().hand("b1", { owner: "B" }).hand("b2", { owner: "B" }).build();
-  assert.throws(() => runAbilityBody(playTrigger.body, kernel), /target\.player/);
+  assert.throws(() => runAbilityBody(playTrigger.body, kernel), error => error.name === "AwaitChoice");
   assert.equal(instructionDefinitionsById.get(chosenDiscards.op), discard);
 });
 

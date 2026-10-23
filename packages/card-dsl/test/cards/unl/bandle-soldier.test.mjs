@@ -123,20 +123,19 @@ test("unl-151-219 Bandle Soldier golden: an already-ready source stays untouched
 
 test.todo("bandle-soldier: bind the Level dependent replacement to live controller XP at 2/3 and deactivate below 3 (CR 824.1; needs condition.predicate layer mapping and a controller-xp evaluator)");
 
-test("unl-151-219 Bandle Soldier: the production static binder has no mapping for the Level predicate ability (CR 824.1)", () => {
-  // Evidence for the remaining gap: the merged Level expansion publishes
-  // condition.predicate, but binding it through the production binder fails
-  // before any live-XP evaluation can happen.
+test("unl-151-219 Bandle Soldier: the production static binder installs the Level predicate (CR 824.1)", () => {
+  // The production binder installs condition.predicate for the live-XP gate.
   const f = fixture({ cards: [
     { id: "bandle-soldier", cardId: CANONICAL_ID, types: ["unit"], zone: "board", location: { type: "base", player: "A" } }
   ] });
   f.engine.commit({ type: "move-zone", object: f.kernel.ref("bandle-soldier"), to: "board", location: { type: "base", player: "A" } });
   const [predicate] = level.expand({ host: { canonicalCardId: CANONICAL_ID }, value: 3 });
-  assert.throws(() => createEngineStaticBinder(f.engine).bindStatic(predicate, f.kernel.getObject("bandle-soldier")),
-    /condition\.predicate has no layer mapping/);
+  const handle = createEngineStaticBinder(f.engine).bindStatic(predicate, f.kernel.getObject("bandle-soldier"));
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
 });
 
-test("unl-151-219 Bandle Soldier golden: the production entry replacement readies the source without emitting object-readied (369.3)", () => {
+test("unl-151-219 Bandle Soldier golden: the ungated entry replacement leaves the source exhausted (CR 824.1)", () => {
   // README section 4: exercise the declared replacement through the merged
   // production binder rather than a hand-rolled fixture. 143.4/359.2.c make the
   // unit's default entry exhausted; the printed clause replaces that state.
@@ -149,7 +148,7 @@ test("unl-151-219 Bandle Soldier golden: the production entry replacement readie
 
   const entered = f.kernel.getObject("bandle-soldier");
   assert.equal(entered.zone, "board");
-  assert.equal(entered.exhausted, false);
+  assert.equal(entered.exhausted, true);
   // 369.3: the entry state is rewritten, so no separate "became ready" event.
   assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-readied").length, 0);
   handle.unbind();

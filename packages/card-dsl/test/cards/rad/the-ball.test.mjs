@@ -181,12 +181,10 @@ test("rad-146-167 The Ball: the equipment keyword expansions really gate Deploy/
       failures.push(error.message);
     }
   }
-  assert.deepEqual(boundKinds, ["continuous.movement"], "Ganking's movement permission binds");
-  assert.deepEqual(failures, ["Static ability kind continuous.location has no layer mapping"]);
-  assert.throws(
-    () => triggerRegistrations(new Map([[CARD_ID, program]]), snapshot),
-    /Unsupported filter field here/
-  );
+  assert.deepEqual(boundKinds, ["continuous.location", "continuous.movement"]);
+  assert.deepEqual(failures, []);
+  const registrations = triggerRegistrations(new Map([[CARD_ID, program]]), snapshot);
+  assert.ok(registrations.length > 0);
 });
 test("rad-146-167 The Ball: the source-location target selector really filters by the source's battlefield", () => {
   // 355.10.d / 421.1: the engine's TargetSpec.location { kind: "source-location" }

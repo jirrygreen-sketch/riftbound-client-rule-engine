@@ -192,10 +192,9 @@ test("rad-017-167 Detonation Amplifier golden: declining skips both the kill and
   assert.deepEqual(outcome.events, []);
 });
 
-test("rad-017-167 Detonation Amplifier: the Deploy expansion is refused at the static-layer binding", () => {
-  // 830.1.b: Deploy's expansion is a continuous.location static ability plus a
-  // Hold trigger carrying `here`. Both halves die in the merged binder instead
-  // of registering a partially wrong effect.
+test("rad-017-167 Detonation Amplifier: the Deploy expansion binds its placement and Hold trigger", () => {
+  // 830.1.b: the continuous.location ability and the battlefield-scoped Hold
+  // trigger now cross production binding without dropping their restrictions.
   const deploy = keywordDefinitionsById.get("Deploy");
   assert.ok(deploy, "the merged Deploy KeywordDef is present");
   const expanded = deploy.expand({});
@@ -210,23 +209,23 @@ test("rad-017-167 Detonation Amplifier: the Deploy expansion is refused at the s
     .build();
   const source = kernel.getObject("amplifier");
   const binder = binderFor(kernel);
-  assert.throws(() => binder.bindStatic(locationAbility, source), /no layer mapping/);
-  assert.throws(
-    () => translateTriggerFilter(holdAbility.trigger.filter, "amplifier", "hold"),
-    /Unsupported filter field here/
-  );
+  const handle = binder.bindStatic(locationAbility, source);
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
+  assert.deepEqual(translateTriggerFilter(holdAbility.trigger.filter, "amplifier", "hold"), {
+    event: "hold",
+    here: true,
+    player: "opponent"
+  });
 });
 
-test("rad-017-167 Detonation Amplifier: the multiplicity declaration is refused by the static binder", () => {
-  // 383.4.g.1: "trigger an additional time" edits trigger collection. The
-  // merged binder cannot consume the declaration at all: its appliesTo shape is
-  // not a supported static target, so binding fails before any layer mapping is
-  // consulted. It must not be approximated by repeat at resolution.
+test("rad-017-167 Detonation Amplifier: the multiplicity declaration binds without being approximated at resolve", () => {
+  // 383.4.g.1: "trigger an additional time" now binds as trigger-collection
+  // metadata for the specified Deathknell effect, outside effect resolution.
   const kernel = world()
     .unit("amplifier", { types: ["gear"], location: { type: "battlefield", id: "bf-1" } })
     .build();
-  assert.throws(
-    () => binderFor(kernel).bindStatic(multiplicity, kernel.getObject("amplifier")),
-    /Unsupported static appliesTo/
-  );
+  const handle = binderFor(kernel).bindStatic(multiplicity, kernel.getObject("amplifier"));
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
 });

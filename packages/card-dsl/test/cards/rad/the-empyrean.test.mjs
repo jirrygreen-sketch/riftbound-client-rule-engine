@@ -51,7 +51,7 @@ test("rad-060-167 The Empyrean: [Show Off] is declared as a keyword ability (832
   assert.deepEqual(showOffKeyword, { kind: "keyword", keyword: "show-off", value: 1 });
 });
 
-test("rad-060-167 The Empyrean boundary: no single spelling satisfies both the keyword registry and the IR validator", () => {
+test("rad-060-167 The Empyrean: the authored slug expands while the printed-name spelling remains invalid IR", () => {
   // 832.1: the merged ShowOff KeywordDef is registered under its printed name
   // ("Show Off"), while programs/keywords.ts folds only letter case. The card's
   // slug spelling is therefore unresolvable, and the registry spelling is not a
@@ -63,10 +63,10 @@ test("rad-060-167 The Empyrean boundary: no single spelling satisfies both the k
 
   const kernel = world().unit("empyrean", { types: ["unit"], zone: "board", might: 8 }).build();
   const snapshot = { ...kernel.getObject("empyrean"), cardId: CARD_ID };
-  assert.throws(
-    () => expandProgram(program, snapshot),
-    /Keyword show-off has no executable KeywordDef/
-  );
+  const authored = expandProgram(program, snapshot);
+  assert.deepEqual(authored.expanded.map(ability => [ability.kind, ability.effect?.kind]), [
+    ["static", "cost.reveal"]
+  ]);
   const printedSpelling = {
     ...program,
     abilities: [{ kind: "keyword", keyword: "Show Off" }, ...program.abilities.slice(1)]

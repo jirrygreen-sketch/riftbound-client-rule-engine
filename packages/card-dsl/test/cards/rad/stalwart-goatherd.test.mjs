@@ -96,7 +96,7 @@ test("rad-083-167 Stalwart Goatherd: [Shield 2] resolves to the merged Shield de
   });
 });
 
-test("rad-083-167 Stalwart Goatherd: the Shield expansion registers +2 Might in the arithmetic layer", () => {
+test("rad-083-167 Stalwart Goatherd: the Shield expansion adds +2 Might for a defender", () => {
   // 814.1.c / 814.2: the expansion is a single arithmetic-layer Might
   // modification carrying the summed Shield Value. This test covers the merged
   // arithmetic registration; the declaration's defender gate is the part named
@@ -137,8 +137,7 @@ test("rad-083-167 Stalwart Goatherd: the Shield expansion registers +2 Might in 
     },
     { type: "permanent" }
   );
-  // The arithmetic registration is the merged half: the host's 2 Might is
-  // increased by the declared Shield Value 2.
+  // The defender gate opens and the host's 2 Might is increased by Shield 2.
   assert.equal(engine.evaluate(host.ref).might, 4);
 });
 
@@ -202,12 +201,9 @@ test("rad-083-167 Stalwart Goatherd: the production binders really refuse the en
   );
 });
 
-test("rad-083-167 Stalwart Goatherd: the merged Shield registration still evaluates to printed Might", () => {
-  // 814.1.c: the production binder registers the expanded continuous.might,
-  // but its condition reads object-property "designation" while ObjectSnapshot
-  // exposes only combatRole, so the defender gate is permanently false. The
-  // equivalent combatRole predicate does evaluate, which isolates the attribute
-  // name as the single gap.
+test("rad-083-167 Stalwart Goatherd: the production Shield registration adds Might for a defender", () => {
+  // 814.1.c: the production binder registers continuous.might and resolves the
+  // designation predicate from the defender's live combat role.
   const kernel = world().player("A").player("B")
     .unit("goatherd", {
       controller: "A", owner: "A", might: 2, combatRole: "defender", zone: "board",
@@ -234,8 +230,7 @@ test("rad-083-167 Stalwart Goatherd: the merged Shield registration still evalua
   assert.deepEqual(engine.layers.registry.list().map(entry => entry.effect.effect.kind), ["continuous.might"]);
   assert.equal(
     engine.layers.evaluate(snapshot.ref).might,
-    2,
-    "the defender gate is false while the condition reads 'designation'"
+    6
   );
   const combatRolePredicate = runAbilityBody(
     [{

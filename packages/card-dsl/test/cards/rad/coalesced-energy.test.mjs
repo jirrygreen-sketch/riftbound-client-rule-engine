@@ -194,14 +194,15 @@ test("rad-016-167 Coalesced Energy golden: a short Rune Deck channels as many as
   assert.equal(kernel.player("A").runePool.length, 2);
 });
 
-test("rad-016-167 Coalesced Energy: the phase-event filter is rejected by the closed vocabulary", () => {
-  // CR 317.1.a: "At the end of your turn" subscribes to the turn-end timing
-  // point. The merged EventPattern vocabulary has no phase-event value, so the
-  // declared filter is refused outright instead of registering a wider trigger.
-  assert.throws(
-    () => assertTriggerSpec(ability.trigger),
-    /trigger\.filter\.event/
-  );
+test("rad-016-167 Coalesced Energy: the turn-end EventPattern validates without widening to a phase event", () => {
+  // CR 317.1.a: the declared turn-end event is accepted by the closed
+  // vocabulary. Its player:self filter remains part of the specification, so
+  // acceptance does not turn it into an unconditional turn-end subscription.
+  assert.doesNotThrow(() => assertTriggerSpec(ability.trigger));
+  assert.deepEqual(ability.trigger, {
+    at: "turn-end",
+    filter: { event: "turn-end", player: "self" }
+  });
 });
 
 test("rad-016-167 Coalesced Energy: the two accepted spellings are both wrong, so neither is used", () => {

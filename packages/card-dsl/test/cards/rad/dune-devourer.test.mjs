@@ -187,7 +187,7 @@ test("Dune Devourer: the printed decision-gated -2 Energy discount still fails c
   assert.deepEqual(declinedPlan.declinedAdditional, ["kill-friendly"]);
 });
 
-test("Dune Devourer: production play binding still rejects the optional additional cost", () => {
+test("Dune Devourer: production play binding preserves the optional additional cost", () => {
   const kernel = world()
     .hand("devourer", { cardId: CANONICAL, types: ["unit"], energy: 4, power: [] })
     .unit("friendly", { controller: "A" })
@@ -196,10 +196,8 @@ test("Dune Devourer: production play binding still rejects the optional addition
   const binding = createProgramBinding({
     cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
   });
-  assert.throws(
-    () => binding.describePlay({ type: "play", object: source.ref, player: "A" }, source),
-    /Unsupported play cost field optional/
-  );
+  const draft = binding.describePlay({ type: "play", object: source.ref, player: "A" }, source);
+  assert.equal(draft.cost.optionalAdditional[0].kind, "additional");
 });
 
 test("Dune Devourer: merged Deflect and cost-modification declarations still stop at the static binder", () => {

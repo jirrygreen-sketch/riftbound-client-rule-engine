@@ -130,14 +130,12 @@ test("unl-147-219 Baron Nashor: the declared target restriction cannot distingui
   assert.equal(untargetable.effect.forbidden, true);
 });
 
-test("unl-147-219 Baron Nashor: the other-friendly-units aura is rejected because it must exclude its own source (479.4/355.10.d)", () => {
-  // Evidence for gap (4): programs/statics.ts refuses the exclude anchor, so the
-  // +2 Might aura cannot be bound to a live "other friendly units" set.
+test("unl-147-219 Baron Nashor: the other-friendly-units aura binds with its source exclusion (479.4/355.10.d)", () => {
   const f = boardFixture();
-  assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic(otherUnits, f.kernel.getObject("baron-nashor")),
-    /Static exclude anchor needs a dynamic relative filter/
-  );
+  const handle = createEngineStaticBinder(f.engine).bindStatic(otherUnits, f.kernel.getObject("baron-nashor"));
+  const [registration] = f.engine.layers.registry.list();
+  assert.deepEqual(registration.effect.effect.filter.exclude, "source");
+  handle.unbind();
 });
 
 test("unl-147-219 Baron Nashor: 'as you play me' adds the Baron Pit token once", () => {

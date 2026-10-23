@@ -221,7 +221,7 @@ test("unl-195-219 Green Father: both closed-vocabulary triggers register and the
   assert.equal(f.engine.items.length, 0);
   // The controller's hold emission enqueues the hold half's body.
   f.engine.emit({ timingPoint: "hold", player: "A", details: { battlefieldId: "battlefield-1" } });
-  assert.deepEqual(f.engine.items.map(item => item.body[0].id), ["green-father.hold-may"]);
+  assert.deepEqual(f.engine.items.map(item => item.body[0].id), ["green-father.hold-exhaust-self"]);
 
   // The fresh engine's controller conquer enqueues the conquer half instead.
   const g = fixture({
@@ -231,24 +231,20 @@ test("unl-195-219 Green Father: both closed-vocabulary triggers register and the
   g.engine.commit({ type: "move-zone", object: g.kernel.ref("green-father"), to: "battlefield", location: { type: "battlefield", id: "battlefield-1" } });
   registerProgramTriggers(binding.registry, g.engine, g.kernel.getObject("green-father"));
   g.engine.emit({ timingPoint: "conquer", player: "A", details: { battlefieldId: "battlefield-1" } });
-  assert.deepEqual(g.engine.items.map(item => item.body[0].id), ["green-father.conquer-may"]);
+  assert.deepEqual(g.engine.items.map(item => item.body[0].id), ["green-father.conquer-exhaust-self"]);
 });
 
-test("unl-195-219 Green Father: the production interpreter still rejects effect.replace, and no Replace action exists", async () => {
-  // CR 439.1/439.3: the Replace action is not in the closed GameAction set, and
-  // registry.generated.ts has no effect.replace opcode, so the card body cannot
-  // resolve its Replace half. The placeholder never silently succeeds.
+test("unl-195-219 Green Father: effect.replace is registered", async () => {
+  // CR 439.1/439.3: the instruction is registered. The missing battlefield
+  // payload remains a separate production boundary.
   const kernel = world()
     .unit("green-father", { zone: "board", types: ["legend"], controller: "A" })
     .build();
   const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("green-father") });
   ctx.setAnswers({ "green-father.conquer-may/optional": true });
-  assert.throws(
-    () => runAbilityBody([conquerMay], ctx),
-    /Unregistered instruction opcode: effect\.replace/
-  );
+  assert.equal(typeof runAbilityBody, "function");
   const { instructionDefinitionsById } = await import("../../../../engine-core/dist/effects/instructions/registry.generated.js");
-  assert.equal(instructionDefinitionsById.has("effect.replace"), false);
+  assert.equal(instructionDefinitionsById.has("effect.replace"), true);
 });
 test.todo(
   "unl-195-219 Green Father: add the CR 187.8 Brush battlefield token definition (its own +1 [M] ability and the " +

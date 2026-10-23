@@ -68,25 +68,17 @@ test("rad-163-167 Hunters' Circle: identity, ruleset, status and exact source te
   assert.match(program.judgeReason, /sameLocationAs/);
 });
 
-test("rad-163-167 Hunters' Circle gap: the production binder rejects the declaration twice over", () => {
-  // A Battlefield permanent has no location, so the source-relative anchor the
-  // card uses cannot resolve, and `appliesTo: "play-cost"` is not a supported
-  // static anchor at all. Either way the static ability never binds, so it can
-  // never reach a future play's CostPlanInput.discounts.
+test("rad-163-167 Hunters' Circle: the production binder registers the play-cost discount", () => {
+  // The production binder accepts the play-cost static and installs it for the
+  // still-live Battlefield source.
   const f = fixture({ cards: [{ id: "field", cardId: CANONICAL, types: ["battlefield"] }] });
   f.engine.commit({ type: "move-zone", object: f.kernel.ref("field"), to: "board" });
   const source = f.kernel.getObject("field");
   assert.equal(source.location, null);
   const binder = createEngineStaticBinder(f.engine);
-  assert.throws(() => binder.bindStatic(ability, source), /Unsupported static appliesTo "play-cost"/);
-  assert.throws(
-    () => binder.bindStatic(
-      { kind: "static", effect: { ...ability.effect, appliesTo: undefined } },
-      source
-    ),
-    /Static sameLocationAs source has no location/
-  );
-  assert.deepEqual(f.engine.layers.registry.list(), []);
+  const handle = binder.bindStatic(ability, source);
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
 });
 
 test("rad-163-167 Hunters' Circle gap: Condition has no history kind for the first-play window", () => {

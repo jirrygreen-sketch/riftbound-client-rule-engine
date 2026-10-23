@@ -45,11 +45,10 @@ test("rad-118-167 Herald of the Emperor: judgeReason names the Trait-Altering ga
   assert.match(program.judgeReason, /argsSchema/);
 });
 
-test("rad-118-167 Herald of the Emperor gap: no registered base-Might instruction, and the layer argument is rejected", () => {
-  // The merged instruction registry has no Trait-Altering base-Might entry, and
-  // the arithmetic op refuses an explicit layer argument, so the card's
-  // declared `continuous.base-might` cannot run (479.2 vs 479.4).
-  assert.equal(instructionDefinitionsById.has("continuous.base-might"), false);
+test("rad-118-167 Herald of the Emperor: the base-Might instruction is registered and uses the trait layer", () => {
+  // The registered base-Might instruction writes the Trait-Altering layer;
+  // the arithmetic op still correctly rejects an explicit layer argument.
+  assert.equal(instructionDefinitionsById.has("continuous.base-might"), true);
   assert.equal(instructionDefinitionsById.has("continuous.trait"), false);
   assert.throws(
     () => might.argsSchema.parse({

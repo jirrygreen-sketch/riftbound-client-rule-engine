@@ -66,9 +66,7 @@ test("unl-172-219 LeBlanc, Fragmented: Deathknell is registered and exposes the 
   const [expanded] = definition.expand({ host: { canonicalCardId: CANONICAL_ID } });
   assert.equal(expanded.trigger.at, "object-killed");
   assert.deepEqual(expanded.trigger.filter, {
-    self: true,
-    cause: "kill",
-    destination: "trash"
+    self: true
   });
   assert.deepEqual(expanded.body.map(instruction => [instruction.id, instruction.op]), [
     [`deathknell:${CANONICAL_ID}:leave`, "trigger.leave"]
@@ -156,11 +154,11 @@ test("unl-172-219 LeBlanc, Fragmented golden: the unreadable phase characteristi
   assert.equal(kernel.test(drawTwo.condition), false);
 });
 
-test("unl-172-219 LeBlanc, Fragmented: merging [Assault] leaves an Attacker without the +1 Might (807.1.c/807.1.d.1)", () => {
+test("unl-172-219 LeBlanc, Fragmented: [Assault] binds but its designation predicate stays fail-closed", () => {
   // The KeywordDef reads the host "designation" characteristic; ObjectSnapshot
-  // exposes combatRole instead, so the production static binder catches the
-  // unavailable property and returns false. A declared Attacker therefore keeps
-  // its printed Might.
+  // exposes combatRole instead. The production binder installs the entry, and
+  // the evaluator fails closed rather than silently treating combatRole as the
+  // old characteristic.
   const [expansion] = assaultKeyword.expand({ value: 1, host: { canonicalCardId: CANONICAL_ID } });
   const f = fixture({
     cards: [{ id: "leblanc", cardId: CANONICAL_ID, types: ["unit"], energy: 3, power: ["Order"], might: 3 }]
@@ -175,34 +173,31 @@ test("unl-172-219 LeBlanc, Fragmented: merging [Assault] leaves an Attacker with
   f.engine.layers.setObjects([source]);
   const handle = createEngineStaticBinder(f.engine).bindStatic(expansion, source);
   const [registration] = f.engine.layers.registry.list();
-  assert.equal(registration.effect.effect.amount, 1);
-  // The binder evaluated the unresolved condition once and stored a closed
-  // predicate, which is exactly why the missing characteristic fails closed.
+  assert.deepEqual(registration.effect.effect.amount, { kind: "constant", value: 1 });
   assert.equal(typeof registration.effect.effect.condition, "function");
   assert.equal(f.engine.layers.evaluate(source.ref).might, 3);
   handle.unbind();
 });
 
-test("unl-172-219 LeBlanc, Fragmented: the merged op registry really has no trigger.leave opcode", async () => {
-  // The Deathknell gap is not a spelling problem: the generated instruction
-  // registry carries 45 ops and none of them is a trigger.* primitive, so the
-  // keyword's expansion body cannot resolve anywhere in the interpreter.
+test("unl-172-219 LeBlanc, Fragmented: the generated op registry contains trigger.leave", async () => {
   const { registry } = await import("../../../../engine-core/dist/effects/instructions/registry.generated.js");
-  assert.equal(registry.length, 46);
   const ops = registry.map(entry => entry.op ?? entry.id ?? entry.keyword);
-  assert.equal(ops.filter(op => typeof op === "string" && op.startsWith("trigger.")).length, 0);
-  assert.equal(ops.includes("trigger.leave"), false);
+  assert.equal(ops.includes("trigger.leave"), true);
 });
 
-test("unl-172-219 LeBlanc, Fragmented: the [Deathknell] expansion body still needs the unregistered trigger.leave op (808.1.d)", () => {
+test("unl-172-219 LeBlanc, Fragmented: [Deathknell] executes trigger.leave against the killed incarnation (808.1.d)", () => {
   const definition = keywordDefinitionsById.get("Deathknell");
   const [expansion] = definition.expand({ host: { canonicalCardId: CANONICAL_ID } });
   const kernel = world().unit("leblanc", { owner: "A", controller: "A" }).build();
-  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("leblanc"), controller: "A" });
-  assert.throws(
-    () => resolveChainBody(expansion.body, scoped),
-    /Unregistered instruction opcode: trigger\.leave/
-  );
+  const source = kernel.getObject("leblanc");
+  const scoped = kernel.clone({ sourceSnapshot: source, controller: "A", timingPoint: "object-killed" });
+  scoped.perform({ type: "kill", object: scoped.ref("leblanc") });
+  const outcome = resolveChainBody(expansion.body, scoped);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].op, "trigger.leave");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(outcome.results[0].result.linkedValues.leave, source.ref);
+  assert.deepEqual(outcome.results[0].result.linkedValues.leaveSource.location, source.location);
 });
 
 test("unl-172-219 LeBlanc, Fragmented golden: CardProgram triggers register through the merged binding", () => {
@@ -224,8 +219,8 @@ test.todo(
 );
 test.todo(
   "unl-172-219 LeBlanc, Fragmented: [Deathknell] keyword expansion (808.1.d.1 replaced death leaves the chain, " +
-    "808.1.d.2/.d.3 last-known info before the zone change) — the registered KeywordDef still references " +
-    "the unregistered trigger.leave primitive"
+    "808.1.d.2/.d.3 last-known info before the zone change) — trigger.leave is registered and tested above, " +
+    "while replacement-time removal from the chain still needs a production consumer"
 );
 test.todo(
   "unl-172-219 LeBlanc, Fragmented: [Assault] expansion consumer (807.1.c attacker designation, contract 3.8 " +

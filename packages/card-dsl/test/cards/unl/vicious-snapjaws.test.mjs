@@ -85,17 +85,14 @@ test("unl-129-219 Vicious Snapjaws golden: the effect really gains 1 XP for the 
   assert.equal(kernel.history({ action: "gain-xp", player: "A" }), 1);
 });
 
-test("unl-129-219 Vicious Snapjaws gap: the card-side filter translation rejects the exclude anchor", () => {
+test("unl-129-219 Vicious Snapjaws: object translation preserves exclude, while trigger matching still needs the unified matcher", () => {
   // 740.1.a / 383.4.a.4: "another" must exclude the source itself. The merged
   // translators refuse the anchor, so the object-killed subscription cannot be
   // registered at all (the program adapter throws before any event runs).
-  assert.throws(
-    () => translateObjectFilter({ type: "unit", controller: "self", exclude: "self" }),
-    /Unsupported filter field exclude/
-  );
+  assert.equal(translateObjectFilter({ type: "unit", controller: "self", exclude: "self" }).exclude, "self");
   assert.throws(
     () => translateTriggerFilter(ability.trigger.filter, "vicious-snapjaws", "object-killed"),
-    /Unsupported filter field exclude/
+    /Trigger filter requires the unified event matcher/,
   );
 });
 
@@ -137,7 +134,7 @@ test("unl-129-219 Vicious Snapjaws gap: the interpreter-level exclude anchor is 
   );
 });
 
-test("unl-129-219 Vicious Snapjaws gap: the card-side subscription really cannot register through the program binding", () => {
+test("unl-129-219 Vicious Snapjaws: the card-side subscription still requires the unified event matcher", () => {
   // 383.4.a.4 / 740.1.a: the production path for a CardProgram trigger goes
   // through programs/triggers.ts -> programs/filters.ts. Running that real
   // adapter is what keeps the card judge-required: the exclude anchor is
@@ -150,6 +147,6 @@ test("unl-129-219 Vicious Snapjaws gap: the card-side subscription really cannot
   const source = { ...f.kernel.getObject("source"), cardId: CARD_ID, name: "Vicious Snapjaws" };
   assert.throws(
     () => triggerRegistrations(binding.registry, source),
-    /Unsupported filter field exclude/
+    /Trigger filter requires the unified event matcher/,
   );
 });

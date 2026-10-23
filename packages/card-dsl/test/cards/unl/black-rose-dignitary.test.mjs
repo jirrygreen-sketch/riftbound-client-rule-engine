@@ -153,21 +153,26 @@ test("unl-152-219 Black Rose Dignitary boundary: the [Assault] expansion binds b
   assert.equal(expansion.effect.amount.value, 1);
   createEngineStaticBinder(f.engine).bindStatic(expansion, source);
   const [entry] = f.engine.layers.registry.list();
-  assert.equal(entry.effect.effect.amount, 1);
-  assert.equal(entry.effect.effect.condition(source), false,
-    "the attacker condition must not claim a contribution while designation is unreadable");
+  assert.deepEqual(entry.effect.effect.amount, { kind: "constant", value: 1 });
+  assert.equal(entry.effect.effect.condition(source), true);
   f.engine.layers.setObjects(f.kernel.objects);
-  assert.equal(f.engine.layers.evaluate(source.ref).might, 2);
+  assert.equal(f.engine.layers.evaluate(source.ref).might, 3);
 });
 
-test("unl-152-219 Black Rose Dignitary boundary: the [Deathknell] expansion body cannot execute (CR 808.1.c/808.1.d)", () => {
-  // Third-sweep evidence: subscription succeeds, but the expanded body's op has
-  // no InstructionDef, so the real chain adapter throws when the effect runs.
+test("unl-152-219 Black Rose Dignitary: [Deathknell] executes trigger.leave against the killed incarnation (CR 808.1.c/808.1.d)", () => {
   const [deathknellExpansion] = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL_ID } });
   const body = deathknellExpansion.body;
   assert.equal(body.length, 1);
   assert.equal(body[0].op, "trigger.leave");
-  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
-  const kernel = world().player("A").rune(["top-rune"]).build();
-  assert.throws(() => resolveChainBody(body, kernel), /Unregistered instruction opcode: trigger\.leave/);
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), true);
+  const kernel = world().unit("dignitary", { owner: "A", controller: "A" }).player("A").rune(["top-rune"]).build();
+  const source = kernel.getObject("dignitary");
+  const scoped = kernel.clone({ sourceSnapshot: source, timingPoint: "object-killed" });
+  scoped.perform({ type: "kill", object: scoped.ref("dignitary") });
+  const outcome = resolveChainBody(body, scoped);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].op, "trigger.leave");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(outcome.results[0].result.linkedValues.leave, source.ref);
+  assert.deepEqual(outcome.results[0].result.linkedValues.leaveSource.location, source.location);
 });

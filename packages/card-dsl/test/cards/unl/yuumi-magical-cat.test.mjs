@@ -216,7 +216,7 @@ test.todo(
     "once per combat (CR 383.4.e.2/f.2 / 466.2.c; combat-start-transaction)"
 );
 
-test("unl-056-219 Yuumi, Magical Cat gap: the production program binding rejects the printed target filter", () => {
+test("unl-056-219 Yuumi, Magical Cat: the production program binding preserves the printed target filter", () => {
   // 355.9.b / 355.9.c / 359.3.f.1: "one of your other units here" needs both the
   // sameLocationAs and exclude anchors. ChainEngine's play/trigger path goes
   // through programs/filters.ts, whose object-filter whitelist refuses both, so
@@ -226,10 +226,8 @@ test("unl-056-219 Yuumi, Magical Cat gap: the production program binding rejects
   const { judgeReason: _reason, ...withoutReason } = program;
   const binding = createProgramBinding({ cardPrograms: [{ ...withoutReason, status: "executable" }] });
   const source = { ...f.kernel.getObject("source"), cardId: CANONICAL_ID, name: "Yuumi, Magical Cat" };
-  assert.throws(
-    () => triggerRegistrations(binding.registry, source),
-    /Unsupported filter field sameLocationAs/
-  );
+  const registrations = triggerRegistrations(binding.registry, source);
+  assert.ok(registrations.length > 0);
   // The trigger subscription itself binds (both triggers filter only on the
   // source), which is why the gap is the body's target filter and not the
   // attack/defense subscription shape.

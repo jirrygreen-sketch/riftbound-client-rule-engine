@@ -151,7 +151,7 @@ test("unl-122-219 Crescent Guardian golden: an already-ready unit is not readied
   assert.deepEqual(kernel.events, []);
 });
 
-test("unl-122-219 Crescent Guardian boundary: the static cost.additional has no production binder (CR 356.2.b/356.2.b.1)", () => {
+test("unl-122-219 Crescent Guardian: the low-level translator defers static cost.additional to the program adapter", () => {
   // Re-probed 2026-10-17: the planner already pays a caller-supplied optional
   // component (meditation/frostcoat-cub precedent), but no merged path derives it
   // from this card's static declaration. programs/play.ts::translateCost only
@@ -161,15 +161,14 @@ test("unl-122-219 Crescent Guardian boundary: the static cost.additional has no 
   assert.equal(additionalCost.effect.kind, "cost.additional");
   assert.throws(
     () => translateCost(additionalCost.effect, "crescent-guardian", "play"),
-    (error) => error.code === "judge-required" && /Unsupported play cost field/.test(error.message)
+    error => error.name === "ProgramBindingError" && /Additional costs require the program cost adapter/.test(error.message)
   );
   const board = fixture({
     cards: [{ id: "guardian", cardId: program.canonicalCardId, types: ["unit"], energy: 4, power: [], might: 4 }]
   });
-  assert.throws(
-    () => createEngineStaticBinder(board.engine).bindStatic(additionalCost, board.kernel.getObject("guardian")),
-    (error) => error.code === "judge-required" && /cost\.additional/.test(error.message) && /no layer mapping/.test(error.message)
-  );
+  const handle = createEngineStaticBinder(board.engine).bindStatic(additionalCost, board.kernel.getObject("guardian"));
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
 });
 test("unl-122-219 Crescent Guardian golden: the supported entry-replacement fragment enters ready (369.3)", () => {
   // bindReplacement accepts the

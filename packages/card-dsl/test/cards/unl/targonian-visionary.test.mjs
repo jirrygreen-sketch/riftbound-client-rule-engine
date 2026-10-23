@@ -248,7 +248,7 @@ test("unl-098-219 Targonian Visionary: the program-level binding refuses the car
   assert.equal(f.engine.layers.registry.list().length, 0);
 });
 
-test("unl-098-219 Targonian Visionary: the merged Level predicate has no layer mapping", () => {
+test("unl-098-219 Targonian Visionary: the Level predicate binds as a production capability", () => {
   const f = fixture({
     cards: [{ id: "visionary", cardId: CANONICAL_ID, types: ["unit"], might: 6 }],
     describePlay: createProgramBinding({ cardPrograms: cardRegistryById }).describePlay
@@ -256,13 +256,13 @@ test("unl-098-219 Targonian Visionary: the merged Level predicate has no layer m
   board(f, "visionary");
   const source = f.kernel.getObject("visionary");
   const [predicate] = keywordDefinitionsById.get("Level").expand({ value: 11, host: { canonicalCardId: CANONICAL_ID } });
-  // 824.1.c.1/.d: no registration path exists for the predicate, so its dynamic
-  // Active/Inactive behaviour cannot execute either.
-  assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic(predicate, source),
-    error => error.name === "ProgramBindingError" &&
-      /condition\.predicate has no layer mapping/.test(error.message)
-  );
+  // 824.1.c.1/.d: the predicate enters the production capability registry;
+  // its live XP evaluation remains a separate consumer concern.
+  const handle = createEngineStaticBinder(f.engine).bindStatic(predicate, source);
+  const [registration] = f.engine.layers.registry.list();
+  assert.equal(registration.effect.effect.capabilityKind, "predicate");
+  assert.equal(registration.effect.effect.ability.effect.query, "controller-xp");
+  handle.unbind();
 });
 
 test.todo(

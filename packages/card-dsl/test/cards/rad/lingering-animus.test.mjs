@@ -28,11 +28,9 @@ test("rad-005-167 Lingering Animus: program validates and has expected identity"
   assert.match(program.judgeReason, /HistoryQuery/);
 });
 
-test("rad-005-167 Lingering Animus boundary: a never-condition still readies the entry, so the condition is not consumed", () => {
-  // Re-probed 2026-10-17: replacement/bind.ts matchesEnterAction() returns true
-  // before testCondition() runs, so the entry-orientation replacement fires even
-  // for a condition that evaluates to false. This is the production evidence
-  // that the card's historical if-clause cannot be consumed as a Condition yet.
+test("rad-005-167 Lingering Animus boundary: a never-condition leaves the entry replacement unapplied", () => {
+  // Replacement matching now evaluates the ability condition before selecting
+  // the entry transaction. A false gate leaves the exhausted unit exhausted.
   const f = fixture({ cards: [{ id: "animus", types: ["unit"], might: 2, exhausted: true }] });
   const handle = createEngineStaticBinder(f.engine).bindReplacement(
     { ...program.abilities[0], condition: { kind: "never" } },
@@ -40,8 +38,8 @@ test("rad-005-167 Lingering Animus boundary: a never-condition still readies the
   );
   f.engine.commit({ type: "move-zone", object: f.kernel.ref("animus"), to: "chain" });
   const outcome = f.engine.commit({ type: "move-zone", object: f.kernel.ref("animus"), to: "base", location: { type: "base", player: "A" } });
-  assert.equal(outcome.status, "replaced");
-  assert.equal(f.kernel.getObject("animus").exhausted, false);
+  assert.notEqual(outcome.status, "replaced");
+  assert.equal(f.kernel.getObject("animus").exhausted, true);
   handle.unbind();
 });
 
@@ -95,18 +93,16 @@ test("rad-005-167: a ready source makes the body a no-op executed result (416.1.
   assert.deepEqual(scoped.events, []);
 });
 
-test("rad-005-167: the supported entry replacement binds through programs and readies before Board entry", () => {
+test("rad-005-167: the unproven history gate leaves the bound entry replacement inert", () => {
   const f = fixture({ cards: [{ id: "animus", types: ["unit"], might: 2, exhausted: true }] });
-  // Only the supported entry half is bound: the historical Condition remains
-  // blocked on the card and this does not make the whole program executable.
+  // The replacement is bound, but its historical condition cannot yet read the
+  // production history: fail closed leaves the entry orientation unchanged.
   const handle = createEngineStaticBinder(f.engine).bindReplacement(program.abilities[0], f.kernel.getObject("animus"));
   f.engine.commit({ type: "move-zone", object: f.kernel.ref("animus"), to: "chain" });
   const outcome = f.engine.commit({ type: "move-zone", object: f.kernel.ref("animus"), to: "base", location: { type: "base", player: "A" } });
-  assert.equal(outcome.status, "replaced");
+  assert.equal(outcome.status, "done");
   assert.equal(f.kernel.getObject("animus").zone, "board");
-  assert.equal(f.kernel.getObject("animus").exhausted, false);
-  const entry = f.engine.pipeline.events.find(event => event.timingPoint === "object-enters-board" && event.object.ref.id === "animus");
-  assert.equal(entry.object.exhausted, false);
+  assert.equal(f.kernel.getObject("animus").exhausted, true);
   assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "object-readied"), false);
   handle.unbind();
 });

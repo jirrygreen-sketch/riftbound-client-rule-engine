@@ -141,11 +141,7 @@ test("unl-017-219 Square Up golden: the granted Assault 4 gate is failed closed 
   ]);
 });
 
-test("unl-017-219 Square Up: the Repeat expansion's repeat.cost declaration is still refused by the production binder", () => {
-  // 820.1.a / 820.1.c: the printed "Repeat - Discard 1" is an optional
-  // additional cost. The merged Repeat keyword expands a static repeat.cost
-  // declaration, but programs/statics.ts has no layer for that kind, so the
-  // declaration cannot be bound and the card's keyword never reaches Finalize.
+test("unl-017-219 Square Up: the Repeat expansion's repeat.cost declaration binds in production", () => {
   const [repeatCost] = keywordDefinitionsById.get("Repeat").expand({
     host: { canonicalCardId: CANONICAL_ID }
   });
@@ -153,10 +149,10 @@ test("unl-017-219 Square Up: the Repeat expansion's repeat.cost declaration is s
   assert.equal(repeatCost.effect.kind, "repeat.cost");
   const f = fixture({ cards: [] });
   const source = f.kernel.getObject("source");
-  assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic(repeatCost, source),
-    /Static ability kind repeat\.cost has no layer mapping/
-  );
+  const handle = createEngineStaticBinder(f.engine).bindStatic(repeatCost, source);
+  const [registration] = f.engine.layers.registry.list();
+  assert.equal(registration.effect.effect.capabilityKind, "cost");
+  handle.unbind();
 });
 
 test.todo(

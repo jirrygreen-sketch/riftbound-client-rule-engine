@@ -4,7 +4,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/sprite-queen.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { assertTriggerSpec, validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL_ID =
@@ -79,13 +79,11 @@ test("unl-084-219 Sprite Queen: both branches play the printed CR 187.2 Sprite t
   assert.equal(playAtBeginning.id, "sprite-queen.play-sprite-at-beginning");
 });
 
-test("unl-084-219 Sprite Queen fail-closed: beginning-start is a timing point, not an EventPattern event", () => {
+test("unl-084-219 Sprite Queen: beginning-start is accepted by the production trigger vocabulary", () => {
   const filter = translateTriggerFilter(atBeginning.trigger.filter, "sprite-queen");
   assert.equal(filter.event, "beginning-start");
-  assert.throws(
-    () => assertTriggerSpec({ at: atBeginning.trigger.at, filter }),
-    /event|事件/
-  );
+  assert.doesNotThrow(() => assertTriggerSpec({ at: atBeginning.trigger.at, filter }));
+  assert.equal(validateTriggerSpec({ at: atBeginning.trigger.at, filter }).ok, true);
 });
 
 test.todo(

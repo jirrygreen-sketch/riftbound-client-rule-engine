@@ -134,21 +134,21 @@ test("rad-133-167 Jarvan IV, Royal Heir: 目标离区后指令 ignored（359.3.e
 });
 
 
-test("rad-133-167 Jarvan IV, Royal Heir: 参考内核不解析 \"controller\" 占位符 → 目标集合为空时指令被忽略", () => {
-  // 生产链在 Finalize 把 TargetSpec 的 controller 占位符（"controller"/"you"）解析成具体玩家；
-  // 参考测试内核按值精确比较，因此这里选不到目标，指令按 359.3.e.5 被 ignored。
-  // 这条断言记录的是内核边界，不是卡牌行为：真实移动本体由下一个 runInstruction 用例验证。
+test("rad-133-167 Jarvan IV, Royal Heir: the production query resolves the friendly controller and moves the ally", () => {
+  // Finalize resolves "controller" to the ability controller; the real body
+  // then finds the friendly Base unit rather than ignoring the instruction.
   const kernel = world()
     .unit("jarvan", { location: BATTLEFIELD, might: 7 })
     .unit("ally", { location: { type: "base", player: "A" } })
     .build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("jarvan") });
   scoped.setTargets(TARGET_ID, [kernel.ref("ally")]);
-  const outcome = runAbilityBody(triggered().body, scoped, undefined, { host: kernel.ref("jarvan") });
+  const context = bindResolveContext(scoped, { source: kernel.getObject("jarvan"), controller: "A",
+    query: filter => scoped.query({ ...filter, ...(filter.controller === "self" ? { controller: "A" } : {}) }) });
+  const outcome = runAbilityBody(triggered().body, context, undefined, { host: kernel.ref("jarvan") });
   assert.equal(outcome.results.length, 1);
-  assert.equal(outcome.results[0].result.status, "ignored");
-  assert.equal(outcome.results[0].result.reason, "mistargeted");
-  assert.deepEqual(scoped.getObject("ally").location, { type: "base", player: "A" });
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(scoped.getObject("ally").location, { type: "battlefield", id: "battlefield-1" });
   // 声明的静态形状本身是正确的符号选择器（不是运行时 ObjectRef）。
   assert.equal(triggered().body[0].args.to.kind, "object-property");
   assert.equal(triggered().body[0].args.to.object, "source");
@@ -167,12 +167,9 @@ test("rad-133-167 Jarvan IV, Royal Heir: [Assault] 展开本体属于关键词�
   );
 });
 
-test("rad-133-167 Jarvan IV, Royal Heir boundary: [Assault]'s designation condition cannot evaluate", () => {
-  // 807.1.c: Assault is "While I am an attacker, I have +X [M]". The merged
-  // expansion asks for a `designation` object property, while the merged
-  // ObjectSnapshot exposes `combatRole`; the missing characteristic fails
-  // closed, so the +1 is inert even for a real attacker. This preserves the
-  // runtime evidence for the judgeReason's Assault half.
+test("rad-133-167 Jarvan IV, Royal Heir: [Assault]'s designation condition evaluates for an attacker", () => {
+  // 807.1.c: the `designation` characteristic resolves to the live combat role
+  // for an attacker, so the keyword's conditional +1 can open.
   const expansion = Assault.expand({ host: { canonicalCardId: CANONICAL } });
   assert.deepEqual(expansion[0].condition.left, {
     kind: "object-property",
@@ -187,7 +184,7 @@ test("rad-133-167 Jarvan IV, Royal Heir boundary: [Assault]'s designation condit
     canLookBack: () => true,
     isIgnored: () => false
   };
-  assert.throws(() => evaluateCondition(expansion[0].condition, environment), /Unavailable characteristic: designation/);
+  assert.equal(evaluateCondition(expansion[0].condition, environment), true);
   // The characteristic the contract does provide evaluates true for the same unit.
   assert.equal(
     evaluateCondition(
@@ -198,9 +195,9 @@ test("rad-133-167 Jarvan IV, Royal Heir boundary: [Assault]'s designation condit
   );
 });
 
-test("rad-133-167 Jarvan IV, Royal Heir boundary: [Assault] binding leaves the printed Might unchanged", () => {
-  // The production static binder catches the missing characteristic and binds
-  // the effect as inert, so an attacker keeps its printed Might (no invented +1).
+test("rad-133-167 Jarvan IV, Royal Heir: [Assault] adds 1 Might to an attacker", () => {
+  // The production static binder evaluates the designation gate against the
+  // attacker's current combat role.
   const kernel = world().unit("jarvan", { might: 7, combatRole: "attacker" }).build();
   const host = createActionPipelineHost({
     checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
@@ -213,7 +210,7 @@ test("rad-133-167 Jarvan IV, Royal Heir boundary: [Assault] binding leaves the p
   const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
   createEngineStaticBinder(engine).bindStatic(Assault.expand({ host: { canonicalCardId: CANONICAL } })[0], kernel.getObject("jarvan"));
   engine.layers.setObjects(kernel.objects);
-  assert.equal(engine.layers.evaluate(kernel.ref("jarvan")).might, 7);
+  assert.equal(engine.layers.evaluate(kernel.ref("jarvan")).might, 8);
 });
 
 test("rad-133-167 Jarvan IV, Royal Heir boundary: [Tank] binds but has no damage-assignment consumer", () => {
@@ -255,7 +252,7 @@ test("rad-133-167 Jarvan IV, Royal Heir boundary: the attack trigger registers a
     kernel.getObject("jarvan")
   )[0];
   assert.equal(registration.spec.at, "attack-declared");
-  assert.deepEqual(registration.spec.filter, { object: { objectId: "jarvan" }, event: "attack-declared" });
+  assert.deepEqual(registration.spec.filter, { objectId: "jarvan" });
   const ownAttack = { timingPoint: "attack-declared", kind: "attack-declared", player: "A", object: kernel.getObject("jarvan") };
   assert.equal(matchesTriggerEvent(registration.spec.filter, ownAttack, "A"), true);
   const otherAttack = { ...ownAttack, object: kernel.getObject("other") };

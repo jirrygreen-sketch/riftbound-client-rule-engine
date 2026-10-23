@@ -145,20 +145,26 @@ test("Siren of the Shallows execution: the [Ganking] expansion registers a conti
   assert.equal(ganking.valued, false);
 });
 
-test("Siren of the Shallows: the Disarm trigger still cannot bind through the production filter translator", () => {
+test("Siren of the Shallows: the Disarm trigger registers through the production filter translator", () => {
   const lifted = { ...program, status: "executable" };
   delete lifted.judgeReason;
   const binding = createProgramBinding({ cardPrograms: [lifted] });
   const kernel = world()
     .card("siren", { cardId: CANONICAL, types: ["unit"], might: 1, zone: "board" })
     .build();
-  assert.throws(
-    () => triggerRegistrations(binding.registry, kernel.getObject("siren")),
-    (error) => error.code === "judge-required" && /Unsupported filter field sameLocationAs/.test(error.message)
-  );
-  // 466.2: the role transaction itself is still blocked: CombatFlow exposes no
-  // attack-declared producer and dealDamage() remains a blocked transaction, so
-  // no real attack-declared emission exists for this trigger to consume.
+  const [registration] = triggerRegistrations(binding.registry, kernel.getObject("siren"));
+  assert.equal(registration.spec.at, "attack-declared");
+  assert.deepEqual(registration.spec.filter, {
+    event: "attack-declared",
+    object: { objectId: "siren" }
+  });
+  assert.deepEqual(registration.body[0].targets[0].filter, {
+    type: "unit",
+    zone: "board",
+    controller: "opponent",
+    sameLocationAs: "source"
+  });
+  // The separate simultaneous-damage transaction remains unavailable.
   const flow = new CombatFlow(
     fixture().engine,
     fixture().host,

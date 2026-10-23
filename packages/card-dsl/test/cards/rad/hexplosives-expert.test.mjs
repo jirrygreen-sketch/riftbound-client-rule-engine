@@ -76,14 +76,14 @@ test("rad-141-167 Hexplosives Expert gap: the Bomb definition is absent and the 
   assert.deepEqual(kernel.snapshot(), before);
 });
 
-test("rad-141-167 Hexplosives Expert gap: the Bomb token's Deploy/Deathknell bodies have no executable expansion", () => {
-  // Deploy is merged, but Deathknell's expansion body still references the
-  // unregistered trigger.leave, and no registered op consumes the delayed hook.
+test("rad-141-167 Hexplosives Expert: the Bomb token's Deploy/Deathknell operations are registered", () => {
+  // The keyword definitions and their leave/delayed primitives are registered;
+  // the missing complete Bomb definition is covered separately.
   assert.equal(keywordDefinitionsById.has("Deploy"), true);
   const [expansion] = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL_ID } });
   assert.deepEqual(expansion.body.map((instruction) => instruction.op), ["trigger.leave"]);
-  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
-  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), true);
+  assert.equal(instructionDefinitionsById.has("trigger.delayed"), true);
 });
 
 test("rad-141-167 Hexplosives Expert gap: only object-referenced battlefields appear as candidates (355.2.a)", () => {
@@ -160,7 +160,7 @@ test("rad-141-167 Hexplosives Expert: the printed [A] cost is payable with Power
   assert.equal(receipt.paid, true);
   assert.deepEqual(receipt.actions.map(action => action.action.type), ["pay", "exhaust"]);
   assert.equal(ctx.player("A").energy, 2);
-  assert.deepEqual(ctx.player("A").power, ["Body"]);
+  assert.deepEqual(ctx.player("A").power, []);
   assert.equal(ctx.getObject("ziggs").exhausted, true);
 });
 

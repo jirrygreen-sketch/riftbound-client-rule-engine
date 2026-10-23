@@ -166,21 +166,18 @@ function productionEngine(kernel) {
   return new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
 }
 
-test("rad-073-167 Pillaged Armory boundary: the Deploy location declaration has no layer mapping", () => {
-  // 830.1.b grants the play/create permission; effects/keywords/Deploy.ts is
-  // merged, but the production binder has no layer for continuous.location, so
-  // the declaration never reaches the layers that Finalize/cleanup would read.
+test("rad-073-167 Pillaged Armory: the Deploy location declaration binds its placement rule", () => {
+  // 830.1.b grants the play/create permission; the production binder now
+  // installs the continuous.location declaration for the Gear incarnation.
   const expansion = deploy.expand({ host: { canonicalCardId: program.canonicalCardId } });
   assert.equal(expansion[0].effect.kind, "continuous.location");
   assert.equal(expansion[0].effect.cleanup.recall, "unit-only");
   const kernel = world().object("gear", { cardId: program.canonicalCardId, types: ["gear"], might: null, energy: 1, power: null }).build();
   const engine = productionEngine(kernel);
   const binder = createEngineStaticBinder(engine);
-  assert.throws(
-    () => binder.bindStatic(expansion[0], kernel.getObject("gear")),
-    /continuous\.location has no layer mapping/
-  );
-  assert.deepEqual(playLocations(engine.layers.registry, kernel.ref("gear"), kernel.getObject("gear"), "A"), { permissions: [], restrictions: [] });
+  const handle = binder.bindStatic(expansion[0], kernel.getObject("gear"));
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
 });
 
 test("rad-073-167 Pillaged Armory: 'When you play this' fires for its own controller only", () => {
@@ -200,17 +197,15 @@ test("rad-073-167 Pillaged Armory: 'When you play this' fires for its own contro
   assert.equal(matchesTriggerEvent(registration.spec.filter, { ...ownPlay, player: "B" }, "A"), false);
 });
 
-test("rad-073-167 Pillaged Armory boundary: 'when you conquer here' cannot be registered yet", () => {
-  // 383.4.c.1 / 830.3: the conquer trigger is gated on "here"; the merged
-  // trigger filter translation rejects the here field, and the conquer payload's
-  // battlefieldId is not bound to the source, so this trigger stays unregistered.
+test("rad-073-167 Pillaged Armory: 'when you conquer here' registers with the here anchor", () => {
+  // 383.4.c.1 / 830.3: the production translator now preserves the Battlefield
+  // scope on the conquer registration.
   const [, , onConquer] = program.abilities;
   const kernel = world().object("gear", { cardId: program.canonicalCardId, types: ["gear"], might: null, energy: 1, power: null, controller: "A" }).build();
-  assert.throws(
-    () => triggerRegistrations(
-      new ProgramRegistry([{ canonicalCardId: program.canonicalCardId, rulesetVersion: "core-1.5", status: "executable", sourceText: program.sourceText, abilities: [onConquer] }]),
-      kernel.getObject("gear")
-    ),
-    /Unsupported filter field here/
+  const [registration] = triggerRegistrations(
+    new ProgramRegistry([{ canonicalCardId: program.canonicalCardId, rulesetVersion: "core-1.5", status: "executable", sourceText: program.sourceText, abilities: [onConquer] }]),
+    kernel.getObject("gear")
   );
+  assert.equal(registration.spec.at, "conquer");
+  assert.equal(registration.spec.filter.here, true);
 });
