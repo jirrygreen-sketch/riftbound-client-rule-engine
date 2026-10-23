@@ -1,5 +1,6 @@
 import type { CardProgram } from '@riftbound/card-dsl';
 import type { ChainEngine } from '../chain/engine.js';
+import { withStableLayersOf } from './stable-layers.js';
 import type { ContractGameAction, GameAction, ObjectSnapshot } from '../effects/contract.js';
 import type { PipelineEvent, TimingEmission } from '../events/pipeline-types.js';
 import { bindReplacementAbility, bindStaticAbility, createEngineStaticBinder, type ProgramStaticBinder, type StaticBindingHandle } from './statics.js';
@@ -544,7 +545,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     // Board source in its first real event. Resolve only the emitted objects,
     // never the entire derived host view; entries install before publication,
     // and exits retain their registration through the suspended scan wave.
-    engine.withStableLayers(() => {
+    withStableLayersOf(engine, () => {
       for (const emission of emissions) if (emission.object && isEntry(emission)) ensure(emission.object, true);
     });
     const events = run();
@@ -617,7 +618,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     // Event bookkeeping only (re)registers sources and collects triggers; it
     // never changes host objects, so one stable layered view serves it while
     // the registry revision is unchanged (RIFT-999).
-    engine.withStableLayers(() => transaction(() => {
+    withStableLayersOf(engine, () => transaction(() => {
       // Leave events carry the pre-transition incarnation. Keep their source
       // registration installed through the whole suspended publish wave so it
       // can collect its own death trigger; flushExits detaches after scanning.
@@ -638,7 +639,7 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   // attachment, so install their live surfaces during the initial scan.
   // One stable layered view for the whole scan while no registration changes
   // (RIFT-999); every static bound by ensure() bumps the registry revision.
-  engine.withStableLayers(() => {
+  withStableLayersOf(engine, () => {
     for (const source of pipeline.host.objects()) {
       if (secretZone(source) || isActiveLegend(source) || isSetupBattlefield(source)) ensure(source);
     }
