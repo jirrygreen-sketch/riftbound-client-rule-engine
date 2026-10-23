@@ -46,11 +46,7 @@ function deck(id, seat) {
     }));
   });
   const legends = cards('legend');
-  // The Rumble champion program is deliberately judge-required in integration;
-  // keep that fail-closed behavior out of this layer-budget exercise by using
-  // the executable legend carrier as the Champion setup object for that seat.
-  const chosen = cards('champion');
-  const champions = id === 'rumble-sfd' ? legends.map(card => ({ ...card, id: `${seat}:champion:${card.id}` })) : chosen;
+  const champions = cards('champion');
   const battlefields = cards('battlefields');
   assert.equal(legends.length, 1);
   assert.equal(champions.length, 1);
@@ -79,9 +75,8 @@ function context(seed, onObjectsRead = () => {}) {
     }),
   });
   adapterChoose = host.choose;
-  const executablePreconPrograms = cardPrograms.filter(program => !knownJudgeRequired.has(program.canonicalCardId));
   const binding = createProgramBinding({
-    cardPrograms: executablePreconPrograms,
+    cardPrograms,
     printedCatalog: [...catalogById.values()],
   });
   const match = createMatch({
@@ -89,7 +84,11 @@ function context(seed, onObjectsRead = () => {}) {
     decks: [deck('rumble-sfd', 'A'), deck('fiora-sfd', 'B')],
     programs: binding,
     seed,
-    battlefieldChoice: [0, 0],
+    // Real decks and the full program registry. Seat A's Minefield (index 0)
+    // and Treasure Hoard (index 2) still fail closed on judge-required
+    // programs, so this exercise selects Ravenbloom Conservatory for A and
+    // Veiled Temple for B; it does not hide any judge-required program.
+    battlefieldChoice: [1, 1],
     mulligans: [[], []],
     firstPlayer: 0,
   });
@@ -180,6 +179,11 @@ test('RIFT-999 full M1 precons remain playable after bounded layer evaluation', 
   assert.equal(match.programBinding.registry.inspect(
     'card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9',
   ).status, 'executable');
+  // The full registry is bound: precon cards whose programs are still
+  // judge-required stay judge-required in the match (never filtered out).
+  for (const id of knownJudgeRequired) {
+    assert.equal(match.programBinding.registry.inspect(id).status, 'judge-required', `${id} stays judge-required`);
+  }
   assert.equal(kernel.objects.filter(object => object.owner === 'A').length > 0, true);
   assert.ok(match.setup.hands.A.length >= 4);
   assert.ok(match.setup.hands.B.length >= 4);

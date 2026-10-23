@@ -387,6 +387,27 @@ function assertSameLayerView(kind: string, memo: readonly ObjectSnapshot[], fres
  */
 let hostWriteEpoch = 0;
 
+/** Run a host write so any stable layered view taken before or during it is discarded. */
+function hostWrite<T>(write: () => T): T {
+  hostWriteEpoch++;
+  try { return write(); } finally { hostWriteEpoch++; }
+}
+
+/** Route a host-provided ResolveContext's direct writes through hostWrite. */
+function countHostWrites(context: ResolveContext): ResolveContext {
+  return new Proxy(context, { get: (target, key) => {
+    const value = Reflect.get(target, key);
+    if (key === 'perform' && typeof value === 'function') {
+      return (...args: unknown[]) => hostWrite(() => (value as (...input: unknown[]) => unknown).apply(target, args));
+    }
+    if (key === 'contractActions' && value !== undefined && value !== null) {
+      const capability = value as NonNullable<ResolveContext['contractActions']>;
+      return { ...capability, perform: (action: Parameters<typeof capability.perform>[0]) => hostWrite(() => capability.perform(action)) };
+    }
+    return typeof value === 'function' ? value.bind(target) : value;
+  } });
+}
+
 /** Debug switch for RIFT-999's stable layered-view cache; inert outside Node. */
 function layerMemoCheck(): boolean {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
@@ -447,11 +468,23 @@ export class ChainEngine {
       finalizedCardPlaysThisTurn: () => this.finalizedPlaysThisTurn,
       execute: action => this.executeStateAction(action),
       ...(options.host.executeContract === undefined ? {} : {
-        executeContract: (action: Parameters<NonNullable<PipelineHost['executeContract']>>[0]) => {
-          hostWriteEpoch++;
-          try { return options.host.executeContract!(action); } finally { hostWriteEpoch++; }
-        },
+        executeContract: (action: Parameters<NonNullable<PipelineHost['executeContract']>>[0]) =>
+          hostWrite(() => options.host.executeContract!(action)),
       }),
+      // A confirmed Kill writes the host before, during (replacements already
+      // applied when the boundary callback runs) and after its boundary.
+      ...(options.host.deathBoundary === undefined ? {} : (() => {
+        const boundary = options.host.deathBoundary;
+        type Callback = Parameters<typeof boundary.execute>[1];
+        const counted = (callback: Callback): Callback => context => hostWrite(() => callback(context));
+        return { deathBoundary: {
+          version: boundary.version,
+          execute: (action: Parameters<typeof boundary.execute>[0], callback: Callback) =>
+            hostWrite(() => boundary.execute(action, counted(callback))),
+          executeContract: (action: Parameters<typeof boundary.executeContract>[0], callback: Callback) =>
+            hostWrite(() => boundary.executeContract(action, counted(callback))),
+        } };
+      })()),
     };
     this.chainHost = chainHost;
     this.pipeline = new EventPipeline(this.chainHost, options.turnOrder, options.turnPlayer);
@@ -530,9 +563,9 @@ export class ChainEngine {
   }
   /** Give every ResolveContext object read the same read-only designation view. */
   private hostObjectContext(source: ObjectSnapshot, controller: PlayerId, at: TimingPointId): ResolveContext {
-    const base = source.combatRole === null || source.combatRole === undefined
+    const base = countHostWrites(source.combatRole === null || source.combatRole === undefined
       ? this.options.host.context(source, controller, at)
-      : bindResolveContext(this.options.host.context(source, controller, at), { source });
+      : bindResolveContext(this.options.host.context(source, controller, at), { source }));
     if (this.combatRoles.size === 0) return base;
     return new Proxy(base, { get: (target, key) => {
       if (key === 'object') return (ref: ObjectRef) => {
