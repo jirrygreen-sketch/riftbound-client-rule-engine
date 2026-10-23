@@ -30,6 +30,14 @@ const PRODUCTION_TEST_NAMES = Object.freeze({
   defender: "sfd-156-221 Laurent Duelist production boundary: Assault is absent while defending"
 });
 
+// Official source and timeline: the file's pinned Core Rules v1.5 URL
+// (published 2026-10-09) plus the Radiance patch (effective 2026-10-16).
+// For canonical id card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6,
+// CR 807.1.b-.d grants Assault 2 only while this Unit is an Attacker.  The
+// real TurnFlow/CombatFlow tests below cover Play/Finalize, designation,
+// Priority, damage at current Might, combat-end expiry, and absence while
+// Defending.  The static layer uses live characteristics; no LKI is needed.
+
 // Official sources are the repository's pinned snapshots. The effective
 // Radiance patch and the Spiritforged errata contain no Laurent Duelist or
 // Assault entry. The card supplies no local exception to the general rules.
