@@ -109,11 +109,9 @@ test("rad-052-167 Resource Extractor: the body plays a Gold token, never a subst
   assert.equal(tokenInstruction.targets, undefined);
 });
 
-test("rad-052-167 Resource Extractor: the Gold definition is blocked in the merged token table", () => {
-  // This is why the card is judge-required: the merged effect.token primitive
-  // deliberately excludes token definitions with their own abilities (187.5),
-  // and reports it instead of creating a wrong object. Executed through the
-  // real primitive with the card's own arguments.
+test("rad-052-167 Resource Extractor: the Gold definition creates and plays at the controller's Base", () => {
+  // 187.5: Gold is a canonical token whose ability travels through the bound
+  // card program. Exercise the card's own arguments through the real chain.
   const kernel = world()
     .unit("source-gear", {
       types: ["gear"],
@@ -125,13 +123,22 @@ test("rad-052-167 Resource Extractor: the Gold definition is blocked in the merg
     .build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("source-gear") });
   const outcome = resolveChainBody(turnEndTrigger.body, scoped);
-  const result = outcome.results.find(entry => entry.id === tokenInstruction.id).result;
-  assert.equal(result.status, "negated");
-  assert.equal(result.reason, "impossible");
+  const tokenResult = outcome.results.find(entry => entry.id === tokenInstruction.id).result;
+  assert.equal(tokenResult.status, "executed");
   const receipt = outcome.linkedValues[`${tokenInstruction.id}.goldToken`];
-  assert.equal(receipt.blockedReason, "token-definition-or-abilities-judge-required");
-  assert.equal(receipt.amount, 0);
-  assert.equal(scoped.objects.filter(object => object.isToken).length, 0);
+  assert.equal(receipt.blockedReason, undefined);
+  assert.equal(receipt.amount, 1);
+  assert.equal(receipt.createdAmount, 1);
+  const result = outcome.results.find(entry => entry.id === tokenInstruction.id).result;
+  assert.equal(result.status, "executed");
+  const golds = scoped.objects.filter(object => object.isToken);
+  assert.equal(golds.length, 1);
+  assert.equal(golds[0].name, "Gold");
+  assert.deepEqual(golds[0].types, ["gear"]);
+  assert.equal(golds[0].zone, "board");
+  assert.deepEqual(golds[0].location, { type: "base", player: "A" });
+  assert.equal(golds[0].energy, null);
+  assert.equal(golds[0].power, null);
 });
 
 for (const controller of ["A", "B"]) test(`rad-052-167 Resource Extractor regression: a ${controller}-controlled source computes its controller's base for Gold`, () => {
@@ -143,19 +150,30 @@ for (const controller of ["A", "B"]) test(`rad-052-167 Resource Extractor regres
   assert.equal(outcome.results[0].id, controllerBase.id);
   assert.equal(outcome.results[0].result.status, "executed");
   assert.deepEqual(outcome.linkedValues[`${controllerBase.id}.value`], { type: "base", player: controller });
-  assert.equal(outcome.linkedValues[`${tokenInstruction.id}.goldToken`].blockedReason, "token-definition-or-abilities-judge-required");
-  assert.deepEqual(outcome.events, []);
+  const receipt = outcome.linkedValues[`${tokenInstruction.id}.goldToken`];
+  assert.equal(receipt.blockedReason, undefined);
+  assert.equal(receipt.amount, 1);
+  assert.equal(receipt.createdAmount, 1);
+  const golds = scoped.objects.filter(object => object.isToken);
+  assert.equal(golds.length, 1);
+  assert.equal(golds[0].name, "Gold");
+  assert.deepEqual(golds[0].types, ["gear"]);
+  assert.equal(golds[0].zone, "board");
+  assert.deepEqual(golds[0].location, { type: "base", player: controller });
+  assert.deepEqual(outcome.events.map(event => [event.action, event.timingPoint]), [
+    ["create-token", "chain-item-pending"],
+    ["play", "card-played"]
+  ]);
 });
 
 test.todo(
-  "rad-052-167 Resource Extractor: adding the Gold gear token definition (CR 187.5, with its own " +
-    "\"[Reaction][>] Kill this, [E]: [Add] [A]\" ability) to the effect.token definition table."
+  "rad-052-167 Resource Extractor: play the authored exhausted Gold token through the production " +
+    "turn-end trigger and Chain lifecycle (CR 187.5 / 184.1 / 185.2.d / 440.2.c / 185.2.a)."
 );
 
 test.todo(
-  "rad-052-167 Resource Extractor: the printed 'exhausted' entry override (143.4 / 185.2.d) needs an " +
-    "entry-state path on Chain creation/play; a later effect.exhaust is a separate exhaust action and " +
-    "is not a substitute."
+  "rad-052-167 Resource Extractor: bind the controller-Base value produced in the card body to the " +
+    "production chain lifecycle without substituting a fixture destination."
 );
 
 test.todo(

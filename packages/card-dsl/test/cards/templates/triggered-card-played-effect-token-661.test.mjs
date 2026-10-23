@@ -3,15 +3,13 @@ import test from "node:test";
 import { defineTemplateSuite } from "../../../../engine-core/dist/effects/testing/scenario/index.js";
 import amateurDemolitionist from "../../../dist/cards/rad/amateur-demolitionist.js";
 import blackMarketBroker from "../../../dist/cards/sfd/black-market-broker.js";
+import gold from "../../../dist/cards/sfd/gold.js";
 import troveGolem from "../../../dist/cards/sfd/trove-golem.js";
 
-// The shipped programs remain judge-required because Bomb/Gold definitions,
-// entry-state overrides, and the real Facedown Zone path are still blocked.
-// These executable views only remove those unsupported argument-boundary fields
-// so the scenario harness can drive the shared card-played -> effect.token path;
-// the token names, amounts, modes, trigger conditions, and blocked receipts are
-// still taken from each card's own IR. No token is substituted and no state is
-// settled by the test.
+// The shipped programs remain judge-required for their non-Gold gaps. These
+// executable views use the card's own token instruction and register the
+// canonical Gold program with the scenario. That lets the shared card-played ->
+// effect.token path create the real definition without substituting another.
 function executableView(program, { concreteBase = false } = {}) {
   const abilities = concreteBase
     ? program.abilities.map((ability) => ability.kind === "triggered"
@@ -19,7 +17,7 @@ function executableView(program, { concreteBase = false } = {}) {
           ...ability,
           body: ability.body.map((instruction) => {
             const args = Object.fromEntries(
-              Object.entries(instruction.args).filter(([key]) => key !== "entersExhausted")
+              Object.entries(instruction.args)
             );
             args.location = { kind: "constant", value: { type: "base", player: "A" } };
             return { ...instruction, args };
@@ -110,9 +108,10 @@ const rows = [
     }
   },
   {
-    name: "Black Market Broker · facedown provenance reaches the blocked Gold play",
+    name: "Black Market Broker · facedown provenance reaches the canonical Gold play",
     canonicalCardId: blackMarketBroker.canonicalCardId,
     program: black,
+    tokenProgram: gold,
     scenario: {
       objects: [
         {
@@ -164,25 +163,25 @@ const rows = [
         },
         links: {
           "black-market-broker.play-gold-token.goldToken": {
-            amount: 0,
-            objects: [],
+            amount: 1,
+            objects: [{ id: "token-1", zoneEntryId: 1 }],
             objectsComplete: true,
-            createdAmount: 0,
-            createdObjects: [],
-            blockedReason: "token-definition-or-abilities-judge-required"
+            createdAmount: 1,
+            createdObjects: [{ id: "token-1", zoneEntryId: 1 }]
           },
-          "black-market-broker.play-gold-token.goldToken.amount": 0,
-          "black-market-broker.play-gold-token.goldToken.objects": [],
-          "black-market-broker.play-gold-token.goldToken.createdAmount": 0,
-          "black-market-broker.play-gold-token.goldToken.createdObjects": []
+          "black-market-broker.play-gold-token.goldToken.amount": 1,
+          "black-market-broker.play-gold-token.goldToken.objects": [{ id: "token-1", zoneEntryId: 1 }],
+          "black-market-broker.play-gold-token.goldToken.createdAmount": 1,
+          "black-market-broker.play-gold-token.goldToken.createdObjects": [{ id: "token-1", zoneEntryId: 1 }]
         }
       }
     }
   },
   {
-    name: "Trove Golem · four Gold plays stop at the missing definition",
+    name: "Trove Golem · four Gold plays create and play canonical tokens",
     canonicalCardId: troveGolem.canonicalCardId,
     program: trove,
+    tokenProgram: gold,
     scenario: {
       objects: [
         {
@@ -223,17 +222,36 @@ const rows = [
         },
         links: {
           "trove-golem.play-gold-tokens.goldTokens": {
-            amount: 0,
-            objects: [],
+            amount: 4,
+            objects: [
+              { id: "token-1", zoneEntryId: 1 },
+              { id: "token-2", zoneEntryId: 1 },
+              { id: "token-3", zoneEntryId: 1 },
+              { id: "token-4", zoneEntryId: 1 }
+            ],
             objectsComplete: true,
-            createdAmount: 0,
-            createdObjects: [],
-            blockedReason: "token-definition-or-abilities-judge-required"
+            createdAmount: 4,
+            createdObjects: [
+              { id: "token-1", zoneEntryId: 1 },
+              { id: "token-2", zoneEntryId: 1 },
+              { id: "token-3", zoneEntryId: 1 },
+              { id: "token-4", zoneEntryId: 1 }
+            ]
           },
-          "trove-golem.play-gold-tokens.goldTokens.amount": 0,
-          "trove-golem.play-gold-tokens.goldTokens.objects": [],
-          "trove-golem.play-gold-tokens.goldTokens.createdAmount": 0,
-          "trove-golem.play-gold-tokens.goldTokens.createdObjects": []
+          "trove-golem.play-gold-tokens.goldTokens.amount": 4,
+          "trove-golem.play-gold-tokens.goldTokens.objects": [
+            { id: "token-1", zoneEntryId: 1 },
+            { id: "token-2", zoneEntryId: 1 },
+            { id: "token-3", zoneEntryId: 1 },
+            { id: "token-4", zoneEntryId: 1 }
+          ],
+          "trove-golem.play-gold-tokens.goldTokens.createdAmount": 4,
+          "trove-golem.play-gold-tokens.goldTokens.createdObjects": [
+            { id: "token-1", zoneEntryId: 1 },
+            { id: "token-2", zoneEntryId: 1 },
+            { id: "token-3", zoneEntryId: 1 },
+            { id: "token-4", zoneEntryId: 1 }
+          ]
         }
       }
     }
@@ -347,6 +365,26 @@ const rows = [
   }
 ];
 
-for (const row of defineTemplateSuite("triggered card-played effect.token 661", rows)) {
-  test(row.name, row.run);
+for (const row of rows) {
+  const scenarioTokens = row.tokenProgram === undefined ? [] : [{
+    id: `triggered-card-played-661:${row.canonicalCardId}`,
+    cardId: row.tokenProgram.canonicalCardId,
+    program: row.tokenProgram,
+    owner: "A",
+    controller: "A",
+    types: ["gear"],
+    zone: "hand",
+    location: null,
+    energy: null,
+    power: null,
+    might: null,
+  }];
+  const scenario = row.tokenProgram === undefined
+    ? row.scenario
+    : { ...row.scenario, objects: [...(row.scenario.objects ?? []), ...scenarioTokens] };
+  const [testCase] = defineTemplateSuite("triggered card-played effect.token 661", [{
+    ...row,
+    scenario,
+  }]);
+  test(testCase.name, testCase.run);
 }

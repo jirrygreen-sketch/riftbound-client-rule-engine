@@ -103,14 +103,13 @@ test("sfd-081-221 Card Sharp: 'For each opponent who did' reads the first clause
   });
 });
 
-test("sfd-081-221 Card Sharp: an unfulfilled Gold play creates no substitute token or events", () => {
+test("sfd-081-221 Card Sharp: the authored Gold subeffect creates and plays one token", () => {
   const kernel = world().player("A")
     .unit("sharp", { types: ["unit"], might: 3, location: { type: "base", player: "A" } })
     .build();
   const bound = kernel.clone({ sourceSnapshot: kernel.getObject("sharp") });
-  const before = bound.objects;
-  // Exercise the same declared Gold definition without substituting a supported
-  // token. Preserve the receipt and state checks without requiring rejection.
+  const host = bound.getObject("sharp");
+  // Exercise the declared Gold definition through the shared token primitive.
   const run = runInstruction(token, {
     token: { kind: "constant", value: "gold" },
     amount: { kind: "constant", value: 1 },
@@ -119,11 +118,22 @@ test("sfd-081-221 Card Sharp: an unfulfilled Gold play creates no substitute tok
     linkKey: { kind: "constant", value: "bonusGoldTokens" }
   }, { world: bound });
 
-  assert.deepEqual(run.result.events, []);
-  assert.equal(run.linked.bonusGoldTokens.amount, 0);
-  assert.deepEqual(bound.objects.filter((object) => object.isToken).map((object) => object.ref.id), []);
-  assert.deepEqual(bound.objects, before);
-  assert.deepEqual(bound.events, []);
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.bonusGoldTokens.blockedReason, undefined);
+  assert.equal(run.linked.bonusGoldTokens.amount, 1);
+  assert.equal(run.linked.bonusGoldTokens.createdAmount, 1);
+  const golds = bound.objects.filter((object) => object.isToken);
+  assert.equal(golds.length, 1);
+  assert.equal(golds[0].name, "Gold");
+  assert.deepEqual(golds[0].types, ["gear"]);
+  assert.equal(golds[0].zone, "board");
+  assert.deepEqual(golds[0].location, { type: "base", player: "A" });
+  assert.deepEqual(bound.getObject("sharp"), host);
+  assert.deepEqual(run.events.map((event) => [event.action, event.timingPoint]), [
+    ["create-token", "chain-item-pending"],
+    ["pay", "main-start"],
+    ["play", "card-played"]
+  ]);
 });
 
 test.todo(

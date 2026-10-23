@@ -51,29 +51,43 @@ test("sfd-004-221 Bushwhack: [Hidden] expands through the merged keyword registr
   assert.ok(definition.ruleRefs.includes("811.1.b"));
 });
 
-test("sfd-004-221 Bushwhack: an unfulfilled Gold play preserves the board and creates no substitute token", () => {
-  // The declared Gold definition is exercised exactly as authored. The token
-  // has no merged definition, so nothing is created and no substitute token
-  // stands in for it; the receipt keeps the actual count.
+test("sfd-004-221 Bushwhack: the authored Gold play creates and plays one exhausted token", () => {
+  // The declared Gold definition and entry stipulation are exercised exactly
+  // as authored through the shared create-token -> Play handoff.
   const kernel = world().player("A")
     .unit("cask", { types: ["gear"], zone: "board", location: { type: "base", player: "A" } })
     .build();
   const bound = kernel.clone({ sourceSnapshot: kernel.getObject("cask") });
-  const before = bound.objects;
+  const host = bound.getObject("cask");
   const run = runInstruction(token, {
     token: { kind: "constant", value: "gold" },
     amount: { kind: "constant", value: 1 },
     mode: { kind: "constant", value: "play" },
     location: { kind: "constant", value: { type: "base", player: "A" } },
+    entersExhausted: goldToken.args.entersExhausted,
     linkKey: { kind: "constant", value: "goldToken" }
   }, { world: bound });
 
-  assert.deepEqual(run.result.events, []);
-  assert.equal(run.linked.goldToken.amount, 0);
-  assert.deepEqual(run.linked["goldToken.objects"], []);
-  assert.deepEqual(bound.objects.filter((object) => object.isToken).map((object) => object.ref.id), []);
-  assert.deepEqual(bound.objects, before);
-  assert.deepEqual(bound.events, []);
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.goldToken.blockedReason, undefined);
+  assert.equal(run.linked.goldToken.amount, 1);
+  assert.equal(run.linked.goldToken.createdAmount, 1);
+  assert.equal(run.linked.goldToken.objectsComplete, true);
+  const [gold] = bound.objects.filter((object) => object.isToken);
+  assert.ok(gold);
+  assert.equal(gold.name, "Gold");
+  assert.deepEqual(gold.types, ["gear"]);
+  assert.equal(gold.zone, "board");
+  assert.deepEqual(gold.location, { type: "base", player: "A" });
+  assert.equal(gold.exhausted, true);
+  assert.equal(gold.energy, null);
+  assert.equal(gold.power, null);
+  assert.deepEqual(bound.objects.find((object) => object.ref.id === "cask"), host);
+  assert.deepEqual(run.events.map((event) => [event.action, event.timingPoint]), [
+    ["create-token", "chain-item-pending"],
+    ["pay", "main-start"],
+    ["play", "card-played"]
+  ]);
 });
 
 test("sfd-004-221 Bushwhack structure: [Hidden], the entry-ready stipulation and the Gold token", () => {
@@ -106,7 +120,8 @@ test("sfd-004-221 Bushwhack structure: [Hidden], the entry-ready stipulation and
 
   // "Play a Gold gear token exhausted": CR 187.5's Gold definition, the
   // 440.2.c / 185.2.a chain-create + play path and the 143.4 / 185.2.d entry
-  // stipulation. Gold's definition and entry override remain judge-required.
+  // stipulation are authored here; the held-out Hidden and entry-replacement
+  // clauses remain judge-required.
   assert.equal(goldToken.op, "effect.token");
   assert.deepEqual(goldToken.args.token, { kind: "constant", value: "gold" });
   assert.deepEqual(goldToken.args.amount, { kind: "constant", value: 1 });
@@ -137,9 +152,8 @@ test.todo(
 );
 
 test.todo(
-  "sfd-004-221 Bushwhack: playing the Gold gear token needs the CR 187.5 definition (with its own " +
-    "printed ability) in the token table and an entry override on the existing chain-create/play handoff for the " +
-    "exhausted entry stipulation of 143.4 / 185.2.d"
+  "sfd-004-221 Bushwhack: play the card's Gold token through the production TriggerRegistration lifecycle " +
+    "(440.2.c / 185.2.a / 350.2 / 354), including the authored exhausted entry stipulation of 143.4 / 185.2.d"
 );
 
 test("sfd-004-221 Bushwhack: merged entry primitive cannot broaden the spell to a host-only replacement", () => {
