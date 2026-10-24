@@ -564,6 +564,9 @@ describe("RIFT-857 two-precon acceptance", () => {
     }));
   });
 
+  // This is one real 13-turn match plus two strict replays. On the shared gate
+  // host it took 381-813s across verification runs after RIFT-1029/RIFT-1031;
+  // the former 420s bound measured load rather than failure.
   it("executes one real planned match through Match/Chain, double replay, and privacy", () => {
     const probe = probeM1Acceptance();
     expect(probe.expectedGames).toBe(100);
@@ -592,7 +595,7 @@ describe("RIFT-857 two-precon acceptance", () => {
       expect(result.termination).toBe("winner");
       expect(result.winner).not.toBeNull();
     }
-  }, 420_000);
+  }, 900_000);
 
   it("keeps every M1 card bound to a preserved independent golden", () => {
     const manifest = readManifest();

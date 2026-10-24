@@ -1,4 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { performance } from "node:perf_hooks";
+import assemblyRig from "../../../card-dsl/dist/cards/sfd/assembly-rig.js";
+import { cardPrograms } from "../../../card-dsl/dist/cards/registry.generated.js";
+import { createProgramBinding } from "../../../engine-core/dist/programs/index.js";
+import type { CardProgram } from "../../../card-dsl/dist/ir/types.js";
+import { createMatch, type MatchCard, type MatchHost } from "../../../engine-core/dist/game/lifecycle.js";
+import { world } from "../../../engine-core/dist/effects/testing/index.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../engine-core/dist/events/action-adapter.js";
 import {
   rankHeadlessBotCommands,
   replayHeadlessJournal,
@@ -10,6 +18,61 @@ import {
 } from "../../src/headless/duel.js";
 
 const ref = (id: string) => ({ id, zoneEntryId: 1 });
+
+const blockerCardId = assemblyRig.canonicalCardId;
+
+function harnessCard(id: string, name: string, types: readonly string[], seat: "A" | "B"): MatchCard {
+  return { id: `${seat}:${id}`, cardId: `synthetic:${seat}:${id}`, name, types,
+    energy: 0, power: null, might: null };
+}
+
+function blockerDeck(seat: "A" | "B") {
+  return {
+    mainDeck: Array.from({ length: 8 }, (_, index) => harnessCard(`main-${index}`, `Main ${index}`, ["unit"], seat)),
+    runeDeck: Array.from({ length: 8 }, (_, index) => harnessCard(`rune-${index}`, `Rune ${index}`, ["rune"], seat)),
+    championLegend: harnessCard("legend", "Legend", ["legend"], seat),
+    chosenChampion: harnessCard("champion", "Champion", ["champion"], seat),
+    battlefields: [
+      harnessCard("field-1", "Field 1", ["battlefield"], seat),
+      harnessCard("field-2", "Field 2", ["battlefield"], seat),
+      harnessCard("field-3", "Field 3", ["battlefield"], seat),
+    ] as const,
+  };
+}
+
+function runProductionSetupBlocker() {
+  const kernel = world().player("A").player("B").build();
+  const hostBase = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => {
+      const checkpoint = saved as {
+        readonly state: Parameters<typeof kernel.restore>[0];
+        readonly links: Parameters<typeof kernel.copyLinkedFrom>[0];
+      };
+      kernel.restore(checkpoint.state);
+      kernel.copyLinkedFrom(checkpoint.links);
+    },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose: () => { throw new Error("Setup blocker test must not make a game choice"); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+  });
+  const host = Object.assign(Object.create(Object.getPrototypeOf(hostBase)), hostBase,
+    { player: (id: "A" | "B") => kernel.player(id) }) as MatchHost;
+  const binding = createProgramBinding({ cardPrograms: cardPrograms as unknown as readonly CardProgram[] });
+  const match = createMatch({ host, decks: [blockerDeck("A"), blockerDeck("B")],
+    programs: binding, seed: "RIFT-1042-assembly-rig-blocker", battlefieldChoice: [0, 0],
+    mulligans: [[], []], firstPlayer: 0 });
+  const failures: Array<{ readonly error: unknown; readonly cardId: string | null }> = [];
+  binding.attachLifecycle(match.flow.chain, (error, source) => failures.push({ error, cardId: source.cardId }));
+  match.flow.chain.commit({ type: "create-token", player: "A", to: "board",
+    token: { cardId: blockerCardId, name: "Assembly Rig", types: ["gear"], tags: [],
+      energy: null, power: null, might: null },
+    location: { type: "base", player: "A" } });
+  return { failures };
+}
 
 function boardUnit(
   id: string,
@@ -64,30 +127,42 @@ function trace(
 
 describe("headless bot command strategy", () => {
   it("journals an active setup blocker without inventing gameplay or a winner", () => {
+    // Both M1 precons are executable now, so they cannot reproduce a setup
+    // blocker. Assembly Rig remains judge-required in the production registry;
+    // place that real source on a Match and observe the production lifecycle.
+    const started = performance.now();
+    const { failures } = runProductionSetupBlocker();
+    const elapsedMs = performance.now() - started;
+    expect(failures).toEqual(expect.arrayContaining([expect.objectContaining({
+      cardId: assemblyRig.canonicalCardId,
+      error: expect.objectContaining({ name: "ProgramBindingError", code: "judge-required" }),
+    })]));
+    expect(assemblyRig.status).toBe("judge-required");
+    expect(assemblyRig.judgeReason).toBeTruthy();
+    expect(elapsedMs).toBeLessThan(10_000);
+
     let journal: HeadlessJournal | undefined;
     const result = runHeadlessGame("RIFT-857-m1-seed-001", {
-      decks: ["rumble-sfd", "fiora-sfd"],
+      decks: ["vex-unl", "vi-unl"],
       onJournal: value => { journal = value; },
     });
     expect(result.termination).toBe("blocked");
     expect(result.winner).toBeNull();
     expect(result.guardReason).toBeNull();
-    expect(result.blockers).toEqual([
-      expect.objectContaining({ name: "ProgramBindingError", code: "judge-required" }),
-    ]);
-    expect(result.judgeRequiredCards).toContain(
-      "card.hash-0c36f22df8ffa7bed49f59fd138d24b9b0a52a7b8ad4c720afcaa12ec816eee4",
-    );
+    expect(result.blockers.length).toBeGreaterThan(0);
+    expect(result.blockers.every(blocker =>
+      blocker.name === "ProgramBindingError" && blocker.code === "judge-required")).toBe(true);
+    expect(result.judgeRequiredCards.length).toBeGreaterThan(0);
     expect(Object.values(result.actionCoverage.commands).every(count => count === 0)).toBe(true);
     expect(journal).toBeDefined();
     expect(journal!.commands).toEqual([]);
     expect(journal!.setupBlockers).toEqual(result.blockers);
     expect(result.replayMatches).toBe(true);
-    expect(result.privacySafe).toBe(true);
-    expect(result.privacyChecks).toBeGreaterThan(0);
     expect(replayHeadlessJournal(journal!)).toBe(true);
     expect(replayHeadlessJournal({ ...journal!, setupBlockers: [] })).toBe(false);
-  }, 60_000);
+    expect(result.privacySafe).toBe(true);
+    expect(result.privacyChecks).toBeGreaterThan(0);
+  });
 
   it("plays an affordable Unit even when an owned board Unit already exists", () => {
     const play: HeadlessCommand = { type: "play", player: "A", object: ref("unit-play"),

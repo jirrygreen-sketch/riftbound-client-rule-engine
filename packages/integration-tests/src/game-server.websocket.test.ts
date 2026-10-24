@@ -150,6 +150,8 @@ async function waitForProjection(
 }
 
 describe("synthetic-demo WebSocket vertical slice", () => {
+  // The first real vertical-slice request now takes about 8s under the shared
+  // gate load; keep a bounded margin so a stalled WebSocket still fails.
   it("creates a room, joins a second player, plays, prompts, and responds", async () => {
     const { url } = await startServer();
     const alice = await connect(url);
@@ -245,7 +247,7 @@ describe("synthetic-demo WebSocket vertical slice", () => {
       "resolved prompt projection"
     );
     expect(resolved.projection.events.some(event => event.type === "damage-dealt")).toBe(true);
-  });
+  }, 30_000);
 
   it("reconnects with the issued token and resumes the same authoritative session", async () => {
     const { url, server } = await startServer();
