@@ -98,7 +98,7 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
         "Execute: the turn player and opponent pass Priority in sequence while the finalized ability may receive a legally timed Reaction.",
         "Resolve: the independent body executes only after both passes; no replacement or layer effect changes this turn timeline."
       ]),
-      priorityFocus: "Priority belongs to the ordinary Main Phase turn player. CR 337.1.a says Finalize does not pass it; the finalized item grants the Execute window before Resolve.",
+      priorityFocus: "Priority belongs to the ordinary Main Phase turn player. CR 337.1.a says Finalize does not pass it; CR 338.1.b and 339.1 grant the Execute/pass window before Resolve.",
       responseWindow: "The Gear activation is limited to its controller's Main Phase in an Open State and never a Showdown under CR 151.2. While the finalized ability is on the Chain, CR 338.1.a.2 permits legally timed Reaction plays. No numeric priority is assigned.",
       replacement: "No replacement or prevention clause applies. The complete cost must be payable at Finalize under CR 357 and 415.4/417.3.",
       layers: "No continuous effect changes the Energy, Power, recycle choice, Exhaust payment or Mech characteristics.",
