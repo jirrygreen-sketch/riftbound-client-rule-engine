@@ -131,7 +131,7 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
       ruleRefs: Object.freeze([
         "107.1.a", "107.1.b", "107.1.c", "108.1", "108.1.a", "143.4",
         "185.2.a", "185.2.d", "185.3.a", "185.3.a.1", "187.4", "337.2",
-        "350.2", "352.1", "352.2", "354", "355.2", "359.2.c",
+        "329", "329.1", "329.2", "329.3", "350.2", "352.1", "352.2", "354", "355.2", "359.2.c",
         "420.3", "420.3.a", "420.3.b", "440.2.c"
       ]),
       timeline: Object.freeze([
@@ -214,6 +214,9 @@ test("Assembly Rig official CR, Radiance, SFD errata and production timelines ar
   ].includes(rule)), [
     "420.3", "420.3.a", "420.3.b"
   ]);
+  assert.deepEqual(OFFICIAL_EFFECT_ORDER_EVIDENCE.interactions[1].ruleRefs.filter(rule => [
+    "329", "329.1", "329.2", "329.3"
+  ].includes(rule)), ["329", "329.1", "329.2", "329.3"]);
 });
 
 test("Assembly Rig production registry refuses the shipped judge-required program before activation", () => {
