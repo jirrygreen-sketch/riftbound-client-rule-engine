@@ -131,7 +131,8 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
       ruleRefs: Object.freeze([
         "107.1.a", "107.1.b", "107.1.c", "108.1", "108.1.a", "143.4",
         "185.2.a", "185.2.d", "185.3.a", "185.3.a.1", "187.4", "337.2",
-        "350.2", "352.1", "352.2", "354", "355.2", "359.2.c", "440.2.c"
+        "350.2", "352.1", "352.2", "354", "355.2", "359.2.c",
+        "420.3", "420.3.a", "420.3.b", "440.2.c"
       ]),
       timeline: Object.freeze([
         "The activation Resolve calls effect.token in mode play; the fixed CR 187.4 Mech is created on the Chain.",
@@ -207,6 +208,11 @@ test("Assembly Rig official CR, Radiance, SFD errata and production timelines ar
   ].includes(rule)), [
     "143.4", "185.2.a", "185.2.d", "185.3.a", "187.4", "337.2", "350.2",
     "352.1", "352.2", "354", "355.2", "359.2.c", "440.2.c"
+  ]);
+  assert.deepEqual(OFFICIAL_EFFECT_ORDER_EVIDENCE.interactions[1].ruleRefs.filter(rule => [
+    "420.3", "420.3.a", "420.3.b"
+  ].includes(rule)), [
+    "420.3", "420.3.a", "420.3.b"
   ]);
 });
 
