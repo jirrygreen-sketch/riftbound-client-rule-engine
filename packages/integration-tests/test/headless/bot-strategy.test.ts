@@ -9,9 +9,12 @@ import { world } from "../../../engine-core/dist/effects/testing/index.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../engine-core/dist/events/action-adapter.js";
 import {
   rankHeadlessBotCommands,
+  replayHeadlessJournal,
+  runHeadlessGame,
   type HeadlessCommand,
   type HeadlessCommandTrace,
   type HeadlessCommandTraceObject,
+  type HeadlessJournal,
 } from "../../src/headless/duel.js";
 
 const ref = (id: string) => ({ id, zoneEntryId: 1 });
@@ -123,7 +126,7 @@ function trace(
 }
 
 describe("headless bot command strategy", () => {
-  it("surfaces an active setup blocker before gameplay begins", () => {
+  it("journals an active setup blocker without inventing gameplay or a winner", () => {
     // Both M1 precons are executable now, so they cannot reproduce a setup
     // blocker. Assembly Rig remains judge-required in the production registry;
     // place that real source on a Match and observe the production lifecycle.
@@ -137,6 +140,28 @@ describe("headless bot command strategy", () => {
     expect(assemblyRig.status).toBe("judge-required");
     expect(assemblyRig.judgeReason).toBeTruthy();
     expect(elapsedMs).toBeLessThan(10_000);
+
+    let journal: HeadlessJournal | undefined;
+    const result = runHeadlessGame("RIFT-857-m1-seed-001", {
+      decks: ["vex-unl", "vi-unl"],
+      onJournal: value => { journal = value; },
+    });
+    expect(result.termination).toBe("blocked");
+    expect(result.winner).toBeNull();
+    expect(result.guardReason).toBeNull();
+    expect(result.blockers.length).toBeGreaterThan(0);
+    expect(result.blockers.every(blocker =>
+      blocker.name === "ProgramBindingError" && blocker.code === "judge-required")).toBe(true);
+    expect(result.judgeRequiredCards.length).toBeGreaterThan(0);
+    expect(Object.values(result.actionCoverage.commands).every(count => count === 0)).toBe(true);
+    expect(journal).toBeDefined();
+    expect(journal!.commands).toEqual([]);
+    expect(journal!.setupBlockers).toEqual(result.blockers);
+    expect(result.replayMatches).toBe(true);
+    expect(replayHeadlessJournal(journal!)).toBe(true);
+    expect(replayHeadlessJournal({ ...journal!, setupBlockers: [] })).toBe(false);
+    expect(result.privacySafe).toBe(true);
+    expect(result.privacyChecks).toBeGreaterThan(0);
   });
 
   it("plays an affordable Unit even when an owned board Unit already exists", () => {

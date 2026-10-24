@@ -161,7 +161,11 @@ describe("M1 headless dual-bot regression", () => {
       }
       expect(summary.results.every(result => result.judgeRequiredRejections >= 0)).toBe(true);
       expect(summary.actionCoverage.commands.concede).toBe(0);
-      expect(summary.judgeRequiredCardCounts.length).toBeGreaterThanOrEqual(0);
+      const expectedJudgeRequired = new Set(summary.results.flatMap(result => result.judgeRequiredCards));
+      expect(new Set(summary.judgeRequiredCardCounts.map(card => card.cardId))).toEqual(expectedJudgeRequired);
+      if (summary.results.some(result => result.termination === "blocked")) {
+        expect(summary.judgeRequiredCardCounts.length).toBeGreaterThan(0);
+      }
       expect(summary.results.every(result => /^[0-9a-f]{64}$/.test(result.journalDigest))).toBe(true);
     }
   }, 60_000);
@@ -215,29 +219,43 @@ describe("M1 headless dual-bot regression", () => {
     expect(result.actionCoverage.commands.concede).toBe(0);
   }, 60_000);
 
-  it("holds the reverse seat pair to real Unit, move and Rune coverage", () => {
-    let journal: HeadlessJournal | undefined;
-    const result = runHeadlessGame(replayableSeed, {
-      decks: ["fiora-sfd", "rumble-sfd"], maxActions: 80,
-      onJournal: value => { journal = value; },
-    });
-    if (result.termination === "blocked") {
-      expectBlockedEvidence(result);
-      expect(journal!.commands).toEqual([]);
-      expect(journal!.setupBlockers).toEqual(result.blockers);
-      return;
-    }
-    expect(journal!.commands.some(entry => entry.command.type === "rune-energy" && entry.failure === null)).toBe(true);
-    expect(journal!.commands.some(entry => entry.trace?.boardUnits.length)).toBe(true);
-    expect(journal!.commands.some(entry => (entry.trace?.candidateCounts.move ?? 0) > 0)).toBe(true);
+  const expectNaturalCoverage = (
+    result: HeadlessStats,
+    journal: HeadlessJournal,
+  ) => {
+    expect(result.termination).not.toBe("blocked");
+    expect(journal.setupBlockers).toBeUndefined();
+    expect(journal.commands.some(entry => entry.command.type === "rune-energy" && entry.failure === null)).toBe(true);
+    expect(journal.commands.some(entry => entry.trace?.boardUnits.length)).toBe(true);
+    expect(journal.commands.some(entry => (entry.trace?.candidateCounts.move ?? 0) > 0)).toBe(true);
     expect(result.observedActions.committedPlays).toBeGreaterThan(0);
     expect(result.exceptions).toEqual([]);
     expect(result.actionCoverage.commands.concede).toBe(0);
     expect(result.replayMatches).toBe(true);
     expect(result.privacySafe).toBe(true);
+    expect(result.termination).toBe("winner");
+    expect(result.winner).not.toBeNull();
     expect(result.blockers).toEqual([]);
-    expect(result.termination).toBe("guard");
-    expect(result.guardReason).toBe("action-limit");
+    expect(headlessTerminationClass(result)).toBe("natural");
+  };
+
+  it("holds both fixed seat orientations to natural Unit, move and Rune winners", () => {
+    const rumbleA = matrixResults.find(result =>
+      result.seed === replayableSeed && result.decks.A === "rumble-sfd" && result.decks.B === "fiora-sfd");
+    expect(rumbleA).toBeDefined();
+    expectNaturalCoverage(
+      rumbleA!,
+      matrixJournals.get("rumble-sfd:fiora-sfd")!,
+    );
+
+    const fioraSeed = "RIFT-874-orientation-fiora-sfd-1";
+    let journal: HeadlessJournal | undefined;
+    const fioraA = runHeadlessGame(fioraSeed, {
+      decks: ["fiora-sfd", "rumble-sfd"],
+      onJournal: value => { journal = value; },
+    });
+    expect(fioraA.decks).toEqual({ A: "fiora-sfd", B: "rumble-sfd" });
+    expectNaturalCoverage(fioraA, journal!);
   }, 900_000);
 
   it("builds the four JSON-backed M1 deck shapes without changing printed null costs", () => {
