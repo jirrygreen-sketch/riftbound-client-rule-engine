@@ -21,6 +21,8 @@ const RADIANCE_URL =
   "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/";
 const SFD_ERRATA_URL =
   "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/";
+const SFD_PATCH_URL =
+  "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-core-rules-spiritforged-patch-notes/";
 
 // The shipped program is withheld at the binding gate until the token Play is
 // represented by a real Chain item. A same-identity, same-IR carrier below
@@ -73,13 +75,20 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
       url: SFD_ERRATA_URL,
       applicableToThisCard: false,
       result: "reviewed: no Assembly Rig or SFD-019 correction"
+    }),
+    spiritforgedRulings: Object.freeze({
+      published: "2025-12-05",
+      effective: "2025-12-12",
+      url: SFD_PATCH_URL,
+      applicableToThisCard: false,
+      result: "reviewed: no Assembly Rig, SFD-019 or token cost-rule change"
     })
   }),
   interactions: Object.freeze([
     Object.freeze({
       id: "activation-finalize",
       canonicalCardId: CARD_ID,
-      sourceIds: Object.freeze(["coreRules", "radianceRulings", "spiritforgedErrata"]),
+      sourceIds: Object.freeze(["coreRules", "radianceRulings", "spiritforgedErrata", "spiritforgedRulings"]),
       clauses: Object.freeze([
         ":rb_energy_1::rb_rune_fury:",
         "Recycle a unit from your trash",
@@ -117,7 +126,7 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
     Object.freeze({
       id: "play-mech-token",
       canonicalCardId: CARD_ID,
-      sourceIds: Object.freeze(["coreRules", "radianceRulings", "spiritforgedErrata"]),
+      sourceIds: Object.freeze(["coreRules", "radianceRulings", "spiritforgedErrata", "spiritforgedRulings"]),
       clauses: Object.freeze(["Play a 3 :rb_might: Mech unit token to your base."]),
       ruleRefs: Object.freeze([
         "107.1.a", "107.1.b", "107.1.c", "108.1", "108.1.a", "143.4",
@@ -171,13 +180,18 @@ test("Assembly Rig official CR, Radiance, SFD errata and production timelines ar
   assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.radianceRulings.effective, "2026-10-16");
   assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.radianceRulings.applicableToThisCard, false);
   assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.spiritforgedErrata.applicableToThisCard, false);
+  assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.spiritforgedRulings.published, "2025-12-05");
+  assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.spiritforgedRulings.effective, "2025-12-12");
+  assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.spiritforgedRulings.applicableToThisCard, false);
   assert.deepEqual(OFFICIAL_EFFECT_ORDER_EVIDENCE.interactions.map(interaction => interaction.id), [
     "activation-finalize", "play-mech-token"
   ]);
   const productionNames = new Set(Object.values(PRODUCTION_TEST_NAMES));
   for (const interaction of OFFICIAL_EFFECT_ORDER_EVIDENCE.interactions) {
     assert.equal(interaction.canonicalCardId, CARD_ID);
-    assert.deepEqual(interaction.sourceIds, ["coreRules", "radianceRulings", "spiritforgedErrata"]);
+    assert.deepEqual(interaction.sourceIds, [
+      "coreRules", "radianceRulings", "spiritforgedErrata", "spiritforgedRulings"
+    ]);
     assert.ok(interaction.clauses.length > 0);
     assert.ok(interaction.ruleRefs.length > 0);
     assert.ok(interaction.timeline.length >= 3);
