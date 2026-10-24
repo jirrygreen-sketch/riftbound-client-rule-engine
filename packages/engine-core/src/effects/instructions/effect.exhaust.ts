@@ -11,9 +11,10 @@
  * Legend Zone）；124/128（对象离区后旧引用失效，只能取最后已知信息）。
  *
  * 参数（argsSchema 在解释器求值前校验 IR 形状）：
- * - target?: string — TargetSpec id。目标集合经 ctx.targets(id) 读取（Finalize 锁定、
- *   Resolve 重验后仍合法的目标）。用于 "Exhaust an enemy legend." 这类目标式文本
- *   （355.10.g）。
+ * - target?: string — TargetSpec id，或 CardProgram 使用的 `"source"` 对象指代。
+ *   TargetSpec 集合经 ctx.targets(id) 读取（Finalize 锁定、Resolve 重验后仍合法的
+ *   目标），用于 "Exhaust an enemy legend." 这类目标式文本（355.10.g）；
+ *   `"source"` 精确绑定能力来源的当前 zone entry，不创建对象目标（355.10.c）。
  * - pick?: string — PickSpec id。非目标选择经 ctx.picks(id) 读取（v1.5 的 pick 不触发
  *   "成为目标"相关触发，契约 3.4）。
  * - choose?: { id, filter?, chooser?, visibility?, prompt? } — 非目标选择：先用
@@ -108,6 +109,7 @@ export interface EffectExhaustArgs {
 }
 
 type Selection =
+  | { readonly kind: "source" }
   | { readonly kind: "target"; readonly id: string }
   | { readonly kind: "pick"; readonly id: string }
   | {
@@ -242,6 +244,9 @@ function isExhaustible(ctx: ResolveContext, ref: ObjectRef): boolean {
 }
 
 function toSelection(ctx: ResolveContext, args: EffectExhaustArgs): Selection {
+  // `source` is an ObjectSelector in CardProgram IR, not a TargetSpec id. A
+  // bare TargetSpec id remains supported for authored targeted abilities.
+  if (args.target === "source") return { kind: "source" };
   if (args.target !== undefined) return { kind: "target", id: args.target };
   if (args.pick !== undefined) return { kind: "pick", id: args.pick };
   const choice = args.choose!;
@@ -256,6 +261,7 @@ function toSelection(ctx: ResolveContext, args: EffectExhaustArgs): Selection {
 }
 
 function selectionRefs(ctx: ResolveContext, selection: Selection): readonly ObjectRef[] {
+  if (selection.kind === "source") return [ctx.source.ref];
   if (selection.kind === "target") return ctx.targets(selection.id);
   if (selection.kind === "pick") return ctx.picks(selection.id).filter(isRef);
   const refs = ctx.query(selection.filter).map(object => object.ref);
