@@ -96,6 +96,15 @@ test('RIFT-1033 Unsung Hero at printed 4 with a Buff dies as Mighty and draws 2'
   assert.equal(death.object.zone, 'board', 'LKI remains the final pre-transition Board state');
   assert.equal(death.object.might, 5, 'death LKI contains the effective layered Might');
   assert.equal(death.object.buffs, 1, 'the final Board counter remains available to the trigger');
+  assert.equal(death.it?.might, 5, 'the immutable event role carries the same layered LKI');
+  const leaveEvents = f.engine.pipeline.events.filter(event =>
+    event.timingPoint.startsWith('object-leaves-') && event.object?.ref.id === 'hero');
+  assert.equal(leaveEvents.length, 3);
+  assert.ok(leaveEvents.every(event => event.object.zone === 'board' && event.object.might === 5));
+  const trashEntry = f.engine.pipeline.events.find(event =>
+    event.timingPoint === 'object-enters-zone' && event.object?.ref.id === 'hero');
+  assert.equal(trashEntry.object.zone, 'trash');
+  assert.equal(trashEntry.object.might, 4, 'the Trash entry retains its ordinary post-transition snapshot');
   assert.equal(f.engine.items.length, 1, 'the conditional Deathknell crossed the production pending boundary');
   assert.equal(f.engine.items[0].trigger.source.might, 5);
   assert.equal(f.engine.items[0].trigger.event.object.might, 5);
@@ -124,7 +133,7 @@ test('RIFT-1033 printed 4 without a Buff is not Mighty and does not trigger', ()
   assert.equal(f.kernel.player('A').handCount, 0);
 });
 
-test('RIFT-1033 production typed batch seam preserves layered Deathknell LKI before Trash', () => {
+test('RIFT-1033 production typed batch preserves layered Deathknell LKI before Trash', () => {
   const f = runtime({ objects: 2, drawCards: ['d1', 'd2', 'd3', 'd4', 'd5', 'd6'] });
   const refs = [f.kernel.ref('hero'), f.kernel.ref('hero-1')];
   const outcome = f.engine.pipeline.commitContract(killBatch(refs, 'RIFT-1033:wave'));

@@ -829,7 +829,16 @@ export class ChainEngine {
     hostWriteEpoch++;
     const after = new Map(this.layerObjects().map(object => [key(object), object]));
     const snapshot = (object: ObjectSnapshot | undefined, previous = false) => object ? (previous ? before.get(key(object)) : after.get(key(object))) ?? before.get(key(object)) ?? object : undefined;
-    return { ...execution, emissions: execution.emissions.map(event => ({ ...event, object: snapshot(event.object, event.timingPoint.startsWith('object-leaves-') || event.timingPoint === 'object-killed'), source: snapshot(event.source, true), target: snapshot(event.target) })) };
+    return { ...execution, emissions: execution.emissions.map(event => {
+      const leaving = event.timingPoint.startsWith('object-leaves-') || event.timingPoint === 'object-killed';
+      return {
+        ...event,
+        object: snapshot(event.object, leaving),
+        ...(event.it === undefined ? {} : { it: snapshot(event.it, leaving) }),
+        source: snapshot(event.source, true),
+        target: snapshot(event.target),
+      };
+    }) };
   }
   /**
    * The adapter's confirmed-Kill callback runs after replacements but before
