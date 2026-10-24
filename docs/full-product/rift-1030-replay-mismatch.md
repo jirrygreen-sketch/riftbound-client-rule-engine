@@ -126,3 +126,11 @@ replay test green for fresh journals. The three archived journals still fail at
 the later `details.item` difference until request 2 is completed; temporarily
 removing that assertion avoids shipping a permanently red integration gate
 without pretending that the historical-journal acceptance criterion passed.
+
+The archive assertion was exercised directly on 2026-10-24 before that removal:
+`replayHeadlessJournal` returned false for all three restored journals at the
+exact first divergences in the table above. The focused command spent 923892 ms
+and reported 3 failed / 5 passed. The engine owner branch
+`task/RIFT-1037-eg-deterministic-play-ids` currently has no fix commit and is
+still based on `021d9b5e`; the latest `integration` (`b6a9d7f3`) does not contain
+the `playSequence` fix.
