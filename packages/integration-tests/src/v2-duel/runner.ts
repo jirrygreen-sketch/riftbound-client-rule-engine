@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createGameServer, type GameServer } from "../../../../apps/game-server/src/server.js";
+import { InMemoryRoomStore } from "../../../../apps/game-server/src/room-store.js";
 import { cardProgramsById } from "../../../../packages/card-dsl/dist/cards/registry.generated.js";
 import type { CardProgram } from "../../../../packages/card-dsl/dist/ir/index.js";
 import type {
@@ -40,6 +41,7 @@ export interface V2DuelRunOptions {
   readonly creator?: "first" | "second";
   readonly totalTimeoutMs?: number;
 }
+
 function currentPhaseLabel(view: V2Projection): string {
   return `${view.phase}/${view.priority.window}`;
 }
@@ -100,6 +102,51 @@ function snapshotView(sessions: readonly V2WebSocketSession[]): readonly [V2Proj
   const secondView = second.snapshot.projection;
   if (!firstView || !secondView) throw new Error("Both V2 clients must have a projection");
   return [firstView, secondView] as const;
+}
+
+function choiceTransitioned(before: V2Projection, after: V2Projection): boolean {
+  if (before.pendingChoice.status !== "pending") return after.pendingChoice.status === "pending";
+  if (after.pendingChoice.status !== "pending") return true;
+  return after.pendingChoice.choiceId !== before.pendingChoice.choiceId ||
+    after.pendingChoice.kind !== before.pendingChoice.kind;
+}
+
+/** Pending receipts intentionally keep the clock stable while the server can
+ * replace one choice with the next. Wait for that projection transition instead
+ * of accepting the command's pre-state snapshot as the resumed state. */
+async function waitForCommandProjection(
+  session: V2WebSocketSession,
+  before: V2Projection,
+  command: V2Command,
+  receipt: V2CommandReceipt
+): Promise<V2Projection> {
+  const advanced = (projection: V2Projection) =>
+    projection.stateVersion > receipt.stateVersion || projection.eventSeq > receipt.eventSeq;
+  const pendingChanged = (projection: V2Projection) =>
+    projection.stateVersion >= receipt.stateVersion && projection.eventSeq >= receipt.eventSeq &&
+    choiceTransitioned(before, projection);
+  const reached = (projection: V2Projection) => {
+    if (projection.stateVersion < receipt.stateVersion || projection.eventSeq < receipt.eventSeq) return false;
+    if (command.type === "choose") {
+      if (before.pendingChoice.status !== "pending") return true;
+      return projection.pendingChoice.status === "none" || choiceTransitioned(before, projection) || advanced(projection);
+    }
+    // A pending play/target insertion keeps the command clock unchanged and
+    // publishes a new choice. A completed command advances at least one clock.
+    return pendingChanged(projection) || advanced(projection);
+  };
+  if (command.type !== "choose") {
+    return session.waitForProjectionAfter(command.commandId, receipt);
+  }
+  // The session snapshot can still be the projection that preceded this
+  // command. Only consume a projection newer than that caller snapshot.
+  const status = session.snapshot.projection;
+  const newer = status !== null && (status.stateVersion > before.stateVersion ||
+    status.eventSeq > before.eventSeq ||
+    (status.stateVersion === before.stateVersion && status.eventSeq === before.eventSeq &&
+      before.pendingChoice.status === "pending" && choiceTransitioned(before, status)));
+  if (status !== null && newer && reached(status)) return status;
+  return session.waitForProjection(reached, `${session.name} projection after ${command.commandId}`);
 }
 
 async function startPair(
@@ -201,7 +248,10 @@ async function runV2DuelInternal(options: V2DuelRunOptions, deadline: number): P
   const server: GameServer = createGameServer({
     host: "127.0.0.1",
     port,
-    roomIdFactory: () => options.seed
+    roomIdFactory: () => options.seed,
+    // This runner intentionally exercises the production in-memory store;
+    // filesystem persistence and restart recovery have separate coverage.
+    roomStore: new InMemoryRoomStore()
   });
   const sessions: V2WebSocketSession[] = [];
   let cleanupError: unknown;
@@ -368,8 +418,22 @@ async function runV2DuelInternal(options: V2DuelRunOptions, deadline: number): P
       actionCount += 1;
       let receipt: V2CommandReceipt;
       try {
-        receipt = await selected.session.sendCommandWithin(command,
-          Math.min(options.actionTimeoutMs ?? 12_000, options.acknowledgementTimeoutMs ?? 12_000));
+        const acknowledgementBudget = Math.min(options.actionTimeoutMs ?? 12_000,
+          options.acknowledgementTimeoutMs ?? 12_000);
+        try {
+          receipt = await selected.session.sendCommandWithin(command, acknowledgementBudget);
+        } catch (error) {
+          // This harness hosts both endpoints in one Node process. A synchronous
+          // authoritative command can cross the wall-clock ACK budget before the
+          // socket message callback runs. Re-send the identical command once so
+          // the server's commandId journal supplies its real accepted/duplicate
+          // receipt; never synthesize state or skip the command.
+          if (error instanceof V2CommandFailure) throw error;
+          if (!(error instanceof Error) || !error.message.includes("timed out waiting")) throw error;
+          debugProgress(options.seed, { commandId, command: command.type,
+            receiptRecovery: "duplicate commandId after ACK timeout" });
+          receipt = await selected.session.sendCommandWithin(command, acknowledgementBudget);
+        }
       } catch (error) {
         if (error instanceof V2CommandFailure) {
           const failedView = selected.session.snapshot.projection ?? selected.view;
@@ -458,8 +522,8 @@ async function runV2DuelInternal(options: V2DuelRunOptions, deadline: number): P
         repeated = 0;
       }
       const next = await Promise.all([
-        pair.first.waitForProjectionAfter(command.commandId, receipt),
-        pair.second.waitForProjectionAfter(command.commandId, receipt)
+        waitForCommandProjection(pair.first, selected.view, command, receipt),
+        waitForCommandProjection(pair.second, selected.view, command, receipt)
       ]) as readonly [V2Projection, V2Projection];
       if (receipt.accepted) {
         const waitingForChoice = next[0].pendingChoice.status === "pending" &&
