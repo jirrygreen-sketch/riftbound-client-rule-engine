@@ -98,6 +98,32 @@ interface SeenCommand {
   readonly receipt: RuntimeReceipt;
 }
 
+interface PreparedPlay {
+  readonly playerId: string;
+  readonly objectId: string;
+  readonly commandId: string;
+  readonly stateVersion: number;
+  readonly base: ReturnType<ProgramBinding["describePlay"]>;
+}
+
+interface AtomicChain {
+  atomic<T>(run: () => T): T;
+}
+
+interface TurnFlowCheckpoint {
+  checkpoint(): unknown;
+  restore(checkpoint: unknown): void;
+}
+
+interface RuntimeMetadataCheckpoint {
+  readonly stateVersion: number;
+  readonly pending: MatchRuntime["pending"];
+  readonly decisions: MatchRuntime["decisions"];
+  readonly preparedPlay: PreparedPlay | null;
+  readonly visibilityGrants: readonly RuntimeVisibilityGrant[];
+  readonly seen: ReadonlyMap<string, SeenCommand>;
+}
+
 /**
  * The engine-core action vocabulary distinguishes the Board zone from the
  * location carried by each Permanent. EngineRuntimeHost's raw zone move keeps
@@ -108,7 +134,13 @@ interface SeenCommand {
  */
 class RuntimeBoardHost extends EngineRuntimeHost {
   override perform(action: GameAction): ReturnType<EngineRuntimeHost["perform"]> {
-    return this.normalizeBoardObject(super.perform(action));
+    this.invalidateObjectCache();
+    const outcome = super.perform(action);
+    try {
+      return this.normalizeBoardObject(outcome);
+    } finally {
+      this.invalidateObjectCache();
+    }
   }
 
   private normalizeBoardObject(outcome: ReturnType<EngineRuntimeHost["perform"]>): ReturnType<EngineRuntimeHost["perform"]> {
@@ -223,15 +255,10 @@ class MatchRuntime implements EngineRuntime {
     readonly playerId: string;
     readonly visibilityGrants: readonly RuntimeVisibilityGrant[];
     readonly answers: ReadonlyMap<string, unknown>;
+    readonly preparedPlay: PreparedPlay | null;
   } | null = null;
   private decisions: ReadonlyMap<string, unknown> | null = null;
-  private preparedPlay: {
-    readonly playerId: string;
-    readonly objectId: string;
-    readonly commandId: string;
-    readonly stateVersion: number;
-    readonly base: ReturnType<ProgramBinding["describePlay"]>;
-  } | null = null;
+  private preparedPlay: PreparedPlay | null = null;
   private choiceVisibilityGrants: readonly RuntimeVisibilityGrant[] = [];
   private readonly seen = new Map<string, SeenCommand>();
   private runtimeOptions: EngineRuntimeOptions;
@@ -338,23 +365,13 @@ class MatchRuntime implements EngineRuntime {
     }
     if (command.stateVersion !== this.stateVersion) return this.rejected(command, playerId, `stateVersion mismatch: expected ${this.stateVersion}, received ${command.stateVersion}`);
     if (command.type === "choose") return this.choose(playerId, command);
-    const beforeCommand = this.journal();
     try {
-      const result = this.execute(playerId, command);
-      this.stateVersion += 1;
-      this.runtimeOptions.afterCommandExecution?.(command, {
-        stateVersion: this.stateVersion,
-        eventSeq: this.match!.events().length,
-      });
-      const receipt: RuntimeReceipt = { commandId: command.commandId, status: "accepted", stateVersion: this.stateVersion, eventSeq: this.match!.events().length, result };
-      this.preparedPlay = null;
-      this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
-      this.appendJournal(playerId, command, receipt, result);
-      return { receipt, projection: this.projectFor(playerId) };
+      return this.atomicCommand(() => this.executeAndCommit(playerId, command));
     } catch (error) {
       if (error instanceof PendingChoiceError) {
         this.pending = { request: error.request, command: structuredClone(command), playerId,
-          visibilityGrants: this.choiceVisibilityGrants, answers: new Map() };
+          visibilityGrants: this.choiceVisibilityGrants, answers: new Map(),
+          preparedPlay: this.preparedPlay };
         const receipt: RuntimeReceipt = { commandId: command.commandId, status: "pending", stateVersion: this.stateVersion, eventSeq: this.match!.events().length, choice: { choiceId: error.request.id, ownerPlayerId: error.request.chooser, stateVersion: this.stateVersion } };
         this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
         this.appendJournal(playerId, command, receipt, { pending: true, choice: receipt.choice! }, false, {
@@ -364,10 +381,6 @@ class MatchRuntime implements EngineRuntime {
         });
         return { receipt, projection: this.projectFor(playerId) };
       }
-      // If the command has already mutated state, restore from the last
-      // committed journal rather than retaining a consumed resource plan,
-      // uncommitted receipt or partial event sequence.
-      this.restore(beforeCommand);
       return this.rejected(command, playerId, error instanceof Error ? error.message : String(error));
     }
   }
@@ -443,19 +456,24 @@ class MatchRuntime implements EngineRuntime {
     answers.set(original.request.id, decision);
     this.pending = null; this.decisions = answers;
     try {
-      const result = this.execute(original.playerId, original.command);
-      this.decisions = null;
-      this.preparedPlay = null;
-      this.stateVersion += 1;
-      const receipt: RuntimeReceipt = { commandId: command.commandId, status: "accepted", stateVersion: this.stateVersion, eventSeq: this.match!.events().length, result: { resumedCommandId: original.command.commandId, accepted: true } };
-      this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
-      this.appendJournal(playerId, command, receipt, receipt.result!);
-      this.choiceVisibilityGrants = [];
-      return { receipt, projection: this.projectFor(playerId) };
+      return this.atomicCommand(() => {
+        this.execute(original.playerId, original.command);
+        const receipt = { commandId: command.commandId, status: "accepted" as const, stateVersion: this.stateVersion + 1,
+          eventSeq: this.match!.events().length, result: { resumedCommandId: original.command.commandId, accepted: true } };
+        this.stateVersion += 1;
+        const projection = this.projectFor(playerId);
+        this.appendJournal(playerId, command, receipt, receipt.result!);
+        this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
+        this.decisions = null;
+        this.preparedPlay = null;
+        this.choiceVisibilityGrants = [];
+        return { receipt, projection };
+      });
     } catch (error) {
       if (error instanceof PendingChoiceError) {
         this.pending = { request: error.request, command: original.command, playerId: original.playerId,
-          visibilityGrants: this.choiceVisibilityGrants, answers };
+          visibilityGrants: this.choiceVisibilityGrants, answers,
+          preparedPlay: this.preparedPlay };
         const receipt: RuntimeReceipt = { commandId: command.commandId, status: "pending", stateVersion: this.stateVersion,
           eventSeq: this.match!.events().length, choice: { choiceId: error.request.id, ownerPlayerId: error.request.chooser, stateVersion: this.stateVersion } };
         this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
@@ -464,15 +482,21 @@ class MatchRuntime implements EngineRuntime {
         });
         return { receipt, projection: this.projectFor(playerId) };
       }
-      this.decisions = null; this.pending = original; this.preparedPlay = null; this.choiceVisibilityGrants = original.visibilityGrants;
+      this.decisions = null; this.pending = original; this.preparedPlay = original.preparedPlay;
+      this.choiceVisibilityGrants = original.visibilityGrants;
       return this.rejected(command, playerId, error instanceof Error ? error.message : String(error));
     }
   }
 
   private execute(playerId: string, command: V2Command): Record<string, unknown> {
     const match = this.match!;
-    this.syncHiddenTurn();
+    // Concede also owns its winner outside the object host, so the outer
+    // Command transaction includes it with the same rollback boundary.
     if (command.type === "concede") { concede(match, playerId); return { accepted: true, winnerPlayerId: match.result().winner }; }
+    return this.executeValidatedCommand(match, playerId, command);
+  }
+
+  private executeValidatedCommand(match: Match, playerId: string, command: Exclude<V2Command, { readonly type: "concede" }>): Record<string, unknown> {
     if (command.type === "pass") {
       if (match.flow.chain.items.some(item => item.status === "pending")) {
         // Finalize choices are part of the chain and may suspend before the
@@ -583,6 +607,72 @@ class MatchRuntime implements EngineRuntime {
 
   private resolveObject(id: string): ReturnType<EngineRuntimeHost["objects"]>[number] {
     const object = this.host!.objects().find(candidate => candidate.ref.id === id); if (!object) throw new Error(`Unknown object ${id}`); return object;
+  }
+
+  private atomicChain(): AtomicChain { return this.match!.flow.chain as unknown as AtomicChain; }
+
+  /** Execute and commit exactly one network command inside the same rollback. */
+  private executeAndCommit(playerId: string, command: V2Command): RuntimeSubmitResult {
+    const result = this.execute(playerId, command);
+    this.stateVersion += 1;
+    this.runtimeOptions.afterCommandExecution?.(command, {
+      stateVersion: this.stateVersion,
+      eventSeq: this.match!.events().length,
+    });
+    const receipt: RuntimeReceipt = { commandId: command.commandId, status: "accepted", stateVersion: this.stateVersion,
+      eventSeq: this.match!.events().length, result };
+    const projection = this.projectFor(playerId);
+    this.appendJournal(playerId, command, receipt, result);
+    this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
+    if (this.preparedPlay?.playerId === playerId && this.preparedPlay.commandId === command.commandId) {
+      this.preparedPlay = null;
+    }
+    return { receipt, projection };
+  }
+
+  private metadataCheckpoint(): RuntimeMetadataCheckpoint {
+    return { stateVersion: this.stateVersion, pending: this.pending, decisions: this.decisions,
+      preparedPlay: this.preparedPlay,
+      visibilityGrants: this.choiceVisibilityGrants, seen: new Map(this.seen) };
+  }
+
+  private restoreMetadata(before: RuntimeMetadataCheckpoint): void {
+    this.stateVersion = before.stateVersion;
+    this.pending = before.pending;
+    this.decisions = before.decisions;
+    this.preparedPlay = before.preparedPlay;
+    this.choiceVisibilityGrants = before.visibilityGrants;
+    this.seen.clear();
+    for (const [commandId, seen] of before.seen) this.seen.set(commandId, seen);
+  }
+
+  /** One command transaction: all synchronous authoritative owners. */
+  private atomicCommand<T>(run: () => T): T {
+    const chain = this.atomicChain();
+    const flow = this.match!.flow as unknown as TurnFlowCheckpoint;
+    const metadata = this.metadataCheckpoint();
+    const flowCheckpoint = flow.checkpoint();
+    try {
+      this.syncHiddenTurn();
+      return chain.atomic(run);
+    } catch (error) {
+      const suspended = error instanceof PendingChoiceError ? {
+        decisions: this.decisions,
+        preparedPlay: this.preparedPlay,
+      } : null;
+      flow.restore(flowCheckpoint);
+      const grants = error instanceof PendingChoiceError ? this.choiceVisibilityGrants : metadata.visibilityGrants;
+      this.restoreMetadata(metadata);
+      if (suspended !== null) {
+        this.choiceVisibilityGrants = grants;
+        // A suspended command is a commit point for the frozen choice replay
+        // state only. Objects, TurnFlow, receipts and seen commands still roll
+        // back to the pre-command checkpoint above.
+        this.decisions = suspended.decisions;
+        this.preparedPlay = suspended.preparedPlay;
+      }
+      throw error;
+    }
   }
 
   private resolveObjectRef(id: string, _stateVersion: number): ObjectRef { return this.resolveObject(id).ref; }

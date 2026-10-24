@@ -18,6 +18,21 @@ const SOURCE_TEXT =
 const BASE = { type: "base", player: "A" };
 const constant = value => ({ kind: "constant", value });
 
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-d4e849d845765608b07bf4af4aa19877f6303dfff539b541d0d070320dd05d91.
+// Legion checks a different card successfully Finalized by this controller this
+// turn under 812.1.c. The card's Play Effect is Pending after Board entry
+// (383.4.a); Finalize locks one Unit and both players then get Priority under
+// 337/338 before 359.3.d Resolve. The +2 this turn is an arithmetic-layer effect
+// under 478/479 and survives Ending before Expiration under 317.1.a/317.2.c.
+// No Focus or response-window choice is invented outside the ordinary Chain.
+// The trigger reads this turn's successful-Finalize history and the locked Unit
+// incarnation; it reads no departed object's LKI.
+
 const PRIOR = {
   canonicalCardId: "synthetic:rift-995:dangerous-duo-prior",
   rulesetVersion: "core-1.5",

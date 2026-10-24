@@ -328,7 +328,7 @@ export function describePlay(
   });
   if (retained === null && concealed !== null) {
     return {
-      id: `hidden-play:${source.ref.id}:${source.ref.zoneEntryId}:${action.player}:${++playSequence}`,
+      id: `hidden-play:${source.ref.id}:${source.ref.zoneEntryId}:${action.player}`,
       controller: action.player,
       source,
       kind,
@@ -356,7 +356,12 @@ export function describePlay(
   }
   const scopeBattlefield = hidden === null ? undefined : hidden.targetScope.battlefieldId;
   if (hidden !== null) speed = 'reaction';
-  const id = `play:${source.ref.id}:${source.ref.zoneEntryId}:${action.player}:${++playSequence}`;
+  // RIFT-1037: the item identity derives only from the played incarnation and
+  // its controller. A process-wide counter made it depend on how many drafts
+  // had been described before (bot probes, option projections), so a journal
+  // replay produced different Chain item ids. One incarnation is on the Chain
+  // at most once; a rolled-back attempt leaves no item behind.
+  const id = `play:${source.ref.id}:${source.ref.zoneEntryId}:${action.player}`;
   const requirements = translateRequirements(ability?.requirements, program.canonicalCardId);
   const restrictions = translateRestriction(ability?.restriction, program.canonicalCardId);
   const repeatCost = hasRepeatDeclaration(program, source) ? repeatAdditionalCost(ability?.cost) : undefined;
@@ -389,4 +394,3 @@ export function describePlay(
   if (hiddenAbilities.length > 0) hiddenPlayDrafts.set(draft, Object.freeze(hiddenAbilities));
   return draft;
 }
-let playSequence = 0;

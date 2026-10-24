@@ -24,6 +24,19 @@ const [ability] = program.abilities;
 const [optional] = ability.body;
 const [pay, playGold] = optional.args.body.value;
 
+// Official interaction evidence is fully pinned in OFFICIAL_EVIDENCE below.
+// Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+// https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// Radiance patch notes, effective 2026-10-16:
+// https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-77763eae5320de558954776a37677e8638b6d4af73399e5a7c4f5d5321a2b564.
+// The Conquer at this exact Battlefield is one real 383.4.c.2.b pending wave.
+// The leading may is a Finalize decision under 383.3.a/405; decline removes the
+// pending ability, while accept pays one Energy before both players receive
+// Priority and 359.3.d Resolve. Gold's 187.5 token Play uses 440.2.c/185.2.a and
+// keeps the stipulated exhausted entry under 184.1/185.2.d. Exhausted Gold then
+// cannot pay its Exhaust cost under 415.4; once readied, its Add follows 430.2.
+
 // Source snapshots are pinned under shared/rules/official-order. Neither the
 // Radiance patch nor the Spiritforged errata replaces or corrects Treasure Hoard
 // or its Gold token, so CR v1.5 remains the governing source below.

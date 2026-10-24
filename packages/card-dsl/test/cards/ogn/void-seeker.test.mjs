@@ -8,6 +8,19 @@ import { runInstruction, world } from "../../../../engine-core/dist/effects/test
 
 import voidSeeker from "../../../dist/cards/ogn/void-seeker.js";
 
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-600e0796e82099284b213e87b112b1c5df42777ef72b70a3b4cd49a84d27dd10.
+// [Action] grants 159.2.a/806.1.b Showdown permission. A play follows
+// Pending -> Finalize -> Priority window -> Resolve (354.2, 359.3.a/c/d);
+// the locked target is rechecked under 359.3.e.5, while the independent Draw 1
+// still resolves. The spell is discarded after Resolve under 351.2.
+// In an already-open Showdown it uses that Showdown's Focus/Priority rather than
+// creating a new one. A moved target is ignored without departed-object LKI.
+
 const [speed, play] = voidSeeker.abilities;
 
 test("Void Seeker program is structurally valid and executable", () => {
@@ -107,11 +120,6 @@ test("Void Seeker golden: damage source is the spell itself (CR 418.6.a)", () =>
   assert.equal(recorded.length, 1);
 });
 
-test.todo(
-  "Void Seeker full chain play: spell cast pays 3 energy + 1 Fury power and [Action] showdown " +
-    "permission is enforced (依赖 RIFT-82 费用系统 / RIFT-81 目标解析 / RIFT-89 continuous.timing)"
-);
-
 // --- Production goldens: original registry program, real describePlay,
 // ChainEngine speed/target/cost/pass/Resolve (test/fixtures/production-play.mjs).
 // Printed: Spell, Fury, 3 Energy + 1 Fury Power.
@@ -163,3 +171,45 @@ test("ogn-024-298 Void Seeker production: with no unit at any battlefield the pl
   assert.deepEqual(f.kernel.snapshot(), before);
   assert.equal(f.kernel.getObject("vs").zone, "hand");
 });
+
+test("ogn-024-298 Void Seeker production: [Action] uses its Showdown response window before both players pass", () => {
+  const f = twoSpellTable();
+  f.engine.openShowdown("A");
+  assert.equal(f.engine.canAct("A", "normal", f.kernel.ref("vs"), f.kernel.getObject("vs")), false,
+    "an Action spell is not a normal-speed play in a Showdown");
+  assert.equal(f.engine.canAct("A", "action", f.kernel.ref("vs"), f.kernel.getObject("vs")), true,
+    "Action supplies the legal Showdown play permission");
+
+  const opener = f.describe("vs", "A");
+  assert.equal(opener.speed, "action");
+  f.engine.execute(opener);
+  assert.equal(f.engine.turnState, "showdown-closed");
+  assert.equal(f.engine.items.length, 1);
+  assert.equal(f.kernel.getObject("bf-enemy").damage, 0);
+  f.engine.pass("A");
+  assert.equal(f.engine.priority, "B");
+  assert.equal(f.engine.canAct("B", "reaction"), true);
+  f.engine.pass("B");
+  assert.equal(f.kernel.getObject("bf-enemy").damage, 4);
+  assert.equal(f.kernel.getObject("bf-friend").damage, 0);
+  assert.deepEqual(f.engine.items, []);
+});
+
+function twoSpellTable() {
+  return productionPlay({
+    programs: [voidSeeker],
+    answers: { "target:unit-at-battlefield": ["bf-enemy"] },
+    build: w => w.player("A", { energy: 3, power: ["Fury"] })
+      .player("B", { energy: 3, power: ["Fury"] })
+      .object("vs", vsHand)
+      .unit("bf-enemy", {
+        owner: "B", controller: "B", might: 5,
+        location: { type: "battlefield", id: "bf-1" }
+      })
+      .unit("bf-friend", {
+        owner: "A", controller: "A", might: 3,
+        location: { type: "battlefield", id: "bf-2" }
+      })
+      .deck("top")
+  });
+}

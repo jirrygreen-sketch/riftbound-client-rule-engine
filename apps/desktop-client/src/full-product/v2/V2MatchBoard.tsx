@@ -9,6 +9,7 @@ import type {
   V2ChoiceOption,
   V2CommandReceipt,
   V2EventPayload,
+  V2MoveOption,
   V2PendingChoice,
   V2PlayerSnapshot,
   V2PlayOption,
@@ -341,9 +342,12 @@ export function V2MatchBoard({
   const ownUnits = [...baseObjects, ...battlefieldObjects].filter(object =>
     (object.controllerPlayerId ?? object.ownerPlayerId) === projection.viewerPlayerId);
   const targetCandidates = projectedTargetCandidates(projection);
-  const playOptions = useMemo(() => selectedCardId === null ? [] :
-    projection.actionOptions.plays.filter(option => option.cardObjectId === selectedCardId), [projection, selectedCardId]);
-  const playDestinationOptions = useMemo(() => {
+  // Plain derivations, not hooks: this code runs only after the
+  // `projection === null` early return above, so a hook here would change the
+  // hook count when the match starts and crash the board (RIFT-1047).
+  const playOptions = selectedCardId === null ? [] :
+    projection.actionOptions.plays.filter(option => option.cardObjectId === selectedCardId);
+  const playDestinationOptions = (() => {
     const groups = new Map<string, readonly V2PlayOption[]>();
     for (const option of playOptions) {
       if (option.requiresDestination === false) continue;
@@ -354,7 +358,7 @@ export function V2MatchBoard({
       key, options,
       label: options[0]!.destination.kind === "base" ? "我的基地" : `战场 ${options[0]!.destination.battlefieldId}`
     }));
-  }, [playOptions]);
+  })();
   const selectedPlayDestinationOption = playDestinationOptions.find(option => option.key === selectedPlayDestination) ??
     (playDestinationOptions.length === 1 ? playDestinationOptions[0]! : null);
   const selectedPlayOption = playOptions.find(option => option.requiresDestination === false) ??
@@ -368,7 +372,13 @@ export function V2MatchBoard({
       return option?.objectRef === undefined ? [] : [option.objectRef];
     });
   });
-  const destinationOptions = projectedMoveDestinations(projection);
+  // Movement is offered only as the server publishes it in actionOptions.moves:
+  // a battlefield card or a unit without a legal Standard Move is not listed.
+  const legalMoves = projection.actionOptions?.moves ?? [];
+  const movableUnits = ownUnits.filter(unit => legalMoves.some(move => move.objectId === unit.objectId));
+  const destinationOptions = projectedMoveDestinations(projection).filter(destination =>
+    selectedUnitId !== null && legalMoves.some(move => move.objectId === selectedUnitId &&
+      sameMoveDestination(move.destination, destination.value)));
   const setup = projection.phase === "setup";
   const hasPriority = projection.priority.playerId === projection.viewerPlayerId;
   const choiceOpen = projection.pendingChoice.status === "none";
@@ -511,7 +521,7 @@ export function V2MatchBoard({
       </section>
       <section className="v2-action-panel" aria-label="移动操作">
         <div className="v2-section-heading"><h3>移动</h3><span>{selectedUnitId ?? "选择单位与目的地"}</span></div>
-        <div className="v2-choice-options">{ownUnits.map(unit => <button key={unit.objectId} type="button" aria-pressed={selectedUnitId === unit.objectId} onClick={() => setSelectedUnitId(unit.objectId)}>{unit.name ?? unit.cardId ?? unit.objectId}</button>)}</div>
+        <div className="v2-choice-options">{movableUnits.length === 0 ? <p className="v2-muted">当前没有可移动的单位</p> : null}{movableUnits.map(unit => <button key={unit.objectId} type="button" aria-pressed={selectedUnitId === unit.objectId} onClick={() => setSelectedUnitId(unit.objectId)}>{unit.name ?? unit.cardId ?? unit.objectId}</button>)}</div>
         <label>目的地 <select value={selectedDestination} onChange={event => setSelectedDestination(event.currentTarget.value)}><option value="">选择</option>{destinationOptions.map(destination => <option key={destination.id} value={destination.id}>{destination.label}</option>)}</select></label>
         <button type="button" disabled={!canAct || selectedUnitId === null || selectedDestination === ""} onClick={() => {
           const destination = destinationOptions.find(value => value.id === selectedDestination);
@@ -555,7 +565,18 @@ function projectedMoveDestinations(projection: V2Projection): readonly {
   readonly value: { readonly kind: "base"; readonly playerId: string } | { readonly kind: "battlefield"; readonly battlefieldId: string };
 }[] {
   const base = projection.viewerPlayerId ? [{ id: `base:${projection.viewerPlayerId}`, label: "我的基地", value: { kind: "base" as const, playerId: projection.viewerPlayerId } }] : [];
-  return [...base, ...projection.scoring.battlefieldLocationIds.map(id => ({ id: `battlefield:${id}`, label: `战场 ${id}`, value: { kind: "battlefield" as const, battlefieldId: id } }))];
+  const battlefieldName = (id: string): string =>
+    projection.objects.find(object => object.objectId === id)?.name ?? id;
+  return [...base, ...projection.scoring.battlefieldLocationIds.map(id => ({ id: `battlefield:${id}`, label: `战场 ${battlefieldName(id)}`, value: { kind: "battlefield" as const, battlefieldId: id } }))];
+}
+
+function sameMoveDestination(
+  location: V2MoveOption["destination"],
+  destination: ReturnType<typeof projectedMoveDestinations>[number]["value"]
+): boolean {
+  return location.kind === "base"
+    ? destination.kind === "base" && location.playerId === destination.playerId
+    : destination.kind === "battlefield" && location.battlefieldId === destination.battlefieldId;
 }
 
 function ConnectionState({ state }: { readonly state: V2ClientState["connectionStatus"] }) {

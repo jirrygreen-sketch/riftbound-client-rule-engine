@@ -30,6 +30,20 @@ const SOURCE_TEXT =
   "Your Mechs each have [Assault]. (+1 :rb_might: while we're attackers.)\n" +
   "When I conquer, you may recycle another friendly unit to play a Mech from your trash. " +
   "Reduce its Energy cost by the Might of the unit you recycled.";
+
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870.
+// Assault 1 is a continuous arithmetic effect only while this controlled Mech
+// has Attacker designation (807.1.c-d.1, 478/479). A real self Conquer under
+// 383.4.c.2.a makes the trigger Pending; its leading may and recycle are
+// Finalize choices (355.1, 383.3.a, 405), and 417.1.c uses card ownership for
+// the recycle destination. The reduced printed Play cost is frozen under
+// 356.1.c/356.4; both players get Priority before 359.3.d Resolve plays the
+// selected Trash Mech. Missing trusted printed cost remains fail-closed.
 const RULES_URL = RUMBLE_OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.coreRules.url;
 const OFFICIAL_EFFECT_ORDER_EVIDENCE = {
   contract: "riftbound.official-effect-order-evidence.v1",

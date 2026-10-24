@@ -235,7 +235,7 @@ test("sfd-143-221 Sivir, Mercenary: the printed 4 Energy + 1 Chaos Power play re
     board.kernel.getObject("sivir")
   );
   assert.deepEqual(draft.cost, {
-    id: "cost:play:sivir:3:A:2",
+    id: "cost:play:sivir:3:A",
     cost: { kind: "printed" },
     domains: ["Chaos"],
     optionalAdditional: [{
