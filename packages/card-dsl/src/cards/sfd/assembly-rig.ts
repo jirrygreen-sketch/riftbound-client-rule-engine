@@ -36,7 +36,7 @@ export default {
     "生产链尚不能把本卡的 token Play 建成独立链项：effect.token 在 " +
     "engine-core/src/effects/instructions/effect.token.ts:380-408 已发起 " +
     "create-token(to: \"chain\") 与 play；两者都经 ChainEngine.commit 与 " +
-    "pipeline.routeAction/appendCard（chain/engine.ts:514-533）建立链项。问题在嵌套时机：" +
+    "pipeline.routeAction/appendCard（chain/engine.ts:514-533；pipeline.ts:681）建立链项。问题在嵌套时机：" +
     "父 activation 的 Resolve 建立 token 链项后，现行 FEPR advance() 循环（chain/engine.ts:1689-1705）" +
     "会在父 Resolve 尚未完成时取到该 token，执行其 Finalize 并立即 Resolve 入场。实测事件仅出现 object-enters-chain、" +
     "object-enters-board，不出现该 token 独立的 chain-item-pending/chain-item-finalize。" +
