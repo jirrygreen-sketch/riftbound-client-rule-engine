@@ -393,7 +393,8 @@ export class EngineRuntimeHost {
         case "take-control": this.requireObject(action.object).controller = action.player; return this.done();
         case "damage": { const target = this.requireObject(action.target); target.damage += action.amount; return this.done(action.amount); }
         case "heal": { const target = this.requireObject(action.object); const amount = Math.min(target.damage, action.amount); target.damage -= amount; return this.done(amount); }
-        case "channel-rune": return this.channel(action.player, action.amount, action.exhausted ?? true);
+        // CR 431.2.a: runes are channeled readied unless the effect stipulates otherwise.
+        case "channel-rune": return this.channel(action.player, action.amount, action.exhausted ?? false);
         case "gain-energy": { const player = this.requirePlayer(action.player); player.energy += action.amount; return this.done(action.amount); }
         case "gain-power": {
           const player = this.requirePlayer(action.player);

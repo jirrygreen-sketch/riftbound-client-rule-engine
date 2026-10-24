@@ -168,8 +168,10 @@ export function mergeStaticFilters(left: unknown, right: unknown): AnyRecord {
 }
 
 const PLAYER_ALIASES = new Set(['self', 'source', 'controller', 'you', 'caster', 'opponent', 'their', 'caster-opponent']);
+// CR 806.1.c.1-.2 and 813.1.c.1-.2 authorize card Play and Activated Ability
+// use separately; the timing query already consumes those scope spellings.
 const SUPPORTED_STATIC_SCOPES = new Set([
-  'self', 'source', 'card', 'play-cost', 'spell-play-cost', 'play-spell-cost',
+  'self', 'source', 'card', 'activated-ability', 'play-cost', 'spell-play-cost', 'play-spell-cost',
   'optional-additional-costs-you-pay', 'empower-activation-cost', 'activated-ability-cost',
   'empower-cost', 'repeat-additional-cost', 'deal-actions',
 ]);

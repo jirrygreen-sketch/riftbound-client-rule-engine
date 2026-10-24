@@ -242,11 +242,11 @@ test("sfd-007-221 Gem Jammer: the reference pipeline preserves the complete play
   resolveAll(f.engine);
 
   assert.deepEqual(stages(f.engine), [
-    "pending:play:gem:1:A:1",
-    "finalized:play:gem:1:A:1",
+    "pending:play:gem:1:A",
+    "finalized:play:gem:1:A",
     "pending:trigger:1",
-    "resolved:play:gem:1:A:1",
-    "removed:play:gem:1:A:1",
+    "resolved:play:gem:1:A",
+    "removed:play:gem:1:A",
     "finalized:trigger:1",
     "resolved:trigger:1",
     "removed:trigger:1"
