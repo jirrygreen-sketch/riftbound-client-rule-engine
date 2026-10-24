@@ -6,6 +6,7 @@ import {
 } from "../../../dist/index.js";
 import tokenDefinition from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import program from "../../../dist/cards/sfd/assembly-rig.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { productionPlay } from "../../fixtures/production-play.mjs";
@@ -190,6 +191,29 @@ test("Assembly Rig official CR, Radiance, SFD errata and production timelines ar
     "143.4", "185.2.a", "185.2.d", "185.3.a", "187.4", "337.2", "350.2",
     "352.1", "352.2", "354", "355.2", "359.2.c", "440.2.c"
   ]);
+});
+
+test("Assembly Rig production registry refuses the shipped judge-required program before activation", () => {
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const kernel = world()
+    .object("rig", {
+      owner: "A",
+      controller: "A",
+      cardId: CARD_ID,
+      types: ["gear"],
+      zone: "board",
+      location: { type: "base", player: "A" }
+    })
+    .build();
+  const inspected = binding.inspect(kernel.getObject("rig"));
+  assert.equal(inspected.program, program);
+  assert.equal(inspected.abilities.length, 1);
+  assert.throws(
+    () => binding.describeActivate(kernel.getObject("rig"), "A", 0),
+    error => error.name === "ProgramBindingError" &&
+      error.code === "judge-required" &&
+      error.message === program.judgeReason
+  );
 });
 
 test("Assembly Rig has one action-speed activated ability with the printed three-part cost", () => {
