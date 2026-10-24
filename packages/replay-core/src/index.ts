@@ -1,6 +1,16 @@
 export type ReplaySeed = string | number;
 export type ReplayHash = string | null;
 
+export {
+  canonicalReplayJson,
+  parseCanonicalReplayJson,
+  persistedReplayJson,
+  reviveLegacyJournalCounters,
+  revivePersistedReplayJson,
+  stringifyCanonicalReplayJson,
+  stringifyPersistedReplayJson
+} from "./canonical-json.js";
+
 export interface ReplayPlayerIdentity {
   readonly id: string;
   readonly name: string;
