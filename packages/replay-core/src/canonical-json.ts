@@ -87,6 +87,32 @@ export function parseCanonicalReplayJson<T = unknown>(serialized: string): T {
   return JSON.parse(serialized) as T;
 }
 
+/** Restore Maps and Sets represented by the persistent replay encoding. */
+export function revivePersistedReplayJson(value: unknown): unknown {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(entry => revivePersistedReplayJson(entry));
+  if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) {
+    return value;
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  if (keys.length === 1 && keys[0] === "map" && Array.isArray(record.map)) {
+    return new Map(record.map.map(entry => {
+      if (!Array.isArray(entry) || entry.length !== 2) {
+        throw new TypeError("Persisted replay map entries must be [key, value] pairs");
+      }
+      return [revivePersistedReplayJson(entry[0]), revivePersistedReplayJson(entry[1])];
+    }));
+  }
+  if (keys.length === 1 && keys[0] === "set" && Array.isArray(record.set)) {
+    return new Set(record.set.map(revivePersistedReplayJson));
+  }
+  return Object.fromEntries(Object.entries(record).map(([key, entry]) => [
+    key,
+    revivePersistedReplayJson(entry),
+  ]));
+}
+
 /**
  * Restore one persisted journal after a legacy plain-JSON write.
  *

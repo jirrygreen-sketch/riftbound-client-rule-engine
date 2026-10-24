@@ -6,6 +6,7 @@ export {
   parseCanonicalReplayJson,
   persistedReplayJson,
   reviveLegacyJournalCounters,
+  revivePersistedReplayJson,
   stringifyCanonicalReplayJson,
   stringifyPersistedReplayJson
 } from "./canonical-json.js";
