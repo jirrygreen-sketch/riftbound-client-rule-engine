@@ -1,7 +1,7 @@
 // RIFT-653: original programs, one whole-card scenario and one supported-body
-// golden per identity. The scenario API rejects judge-required programs before
-// play; those guard checks are NOT whole-card execution evidence. No program
-// status, printed cost, keyword, or target restriction is replaced for testing.
+// golden per identity. Executable cards run the full scenario; judge-required
+// cards retain the explicit production guard. No printed cost, keyword, or
+// target restriction is replaced for testing.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -57,7 +57,7 @@ const rows = [
     },
   },
   {
-    name: "Danger Zone: +1 to each friendly Mech; Repeat unresolved",
+    name: "Danger Zone: +1 to each friendly Mech; Repeat declined",
     canonicalCardId: "card.hash-3c1c01b405853556e3e1c12bbd758e94d73f5ed474a5643bb068eaa7cb549c6e",
     program: dangerZone,
     scenario: {
@@ -70,6 +70,7 @@ const rows = [
         { id: "grunt", types: ["unit"], zone: "board", might: 3 },
         { id: "hand-mech", types: ["unit"], tags: ["Mech"], zone: "hand", might: 6 },
       ],
+      answers: { optional: false },
       operations: playAndResolve,
       expect: {
         objects: { spell: { zone: "trash" }, "mech-a": { might: 3, buffs: 0 }, "mech-b": { might: 5, buffs: 0 }, "enemy-mech": { might: 5 }, grunt: { might: 3 }, "hand-mech": { zone: "hand", might: 6 } },
@@ -176,11 +177,14 @@ const rows = [
 const cases = defineTemplateSuite("keyword+play || continuous.might / RIFT-653", rows);
 for (const [index, templateCase] of cases.entries()) {
   const row = rows[index];
-  test(`${templateCase.name}: whole-card scenario is blocked`, () => {
-    assert.equal(row.program.status, "judge-required");
-    assert.throws(templateCase.run, {
-      message: `Scenario program ${row.canonicalCardId} is judge-required`,
-    });
+  test(`${templateCase.name}: whole-card scenario follows the published status`, () => {
+    assert.equal(row.program.status, row.canonicalCardId === dangerZone.canonicalCardId ? "executable" : "judge-required");
+    if (row.program.status === "executable") {
+      templateCase.run();
+      assert.equal(row.program.judgeReason, undefined);
+      return;
+    }
+    assert.throws(templateCase.run, { message: `Scenario program ${row.canonicalCardId} is judge-required` });
     const registry = new ProgramRegistry([row.program]);
     assert.throws(() => registry.get(row.canonicalCardId), error =>
       error.code === "judge-required" && error.message === row.program.judgeReason

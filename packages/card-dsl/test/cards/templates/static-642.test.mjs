@@ -1,6 +1,6 @@
-// RIFT-642 template-level golden for the `static||` group (12 published
-// judge-required cards whose IR signature is a single static ability with no
-// instruction body; see packages/card-dsl/src/cards/README.md 4.1).
+// RIFT-642 template-level golden for the `static||` group (12 published cards
+// whose IR signature is a single static ability with no instruction body; see
+// packages/card-dsl/src/cards/README.md 4.1).
 //
 // Method: every row names one card, its canonical identity, its own board, its
 // own operations and its own expectation, and runs the real runCardScenario
@@ -11,9 +11,9 @@
 // unmodified zone. Where the merged engine produces a value the printed card
 // text does not support, that value is NOT written into a passing row; the
 // printed expectation gets its own `todo` row under "pending printed goldens".
-// All twelve published programs stay judge-required: these scenarios show a
+// Eleven published programs stay judge-required: these scenarios show a
 // rejected binding, an inert registration, or a granted keyword that no runtime
-// consumer expands.
+// consumer expands. Forecaster is executable and runs its production scenario.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -21,6 +21,7 @@ import { defineTemplateSuite } from "../../../../engine-core/dist/effects/testin
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { ProgramBindingError } from "../../../../engine-core/dist/programs/errors.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { productionPlay } from "../../fixtures/production-play.mjs";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import annieFiery from "../../../dist/cards/ogs/annie-fiery.js";
 import garenCommander from "../../../dist/cards/ogs/garen-commander.js";
@@ -704,28 +705,6 @@ const pendingRows = [
     },
   },
   {
-    todo: "RIFT-642: expandProgram only expands printed/declared keywords, so a runtime-granted Vision never becomes its 817.1.b Predict trigger",
-    name: "pending printed · Forecaster's granted [Vision] looks at the top card when the Mech is played",
-    canonicalCardId: forecasterId,
-    sourceProgram: forecaster,
-    program: executableView(forecaster),
-    scenario: {
-      players: { A: { energy: 5 } },
-      objects: [
-        unit("forecaster", forecasterId, { might: 2 }),
-        { id: "mech", cardId: bubbleBotId, program: bubbleBot, types: ["unit"], tags: ["Mech"], zone: "hand", location: null, might: 3, energy: 3, power: null },
-        { id: "top", owner: "A", types: ["unit"], zone: "deck", location: null },
-      ],
-      operations: [
-        { type: "play", object: "mech", player: "A" },
-        { type: "pass", player: "A" },
-      ],
-      // 817.1.b: the granted Vision should look at the top card of the Main
-      // Deck. The merged spine resolves the play but never emits the look.
-      expect: { events: { includes: [{ timingPoint: "cards-looked-at" }] } },
-    },
-  },
-  {
     todo: "RIFT-642: no static-program-to-CostPlan binding and no per-player first-play window (CR 356.4 / 356.4.a)",
     name: "pending printed · Hunters' Circle discounts the first unit played here",
     canonicalCardId: circleId,
@@ -826,12 +805,58 @@ const pendingRows = [
   },
 ];
 
+test("RIFT-642 Forecaster production: a Mech entering after the grant executes Vision Predict", () => {
+  const f = productionPlay({
+    programs: [forecaster],
+    answers: {
+      "trigger:": (_kernel, request) => request.type === "mode" ? request.options[0] : undefined,
+      "vision-look": () => [],
+    },
+    build: (w) => w
+      .player("A", { energy: 10, power: [] })
+      .player("B", { energy: 10, power: [] })
+      .deck(["a-top", "a-second"], { owner: "A" })
+      .deck(["b-top", "b-second"], { owner: "B" })
+      .hand("forecaster", {
+        owner: "A", controller: "A", cardId: forecasterId, types: ["unit"], tags: ["Mech"],
+        energy: 2, power: null, might: 2,
+      })
+      .hand("later-mech", {
+        owner: "A", controller: "A", cardId: "card:later-mech", types: ["unit"], tags: ["Mech"],
+        energy: 0, power: null, might: 3,
+      }),
+  });
+  f.play("forecaster");
+  const before = f.requests.filter(request => request.id.startsWith("vision-look")).length;
+  assert.equal(before, 1, "Forecaster's own entry executes its granted Vision");
+
+  assert.equal(f.engine.commit({ type: "move-zone", object: f.kernel.ref("later-mech"), to: "chain" }).status, "done");
+  assert.equal(f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("later-mech"),
+    to: "base",
+    location: { type: "base", player: "A" },
+  }).status, "done");
+  f.engine.advance();
+  f.settle();
+
+  const asks = f.requests.filter(request => request.id.startsWith("vision-look"));
+  assert.equal(asks.length, before + 1, "the later Mech receives one Vision instance and triggers once");
+  assert.deepEqual(asks.map(request => request.chooser), ["A", "A"]);
+  assert.deepEqual(asks.map(request => request.options[0]?.id), ["a-top", "a-top"]);
+  assert.deepEqual(
+    f.engine.layers.evaluate(f.kernel.ref("later-mech")).keywords.map(keyword => keyword.id),
+    ["Vision"],
+  );
+});
+
 /**
  * Register each row as its own test. Every row first proves the published
- * program is still judge-required with an explicit reason and keeps the
- * static|| signature, then runs its scenario through the real pipeline and
- * checks that nothing was left on the chain. `todo` rows assert the printed
- * rule outcome and are reported pending, never as a pass.
+ * program has its published status and keeps the static|| signature, then runs
+ * its scenario through the real pipeline and checks that nothing was left on
+ * the chain. Judge-required programs retain their production guards. `todo`
+ * rows assert the printed rule outcome and are reported pending, never as a
+ * pass.
  */
 const runSuite = (templateName, suiteRows) => {
   const cases = defineTemplateSuite(templateName, suiteRows);
@@ -839,8 +864,10 @@ const runSuite = (templateName, suiteRows) => {
     const row = suiteRows[index];
     const options = row.todo === undefined ? undefined : { todo: row.todo };
     test(golden.name, options, () => {
-      assert.equal(row.sourceProgram.status, "judge-required", `${row.canonicalCardId} stays judge-required`);
-      assert.ok(row.sourceProgram.judgeReason?.trim(), `${row.canonicalCardId} keeps an explicit judge reason`);
+      const executable = row.canonicalCardId === forecasterId;
+      assert.equal(row.sourceProgram.status, executable ? "executable" : "judge-required", `${row.canonicalCardId} keeps its published status`);
+      if (executable) assert.equal(row.sourceProgram.judgeReason, undefined);
+      else assert.ok(row.sourceProgram.judgeReason?.trim(), `${row.canonicalCardId} keeps an explicit judge reason`);
       assert.equal(row.sourceProgram.abilities.length, 1, `${row.canonicalCardId} keeps the static|| signature`);
       assert.equal(row.sourceProgram.abilities[0].kind, "static");
       const bindingError = scenarioBindingErrors.get(row.canonicalCardId);

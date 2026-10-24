@@ -13,6 +13,19 @@ const RADIANCE_URL = "https://playriftbound.com/en-us/news/announcements/core-ru
 const SFD_ERRATA_URL = "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/";
 const SOURCE_TEXT = "Your Mechs have [Shield]. (+1 :rb_might: while they're defenders.)";
 
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7.
+// The Legend's static is evaluated continuously under 478/479 and grants Shield
+// 1 only to its controller's Mech Units on the Board. Shield is 814.1.b-c and
+// adds Might only while that Unit has the Defender designation; 466.2.c sets
+// Combat Focus/designations, 467.2 reads current Might for damage, and
+// 814.1.d.1 removes the bonus when Defender designation ends. No Pending,
+// Finalize, Resolve, LKI or response window is created by this static.
+
 // Evidence is pinned to the repository's official source snapshots. The
 // Radiance and Spiritforged errata snapshots contain no Mechanized Menace entry
 // or correction, so their only effect here is the governing CR v1.5 basis.

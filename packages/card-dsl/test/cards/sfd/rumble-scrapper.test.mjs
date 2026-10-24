@@ -16,6 +16,22 @@ import {
 } from "../../../../engine-core/dist/events/action-adapter.js";
 import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
 
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c.
+// The continuous Might grant applies through 475/478/479 and is active only
+// while this exact Board incarnation remains the source. A Hold is emitted once
+// when this participating Unit is present under 383.4.d.2.a/473.2.b; its
+// self-anchored trigger is collected for that event, becomes Pending and waits
+// for Priority under 337.1.a/338, then Resolve under 359.3.d plays the 187.4
+// Mech through 440.2.c/185.2.a. Unit entry is exhausted by 143.4/185.2.d.
+// Finalize makes no choice and pays no cost; the response window precedes
+// Resolve. No Focus is created by this Hold ability, and no LKI is needed while
+// this exact source remains on its Battlefield.
+
 const cardId = "card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c";
 const program = cardProgramsById.get(cardId);
 const battlefield = { type: "battlefield", id: "bf1" };

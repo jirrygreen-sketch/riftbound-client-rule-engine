@@ -20,6 +20,22 @@ const SOURCE_TEXT =
   "Your Mechs have [Vision]. (When you play us, look at the top card of your " +
   "Main Deck. You may recycle it.)";
 
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40.
+// The continuous grant is applied under 478/479 to each controlled Board Mech
+// without a Pending item. Vision is 817.1.b-c: each separate instance looks at
+// that controller's top Main Deck card when its host is played; 817.2.a keeps
+// repeated instances separate. The optional recycle is a Finalize-time choice,
+// the inherited ordinary Priority response follows, and Resolve either keeps
+// the card or recycles it to its owner's Main Deck under 417.1.
+// This is a Board-entry Play Effect, not a Showdown, so it creates no Focus.
+// Vision reads the top card before any recycle moves it and requires no LKI of
+// a target that has already left its zone.
+
 const [grant] = program.abilities;
 
 function playForecaster({
