@@ -130,7 +130,7 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
       clauses: Object.freeze(["Play a 3 :rb_might: Mech unit token to your base."]),
       ruleRefs: Object.freeze([
         "107.1.a", "107.1.b", "107.1.c", "108.1", "108.1.a", "143.4",
-        "185.2.a", "185.2.d", "185.3.a", "187.4", "337.2",
+        "185.2.a", "185.2.d", "185.3.a", "185.3.a.1", "187.4", "337.2",
         "350.2", "352.1", "352.2", "354", "355.2", "359.2.c", "440.2.c"
       ]),
       timeline: Object.freeze([
