@@ -6,6 +6,18 @@ import type { M1PreconId } from "./decks.js";
 const { replayHeadlessJournal, runHeadlessGame } = await import(
   new URL("./duel.ts", import.meta.url).href,
 ) as typeof import("./duel.ts");
+// RIFT-1039: journals hold Maps (e.g. object counters); plain JSON wrote an
+// empty Map as {} and lost the type, so an archive could not be replayed
+// strictly offline. Persist with the replay-core encoding and revive on read
+// (legacy archives get their counter Maps restored losslessly).
+const { reviveLegacyJournalCounters, revivePersistedReplayJson, stringifyPersistedReplayJson } = await import(
+  new URL("../../../replay-core/src/canonical-json.ts", import.meta.url).href,
+) as typeof import("../../../replay-core/src/canonical-json.ts");
+
+/** Read one persisted headless journal back into its in-memory shape. */
+export function parsePersistedHeadlessJournal(serialized: string): HeadlessJournal {
+  return revivePersistedReplayJson(reviveLegacyJournalCounters(JSON.parse(serialized))) as HeadlessJournal;
+}
 
 export const M1_STATS_GAMES = 100;
 export const M1_STATS_GAMES_PER_SIDE = 50;
@@ -515,7 +527,7 @@ async function writeJournal(directory: string | null, game: M1GameStats, journal
   const { mkdir, writeFile } = await import("node:fs/promises");
   await mkdir(directory, { recursive: true });
   const path = `${directory}/${String(game.caseIndex + 1).padStart(3, "0")}-${game.seed}.journal.json`;
-  await writeFile(path, `${JSON.stringify(journal)}\n`);
+  await writeFile(path, `${stringifyPersistedReplayJson(journal)}\n`);
   return path;
 }
 
@@ -589,7 +601,7 @@ export async function runM1HundredGameStats(options: M1RunOptions = {}): Promise
     const { readFile } = await import("node:fs/promises");
     for (const result of results) {
       if (result.journalPath === null) continue;
-      journals.set(result.caseIndex, JSON.parse(await readFile(result.journalPath, "utf8")) as HeadlessJournal);
+      journals.set(result.caseIndex, parsePersistedHeadlessJournal(await readFile(result.journalPath, "utf8")));
     }
   }
   return summarizeM1GamesWithJournals(cases, results, Math.max(0, performance.now() - startedAt), journals);
