@@ -455,6 +455,8 @@ function sendCommand(
 }
 
 describe("public foundation action-options integration", () => {
+  // The real HTTP/WebSocket foundation path now takes about 9s on the shared
+  // gate host; keep a margin without masking a stalled request.
   it("projects private authoritative actions, executes an enabled action, and preserves command identity", async () => {
     const started = await startFoundationGame();
     const { alice, bob, aliceSession, bobSession } = started;
@@ -635,7 +637,7 @@ describe("public foundation action-options integration", () => {
     expect(bobEnded.actionOptions?.stateVersion).toBe(bobEnded.version);
     expect(aliceEnded.actionOptions?.viewerPlayerId).toBe(aliceSession.playerId);
     expect(bobEnded.actionOptions?.viewerPlayerId).toBe(bobSession.playerId);
-  });
+  }, 30_000);
 
   it("rebuilds action options after a durable restart for each current viewer and state", async () => {
     const storageDirectory = await mkdtemp(
