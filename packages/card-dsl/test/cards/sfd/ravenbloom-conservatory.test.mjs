@@ -12,6 +12,22 @@ import { createProgramBinding } from "../../../../engine-core/dist/programs/inde
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
 
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-5a86b358540e9ab2512400c77f3291739c2aa6ccb7b537449298a640b02b0e82.
+// The real Combat designation emits defense-declared once under
+// 383.4.f.2/466.2, and "here" resolves against this Battlefield incarnation.
+// Its mandatory trigger is Pending, Finalize locks the top Main Deck card under
+// 355.5, both players receive the ordinary Priority window, and Resolve under
+// 359.3.d reveals it (425). A Spell goes to hand; any other card recycles under
+// 417.1.a. The two branches are exclusive card-text conditions, not Priority.
+// The interaction occurs in a real Combat Showdown, whose existing Focus and
+// Priority are consumed normally. Resolve reads the revealed live card; no
+// departed-object LKI is used.
+
 const CANONICAL = "card.hash-5a86b358540e9ab2512400c77f3291739c2aa6ccb7b537449298a640b02b0e82";
 const SOURCE_TEXT =
   "When you defend here, reveal the top card of your Main Deck. If it's a spell, put it in your hand. Otherwise, recycle it.";

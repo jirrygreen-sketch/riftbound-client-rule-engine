@@ -2,6 +2,22 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
+import { productionPlay } from "../../fixtures/production-play.mjs";
+
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-34880fcae16bd9461e4c318dfb455365ff9e353db357f948b4a15dea7e01b389.
+// Playing the Unit follows 354-359: the Play Effect in 383.4.a is Pending after
+// the Unit is Finalized and enters exhausted under 143.4. Its one target is
+// chosen at Finalize under 355.5/355.7, both players then receive the ordinary
+// response window under 337.1.a/338, and 359.3.d/359.3.e.5 resolves the Ready
+// only while the exact friendly Mech remains a legal Board target.
+// The Main-phase Play Effect creates no Focus. No object leaves the Board by
+// this instruction, so Resolve reads the locked current target and consumes no
+// departed-object LKI.
 
 const cardId = "card.hash-34880fcae16bd9461e4c318dfb455365ff9e353db357f948b4a15dea7e01b389";
 const program = cardProgramsById.get(cardId);
@@ -112,4 +128,48 @@ test("sfd-062-221 Bubble Bot with no other friendly Mech still resolves its play
   });
   result.asserts();
   assert.deepEqual(result.state.chain, [], "the trigger without a legal Mech target leaves no item behind");
+});
+
+test("sfd-062-221 Bubble Bot production golden: Play Effect Finalize locks the other Mech before both Priority passes and Resolve readies it", () => {
+  const f = productionPlay({
+    programs: [program],
+    build: w => w.player("A", { energy: 3 }).player("B")
+      .hand("bubble", {
+        cardId,
+        types: ["unit"],
+        tags: ["Mech"],
+        energy: 3,
+        power: null,
+        might: 3
+      })
+      .unit("other", {
+        owner: "A",
+        controller: "A",
+        types: ["unit"],
+        tags: ["Mech"],
+        location: BASE_A,
+        exhausted: true,
+        might: 2
+      })
+  });
+
+  f.engine.execute(f.describe("bubble"));
+  const [trigger] = f.engine.items;
+  assert.equal(trigger.kind, "triggered");
+  assert.equal(trigger.status, "finalized");
+  assert.deepEqual(trigger.targetPlans[0].selected, [f.kernel.ref("other")]);
+  assert.equal(f.kernel.player("A").energy, 0);
+  assert.equal(f.kernel.getObject("bubble").zone, "board");
+  assert.equal(f.kernel.getObject("bubble").exhausted, true);
+  assert.equal(f.kernel.getObject("other").exhausted, true,
+    "Finalize and both response passes precede the triggered Ready");
+  assert.equal(f.engine.priority, "A");
+  f.engine.pass("A");
+  assert.equal(f.engine.priority, "B");
+  assert.equal(f.kernel.getObject("other").exhausted, true);
+  f.engine.pass("B");
+  assert.equal(f.kernel.getObject("other").exhausted, false);
+  assert.equal(f.engine.trace.filter(entry => entry.item === trigger.id &&
+    ["pending", "finalized", "resolved"].includes(entry.step)).map(entry => entry.step).join(","),
+  "pending,finalized,resolved");
 });

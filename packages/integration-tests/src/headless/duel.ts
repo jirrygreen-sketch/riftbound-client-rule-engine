@@ -1389,7 +1389,13 @@ export function prioritizedHeadlessCommands(
     return [{ type: "combat-damage" }];
   }
   if (active.step === "cleanup" || active.step === "result" || active.step === "control" || active.step === "end") {
-    return [{ type: "advance" }];
+    // A Score/Combat trigger can remain finalized on the Chain while Combat
+    // waits at Control. CR 312.2.c-d gives its controller Priority, and CR
+    // 468.6 requires that item's FEPR to finish before CR 468.7 can end the
+    // Combat. Submit the legal player pass first; advance only at an Open State.
+    return trace.turnState.endsWith("-closed") && trace.priority !== null
+      ? [{ type: "pass", player: trace.priority }]
+      : [{ type: "advance" }];
   }
   return candidates;
 }

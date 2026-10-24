@@ -7,6 +7,20 @@ import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-2ebf1fe6e5ed7bb875f1c112b3e0ed1635b557c0c0ad550d752b8dd376243007.
+// Normal Play is Pending -> Finalize -> Closed-State response -> Resolve
+// (354, 359.3.a/c/d). Reaction grants the additional Closed-State permission
+// under 159.2.b/813.1.c; Hidden's Hide, private facedown state, next-turn play
+// and zero base cost are 422.2/811.1.b-c and 811.6. Draw 2 reads its controller's
+// Main Deck under 414 and resolves as much as possible under 359.3.e.11.
+// The ordinary spell gets Priority in the Closed State and creates no Focus;
+// this interaction reads no departed object's LKI.
+
 const play = program.abilities.find(ability => ability.kind === "play");
 const drawInstruction = play.body[0];
 
@@ -79,15 +93,11 @@ test("Consult the Past golden execution: a short deck draws as many as possible 
   assert.equal(run.linked.drawn, 1);
 });
 
-test.todo(
-  "Consult the Past: Hide for [A] and the facedown Reaction play window need the Hidden " +
-    "keyword expansion and facedown-zone support (RIFT-84), plus chain Closed/Open timing " +
-    "permissions (RIFT-85 expansion lands with the layers/chain consumers in RIFT-91)."
-);
-
 // --- Production goldens: original registry program, real describePlay,
 // ChainEngine speed/cost/pass/Resolve (test/fixtures/production-play.mjs).
-// Printed: Spell, Mind, 4 Energy. The [Hidden] route stays the todo above.
+// Printed: Spell, Mind, 4 Energy. The ordinary route is covered here; the
+// production Hidden route is tracked as a discovered lifecycle defect in the
+// RIFT-1025 audit because its next-turn static rebind currently fails closed.
 import { productionPlay } from "../../fixtures/production-play.mjs";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 

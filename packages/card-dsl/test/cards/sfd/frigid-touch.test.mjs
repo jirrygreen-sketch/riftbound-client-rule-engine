@@ -22,6 +22,22 @@ const SOURCE_TEXT =
   "[Repeat] :rb_energy_2: (You may pay the additional cost to repeat this spell's effect.)\n" +
   "Give a unit -2 :rb_might: this turn.";
 
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-153eb4df721b70662a63652ba1602985ceed08d81a0b23fc0d6b10349ee15ca9.
+// Reaction is 159.2.b/813.1.c. Repeat is decided and paid as an additional
+// cost at Finalize under 355.1.a/356.4.f.1/820.1.b-d; both executions lock
+// their targets at that same make-choices step, and the newest finalized spell
+// gets the ordinary Closed-State response before 359.3.d Resolve. A target
+// that left Board is ignored under 359.3.e.5 while the other execution still
+// applies. The -2 Might arithmetic effects follow 478/479, expire at 317.2.c,
+// and the card itself is Played once under 820.3.a.
+// A repeated execution's move off Board invalidates only that locked target;
+// no departed-object LKI is read to redirect the effect.
+
 // Pinned to the repository snapshots listed in
 // shared/rules/official-order/source-snapshots.json. Neither the effective
 // Radiance notes nor the Spiritforged errata contains a Frigid Touch entry.

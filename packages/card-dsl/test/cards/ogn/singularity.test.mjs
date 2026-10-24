@@ -23,6 +23,23 @@ const CANONICAL_CARD_ID = "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38
 const PRINTING_ID = "ogn-105-298";
 const RETREAT_CARD_ID = "card.hash-e6e5c4f19dfe34b964bd6348cc46c60d1d565fb1949561f4c5c749101ed39bcf";
 
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b.
+// The spell enters the Chain as Pending. It has no speed keyword, so
+// 159.2.a/310.1 defaults it to Action in the controller's Main Phase. Its 0..2 targets are locked under 355.7/355.8;
+// 356/357 computes and pays six Energy plus two Mind, 358 checks legality,
+// 359.3.a/c opens the Closed-State response window, 359.3.d/top-to-bottom
+// resolves one fixed six damage to each still-legal unit, and 359.3.e.5 drops
+// only a target that left the Board. Finalize happens before Priority and
+// Resolve waits for both passes under 312.2.c, 337.1.a, 338 and 340.
+// This spell creates no Focus in the neutral Main Phase. If a locked target
+// leaves the Board, its captured reference is invalid and it is ignored; the
+// spell does not read that departed object's LKI for the damage effect.
+
 const DECK_MANIFEST = JSON.parse(readFileSync(
   new URL("../../../../../docs/plans/m1-decks.json", import.meta.url),
   "utf8"
@@ -1202,8 +1219,3 @@ test("Singularity golden execution: only still-legal targets are damaged at reso
   assert.equal(run.result.linkedValues.dealt, 6);
   assert.equal(run.result.linkedValues.dealtCount, 1);
 });
-
-test.todo(
-  "Singularity: Finalize-time target selection, the 0..2 cap enforcement, became-target " +
-    "triggers, and target legality re-verification belong to the target system (RIFT-90)."
-);
