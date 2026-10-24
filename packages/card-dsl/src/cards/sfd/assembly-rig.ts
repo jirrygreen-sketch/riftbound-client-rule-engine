@@ -35,13 +35,11 @@ export default {
   judgeReason:
     "生产链尚不能把本卡的 token Play 建成独立链项：effect.token 在 " +
     "engine-core/src/effects/instructions/effect.token.ts:380-408 已发起 " +
-    "create-token(to: \"chain\") 与 play，但 " +
-    "engine-core/src/chain/engine.ts:955-958 的 ResolveContext.perform 走 " +
-    "pipeline.commitContract，而 engine-core/src/events/pipeline.ts:608-629 的 " +
-    "commitContract 经 action adapter 与 bridge（action-adapter.ts:479-494，" +
-    "contract-actions/bridge.ts:283-289）同步执行 create-token 与 play；" +
-    "engine-core/src/chain/engine.ts:514-533 的 routeAction 虽会调用 appendCard，但当前 contract " +
-    "执行没有把它持久化为独立链项。实测事件仅出现 object-enters-chain、" +
+    "create-token(to: \"chain\") 与 play。前者经过 ChainEngine.commit/" +
+    "pipeline.routeAction；后者在 ResolveContext.perform（chain/engine.ts:955-958）" +
+    "被 events/action-adapter.ts:90-97 识别为 contract action，进入 " +
+    "pipeline.ts:608-629 与 bridge.ts:283-289，因而绕过 chain/engine.ts:514-533 " +
+    "的 routeAction/appendCard。实测事件仅出现 object-enters-chain、" +
     "object-enters-board，不出现该 token 独立的 chain-item-pending/chain-item-finalize。" +
     "CR 350.2、440.2.c、354 要求先创建为 token 的 Play 链项；CR 143.4/185.2.d 还要求" +
     "其 Unit 入场横置。费用、回收、Exhaust 与最终 3-Might 横置 Mech 已走生产路径验证；" +

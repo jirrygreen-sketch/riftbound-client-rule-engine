@@ -144,8 +144,8 @@ test("Assembly Rig card program passes validateCardProgram", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /effect\.token\.ts:380-408/);
   assert.match(program.judgeReason, /chain\/engine\.ts:955-958/);
+  assert.match(program.judgeReason, /action-adapter\.ts:90-97/);
   assert.match(program.judgeReason, /pipeline\.ts:608-629/);
-  assert.match(program.judgeReason, /action-adapter\.ts:479-494/);
   assert.match(program.judgeReason, /bridge\.ts:283-289/);
   assert.match(program.judgeReason, /chain-item-pending/);
   assert.match(program.judgeReason, /350\.2/);
