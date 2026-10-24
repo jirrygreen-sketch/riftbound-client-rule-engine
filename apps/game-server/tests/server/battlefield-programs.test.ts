@@ -52,6 +52,19 @@ describe("public room Battlefield programs", () => {
         room.currentRoomVersion, true, `ready-${index}`, noMessages);
     }
 
+    let setup: { pendingChoice: { status: string; ownerPlayerId: string } } | undefined;
+    room.sendProjection("player-1", value => {
+      setup = (value as { projection?: { pendingChoice: { status: string; ownerPlayerId: string } } }).projection;
+    });
+    if (!setup || setup.pendingChoice.status !== "pending") throw new Error("Mulligan window required");
+    const first = setup.pendingChoice.ownerPlayerId === "player-1" ? 0 : 1;
+    for (const [index, actor] of [first, first === 0 ? 1 : 0].entries()) {
+      room.submitEngineV2(sessions[actor]!, connections[actor]!.connectionId, {
+        type: "mulligan", commandId: `battlefield-mulligan-${index}`, stateVersion: 0,
+        selectedObjectIds: [],
+      }, noMessages);
+    }
+
     expect(randomCalls).toEqual([3, 3]);
     const runtime = runtimeRegistry(room);
     const selected = runtime.match.setup!.battlefields!

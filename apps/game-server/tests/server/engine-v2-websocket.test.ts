@@ -28,6 +28,14 @@ class Client {
 
   send(value: unknown) { this.socket.send(JSON.stringify(value)); }
 
+  discardProjections(): void {
+    for (let index = this.messages.length - 1; index >= 0; index -= 1) {
+      const value = this.messages[index];
+      if (value !== null && typeof value === "object" &&
+          (value as { type?: unknown }).type === "projection") this.messages.splice(index, 1);
+    }
+  }
+
   async wait(predicate: (value: unknown) => boolean): Promise<any> {
     const deadline = Date.now() + 60_000;
     while (Date.now() < deadline) {
@@ -102,12 +110,25 @@ async function connect(url: string, session?: ClientSession, afterEventSeq?: num
   return client;
 }
 
-async function projection(client: Client): Promise<V2Projection> {
+async function projection(client: Client, minimumStateVersion = -1,
+  expectedPhase?: V2Projection["phase"]): Promise<V2Projection> {
   const message = await client.wait(value => value !== null && typeof value === "object" &&
-    (value as { type?: unknown }).type === "projection");
+    (value as { type?: unknown }).type === "projection" &&
+    ((value as { projection?: { stateVersion?: number } }).projection?.stateVersion ?? -1) >= minimumStateVersion &&
+    (expectedPhase === undefined ||
+      (value as { projection?: { phase?: unknown } }).projection?.phase === expectedPhase));
   const value = (message as { projection: unknown }).projection;
   if (!isV2Projection(value)) throw new Error("Invalid protocol v2 projection");
+  if (expectedPhase !== undefined) client.discardProjections();
   return value;
+}
+
+async function resync(client: Client, requestId: string, afterEventSeq?: number): Promise<void> {
+  client.send({ type: "sync-events", requestId,
+    ...(afterEventSeq === undefined ? {} : { afterEventSeq }) });
+  await client.wait(value => value !== null && typeof value === "object" &&
+    (value as { type?: unknown }).type === "request-result" &&
+    (value as { requestId?: unknown }).requestId === requestId);
 }
 
 function assertPrivateProjection(value: V2Projection, viewerPlayerId: string, opponentPlayerId: string): void {
@@ -191,8 +212,42 @@ describe("protocol v2 engine runtime over WebSocket", () => {
     await bobResumed.wait(value => value !== null && typeof value === "object" &&
       (value as { type?: unknown; requestId?: unknown }).type === "request-result" &&
       (value as { requestId?: unknown }).requestId === "waiting-ready-b");
-    const [startedA, startedB] = await Promise.all([projection(aliceActive), projection(bobResumed)]);
+    aliceActive.send({ type: "sync-events", requestId: "waiting-setup-sync-a", afterEventSeq: 0 });
+    bobResumed.send({ type: "sync-events", requestId: "waiting-setup-sync-b", afterEventSeq: 0 });
+    await Promise.all([
+      aliceActive.wait(value => value !== null && typeof value === "object" &&
+        (value as { type?: unknown }).type === "request-result" &&
+        (value as { requestId?: unknown }).requestId === "waiting-setup-sync-a"),
+      bobResumed.wait(value => value !== null && typeof value === "object" &&
+        (value as { type?: unknown }).type === "request-result" &&
+        (value as { requestId?: unknown }).requestId === "waiting-setup-sync-b"),
+    ]);
+    const setupA = await projection(aliceActive, -1, "setup");
+    const setupB = await projection(bobResumed, -1, "setup");
+    expect(setupA.phase).toBe("setup");
+    expect(setupB.phase).toBe("setup");
+    const first = setupA.activePlayerId === session.playerId ? aliceActive : bobResumed;
+    const second = first === aliceActive ? bobResumed : aliceActive;
+    for (const [index, actor] of [first, second].entries()) {
+      const commandId = `waiting-mulligan-${index}`;
+      actor.send({ type: "command", protocolVersion: PROTOCOL_V2_VERSION,
+        command: { type: "mulligan", commandId, stateVersion: 0, selectedObjectIds: [] } });
+      expect(await actor.wait(value => value !== null && typeof value === "object" &&
+        (value as { type?: unknown }).type === "command-receipt" &&
+        (value as { commandId?: unknown }).commandId === commandId))
+        .toMatchObject({ accepted: true, rejection: null });
+    }
+    // Final setup completes at stateVersion 0; the following events are the
+    // real turn pipeline. Resync by event cursor instead of assuming that the
+    // first command necessarily advances stateVersion to 1.
+    await Promise.all([resync(aliceActive, "waiting-sync-final-a"),
+      resync(bobResumed, "waiting-sync-final-b")]);
+    const [startedA, startedB] = await Promise.all([
+      projection(aliceActive, -1, "main"), projection(bobResumed, -1, "main"),
+    ]);
     expect(running.server.rooms.get(session.roomId)!.status).toBe("playing");
+    expect(startedA.phase).toBe("main");
+    expect(startedB.phase).toBe("main");
     expect(startedA.viewerPlayerId).toBe(session.playerId);
     expect(startedB.viewerPlayerId).toBe(bobSession.playerId);
     const gameEventSeq = Math.max(startedA.eventSeq, startedB.eventSeq);
@@ -254,7 +309,36 @@ describe("protocol v2 engine runtime over WebSocket", () => {
     await second.wait(value => value !== null && typeof value === "object" &&
       (value as { type?: unknown; requestId?: unknown }).type === "request-result" &&
       (value as { requestId?: unknown }).requestId === "default-ready-b");
-    const [defaultViewA, defaultViewB] = await Promise.all([projection(client), projection(second)]);
+    // Drain any waiting-room fan-out packet before matching the setup projection.
+    await new Promise(resolve => setTimeout(resolve, 20));
+    client.send({ type: "sync-events", requestId: "default-setup-sync-a" });
+    second.send({ type: "sync-events", requestId: "default-setup-sync-b" });
+    await Promise.all([
+      client.wait(value => value !== null && typeof value === "object" &&
+        (value as { type?: unknown }).type === "request-result" &&
+        (value as { requestId?: unknown }).requestId === "default-setup-sync-a"),
+      second.wait(value => value !== null && typeof value === "object" &&
+        (value as { type?: unknown }).type === "request-result" &&
+        (value as { requestId?: unknown }).requestId === "default-setup-sync-b"),
+    ]);
+    const setupA = await projection(client, -1, "setup");
+    const setupB = await projection(second, -1, "setup");
+    expect(setupA.phase).toBe("setup");
+    expect(setupB.phase).toBe("setup");
+    const first = setupA.activePlayerId === session.playerId ? client : second;
+    const follow = first === client ? second : client;
+    for (const [index, actor] of [first, follow].entries()) {
+      const commandId = `default-mulligan-${index}`;
+      actor.send({ type: "command", protocolVersion: PROTOCOL_V2_VERSION,
+        command: { type: "mulligan", commandId, stateVersion: 0, selectedObjectIds: [] } });
+      await actor.wait(value => value !== null && typeof value === "object" &&
+        (value as { type?: unknown }).type === "command-receipt" &&
+        (value as { commandId?: unknown }).commandId === commandId);
+    }
+    await Promise.all([resync(client, "default-sync-final-a"), resync(second, "default-sync-final-b")]);
+    const [defaultViewA, defaultViewB] = await Promise.all([
+      projection(client, -1, "main"), projection(second, -1, "main"),
+    ]);
     expect(defaultViewA.viewerPlayerId).toBe(session.playerId);
     expect(defaultViewB.viewerPlayerId).toBe(secondSession.playerId);
     expect(defaultViewA.phase).toBe("main");

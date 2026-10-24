@@ -52,6 +52,16 @@ describe("engine runtime room cutover", () => {
   // exceeded the 10s default under full-suite load; keep every assertion.
   it("uses the v2 owner, preserves private projections and replays the room archive", async () => {
     const h = await boot();
+    const waitingA = projection(h.room, "player-1");
+    const waitingB = projection(h.room, "player-2");
+    expect(waitingA.phase).toBe("setup");
+    expect(waitingB.phase).toBe("setup");
+    const first = waitingA.pendingChoice.status === "pending" ? 0 : 1;
+    for (const index of [first, first === 0 ? 1 : 0]) {
+      h.room.submitEngineV2(h.sessions[index]!, h.connections[index]!.connectionId,
+        { type: "mulligan", commandId: `room-mulligan-${index}`, stateVersion: 0, selectedObjectIds: [] },
+        () => undefined);
+    }
     const own = projection(h.room, "player-1");
     const opponent = projection(h.room, "player-2");
     expect(h.room.runtimeMode).toBe("engine-v2");

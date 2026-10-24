@@ -6,6 +6,7 @@ import { cardProgramsById } from "../../../../packages/card-dsl/dist/cards/regis
 import rumbleHotheaded from "../../../../packages/card-dsl/dist/cards/sfd/rumble-hotheaded.js";
 import type { ProgramBinding } from "../../../../packages/engine-core/dist/programs/index.js";
 import type { EngineRuntime, EngineRuntimeOptions } from "../../src/engine-runtime/index.js";
+import type { V2Projection } from "../../../../packages/protocol/dist/v2/index.js";
 import { createEngineRuntime } from "../../src/engine-runtime/index.js";
 import { loadCardCatalogRuntime } from "../../src/card-catalog.js";
 import { GameRoom } from "../../src/room.js";
@@ -144,6 +145,22 @@ async function bootRoomFromCatalog(catalog: Awaited<ReturnType<typeof loadCardCa
       `printed-catalog-deck-${index}`, () => undefined);
     room.setReady(sessions[index]!, connection.connectionId, room.currentRoomVersion, true,
       `printed-catalog-ready-${index}`, () => undefined);
+  }
+  let setup: V2Projection | undefined;
+  room.sendProjection(first.playerId, message => {
+    setup = (message as { projection?: V2Projection }).projection;
+  });
+  if (!setup || setup.pendingChoice.status !== "pending") throw new Error("Mulligan window required");
+  const order = setup.pendingChoice.ownerPlayerId === first.playerId ? [
+    [first, sessions[0]], [second, sessions[1]],
+  ] as const : [
+    [second, sessions[1]], [first, sessions[0]],
+  ] as const;
+  for (const [index, [connection, session]] of order.entries()) {
+    room.submitEngineV2(session, connection.connectionId, {
+      type: "mulligan", commandId: `printed-catalog-mulligan-${index}`, stateVersion: 0,
+      selectedObjectIds: [],
+    }, () => undefined);
   }
   const privateRuntime = (room as unknown as {
     readonly engineRuntime: EngineRuntime & { readonly binding: ProgramBinding; readonly runtimeOptions: EngineRuntimeOptions };

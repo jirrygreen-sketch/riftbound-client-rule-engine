@@ -185,7 +185,6 @@ export class GameRoom {
   private duelRuntime: CurrentDuelRuntime | null = null;
   private engineRuntime: EngineRuntime | null = null;
   private engineMulligan: EngineMulliganSetup | null = null;
-  private engineMulliganProbeRuntime: EngineRuntime | null = null;
   private readonly engineMulliganReceipts = new Map<string, PersistedEngineMulliganReceipt>();
   private storageDirectory?: string;
   private roomVersion = 1;
@@ -232,7 +231,9 @@ export class GameRoom {
 
   private get hasGame(): boolean { return Boolean(this.state || this.duelRuntime || this.engineRuntime || this.engineMulligan); }
   private get duelMatch() { return this.duelRuntime?.project(null).match ?? null; }
-  private get engineProjection() { return this.engineRuntime?.projectFor(null) ?? null; }
+  private get engineProjection() {
+    return this.engineMulligan ? this.engineRuntime?.projectFor("A") ?? null : this.engineRuntime?.projectFor(null) ?? null;
+  }
 
   private validateDeckForRoom(deck: RoomDeckSubmission) {
     if (!this.catalog) throw new TypeError("card catalog required");
@@ -375,16 +376,19 @@ export class GameRoom {
         battlefieldChoice: [battlefieldChoice[0]!, battlefieldChoice[1]!],
         choices: [null, null],
       };
-      this.engineMulliganProbeRuntime = null;
     }
     const setup = this.engineMulligan;
-    this.engineMulliganProbeRuntime ??= createEngineRuntime(this.engineRuntimeOptions(
+    // Keep the trusted preview runtime in the existing private `engineRuntime`
+    // slot for staff diagnostics and setup tests, but never expose its command
+    // surface: submitEngineV2's setup queue below intercepts every client
+    // command and projection publication prefers setupMulliganProjection.
+    this.engineRuntime = createEngineRuntime(this.engineRuntimeOptions(
       [...this.seats.values()],
       setup.battlefieldChoice,
       [[], []],
       setup.firstPlayer === "A" ? 0 : 1
     )).start();
-    return this.engineMulliganProbeRuntime.projectFor(playerId);
+    return this.engineRuntime.projectFor(playerId);
   }
 
   private setupMulliganProjection(playerId: PlayerId): V2Projection {
@@ -543,7 +547,6 @@ export class GameRoom {
       [setup.choices[0], setup.choices[1]], setup.firstPlayer === "A" ? 0 : 1
     )).start();
     this.engineMulligan = null;
-    this.engineMulliganProbeRuntime = null;
     this.appendRoomEvent({ type: "game-started" });
     // Crossing setup can update several locked top cards without presenting a
     // gameplay action. Advance the room clock so the completed projection is
@@ -643,7 +646,8 @@ export class GameRoom {
         ? { journal: this.duelRuntime?.exportJournal() ?? null }
         : {}),
       ...(this.rulesetId === DUEL_RULESET_ID && this.runtimeMode === "engine-v2"
-        ? { runtimeMode: this.runtimeMode, engineRuntimeJournal: this.engineRuntime?.journal() ?? null,
+        ? { runtimeMode: this.runtimeMode,
+            engineRuntimeJournal: this.engineMulligan ? null : this.engineRuntime?.journal() ?? null,
             engineMulligan: this.engineMulligan,
             ...(this.engineMulliganReceipts.size > 0
               ? { engineMulliganReceipts: [...this.engineMulliganReceipts.values()] }
@@ -775,10 +779,10 @@ export class GameRoom {
           (runtimeMode === "engine-v2" && engineJournal === undefined) ||
           roomArchive.processedCommands.length !== 0 ||
           roomArchive.roomEventLog.filter(event => event.type === "game-started").length !==
-            (engineJournal === null && roomArchive.engineMulligan != null ? 0 :
-              (runtimeMode === "legacy-p4" ? duel : engineJournal) === null ? 0 : 1) ||
-          (engineJournal === null && roomArchive.engineMulligan != null && (
+            ((runtimeMode === "legacy-p4" ? duel : engineJournal) === null ? 0 : 1) ||
+          (roomArchive.engineMulligan != null && (
             runtimeMode !== "engine-v2" || roomArchive.seats.length !== 2 ||
+            engineJournal !== null ||
             roomArchive.seats.some(seat => !seat.ready || seat.deck === null) ||
             (roomArchive.engineMulligan.firstPlayer !== "A" && roomArchive.engineMulligan.firstPlayer !== "B") ||
             !Array.isArray(roomArchive.engineMulligan.battlefieldChoice) ||
@@ -786,9 +790,8 @@ export class GameRoom {
             roomArchive.engineMulligan.battlefieldChoice.some(value => !Number.isInteger(value) || value < 0 || value > 2) ||
             !Array.isArray(roomArchive.engineMulligan.choices) || roomArchive.engineMulligan.choices.length !== 2 ||
             roomArchive.engineMulligan.choices.every(choice => choice === null))) ||
-          ((runtimeMode === "legacy-p4" ? duel : engineJournal) === null && roomArchive.engineMulligan == null && roomArchive.seats.length === 2 &&
-            roomArchive.seats.every(seat => seat.ready && seat.deck !== null)) ||
-          ((runtimeMode === "legacy-p4" ? duel : engineJournal) !== null && (roomArchive.seats.length !== 2 ||
+          (runtimeMode === "engine-v2" && roomArchive.engineMulligan == null &&
+            (roomArchive.seats.length !== 2 ||
             roomArchive.seats.some(seat => !seat.ready || !seat.deck))) ||
           roomArchive.seats.some(seat => seat.ready && seat.deck === null) ||
           roomArchive.seats.some(seat => seat.deck !== null && (
@@ -878,7 +881,7 @@ export class GameRoom {
     this.duelRuntime = restoredRuntime;
     this.engineRuntime = validatedEngineRuntime;
     this.engineMulligan = copy.engineMulligan ?? null;
-    this.engineMulliganProbeRuntime = null;
+    if (this.engineMulligan) this.mulliganProbe("A");
     this.roomVersion = copy.roomVersion;
     this.roomEventSeq = copy.roomEventSeq;
     this.roomEventLog.splice(0, this.roomEventLog.length, ...copy.roomEventLog);
@@ -984,7 +987,6 @@ export class GameRoom {
       if (trustedSeats.some(seat => !seat.ready || !seat.deck || !this.players.has(seat.id))) {
         throw new RoomError("Every player must submit a deck and be ready", "invalid-deck");
       }
-      this.engineMulliganProbeRuntime = null;
       this.engineMulligan = null;
       this.mulliganProbe("A");
     } else if (this.rulesetId === DUEL_RULESET_ID) {
@@ -1091,6 +1093,14 @@ export class GameRoom {
         projection: this.duelRuntime.project(playerId) });
       return;
     }
+    if (this.engineMulligan) {
+      transport({
+        type: "projection",
+        protocolVersion: "2.0.0",
+        projection: this.publicEngineProjection(this.setupMulliganProjection(playerId)),
+      } as unknown as ServerToClientMessage);
+      return;
+    }
     if (this.engineRuntime) {
       const message = {
         type: "projection",
@@ -1098,14 +1108,6 @@ export class GameRoom {
         projection: this.publicEngineProjection(this.engineRuntime.projectFor(this.enginePlayerId(playerId))),
       } as unknown as ServerToClientMessage;
       transport(message);
-      return;
-    }
-    if (this.engineMulligan) {
-        transport({
-        type: "projection",
-        protocolVersion: "2.0.0",
-          projection: this.publicEngineProjection(this.setupMulliganProjection(playerId)),
-      } as unknown as ServerToClientMessage);
       return;
     }
     const projection = this.projectionFor(playerId);

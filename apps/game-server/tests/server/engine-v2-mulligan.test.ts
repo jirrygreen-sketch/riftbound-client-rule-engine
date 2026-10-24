@@ -8,6 +8,7 @@ import {
   type V2Projection,
 } from "../../../../packages/protocol/dist/v2/index.js";
 import { createGameServer, type GameServer } from "../../src/server.js";
+import { GameRoom } from "../../src/room.js";
 import { loadCardCatalogRuntime } from "../../src/card-catalog.js";
 import { buildM1Deck, type M1PreconId } from "../../../../packages/integration-tests/src/headless/decks.js";
 
@@ -156,6 +157,52 @@ function openedChoice(view: V2Projection) {
 }
 
 describe("protocol v2 real mulligan ceremony", () => {
+  it("restores a pending mulligan window and replays an accepted receipt idempotently", async () => {
+    const catalog = await loadCardCatalogRuntime();
+    const [deckA, deckB] = await submissions();
+    const room = new GameRoom(`mulligan-restore-${++roomNumber}`, DUEL_RULESET_ID, catalog,
+      () => 0, undefined, undefined, undefined, "engine-v2");
+    const send = () => undefined;
+    const alice = room.join("Alice", send, "restore-a");
+    const bob = room.join("Bob", send, "restore-b");
+    const sessionA = { roomId: room.roomId, playerId: alice.playerId, resumeToken: alice.resumeToken };
+    const sessionB = { roomId: room.roomId, playerId: bob.playerId, resumeToken: bob.resumeToken };
+    room.submitDeck(sessionA, alice.connectionId, room.currentRoomVersion, deckA, "restore-deck-a", send);
+    room.setReady(sessionA, alice.connectionId, room.currentRoomVersion, true, "restore-ready-a", send);
+    room.submitDeck(sessionB, bob.connectionId, room.currentRoomVersion, deckB, "restore-deck-b", send);
+    room.setReady(sessionB, bob.connectionId, room.currentRoomVersion, true, "restore-ready-b", send);
+    let setup: V2Projection | undefined;
+    room.sendProjection(alice.playerId, message => { setup = (message as { projection: V2Projection }).projection; });
+    expect(setup?.phase).toBe("setup");
+    if (!setup || setup.pendingChoice.status !== "pending") throw new Error("Mulligan window required");
+    const firstSession = setup.pendingChoice.ownerPlayerId === sessionA.playerId ? sessionA : sessionB;
+    const firstConnection = firstSession === sessionA ? alice : bob;
+    const command = { type: "mulligan" as const, commandId: "restore-accepted",
+      stateVersion: 0, selectedObjectIds: [] };
+    const receipts: unknown[] = [];
+    room.submitEngineV2(firstSession, firstConnection.connectionId, command, value => receipts.push(value));
+    const archive = room.exportArchive();
+    expect(archive.engineMulligan).not.toBeNull();
+    expect(archive.engineRuntimeJournal).toBeNull();
+    const restored = GameRoom.restore(archive, catalog);
+    // A pending setup archive intentionally carries no formal journal. The
+    // trusted preview runtime is rebuilt by restore for internal inspection but
+    // cannot be reached through the command or public projection paths until
+    // both mulligans complete.
+    const restoredBob = restored.reconnect(sessionB.resumeToken, send, "restored-b");
+    if (!restoredBob) throw new Error("Second resume token must restore the socket binding");
+    let restoredSetup: V2Projection | undefined;
+    restored.sendProjection(firstSession.playerId, message => {
+      restoredSetup = (message as { projection: V2Projection }).projection;
+    });
+    expect(restoredSetup?.phase).toBe("setup");
+    const restoredConnection = restored.reconnect(firstSession.resumeToken, send, "restored-a");
+    if (!restoredConnection) throw new Error("Resume token must restore the socket binding");
+    restored.submitEngineV2(firstSession, restoredConnection.connectionId, command, value => receipts.push(value));
+    expect(receipts[1]).toMatchObject({ commandId: command.commandId, accepted: true, duplicate: true });
+    expect(restored.status).toBe("playing");
+  }, 180_000);
+
   it("accepts keep-all and partial choices in turn order, then starts the real match without leaks", async () => {
     const { url } = await start();
     const { alice, bob, sessionA, sessionB, room } = await readyPair(url);
