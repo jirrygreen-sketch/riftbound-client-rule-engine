@@ -101,7 +101,7 @@ test('keywords-legion-satisfied-after-another-card-finalized: a real card Play c
   // Legion / Level evaluation would have its evidence; the predicates themselves
   // remain unregisterable (see the todo).
   assert.ok(timingsOnly(f.engine).includes('card-played'));
-  assert.deepEqual(pendingItems(f.engine), ['play:spell:1:A:1']);
+  assert.deepEqual(pendingItems(f.engine), ['play:spell:1:A']);
 });
 
 test.todo('keywords-legion-satisfied-after-another-card-finalized / keywords-legion-not-satisfied-first-card-of-turn / keywords-legion-one-card-satisfies-all-legion / keywords-level-active-when-xp-threshold-met / keywords-level-inactive-below-threshold (CR 812.1.c, 812.2, 824.1.b.1, 824.1.d): the dependent abilities gated on these predicates cannot run — src/programs/statics.ts `layerFor()` maps only might/buff/copy/type/tag/timing/keyword/movement/restrict/combat effect kinds and throws ProgramBindingError(\'judge-required\', “Static ability kind condition.predicate has no layer mapping”), so the merged kernel has no consumer that turns a satisfied predicate into the +Might / Ganking grant the card text declares; the authored predicate shape is asserted above');

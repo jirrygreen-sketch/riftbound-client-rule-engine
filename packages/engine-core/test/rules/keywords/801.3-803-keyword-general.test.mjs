@@ -39,7 +39,7 @@ test('keywords-general-grant-no-duration-persists: a granted keyword with no pri
   // The chain resolved the spell through the real interpreter and registered one
   // ability-layer effect for the chosen object (CR 801.3.a.3: no printed
   // duration means “while it remains in that zone”, modelled per-object).
-  assert.deepEqual(resolvedItems(f.engine), ['play:spell:1:A:1']);
+  assert.deepEqual(resolvedItems(f.engine), ['play:spell:1:A']);
   assert.equal(f.get('spell').zone, 'trash');
   assert.deepEqual(keywordIds(f.snapshot('u1')), ['Assault:2']);
   // The granted keyword is still there with the source gone from the Board.
