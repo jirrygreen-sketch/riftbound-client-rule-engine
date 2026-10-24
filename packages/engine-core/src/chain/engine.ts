@@ -516,6 +516,8 @@ export class ChainEngine {
   private readonly chainHost: PipelineHost;
   readonly layers: LayerEngine;
   private entries: ChainItem[] = [];
+  /** A nested Play remains Pending while its parent Resolve is in progress (CR 354.3). */
+  private parentResolveDepth = 0;
   private issued = new Set<string>();
   private traces: ChainTrace[] = [];
   private outstanding: string[] = [];
@@ -562,7 +564,7 @@ export class ChainEngine {
       objects: () => this.layerObjects(),
       context: (source, controller, at) => this.hostObjectContext(source, controller, at),
       finalizedCardPlaysThisTurn: () => this.finalizedPlaysThisTurn,
-      execute: action => this.executeStateAction(action),
+      execute: action => this.executeHostAction(action),
       ...(options.host.executeContract === undefined ? {} : {
         executeContract: (action: Parameters<NonNullable<PipelineHost['executeContract']>>[0]) =>
           hostWrite(() => options.host.executeContract!(action)),
@@ -830,6 +832,63 @@ export class ChainEngine {
     const after = new Map(this.layerObjects().map(object => [key(object), object]));
     const snapshot = (object: ObjectSnapshot | undefined, previous = false) => object ? (previous ? before.get(key(object)) : after.get(key(object))) ?? before.get(key(object)) ?? object : undefined;
     return { ...execution, emissions: execution.emissions.map(event => ({ ...event, object: snapshot(event.object, event.timingPoint.startsWith('object-leaves-') || event.timingPoint === 'object-killed'), source: snapshot(event.source, true), target: snapshot(event.target) })) };
+  }
+  /**
+   * Preserve a token Play as a Pending Chain item when lifecycle falls back to
+   * the host because the token has no registered CardProgram. The source
+   * identity is already the Chain incarnation returned by create-token.
+   */
+  private executeHostAction(action: GameAction) {
+    if (action.type === 'play' && this.parentResolveDepth > 0 && this.isProgramlessTokenPlay(action)) {
+      const id = `play:${action.object.id}:${action.object.zoneEntryId}:${action.player}`;
+      const source = this.options.host.objects().find(object => object.ref.id === action.object.id &&
+        object.ref.zoneEntryId === action.object.zoneEntryId)!;
+      // Its zero cost is rule-level (185.3.a.1). Retain the primitive's Chain
+      // incarnation and continue through the ordinary Finalize/Resolve path.
+      if (this.entries.some(item => item.id === id)) {
+        return { outcome: { status: 'impossible' as const, events: [] }, emissions: [] };
+      }
+      this.appendCard(this.programlessTokenDraft(action, source, id));
+      return { outcome: { status: 'done' as const, events: [] }, emissions: [] };
+    }
+    return this.executeStateAction(action);
+  }
+  /** The host fallback is scoped to tokens without any registered program. */
+  private isProgramlessTokenPlay(action: Extract<GameAction, { type: 'play' }>): boolean {
+    const source = this.options.host.objects().find(object => object.ref.id === action.object.id &&
+      object.ref.zoneEntryId === action.object.zoneEntryId);
+    if (source?.isToken !== true || source.zone !== 'chain') return false;
+    // Without a program registry the unstable cardId cannot prove that the
+    // token is programless; preserve the previous legacy host behavior.
+    if (this.options.describePlay === undefined) return false;
+    try { this.options.describePlay(action, source); }
+    catch (error) {
+      const code = error !== null && typeof error === 'object' && 'code' in error ? error.code : undefined;
+      if (code === 'unknown-program') return true;
+      throw error;
+    }
+    return false;
+  }
+  private programlessTokenDraft(action: Extract<GameAction, { type: 'play' }>, source: ObjectSnapshot, id: string): ChainDraft {
+    const types = source.types.map(type => type.toLowerCase());
+    const kind = (['spell', 'unit', 'gear'] as const).find(type => types.includes(type));
+    if (kind === undefined) throw new Error('Played token has no supported card type');
+    return {
+      id,
+      controller: action.player,
+      source,
+      kind,
+      body: [],
+      cost: {
+        id: `cost:${id}`,
+        cost: {
+          energy: { kind: 'constant', value: 0 },
+          power: { kind: 'constant', value: [] },
+          payments: [],
+        },
+      },
+      ...(action.location === undefined ? {} : { location: action.location }),
+    };
   }
 
   /** Compare effective snapshots in the same transaction after all instruction effects commit. */
@@ -1806,6 +1865,11 @@ export class ChainEngine {
   }
   advance(): void {
     if (this.busy !== 'idle') throw new Error('HOT FEPR is not reentrant');
+    // A Game Effect may Play a card/token during its own Resolve. CR 354.3
+    // requires the parent Resolve to finish before the nested item continues
+    // through Playing steps 2-5. The nested item is already Pending; it must
+    // never be finalized or resolved reentrantly by this outer advance pass.
+    if (this.parentResolveDepth > 0) return;
     while (true) {
       this.atomic(() => this.handleOutstanding());
       const pending = this.entries.find(item => item.status === 'pending');
@@ -1875,6 +1939,7 @@ export class ChainEngine {
       const beforeMight = this.layerObjects();
       let result: ExecutionOutcome;
       try {
+        this.parentResolveDepth++;
         if (isWeaponmasterResolveShape(item)) {
           bindWeaponmasterNoEquipPolicy(context.contractActions);
         }
@@ -1885,6 +1950,8 @@ export class ChainEngine {
         // inner transaction rolled back resources/events. The Chain item
         // completes without a payment receipt, so linkedTo never attaches.
         result = { status: 'executed', results: [], linkedValues: {}, events: [] };
+      } finally {
+        this.parentResolveDepth--;
       }
       this.publishMightChanges(beforeMight, item.source, `resolve:${item.id}`);
       if (item.kind === 'spell' || item.kind === 'unit' || item.kind === 'gear') {
