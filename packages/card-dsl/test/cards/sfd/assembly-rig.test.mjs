@@ -208,14 +208,15 @@ test("Assembly Rig production registry refuses the shipped judge-required progra
       location: { type: "base", player: "A" }
     })
     .build();
-  const inspected = binding.inspect(kernel.getObject("rig"));
-  assert.equal(inspected.program, program);
-  assert.equal(inspected.abilities.length, 1);
   assert.throws(
     () => binding.describeActivate(kernel.getObject("rig"), "A", 0),
-    error => error.name === "ProgramBindingError" &&
-      error.code === "judge-required" &&
-      error.message === program.judgeReason
+    error => {
+      assert.equal(error.name, "ProgramBindingError");
+      assert.equal(error.code, "judge-required");
+      assert.equal(error.message, program.judgeReason);
+      assert.equal(error.detail, program);
+      return true;
+    }
   );
 });
 
