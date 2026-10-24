@@ -26,13 +26,13 @@ function candidate(program) {
 
 const rows = [
   {
-    name: "Breakneck Mech: supported entry and Mech keyword grant scope (CR 133.3.a/369.3)",
+    name: "Breakneck Mech: production entry and Mech keyword grant scope (CR 133.3.a/369.3)",
     canonicalCardId: "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab",
     program: breakneckMech,
     scenario: {
-      players: { A: { energy: 8, power: ["Mind", "Mind"] } },
+      players: { A: { energy: 8, power: ["Mind"] } },
       objects: [
-        { id: "mech", cardId: breakneckMech.canonicalCardId, types: ["unit"], tags: ["Mech", "Yordle", "Bandle City"], zone: "hand", energy: 8, power: ["Mind", "Mind"], might: 7 },
+        { id: "mech", cardId: breakneckMech.canonicalCardId, types: ["unit"], tags: ["Mech", "Yordle", "Bandle City"], zone: "hand", energy: 8, power: ["Mind"], might: 7 },
         { id: "ally-mech", types: ["unit"], tags: ["Mech"], zone: "board", might: 3 },
         // 133.8: tags can occur on multiple card types; “Mechs” adds no unit restriction.
         { id: "mech-gear", types: ["gear"], tags: ["Mech"], zone: "board", energy: 2 },
@@ -141,7 +141,7 @@ function register(rows, template) {
   }
 }
 
-register(rows, "static+replacement||effect.ready / supported portions and blocked card");
+register(rows, "static+replacement||effect.ready / published statuses");
 
 // Programs that remain judge-required must stay unavailable through the public
 // harness. Breakneck Mech is executable and is covered by the scenario above.
@@ -154,7 +154,7 @@ const [mechRow, , monchRow, masterRow] = rows;
 register([
   {
     ...mechRow,
-    name: "Breakneck Mech boundary: only enemy and hand Mechs do not satisfy another Mech",
+    name: "Breakneck Mech production boundary: only enemy and hand Mechs do not satisfy another Mech",
     scenario: {
       ...mechRow.scenario,
       objects: mechRow.scenario.objects.filter(object => ["mech", "enemy-mech", "hand-mech"].includes(object.id)),

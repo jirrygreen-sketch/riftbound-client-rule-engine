@@ -7,6 +7,26 @@ import {
 import tokenDefinition from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import program from "../../../dist/cards/sfd/assembly-rig.js";
+import { productionPlay } from "../../fixtures/production-play.mjs";
+
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-d490b51d08bdd7f97b1708aabfa6309995106f10de815b6fd927368e4a630569.
+// The activated ability is Pending. Its printed cost combines 151.2/357.1 resources, the 417.3 recycle
+// cost, and the 415.4 source Exhaust. Finalize locks the trash Unit, computes
+// and pays the total, then the permanent is a Finalized Chain Item; 337.1.a
+// does not pass Priority, 337.4/338.1 grants the response window, and 359.3.d
+// resolves the body only after both passes. The printed body requires the
+// 187.4 Mech token to be played, which creates it on the Chain under 440.2.c
+// before normal Play and eventual exhausted entry under 143.4/185.2.d. This
+// focused cost/state regression does not claim that Play timing is complete;
+// the shipped program's exact token-play behavior is reported by the audit.
+// The activation creates no Focus outside a Showdown, and its recycle cost reads
+// the exact selected trash incarnation. The resolved token is a new object;
+// the body consumes no departed-object LKI.
 
 test("Assembly Rig card program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -84,4 +104,56 @@ test("Assembly Rig body executes through the reference kernel: a 3 Might Mech to
   assert.deepEqual(run.events.map(event => event.action), ["create-token"]);
 });
 
-test.todo("Assembly Rig: energy/Fury-power payment, the recycle-a-unit-from-trash cost, and source exhaustion are charged at Finalize by the chain (RIFT-81~91)");
+test("sfd-019-221 Assembly Rig production golden: Finalize pays Energy, Fury Power, recycle and Exhaust, then Resolve creates one exhausted Mech", () => {
+  const f = productionPlay({
+    programs: [program],
+    answers: { "recycled-unit": ["fodder"] },
+    build: w => w
+      .player("A", { energy: 1, power: ["Fury"] })
+      .player("B")
+      .object("rig", {
+        owner: "A", controller: "A", cardId: program.canonicalCardId,
+        types: ["gear"], zone: "board", location: { type: "base", player: "A" },
+        energy: 4, power: null, might: null
+      })
+      .card("fodder", {
+        owner: "A", types: ["unit"], tags: ["Mech"], zone: "trash",
+        energy: 2, power: null, might: 2
+      })
+  });
+
+  const draft = f.binding.describeActivate(f.kernel.getObject("rig"), "A", 0);
+  assert.equal(draft.speed, "action");
+  f.engine.execute(draft);
+  const [item] = f.engine.items;
+  assert.equal(item.status, "finalized");
+  assert.equal(f.engine.priority, "A");
+  assert.equal(f.kernel.player("A").energy, 0);
+  assert.deepEqual(f.kernel.player("A").power, []);
+  assert.deepEqual(f.kernel.getObject("fodder").location, null);
+  assert.equal(f.kernel.getObject("fodder").zone, "deck");
+  assert.equal(f.kernel.getObject("rig").exhausted, true);
+  assert.deepEqual(f.kernel.events.map(event => event.action), ["pay", "recycle", "exhaust"]);
+  assert.equal(f.kernel.objects.filter(object => object.isToken).length, 0,
+    "Finalize pays the complete cost before the body is resolved");
+
+  f.engine.pass("A");
+  assert.equal(f.engine.priority, "B");
+  assert.equal(f.kernel.objects.filter(object => object.isToken).length, 0);
+  f.engine.pass("B");
+  assert.deepEqual(f.engine.items, []);
+
+  const tokens = f.kernel.objects.filter(object => object.isToken);
+  assert.equal(tokens.length, 1);
+  assert.equal(tokens[0].name, "Mech");
+  assert.equal(tokens[0].might, 3);
+  assert.deepEqual(tokens[0].tags, ["Mech"]);
+  assert.equal(tokens[0].controller, "A");
+  assert.deepEqual(tokens[0].location, { type: "base", player: "A" });
+  assert.equal(tokens[0].exhausted, true);
+  assert.equal(tokens[0].energy, null);
+  assert.equal(tokens[0].power, null);
+  assert.equal(f.engine.trace.filter(entry => entry.item === item.id &&
+    ["pending", "finalized", "resolved"].includes(entry.step)).map(entry => entry.step).join(","),
+  "pending,finalized,resolved");
+});

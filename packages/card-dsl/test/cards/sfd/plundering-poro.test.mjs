@@ -30,6 +30,21 @@ const RADIANCE_URL =
 const SFD_ERRATA_URL =
   "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/";
 
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-569dc9079a6d404c0d850d27b510585b856ab3def5e1e0bbafa30a3bf9d48e82.
+// TurnFlow publishes Conquer for the exact Unit under 383.4.c.2.a/471.1;
+// the trigger is Pending, Finalize takes no choice, both players receive the
+// Priority response window, and 359.3.d resolves it once. The body uses 187.5
+// Gold and follows 440.2.c/185.2.a for Play; 184.1/185.2.d preserve the
+// exhausted entry contrary to Gear's 359.2.d default. Gold itself remains
+// exhausted until Awakening (315.1/416) and then its 430.2 Add is usable.
+// The exact conquering Unit is present when Trigger is collected; the effect
+// creates a new Gold incarnation rather than reading LKI from a departed one.
+
 const PRODUCTION_TEST_NAMES = Object.freeze({
   golden: "sfd-069-221 Plundering Poro production golden: exact Unit Conquer creates and plays bound Gold",
   add: "sfd-069-221 Plundering Poro production boundary: exhausted Gold waits for Awakening, then its bound Add produces Universal Power",

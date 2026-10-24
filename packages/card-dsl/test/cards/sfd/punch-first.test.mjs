@@ -214,6 +214,16 @@ test.todo(
 // distinct printed domains; the amount comes from the program's cost.
 import { productionPlay } from "../../fixtures/production-play.mjs";
 
+// Official sources: Core Rules v1.5 (2026-10-09),
+// https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// and Radiance patch notes (effective 2026-10-16),
+// https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/.
+// canonicalCardId card.hash-8d49727ab9ae782b8a21802c9ae0b51e5d712a37a072d991629bfbf3645535b3:
+// CR 806.1.b/.c supplies Action timing, 337.1 Finalize pays 1 Energy + 2 Body,
+// 338-340 require both Priority passes before Resolve, 478.1.a registers the
+// +5 Might, and 317.1.a/468.7.c expires it at turn end.  A controls the card;
+// the real production tests below assert target lock, cost, speed and result.
+
 const pfTable = ({ power = ["Body", "Body"], target = "ally" } = {}) => productionPlay({
   programs: [program],
   answers: { "target:punch-first.unit": [target] },

@@ -3,8 +3,11 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/unsung-hero.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const BODY_ID = "unsung-hero.draw-2";
 
@@ -66,9 +69,115 @@ test("sfd-167-221 Unsung Hero: effect.draw body executes against the reference k
   assert.equal(instruction.args.amount.value, 2);
 });
 
-test.todo(
-  "sfd-167-221 Unsung Hero: Deathknell keyword expansion (订阅 object-killed、808.1.d.1 " +
-    "死亡被替代时移出链、808.1.d.3 进链前记录 last-known) 依赖关键词注册表与触发管线" +
-    "（RIFT-81~91 关键词任务）；触发条件的 might-changed/Mighty 判定依赖图层结算" +
-    "（RIFT-32 scenarios-layers）"
-);
+// Official sources: Core Rules v1.5 (2026-10-09),
+// https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// and Radiance patch notes (effective 2026-10-16),
+// https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/.
+// Rules: 708/710 (current Board Might determines Mighty), 808.1.c through
+// 808.1.d.3 (Deathknell enters the Chain before the death transition and uses
+// the pre-transition state), 429.1.a.1.b (object-killed collection), 337.1
+// (Finalize), and 338-340 (two Priority passes before Resolve).  The canonical
+// id is program.canonicalCardId and the controller is A.
+//
+// Timeline: A controls Unsung Hero at Might 5 -> A commits a real Kill -> the
+// object-killed wave retains the exact board incarnation -> Deathknell becomes
+// Pending before Trash entry -> Finalize locks the resolved draw -> A and B
+// pass -> Resolve draws 2.  The condition reads the captured alive incarnation,
+// not the later Trash incarnation.
+function unsungFixture({ unitMight, buffs = 0 }) {
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .deck(["first", "second", "third"], { owner: "A" })
+    .unit("hero", {
+      cardId: program.canonicalCardId,
+      owner: "A",
+      controller: "A",
+      might: unitMight,
+      buffs,
+      location: { type: "battlefield", id: "bf-1" }
+    })
+    .build();
+  const requests = [];
+  const choose = request => {
+    requests.push(request);
+    if (request.type === "optional") return true;
+    if (request.type === "select-objects" && request.min === request.max &&
+        request.options.length === request.min) return [...request.options];
+    throw new Error(`Unexpected production choice ${request.type} ${request.id}`);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => {
+      kernel.restore(saved.state);
+      kernel.copyLinkedFrom(saved.links);
+    },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    ...kernel.deathBoundaryPort(),
+    choose,
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint, choose })
+  });
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host,
+    cleanup: () => false
+  });
+  const errors = [];
+  binding.attachLifecycle(engine, error => errors.push(error));
+  engine.advance();
+  return { kernel, engine, binding, errors, requests };
+}
+
+function killAndSettle(f) {
+  const oldRef = f.kernel.ref("hero");
+  const outcome = f.engine.commit({ type: "kill", object: oldRef });
+  assert.equal(outcome.status, "done");
+  for (let guard = 0; f.engine.items.length; guard++) {
+    assert.ok(guard < 30, "Unsung Hero's production Chain must settle");
+    if (f.engine.items.some(item => item.status === "pending")) f.engine.advance();
+    else f.engine.pass(f.engine.priority);
+  }
+  return oldRef;
+}
+
+test("sfd-167-221 Unsung Hero production golden: a real Mighty Kill queues before Trash and Resolve draws 2", () => {
+  const f = unsungFixture({ unitMight: 5 });
+  assert.deepEqual(f.errors, []);
+  const oldRef = killAndSettle(f);
+
+  assert.equal(f.kernel.getObject("hero").zone, "trash");
+  assert.deepEqual(f.kernel.ref("hero"), { id: "hero", zoneEntryId: 2 });
+  assert.deepEqual(f.kernel.zone("A", "hand").map(ref => ref.id), ["first", "second"]);
+  assert.deepEqual(f.kernel.zone("A", "deck").map(ref => ref.id), ["third"]);
+  const events = f.engine.pipeline.events;
+  const killed = events.findIndex(event => event.timingPoint === "object-killed" &&
+    event.object.ref.id === "hero");
+  const pending = events.findIndex(event => event.timingPoint === "chain-item-pending" &&
+    event.object.ref.id === "hero");
+  const trash = events.findIndex(event => event.timingPoint === "object-enters-trash" &&
+    event.object.ref.id === "hero");
+  assert.ok(killed >= 0 && pending > killed && trash > pending);
+  assert.deepEqual(events[killed].object.ref, oldRef);
+  assert.equal(events[killed].object.zone, "board");
+  assert.equal(events[killed].object.might, 5);
+  assert.equal(events.filter(event => event.timingPoint === "card-drawn").length, 2);
+  assert.deepEqual(f.requests, []);
+});
+
+test("sfd-167-221 Unsung Hero production boundary: not Mighty at the Kill does not queue Deathknell", () => {
+  const f = unsungFixture({ unitMight: 4 });
+  assert.deepEqual(f.errors, []);
+  killAndSettle(f);
+  assert.equal(f.kernel.getObject("hero").zone, "trash");
+  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "chain-item-pending"), false);
+  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "card-drawn"), false);
+  assert.equal(f.kernel.player("A").handSize, 0);
+  assert.equal(f.kernel.player("A").deckSize, 3);
+});
