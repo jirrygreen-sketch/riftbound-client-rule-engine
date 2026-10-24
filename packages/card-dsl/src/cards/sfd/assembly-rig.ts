@@ -37,8 +37,9 @@ export default {
     "engine-core/src/effects/instructions/effect.token.ts:380-408 已发起 " +
     "create-token(to: \"chain\") 与 play；两者都经 ChainEngine.commit 与 " +
     "pipeline.routeAction/appendCard（chain/engine.ts:514-533；pipeline.ts:681）建立链项。问题在嵌套时机：" +
-    "父 activation 的 Resolve 建立 token 链项后，现行 FEPR advance() 循环（chain/engine.ts:1689-1705）" +
-    "会在父 Resolve 尚未完成时取到该 token，执行其 Finalize 并立即 Resolve 入场。实测事件仅出现 object-enters-chain、" +
+    "effect.token 的嵌套 transaction 返回时，父 Resolve 尚未完成；现行 execute()/advance() 调度" +
+    "（chain/engine.ts:877-888、1689-1705）会继续处理 token 链项，执行其 Finalize 并立即 Resolve 入场。" +
+    "实测事件仅出现 object-enters-chain、" +
     "object-enters-board，不出现该 token 独立的 chain-item-pending/chain-item-finalize。" +
     "CR 350.2、440.2.c、354 要求先创建为 token 的 Play 链项；CR 143.4/185.2.d 还要求" +
     "其 Unit 入场横置。费用、回收、Exhaust 与最终 3-Might 横置 Mech 已走生产路径验证；" +
