@@ -14,19 +14,39 @@ import type { CardProgram } from "../../ir/index.js";
  * the chain (contract 3.2 / 3.5).
  *
  * Body: the printed token is the frozen CR 187.4 Mech definition (3 Might,
- * no abilities), expressed as effect.token in its default create mode. The
- * destination is the controller's base (CR 440.2); effect.token's locations
- * + choiceId form asks the controller for the destination at resolution
- * (with a single printed option this is a fixed, replayable request), since
- * the frozen create-token action resolves "to your base" against the acting
- * player rather than against a placeholder string. effect.token freezes that
- * playing a NEW token through chain creation is blocked, so create-to-board
- * is the expressible form; no abilities are invented for the token.
+ * no abilities). "Play" is effect.token's mode "play": the token is created
+ * on the Chain and that exact ObjectRef is handed to the ordinary Play
+ * process (CR 350.2, 440.2.c, 185.2.a, 354). The concrete destination is the
+ * controller's Base; resolving that selector there avoids treating the
+ * symbolic "controller" as a player id. The Unit enters exhausted under CR
+ * 143.4 / 185.2.d. No abilities are invented for the token.
+ *
+ * Status is judge-required because the production Chain currently performs
+ * that Play synchronously inside the activated ability's Resolve. The token
+ * is momentarily created on the Chain, but it enters the Board before any
+ * Pending/Finalized token item appears. The authored IR is the correct printed
+ * behavior; this status records the engine gap rather than claiming the full
+ * card works.
  */
 export default {
   canonicalCardId: "card.hash-d490b51d08bdd7f97b1708aabfa6309995106f10de815b6fd927368e4a630569",
   rulesetVersion: "core-1.5",
-  status: "executable",
+  status: "judge-required",
+  judgeReason:
+    "生产链尚不能把本卡的 token Play 建成独立链项：effect.token 在 " +
+    "engine-core/src/effects/instructions/effect.token.ts:380-408 已发起 " +
+    "create-token(to: \"chain\") 与 play，但 " +
+    "engine-core/src/chain/engine.ts:955-958 的 ResolveContext.perform 走 " +
+    "pipeline.commitContract，而 engine-core/src/events/pipeline.ts:608-629 的 " +
+    "commitContract 经 action adapter 与 bridge（action-adapter.ts:479-494，" +
+    "contract-actions/bridge.ts:283-289）同步执行 create-token 与 play；" +
+    "engine-core/src/chain/engine.ts:514-533 的 routeAction 虽会调用 appendCard，但当前 contract " +
+    "执行没有把它持久化为独立链项。实测事件仅出现 object-enters-chain、" +
+    "object-enters-board，不出现该 token 独立的 chain-item-pending/chain-item-finalize。" +
+    "CR 350.2、440.2.c、354 要求先创建为 token 的 Play 链项；CR 143.4/185.2.d 还要求" +
+    "其 Unit 入场横置。费用、回收、Exhaust 与最终 3-Might 横置 Mech 已走生产路径验证；" +
+    "缺失能力应让 token Play 在父 activation Resolve 后成为独立 Pending 项，再经 " +
+    "Finalize/Resolve 入 Base，不得用同步 create-to-board 近似。",
   abilities: [
     {
       kind: "activated",
@@ -58,11 +78,11 @@ export default {
           args: {
             token: { kind: "constant", value: "mech" },
             amount: { kind: "constant", value: 1 },
-            locations: {
+            mode: { kind: "constant", value: "play" },
+            location: {
               kind: "constant",
-              value: [{ type: "base", player: "controller" }]
-            },
-            choiceId: { kind: "constant", value: "token-base" }
+              value: { type: "base", player: "controller" }
+            }
           }
         }
       ]
