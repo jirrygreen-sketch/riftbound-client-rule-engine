@@ -43,8 +43,8 @@ export default {
     "object-enters-board，不出现该 token 独立的 chain-item-pending/chain-item-finalize。" +
     "CR 350.2、440.2.c、354 要求先创建为 token 的 Play 链项；CR 143.4/185.2.d 还要求" +
     "其 Unit 入场横置。费用、回收、Exhaust 与最终 3-Might 横置 Mech 已走生产路径验证；" +
-    "缺失能力应让 token Play 在父 activation Resolve 后成为独立 Pending 项，再经 " +
-    "Finalize/Resolve 入 Base，不得用同步 create-to-board 近似。",
+    "缺失能力应把 token Play 作为独立链项保留到父 activation Resolve 后，再经 " +
+    "Finalize/Resolve 入 Base。父 activation 与 token 子项的顺序不得凭实现猜成统一 FIFO/LIFO；需按 CR 327/340 与 303.2.a 的适用条件实现，当前不把同步入场当作已验收。",
   abilities: [
     {
       kind: "activated",
