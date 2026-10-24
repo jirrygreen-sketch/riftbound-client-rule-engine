@@ -7,6 +7,7 @@ import {
   commandTimings,
   durationDistribution,
   m1StatsCases,
+  parsePersistedHeadlessJournal,
   runIsolatedM1Game,
   runM1StatsCases,
   summarizeM1Games,
@@ -67,6 +68,25 @@ function game(testCase: M1StatsCase, outcome: M1GameStats["outcome"]): M1GameSta
 }
 
 describe("RIFT-990 M1 hundred-game statistics", () => {
+  it("RIFT-1039: a persisted journal keeps its Maps, including legacy empty counter Maps", async () => {
+    const { stringifyPersistedReplayJson } = await import(
+      new URL("../../../replay-core/src/canonical-json.ts", import.meta.url).href) as
+      typeof import("../../../replay-core/src/canonical-json.ts");
+    const object = { ref: { id: "u1", zoneEntryId: 1 }, counters: new Map<string, number>() };
+    const charged = { ref: { id: "u2", zoneEntryId: 1 }, counters: new Map([["buff", 2]]) };
+    const journal = { seed: "s", events: [{ object }, { object: charged }] } as unknown as HeadlessJournal;
+    const persisted = stringifyPersistedReplayJson(journal);
+    const restored = parsePersistedHeadlessJournal(persisted) as unknown as typeof journal & {
+      events: { object: { counters: Map<string, number> } }[] };
+    expect(restored.events[0]!.object.counters).toBeInstanceOf(Map);
+    expect(restored.events[0]!.object.counters.size).toBe(0);
+    expect([...restored.events[1]!.object.counters]).toEqual([["buff", 2]]);
+    // A legacy archive written with plain JSON.stringify lost the empty Map as {}.
+    const legacy = parsePersistedHeadlessJournal(JSON.stringify(journal)) as unknown as typeof restored;
+    expect(legacy.events[0]!.object.counters).toBeInstanceOf(Map);
+    expect(legacy.events[0]!.object.counters.size).toBe(0);
+  });
+
   it("pins the 100-seed plan to 50 games per seat orientation", () => {
     const cases = m1StatsCases();
     expect(cases).toHaveLength(M1_STATS_GAMES);
