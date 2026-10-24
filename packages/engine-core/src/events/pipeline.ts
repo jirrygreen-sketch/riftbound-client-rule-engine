@@ -520,9 +520,8 @@ export class EventPipeline {
       const current = this.host.objects().find(object => object.ref.id === registration.source.ref.id);
       // Leave timings carry last-known characteristics before the zone transition.
       const leaving = (event.timingPoint.startsWith('object-leaves-') || event.timingPoint === 'object-killed') && event.object?.ref.id === registration.source.ref.id;
-      // The event object preserves the generic producer's raw transition view.
-      // `it` is the pipeline's immutable LKI role and carries the ChainEngine's
-      // layered death snapshot for object-killed / object-leaves-* timings.
+      // ChainEngine replaces a confirmed death's object snapshot with its final
+      // layered Board view; the generic producers remain raw until that boundary.
       const source = leaving ? event.object : current;
       if (registration.boundToIncarnation && source?.ref.zoneEntryId !== registration.source.ref.zoneEntryId) continue;
       if (!registration.delayed && (!source || !(registration.activeZones ?? ['board']).includes(source.zone))) continue;

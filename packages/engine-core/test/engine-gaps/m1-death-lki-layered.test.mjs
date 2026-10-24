@@ -24,7 +24,7 @@ import unsungHero from '../../../card-dsl/dist/cards/sfd/unsung-hero.js';
 import { AwaitChoice } from '../../dist/effects/contract.js';
 import { world } from '../../dist/effects/testing/index.js';
 import { ChainEngine } from '../../dist/chain/engine.js';
-import { bindResolveContext, createActionPipelineHost } from '../../dist/events/action-adapter.js';
+import { bindResolveContext, createActionPipelineHost, killBatch } from '../../dist/events/action-adapter.js';
 import { createProgramBinding } from '../../dist/programs/index.js';
 import { TurnFlow } from '../../dist/turn/flow.js';
 
@@ -126,26 +126,20 @@ test('RIFT-1033 printed 4 without a Buff is not Mighty and does not trigger', ()
 
 test('RIFT-1033 production typed batch seam preserves layered Deathknell LKI before Trash', () => {
   const f = runtime({ objects: 2, drawCards: ['d1', 'd2', 'd3', 'd4', 'd5', 'd6'] });
-  const hero = f.kernel.ref('hero');
-  const refs = [hero, f.kernel.ref('hero-1')];
-  let observed;
-  let execution;
-  const boundary = f.engine.pipeline.host.deathBoundary;
-  assert.ok(boundary);
-  execution = boundary.executeContract(
-    { type: 'batch', transactionId: 'RIFT-1033:wave', actions: refs.map(object => ({ type: 'kill', object })) },
-    context => {
-      observed = context;
-    },
-  );
-  assert.equal(execution.outcome.status, 'done');
-  assert.deepEqual(observed.before.map(object => object.ref), refs);
-  assert.ok(observed.before.every(object => object.zone === 'board' && object.might === 5));
-  const deaths = observed.emissions.filter(event => event.timingPoint === 'object-killed');
+  const refs = [f.kernel.ref('hero'), f.kernel.ref('hero-1')];
+  const outcome = f.engine.pipeline.commitContract(killBatch(refs, 'RIFT-1033:wave'));
+  assert.equal(outcome.status, 'done');
+
+  const deaths = f.engine.pipeline.events.filter(event => event.timingPoint === 'object-killed');
   assert.deepEqual(deaths.map(event => event.object.ref), refs);
   assert.ok(deaths.every(event => event.object.zone === 'board' && event.object.might === 5));
   assert.ok(deaths.every(event => event.it?.might === 5));
   assert.ok(deaths.every(event => event.batchId === 'RIFT-1033:wave'));
+  assert.equal(f.engine.items.length, 2);
+  assert.ok(f.engine.items.every(item => item.trigger.source.might === 5));
+  assert.ok(f.engine.items.every(item => item.trigger.event.object.might === 5));
+  f.settle();
+  assert.equal(f.kernel.player('A').handCount, 4);
   assert.deepEqual(f.kernel.objects.filter(object => refs.some(ref =>
     ref.id === object.ref.id)).map(object => object.zone), ['trash', 'trash']);
 });
@@ -196,8 +190,7 @@ test('RIFT-1033 damage lethal to a Buffed Unsung Hero enters the same TurnFlow C
   const ref = kernel.ref('hero');
   const source = kernel.ref('source');
 
-  // `+1 might` is a real continuous-layer action, so this exercises the fact
-  // that damage Cleanup must use the pre-death layered state at the Kill boundary.
+  // The Buff is part of the same production layer pass used by Cleanup.
   flow.chain.layers.setObjects(kernel.objects);
   assert.equal(flow.chain.layers.evaluate(kernel.ref('hero')).might, 5);
   assert.equal(flow.chain.layers.evaluate(kernel.ref('hero')).might, 5);
