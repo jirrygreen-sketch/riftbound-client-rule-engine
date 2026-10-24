@@ -86,7 +86,7 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
         ":rb_exhaust:"
       ]),
       ruleRefs: Object.freeze([
-        "151.2", "337.1", "337.1.a", "337.4", "338.1", "338.1.b",
+        "151.2", "151.2.a", "151.2.a.1", "337.1", "337.1.a", "337.4", "338.1", "338.1.b",
         "135.2.e.5", "135.2.e.5.b", "163.2.b", "339.1", "355.5", "357.1",
         "357.2", "415.4", "415.5", "417.1", "417.3", "417.5"
       ]),
@@ -98,7 +98,7 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
         "Resolve: the independent body executes only after both passes; no replacement or layer effect changes this turn timeline."
       ]),
       priorityFocus: "Priority belongs to the ordinary Main Phase turn player. CR 337.1.a says Finalize does not pass it; the finalized item grants the Execute window before Resolve.",
-      responseWindow: "While the finalized ability is on the Chain, Reaction-speed cards or abilities may be played under CR 338.1.a.2. No numeric priority is assigned.",
+      responseWindow: "The Gear activation is limited to its controller's Main Phase in an Open State and never a Showdown under CR 151.2. While the finalized ability is on the Chain, CR 338.1.a.2 permits legally timed Reaction plays. No numeric priority is assigned.",
       replacement: "No replacement or prevention clause applies. The complete cost must be payable at Finalize under CR 357 and 415.4/417.3.",
       layers: "No continuous effect changes the Energy, Power, recycle choice, Exhaust payment or Mech characteristics.",
       lki: "The recycle choice reads the exact selected Trash incarnation and replaces it with a new deck incarnation. The later token body consumes no departed-object LKI.",
