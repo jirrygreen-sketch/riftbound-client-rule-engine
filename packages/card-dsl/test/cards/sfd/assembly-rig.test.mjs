@@ -444,9 +444,23 @@ test(PRODUCTION_TEST_NAMES.gap, () => {
 
 test(PRODUCTION_TEST_NAMES.universalPower, () => {
   const f = assemblyRigScene({ power: ["universal"], deck: ["top", "middle"] });
+  const actions = [];
+  const perform = f.kernel.perform.bind(f.kernel);
+  f.kernel.perform = action => {
+    actions.push(structuredClone(action));
+    return perform(action);
+  };
   activate(f);
   assert.equal(f.kernel.player("A").energy, 0);
   assert.deepEqual(f.kernel.player("A").power, []);
+  const payment = actions.find(action => action.type === "pay");
+  assert.deepEqual(payment.plan, {
+    finalized: true,
+    energy: 1,
+    power: [],
+    universalPower: 1,
+    powerSources: [{ source: "any", amount: 1 }]
+  });
   assert.deepEqual(f.kernel.zone("A", "deck").map(ref => ref.id), ["top", "middle", "fodder"],
     "CR 417.1/417.5 place the recycled card at the existing Main Deck bottom");
   f.engine.pass("A");
