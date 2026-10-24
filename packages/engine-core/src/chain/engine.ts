@@ -571,14 +571,12 @@ export class ChainEngine {
       // applied when the boundary callback runs) and after its boundary.
       ...(options.host.deathBoundary === undefined ? {} : (() => {
         const boundary = options.host.deathBoundary;
-        type Callback = Parameters<typeof boundary.execute>[1];
-        const counted = (callback: Callback): Callback => context => hostWrite(() => callback(context));
         return { deathBoundary: {
           version: boundary.version,
-          execute: (action: Parameters<typeof boundary.execute>[0], callback: Callback) =>
-            hostWrite(() => boundary.execute(action, counted(callback))),
-          executeContract: (action: Parameters<typeof boundary.executeContract>[0], callback: Callback) =>
-            hostWrite(() => boundary.executeContract(action, counted(callback))),
+          execute: (action: Parameters<typeof boundary.execute>[0], callback: Parameters<typeof boundary.execute>[1]) =>
+            this.executeDeathBoundary(boundary.execute.bind(boundary), action, callback),
+          executeContract: (action: Parameters<typeof boundary.executeContract>[0], callback: Parameters<typeof boundary.executeContract>[1]) =>
+            this.executeDeathBoundary(boundary.executeContract.bind(boundary), action, callback),
         } };
       })()),
     };
@@ -830,6 +828,61 @@ export class ChainEngine {
     const after = new Map(this.layerObjects().map(object => [key(object), object]));
     const snapshot = (object: ObjectSnapshot | undefined, previous = false) => object ? (previous ? before.get(key(object)) : after.get(key(object))) ?? before.get(key(object)) ?? object : undefined;
     return { ...execution, emissions: execution.emissions.map(event => ({ ...event, object: snapshot(event.object, event.timingPoint.startsWith('object-leaves-') || event.timingPoint === 'object-killed'), source: snapshot(event.source, true), target: snapshot(event.target) })) };
+  }
+  /**
+   * The adapter's confirmed-Kill callback runs after replacements but before
+   * Trash. Freeze the complete layered Board view at that exact boundary and
+   * use it only for death and leave timings (CR 383.2.c.3.b, 429.1.a.1.b,
+   * 708, 710, 808.1.d.3). Ordinary action emissions keep their existing path.
+   */
+  private executeDeathBoundary<
+    Action,
+    Callback extends (context: import('../events/pipeline-types.js').PipelineDeathBoundaryContext) => void,
+    Execution extends { readonly emissions: readonly TimingEmission[] },
+  >(
+    invoke: (action: Action, callback: Callback) => Execution,
+    action: Action,
+    callback: Callback,
+  ): Execution {
+    const key = (object: ObjectSnapshot) => JSON.stringify(object.ref);
+    let confirmed: Map<string, ObjectSnapshot> | undefined;
+    const layeredCallback = ((context: import('../events/pipeline-types.js').PipelineDeathBoundaryContext) => {
+      if (confirmed !== undefined) throw new Error('Death boundary invoked more than once');
+      confirmed = new Map(this.layerObjects().map(object => [key(object), object]));
+      const before = context.before.map(object => confirmed!.get(key(object)) ?? object);
+      const emissions = context.emissions.map(event => this.withDeathLkiSnapshot(event, confirmed!, confirmed!));
+      hostWrite(() => callback({ ...context, before, emissions }));
+    }) as Callback;
+    const execution = hostWrite(() => invoke(action, layeredCallback));
+    if (confirmed === undefined) return execution;
+    const after = new Map(this.layerObjects().map(object => [key(object), object]));
+    return {
+      ...execution,
+      emissions: execution.emissions.map(event => this.withDeathLkiSnapshot(event, confirmed!, after)),
+    };
+  }
+  private withDeathLkiSnapshot(
+    event: TimingEmission,
+    before: ReadonlyMap<string, ObjectSnapshot>,
+    after: ReadonlyMap<string, ObjectSnapshot>,
+  ): TimingEmission {
+    const key = (object: ObjectSnapshot) => JSON.stringify(object.ref);
+    const previous = (object: ObjectSnapshot | undefined) => object === undefined
+      ? undefined : before.get(key(object)) ?? object;
+    const current = (object: ObjectSnapshot | undefined) => object === undefined
+      ? undefined : after.get(key(object)) ?? before.get(key(object)) ?? object;
+    const deathObject = event.timingPoint.startsWith('object-leaves-') || event.timingPoint === 'object-killed';
+    return {
+      ...event,
+      ...(event.object === undefined ? {} : {
+        object: deathObject ? previous(event.object) : event.object,
+      }),
+      ...(event.source === undefined ? {} : { source: previous(event.source) }),
+      ...(event.target === undefined ? {} : { target: current(event.target) }),
+      ...(deathObject && (event.it ?? event.object) !== undefined
+        ? { it: previous(event.it ?? event.object) }
+        : {}),
+    };
   }
 
   /** Compare effective snapshots in the same transaction after all instruction effects commit. */

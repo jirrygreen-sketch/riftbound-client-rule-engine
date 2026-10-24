@@ -1,4 +1,4 @@
-import type { ActionOutcome, ContractGameAction, GameAction, HistoryQuery, ObjectFilter, ObjectSnapshot, PlayerId, ResolveContext } from '../effects/contract.js';
+import type { ActionOutcome, ContractGameAction, GameAction, HistoryQuery, ObjectFilter, ObjectRef, ObjectSnapshot, PlayerId, ResolveContext } from '../effects/contract.js';
 import { getTimingPoint } from './timing-points.js';
 import { matchesTriggerEvent } from './pipeline-match.js';
 import { assertTriggerSpec } from './trigger-spec.js';
@@ -112,8 +112,25 @@ function evaluateTriggerCondition(
   const conditionHistory = registration.spec.conditionHistory;
   if (condition === undefined && conditionHistory === undefined) return true;
   const base = host.context(source, controller, event.timingPoint);
+  const eventSource = event.object?.ref.id === source.ref.id &&
+    event.object.ref.zoneEntryId === source.ref.zoneEntryId &&
+    (event.timingPoint === 'object-killed' || event.timingPoint.startsWith('object-leaves-'))
+    ? event.object
+    : undefined;
+  const conditionContext = eventSource === undefined ? base : new Proxy(base, { get(target, key) {
+    if (key === 'object') return (ref: ObjectRef) => {
+      if (ref.id === eventSource.ref.id && ref.zoneEntryId === eventSource.ref.zoneEntryId) return eventSource;
+      return target.object(ref);
+    };
+    if (key === 'lastKnown') return (ref: ObjectRef) => {
+      if (ref.id === eventSource.ref.id && ref.zoneEntryId === eventSource.ref.zoneEntryId) return eventSource;
+      return target.lastKnown(ref);
+    };
+    const value = Reflect.get(target, key);
+    return typeof value === 'function' ? value.bind(target) : value;
+  } });
   const frozenQuery = participatingUnitQuery(pipeline, host, event, controller, source);
-  const context = bindEventHistory(new Proxy(base, { get(target, key) {
+  const context = bindEventHistory(new Proxy(conditionContext, { get(target, key) {
     if (key === 'query') return (filter: ObjectFilter) => {
       if ((event.details as Readonly<Record<string, unknown>> | undefined)?.participatingUnits !== undefined ||
           event.timingPoint === 'conquer' || event.timingPoint === 'hold') {
@@ -503,6 +520,9 @@ export class EventPipeline {
       const current = this.host.objects().find(object => object.ref.id === registration.source.ref.id);
       // Leave timings carry last-known characteristics before the zone transition.
       const leaving = (event.timingPoint.startsWith('object-leaves-') || event.timingPoint === 'object-killed') && event.object?.ref.id === registration.source.ref.id;
+      // The event object preserves the generic producer's raw transition view.
+      // `it` is the pipeline's immutable LKI role and carries the ChainEngine's
+      // layered death snapshot for object-killed / object-leaves-* timings.
       const source = leaving ? event.object : current;
       if (registration.boundToIncarnation && source?.ref.zoneEntryId !== registration.source.ref.zoneEntryId) continue;
       if (!registration.delayed && (!source || !(registration.activeZones ?? ['board']).includes(source.zone))) continue;
