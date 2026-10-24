@@ -32,6 +32,22 @@ import {
 type AnyRecord = Record<string, unknown>;
 type MutableSnapshot = { -readonly [Key in keyof LayeredObjectSnapshot]: LayeredObjectSnapshot[Key] } & AnyRecord;
 
+/**
+ * Cached layered snapshots are recursively frozen. Their public readers never
+ * mutate nested characteristics, so retaining those immutable field objects is
+ * safe and avoids rebuilding them on every detached wrapper.
+ */
+type FrozenSnapshot = LayeredObjectSnapshot & {
+  readonly printed: ObjectSnapshot;
+  readonly types: readonly string[];
+  readonly tags: readonly string[];
+  readonly keywords: ObjectSnapshot["keywords"];
+  readonly power: readonly string[] | null;
+  readonly actionTimings: readonly ActionTiming[];
+  readonly availableTimings: readonly ActionTiming[];
+  readonly movement: MovementPermissions;
+};
+
 type AppliedArithmetic = {
   readonly effect: AnyRecord;
 };
@@ -83,36 +99,54 @@ function unique<T>(values: readonly T[]): readonly T[] {
   return Object.freeze([...new Set(values)]);
 }
 
-function cloneSnapshot(source: ObjectSnapshot): LayeredObjectSnapshot {
+function cloneSnapshot(source: ObjectSnapshot): FrozenSnapshot {
   const input = source as ObjectSnapshot & Partial<LayeredObjectSnapshot> & AnyRecord;
   const cardId = input.cardId === null ? null : input.cardId ?? input.ref.id;
   const permissions = input.movement ?? EMPTY_MOVEMENT;
-  const actionTimings = array(input.actionTimings ?? input.availableTimings ?? DEFAULT_TIMINGS);
-  const printed = input.printed === undefined ? snapshotFields(source) : snapshotFields(input.printed);
+  // A raw host snapshot is both the current and printed state at the start of
+  // evaluation. Build those immutable field arrays once; every later layer
+  // operation replaces a field instead of mutating the shared frozen value.
+  const rawFields = input.printed === undefined ? snapshotFields(source) : undefined;
+  const actionTimings = rawFields?.actionTimings ?? array(input.actionTimings ?? input.availableTimings ?? DEFAULT_TIMINGS);
+  const frozenInput = source as Partial<FrozenSnapshot>;
+  const frozen = Object.isFrozen(source) &&
+    Object.isFrozen(frozenInput.printed) && Object.isFrozen(frozenInput.types) &&
+    Object.isFrozen(frozenInput.tags) && Object.isFrozen(frozenInput.keywords) &&
+    (frozenInput.power == null || Object.isFrozen(frozenInput.power)) &&
+    Object.isFrozen(actionTimings) && Object.isFrozen(permissions) &&
+    Object.isFrozen(permissions.restrictions);
+  const printed = frozen
+    ? frozenInput.printed as ObjectSnapshot
+    : rawFields ?? snapshotFields(input.printed!);
   const empty = source.types.length === 0 && source.tags.length === 0 && source.keywords.length === 0 &&
     source.power !== null && source.power.length === 0 && actionTimings.length === 0 &&
     permissions === EMPTY_MOVEMENT;
   return Object.freeze({
     ...source,
     cardId,
-    types: empty ? EMPTY_SNAPSHOT_FIELDS.types : array(source.types),
-    tags: empty ? EMPTY_SNAPSHOT_FIELDS.tags : array(source.tags),
-    keywords: empty ? EMPTY_SNAPSHOT_FIELDS.keywords : keywords(source.keywords),
-    power: source.power === null ? null : empty ? EMPTY_SNAPSHOT_FIELDS.power : array(source.power),
+    types: empty ? EMPTY_SNAPSHOT_FIELDS.types : frozen ? frozenInput.types : rawFields?.types ?? array(source.types),
+    tags: empty ? EMPTY_SNAPSHOT_FIELDS.tags : frozen ? frozenInput.tags : rawFields?.tags ?? array(source.tags),
+    keywords: empty ? EMPTY_SNAPSHOT_FIELDS.keywords : frozen ? frozenInput.keywords : rawFields?.keywords ?? keywords(source.keywords),
+    power: source.power === null ? null : empty ? EMPTY_SNAPSHOT_FIELDS.power : frozen ? frozenInput.power as readonly string[] : rawFields?.power as readonly string[] ?? array(source.power),
     printed,
     actionTimings,
     availableTimings: actionTimings,
-    movement: empty ? EMPTY_SNAPSHOT_FIELDS.movement : movement(permissions),
+    movement: empty ? EMPTY_SNAPSHOT_FIELDS.movement : frozen ? permissions : rawFields?.movement ?? movement(permissions),
     text: input.text === undefined ? null : input.text as string | null,
     effectText: input.effectText === undefined ? (input.text as string | null | undefined) ?? null : input.effectText as string | null,
-  });
+  }) as unknown as FrozenSnapshot;
 }
 
 /** Freeze nested fields reused by cached and detached snapshot wrappers. */
-function snapshotFields(source: ObjectSnapshot): ObjectSnapshot {
+function snapshotFields(source: ObjectSnapshot): FrozenSnapshot {
   const input = source as ObjectSnapshot & Partial<LayeredObjectSnapshot> & AnyRecord;
   const actionTimings = array(input.actionTimings ?? input.availableTimings ?? DEFAULT_TIMINGS);
-  return Object.freeze({
+  if (Object.isFrozen(source) && Object.isFrozen(input.types) && Object.isFrozen(input.tags) &&
+      Object.isFrozen(input.keywords) && input.keywords.every(keyword => Object.isFrozen(keyword)) &&
+      (input.power == null || Object.isFrozen(input.power)) && Object.isFrozen(actionTimings) &&
+      input.movement !== undefined && Object.isFrozen(input.movement) &&
+      Object.isFrozen(input.movement.restrictions)) return source as FrozenSnapshot;
+  const fields = Object.freeze({
     ...source,
     types: array(source.types),
     tags: array(source.tags),
@@ -122,6 +156,7 @@ function snapshotFields(source: ObjectSnapshot): ObjectSnapshot {
     availableTimings: actionTimings,
     movement: movement(input.movement ?? EMPTY_MOVEMENT),
   });
+  return fields as unknown as FrozenSnapshot;
 }
 
 function property(object: LayeredObjectSnapshot, key: string): unknown {
@@ -180,7 +215,11 @@ function effectKind(effect: AnyRecord): string {
   return String(record(effect).kind ?? "").toLowerCase();
 }
 
-function conditionMatches(effect: AnyRecord, object: LayeredObjectSnapshot, environment: ExpressionContext): boolean {
+function conditionMatches(
+  effect: AnyRecord,
+  object: LayeredObjectSnapshot,
+  environment: () => ExpressionContext,
+): boolean {
   const condition = effect.condition ?? effect.when;
   if (condition === undefined) return true;
   if (typeof condition === "function") return Boolean((condition as (object: LayeredObjectSnapshot) => unknown)(object));
@@ -194,11 +233,21 @@ function conditionMatches(effect: AnyRecord, object: LayeredObjectSnapshot, envi
   if (item.kind === "has-keyword") return object.keywords.some(keyword => keyword.id === item.keyword || keyword.id === item.id);
   // Evaluate the closed Condition vocabulary, including logical composition.
   // Unknown conditions must never silently authorize a continuous effect.
-  try { return evaluateCondition(condition as Condition, environment); }
+  try { return evaluateCondition(condition as Condition, environment()); }
   catch (error) {
     if (error instanceof MissingInformation) return false;
     throw error;
   }
+}
+
+/** Scalar expression slots that require the per-effect layer environment. */
+function needsLayerEnvironment(effect: AnyRecord): boolean {
+  if (effect.per !== undefined) return true;
+  for (const key of ["amount", "value", "delta", "keywordValue"] as const) {
+    const value = record(effect[key]);
+    if (value.kind !== undefined) return true;
+  }
+  return false;
 }
 
 function keywordValue(value: unknown): number | undefined {
@@ -391,6 +440,8 @@ export class LayerEngine {
   private copyGroups = new Map<string, Set<string>>();
   private registryRevision = -1;
   private attachmentRevision?: string;
+  private attachmentObjects: readonly ObjectSnapshot[] = [];
+  private immutableAttachmentObjects = false;
   private depth = 0;
   /** True while this engine is inside evaluate/evaluateAll (reentrant reads). */
   get inEvaluation(): boolean { return this.depth > 0; }
@@ -556,12 +607,18 @@ export class LayerEngine {
     }
     const source = entry.effect.source === undefined ? target : this.raw(entry.effect.source);
     if (!matchesObjectFilter(entry.effect.filter, target, { controller: source?.controller, anchor: source ?? undefined })) return false;
-    return conditionMatches(record(entry.effect.effect), target, this.layerEnvironment(entry, target));
+    const effect = record(entry.effect.effect);
+    return conditionMatches(effect, target, () => this.layerEnvironment(entry, target));
   }
 
   private materialize(entry: RegisteredContinuousEffect, target: LayeredObjectSnapshot): AnyRecord {
+    const authored = record(entry.effect.effect);
+    // Most production registrations are scalar static effects. Their authored
+    // object is immutable, so cloning and constructing an expression host only
+    // to return identical values is unnecessary.
+    if (!needsLayerEnvironment(authored)) return authored;
     const environment = this.layerEnvironment(entry, target);
-    const input = { ...entry.effect.effect };
+    const input = { ...authored };
     for (const key of ["amount", "value", "delta", "keywordValue"] as const) {
       const value = record(input[key]);
       if (["add", "subtract", "multiply", "object-ref", "ref"].includes(String(value.kind)) ||
@@ -569,7 +626,7 @@ export class LayerEngine {
         input[key] = valueOf(value, target, ref => this.resolve(ref)) as never;
       }
     }
-    const effect = record(resolveLayerEffectExpressions(input, environment));
+    const effect = record(resolveLayerEffectExpressions(input as unknown as import("@riftbound/card-dsl").ContinuousEffect, environment));
     // Existing authored IR expresses "N for each ..." in this scalar slot.
     if (effect.per !== undefined) {
       const per = evaluateExpression(effect.per as Expr, environment);
@@ -773,6 +830,7 @@ export class LayerEngine {
   }
 
   private signature(entry: RegisteredContinuousEffect, target: LayeredObjectSnapshot): string {
+    const authored = record(entry.effect.effect);
     if (this.isAttachmentBonus(entry)) {
       return JSON.stringify({ effect: entry.effect.effect,
         attached: target.types.includes("unit") && (() => {
@@ -783,6 +841,10 @@ export class LayerEngine {
     return this.withSnapshot(target, () => {
       if (!this.layerMatches(entry, target)) return "inapplicable";
       const effect = this.materialize(entry, target);
+      const condition = authored.condition ?? authored.when;
+      if (effect === authored && condition === undefined && entry.effect.layer !== "arithmetic") {
+        return `${entry.effect.layer}\u0000${JSON.stringify(authored)}`;
+      }
       const after = { ...target } as MutableSnapshot;
       this.apply(after, entry.effect.layer, effect);
       // Arithmetic dependencies compare the size of the modification, not the
@@ -873,6 +935,10 @@ export class LayerEngine {
 
   private evaluateGroup(keys: readonly string[]): void {
     const effects = this.arithmeticEffects();
+    const candidatesByLayer = new Map<string, RegisteredContinuousEffect[]>();
+    for (const layer of LAYER_ORDER) {
+      candidatesByLayer.set(layer, effects.filter(entry => entry.effect.layer === layer));
+    }
     const current = new Map<string, MutableSnapshot>();
     const applied = new Map<string, Map<string, AppliedEffect>>();
     const removed = new Map<string, Set<string>>();
@@ -904,7 +970,7 @@ export class LayerEngine {
             const done = applied.get(key)!;
             const disqualified = removed.get(key)!;
             let entry: RegisteredContinuousEffect | undefined;
-            const candidates = effects.filter(item => item.effect.layer === layer &&
+            const candidates = (candidatesByLayer.get(layer) ?? EMPTY_ARRAY).filter(item =>
               !done.has(item.effect.id) && !disqualified.has(item.effect.id));
             while (candidates.length > 0 && (entry = this.nextEffect(candidates, target))) {
               candidates.splice(candidates.indexOf(entry), 1);
@@ -1002,7 +1068,8 @@ export class LayerEngine {
 
   evaluate(ref: ObjectRef): LayeredObjectSnapshot | null {
     if (this.depth > 0) return this.evaluateDependency(ref);
-    const attachmentRevision = this.attachmentSignature();
+    const current = this.currentAttachmentSignature();
+    const attachmentRevision = current;
     if (this.attachmentRevision !== attachmentRevision) {
       this.cache.clear();
       this.copyCache.clear();
@@ -1047,6 +1114,27 @@ export class LayerEngine {
   private attachmentSignature(): string {
     return JSON.stringify([...this.objects.values()].map(object => [refKey(object.ref), object.types,
       object.tags, object.zone, object.might, object.buffs, object.attachedTo]));
+  }
+
+  /**
+   * Only recursively frozen snapshots can skip content serialization across
+   * calls. Mutable raw snapshots are legal at this internal boundary, so their
+   * attachment fields are re-read on every top-level query to prevent a cache
+   * from surviving an in-place change.
+   */
+  private currentAttachmentSignature(): string {
+    const objects = [...this.objects.values()];
+    const previous = this.attachmentObjects;
+    if (this.immutableAttachmentObjects && objects.length === previous.length &&
+        objects.every((object, index) => object === previous[index])) {
+      return this.attachmentRevision!;
+    }
+    const signature = this.attachmentSignature();
+    this.attachmentObjects = objects;
+    this.immutableAttachmentObjects = objects.every(object =>
+      Object.isFrozen(object) && Object.isFrozen(object.ref) && Object.isFrozen(object.types) &&
+      Object.isFrozen(object.tags) && (object.attachedTo === null || Object.isFrozen(object.attachedTo)));
+    return signature;
   }
 
   snapshot(ref: ObjectRef): LayeredObjectSnapshot | null {
