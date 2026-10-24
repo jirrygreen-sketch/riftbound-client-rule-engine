@@ -27,6 +27,24 @@ const SOURCE_TEXT =
   "Your Mechs have [Deflect] and [Ganking]. (Opponents must pay :rb_rune_rainbow: to choose us with a spell or ability. We can move from battlefield to battlefield.)\n" +
   "I enter ready if you control another Mech.";
 
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab.
+// The static grant applies continuously under 478/479 to each controlled Mech.
+// Ganking permits the 144.4.c.1/810.1.c Standard Move. Deflect adds a mandatory
+// Power cost when an opponent targets that Unit under 809.1.c-d and 356.2.a.2;
+// it is locked and paid at Finalize before the ordinary response window and
+// Resolve. "I enter ready" is an entry-orientation replacement under
+// 369.3/370.1.b/805.6, replacing 143.4 exhaustion and emitting no later Ready.
+// The Unit Play is Pending, its Finalize locks any target/tax before Priority
+// and the
+// response window, and neither interaction creates Focus outside a Showdown.
+// The replacement reads the source and another live Mech; Deflect reads the
+// target-incarnation Power tax. Neither consumes departed-object LKI.
+
 // Frozen official evidence for this card's production assertions. These are
 // source identities, not runtime network lookups: the official snapshots were
 // fetched and hash-recorded in shared/rules/official-order/source-snapshots.json.

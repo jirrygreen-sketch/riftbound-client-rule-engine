@@ -8,6 +8,21 @@ import { runInstruction, world } from "../../../../engine-core/dist/effects/test
 import { cardProgramsById, cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { productionPlay } from "../../fixtures/production-play.mjs";
 
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-1504d8f14af5ce1b9f7a3663c23e6ef7cb57d59a6274dc921cd9296ee8e2494b.
+// "This costs less" is a self cost modification frozen during 356.4.g; 357
+// pays the reduced total. The spell is Pending, Finalizes with no target,
+// receives both Priority passes under 337.1.a/338/339.1, then 359.3.d executes
+// its instructions top-to-bottom. The token Play uses 440.2.c/185.2.a and the
+// 187.4 Mech enters exhausted (143.4); the independent Draw 1 follows under
+// 359.3.e.11.
+// The neutral Main-phase spell creates no Focus, and its response window is the
+// ordinary Chain window. Neither instruction depends on departed-object LKI.
+
 const staticAbility = program.abilities[0];
 const play = program.abilities[1];
 const tokenInstruction = play.body[0];

@@ -19,6 +19,21 @@ const [speed, play] = stupefy.abilities;
 const [debuff, drawInstruction] = play.body;
 const CANONICAL_CARD_ID = "card.hash-5b08b5b8648e8c5c057d15279d1b4e677457eb0b43fcf2810e2ec4f4c4d1b7cf";
 
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-5b08b5b8648e8c5c057d15279d1b4e677457eb0b43fcf2810e2ec4f4c4d1b7cf.
+// Reaction is 159.2.b/813.1.c, allowing a Closed-State response. The one Unit
+// target is locked at Finalize under 355.7/355.9, both players receive the
+// Priority window, and 359.3.d resolves top-to-bottom. The reduction is an
+// arithmetic-layer effect under 478/479 and honors the card's printed minimum
+// snapshotted by that effect; 359.3.e.5 drops only the illegal debuff while the
+// unlinked Draw 1 still executes under 359.3.e.11, expiring at 317.2.c.
+// It becomes Pending after the Play move, creates no Focus in the neutral Main
+// Phase, and uses no departed-object LKI when the locked target leaves Board.
+
 const registrations = (kernel) => kernel.continuousEffects.map((entry, index) => ({
   effect: entry.effect,
   duration: entry.duration,

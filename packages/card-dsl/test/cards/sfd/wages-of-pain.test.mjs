@@ -25,6 +25,21 @@ const SOURCE_TEXT =
   "[Action] (Play on your turn or in showdowns.)\n" +
   "Deal 3 to a unit at a battlefield. Play a Gold gear token exhausted.";
 
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c.
+// Hidden 811.1.b-c permits the private facedown Hide and later play; 811.6
+// grants Reaction on the next turn, while 811.1.d.2 restricts a Hidden spell's
+// target to the Battlefield it was played from. Action is 159.2.b/813.1.c.
+// Finalize locks the Unit and pays three Energy; 359.3.d resolves damage before
+// the independent Gold instruction. Gold uses 187.5/440.2.c/185.2.a and keeps
+// the stipulated exhausted entry under 184.1/185.2.d.
+// The damage target is rechecked at Resolve, so a moved target is ignored under
+// 359.3.e.5 without using departed-object LKI; the Gold instruction is unlinked.
+
 // Official evidence checked on 2026-10-23 against the policy's CR v1.5 and the
 // pinned official snapshots. The Radiance rulings effective 2026-10-16 do not
 // mention this card, and the Spiritforged errata contains no entry for this

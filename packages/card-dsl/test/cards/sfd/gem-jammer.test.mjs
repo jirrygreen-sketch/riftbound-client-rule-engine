@@ -24,6 +24,22 @@ import { fixture, resolveAll, stages } from "../../../../engine-core/test/chain/
 import { duelWorld, mainTiming, readinessFor, moveDuelUnitsStandard } from "../../../../engine-core/test/rules/movement/support.mjs";
 import { productionPlay } from "../../fixtures/production-play.mjs";
 
+// Official interaction evidence:
+// - Core Rules v1.5 (last updated 2026-10-09, effective 2026-10-16):
+//   https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// - Radiance patch notes, effective 2026-10-16:
+//   https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+// canonicalCardId: card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9.
+// The Unit Play is Pending, Finalized and then resolved under 354/359.3.
+// Its self Play Effect is added after Board entry under 383.4.a; Finalize locks
+// one Board Unit under 355.5/355.7, both players receive Priority responses,
+// and Resolve under 359.3.d registers Ganking. Ganking's battlefield-to-
+// battlefield Standard Move comes from 144.4.c.1/810.1.c, and its this-turn
+// grant persists through Ending before Expiration under 317.1.a/317.2.c.
+// No Focus is created outside a Showdown. The card does not leave the Board
+// during this interaction and reads the locked Unit's current incarnation; no
+// departed-object LKI is consumed.
+
 const CANONICAL = "card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9";
 const SOURCE_TEXT =
   "When you play me, give a unit [Ganking] this turn. (It can move from battlefield to battlefield.)";
