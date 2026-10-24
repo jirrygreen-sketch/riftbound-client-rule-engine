@@ -1,6 +1,6 @@
-// RIFT-642 template-level golden for the `static||` group (12 published
-// judge-required cards whose IR signature is a single static ability with no
-// instruction body; see packages/card-dsl/src/cards/README.md 4.1).
+// RIFT-642 template-level golden for the `static||` group (12 published cards
+// whose IR signature is a single static ability with no instruction body; see
+// packages/card-dsl/src/cards/README.md 4.1).
 //
 // Method: every row names one card, its canonical identity, its own board, its
 // own operations and its own expectation, and runs the real runCardScenario
@@ -11,9 +11,9 @@
 // unmodified zone. Where the merged engine produces a value the printed card
 // text does not support, that value is NOT written into a passing row; the
 // printed expectation gets its own `todo` row under "pending printed goldens".
-// All twelve published programs stay judge-required: these scenarios show a
+// Eleven published programs stay judge-required: these scenarios show a
 // rejected binding, an inert registration, or a granted keyword that no runtime
-// consumer expands.
+// consumer expands. Forecaster is executable and runs its production scenario.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -828,10 +828,11 @@ const pendingRows = [
 
 /**
  * Register each row as its own test. Every row first proves the published
- * program is still judge-required with an explicit reason and keeps the
- * static|| signature, then runs its scenario through the real pipeline and
- * checks that nothing was left on the chain. `todo` rows assert the printed
- * rule outcome and are reported pending, never as a pass.
+ * program has its published status and keeps the static|| signature, then runs
+ * its scenario through the real pipeline and checks that nothing was left on
+ * the chain. Judge-required programs retain their production guards. `todo`
+ * rows assert the printed rule outcome and are reported pending, never as a
+ * pass.
  */
 const runSuite = (templateName, suiteRows) => {
   const cases = defineTemplateSuite(templateName, suiteRows);
@@ -839,8 +840,10 @@ const runSuite = (templateName, suiteRows) => {
     const row = suiteRows[index];
     const options = row.todo === undefined ? undefined : { todo: row.todo };
     test(golden.name, options, () => {
-      assert.equal(row.sourceProgram.status, "judge-required", `${row.canonicalCardId} stays judge-required`);
-      assert.ok(row.sourceProgram.judgeReason?.trim(), `${row.canonicalCardId} keeps an explicit judge reason`);
+      const executable = row.canonicalCardId === forecasterId;
+      assert.equal(row.sourceProgram.status, executable ? "executable" : "judge-required", `${row.canonicalCardId} keeps its published status`);
+      if (executable) assert.equal(row.sourceProgram.judgeReason, undefined);
+      else assert.ok(row.sourceProgram.judgeReason?.trim(), `${row.canonicalCardId} keeps an explicit judge reason`);
       assert.equal(row.sourceProgram.abilities.length, 1, `${row.canonicalCardId} keeps the static|| signature`);
       assert.equal(row.sourceProgram.abilities[0].kind, "static");
       const bindingError = scenarioBindingErrors.get(row.canonicalCardId);

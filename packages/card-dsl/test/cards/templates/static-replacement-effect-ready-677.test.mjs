@@ -130,9 +130,9 @@ const rows = [
     sourceProgram: breakneckMech,
     program: executableView(breakneckMech),
     scenario: {
-      players: { A: { energy: 8, power: ["Mind", "Mind"] } },
+      players: { A: { energy: 8, power: ["Mind"] } },
       objects: [
-        { id: "mech", cardId: BREAKNECK, types: ["unit"], tags: ["Mech", "Yordle", "Bandle City"], zone: "hand", energy: 8, power: ["Mind", "Mind"], might: 7 },
+        { id: "mech", cardId: BREAKNECK, types: ["unit"], tags: ["Mech", "Yordle", "Bandle City"], zone: "hand", energy: 8, power: ["Mind"], might: 7 },
         { id: "ally-mech", types: ["unit"], tags: ["Mech"], zone: "board", might: 3 },
         // 133.8: Mech is a tag that may sit on objects of several types, so the
         // granted keywords follow the declared tag filter, not a unit type.
@@ -144,7 +144,7 @@ const rows = [
       operations: [{ type: "play", object: "mech", player: "A" }],
       expect: {
         objects: {
-          mech: { zone: "board", location: baseA, might: 7, exhausted: false, energy: 8, power: ["Mind", "Mind"], keywords: [{ id: "Deflect" }, { id: "Ganking" }] },
+          mech: { zone: "board", location: baseA, might: 7, exhausted: false, energy: 8, power: ["Mind"], keywords: [{ id: "Deflect" }, { id: "Ganking" }] },
           "ally-mech": { zone: "board", might: 3, keywords: [{ id: "Deflect" }, { id: "Ganking" }] },
           "mech-gear": { zone: "board", keywords: [{ id: "Deflect" }, { id: "Ganking" }] },
           "ally-other": { zone: "board", keywords: [] },
@@ -152,8 +152,8 @@ const rows = [
           "hand-mech": { zone: "hand", keywords: [] },
         },
         // The installed executable program pays the catalog's printed
-        // 8 Energy + 2 Mind; the Board object retains those printed values as
-        // characteristics, while the player's spendable pool is now empty.
+        // 8 Energy + 2 Mind; the Board object retains the one Mind Domain from
+        // the catalog projection while the player's spendable pool is empty.
         players: { A: { energy: 0, power: [] } },
         events: { sequence: [
           { timingPoint: "object-enters-chain", object: { ref: "mech" } },
