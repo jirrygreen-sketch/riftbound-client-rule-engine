@@ -41,6 +41,9 @@ export function literal(value: unknown): unknown {
 }
 
 export function liveSource(engine: ChainEngine, ref: ObjectRef): ObjectSnapshot | null {
+  // While the owning layer pass is active, its exact snapshot is the host for
+  // this instant. Calling the host again starts another whole-board pass.
+  if (engine.layers?.inEvaluation) return engine.layers.snapshot(ref);
   return engine.pipeline.host.objects().find(object => sameRef(object.ref, ref)) ?? null;
 }
 
