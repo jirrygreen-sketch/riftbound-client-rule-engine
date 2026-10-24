@@ -85,7 +85,7 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
       ]),
       ruleRefs: Object.freeze([
         "151.2", "337.1", "337.1.a", "337.4", "338.1", "338.1.b",
-        "339.1", "355.5", "357.1", "357.2", "415.4", "415.5", "417.3"
+        "339.1", "355.5", "357.1", "357.2", "415.4", "415.5", "417.3", "417.5"
       ]),
       timeline: Object.freeze([
         "Activation/Pending: the action-speed Gear ability enters the Chain with its source and controller; Finalize pays without passing Priority.",
