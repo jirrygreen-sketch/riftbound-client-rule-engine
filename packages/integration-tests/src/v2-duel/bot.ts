@@ -48,6 +48,28 @@ export function readyRunes(projection: V2Projection, viewerPlayerId: string) {
       rune.exhausted === false && rune.cardId !== undefined && rune.zoneEntryId !== undefined);
 }
 
+export function projectedPlayCommand(
+  option: V2Projection["actionOptions"]["plays"][number],
+  commandId: string,
+  stateVersion: number
+): Extract<V2Command, { type: "play" }> | null {
+  const requirements = option.targetRequirements ?? [];
+  const selected = requirements.flatMap(requirement => {
+    const options = requirement.options.slice(0, requirement.min);
+    if (options.length < requirement.min) return [];
+    return options.flatMap(candidate => {
+      const ref = candidate.objectRef;
+      return ref === undefined ? [] : [{ kind: "object" as const, objectId: ref.objectId,
+        zoneEntryId: ref.zoneEntryId }];
+    });
+  });
+  const complete = selected.length === requirements.reduce((total, requirement) => total + requirement.min, 0);
+  if (!complete) return null;
+  return { type: "play", commandId, stateVersion, cardObjectId: option.cardObjectId,
+    ...(option.requiresDestination === true ? { destination: option.destination } : {}),
+    ...(selected.length === 0 ? {} : { targets: selected }) };
+}
+
 export function botCommand(
   projection: V2Projection,
   viewerPlayerId: string,
@@ -106,11 +128,6 @@ export function botCommand(
       object.objectId !== option.cardObjectId && (object.name ?? "").length > 0);
     if (name === "Pit Rookie") return friendlyBoardUnits.length > 0;
     return true;
-  };
-  const targetPrograms = new Set(["Dangerous Duo", "Pit Rookie"]);
-  const targetSafe = (option: V2Projection["actionOptions"]["plays"][number]) => {
-    if (!targetPrograms.has(cardName(option) ?? "")) return true;
-    return friendlyBoardUnits.length > 0;
   };
   // There are no non-permanent Action/Reaction cards in the V2 action surface.
   // Use a whole Main Phase to Channel Runes or play an affordable permanent;
@@ -175,15 +192,14 @@ export function botCommand(
   const safeOptions = projection.actionOptions.plays.filter(option =>
     !rejectedPlayIds.has(option.cardObjectId) && payable(option) &&
     avoidsEquipmentChoice(option) && avoidsEmptyTriggerTarget(option) &&
-    targetSafe(option));
+    projectedPlayCommand(option, commandId, projection.stateVersion) !== null);
   const safeUnit = safeOptions
     .filter(option => factFor(option)?.kind === "unit")
     .sort((left, right) => (factFor(left)?.energy ?? Infinity) - (factFor(right)?.energy ?? Infinity))[0];
   const safeBasePlay = safeOptions.find(option => option.destination.kind === "base");
   if (safeUnit ?? safeBasePlay) {
     const play = safeUnit ?? safeBasePlay!;
-    return { type: "play", commandId, stateVersion: projection.stateVersion,
-      cardObjectId: play.cardObjectId, destination: play.destination };
+    return projectedPlayCommand(play, commandId, projection.stateVersion);
   }
   // Preserve enough Energy to attempt the cheapest projected permanent on the
   // next turn. The projection only lists cards whose printed cost is payable.

@@ -98,6 +98,14 @@ interface SeenCommand {
   readonly receipt: RuntimeReceipt;
 }
 
+interface PreparedPlay {
+  readonly playerId: string;
+  readonly objectId: string;
+  readonly commandId: string;
+  readonly stateVersion: number;
+  readonly base: ReturnType<ProgramBinding["describePlay"]>;
+}
+
 interface AtomicChain {
   atomic<T>(run: () => T): T;
 }
@@ -110,7 +118,8 @@ interface TurnFlowCheckpoint {
 interface RuntimeMetadataCheckpoint {
   readonly stateVersion: number;
   readonly pending: MatchRuntime["pending"];
-  readonly decision: unknown;
+  readonly decisions: MatchRuntime["decisions"];
+  readonly preparedPlay: PreparedPlay | null;
   readonly visibilityGrants: readonly RuntimeVisibilityGrant[];
   readonly seen: ReadonlyMap<string, SeenCommand>;
 }
@@ -240,8 +249,16 @@ class MatchRuntime implements EngineRuntime {
   private binding: ProgramBinding | null = null;
   private journalWriter: RuntimeJournalWriter | null = null;
   private stateVersion = 0;
-  private pending: { readonly request: ChoiceRequest<unknown>; readonly command: V2Command; readonly playerId: string; readonly visibilityGrants: readonly RuntimeVisibilityGrant[] } | null = null;
-  private decision: unknown = undefined;
+  private pending: {
+    readonly request: ChoiceRequest<unknown>;
+    readonly command: V2Command;
+    readonly playerId: string;
+    readonly visibilityGrants: readonly RuntimeVisibilityGrant[];
+    readonly answers: ReadonlyMap<string, unknown>;
+    readonly preparedPlay: PreparedPlay | null;
+  } | null = null;
+  private decisions: ReadonlyMap<string, unknown> | null = null;
+  private preparedPlay: PreparedPlay | null = null;
   private choiceVisibilityGrants: readonly RuntimeVisibilityGrant[] = [];
   private readonly seen = new Map<string, SeenCommand>();
   private runtimeOptions: EngineRuntimeOptions;
@@ -258,10 +275,8 @@ class MatchRuntime implements EngineRuntime {
     const normalizedDecks = this.normalizeDecks(this.runtimeOptions.decks);
     const catalogDomains = this.catalogDomains(normalizedDecks);
     const hostState = new RuntimeBoardHost(Object.fromEntries(seats.map(seat => [seat.playerId, seat.name])), request => {
-      if (this.decision !== undefined) {
-        const answered = this.decision;
-        this.decision = undefined;
-        return answered as never;
+      if (this.decisions !== null && this.decisions.has(request.id)) {
+        return structuredClone(this.decisions.get(request.id)) as never;
       }
       choice = request as ChoiceRequest<unknown>;
       this.choiceVisibilityGrants = hostState.visibility();
@@ -355,7 +370,8 @@ class MatchRuntime implements EngineRuntime {
     } catch (error) {
       if (error instanceof PendingChoiceError) {
         this.pending = { request: error.request, command: structuredClone(command), playerId,
-          visibilityGrants: this.choiceVisibilityGrants };
+          visibilityGrants: this.choiceVisibilityGrants, answers: new Map(),
+          preparedPlay: this.preparedPlay };
         const receipt: RuntimeReceipt = { commandId: command.commandId, status: "pending", stateVersion: this.stateVersion, eventSeq: this.match!.events().length, choice: { choiceId: error.request.id, ownerPlayerId: error.request.chooser, stateVersion: this.stateVersion } };
         this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
         this.appendJournal(playerId, command, receipt, { pending: true, choice: receipt.choice! }, false, {
@@ -365,7 +381,6 @@ class MatchRuntime implements EngineRuntime {
         });
         return { receipt, projection: this.projectFor(playerId) };
       }
-      this.decision = undefined;
       return this.rejected(command, playerId, error instanceof Error ? error.message : String(error));
     }
   }
@@ -386,7 +401,7 @@ class MatchRuntime implements EngineRuntime {
     if (journal.header.matchId !== this.runtimeOptions.matchId) throw new Error("Journal matchId does not match runtime");
     const options = this.runtimeOptions;
     this.match = null; this.host = null; this.binding = null; this.journalWriter = null; this.stateVersion = 0;
-    this.pending = null; this.decision = undefined; this.choiceVisibilityGrants = []; this.seen.clear();
+    this.pending = null; this.decisions = null; this.preparedPlay = null; this.choiceVisibilityGrants = []; this.seen.clear();
     const setup = journal.header.setup;
     this.runtimeOptions = {
       ...options,
@@ -437,23 +452,28 @@ class MatchRuntime implements EngineRuntime {
         : "Object choice must contain unique projected references within its bounds");
       decision = refs;
     }
-    this.pending = null; this.decision = decision;
+    const answers = new Map(original.answers);
+    answers.set(original.request.id, decision);
+    this.pending = null; this.decisions = answers;
     try {
       return this.atomicCommand(() => {
-        const result = this.execute(original.playerId, original.command);
+        this.execute(original.playerId, original.command);
         const receipt = { commandId: command.commandId, status: "accepted" as const, stateVersion: this.stateVersion + 1,
           eventSeq: this.match!.events().length, result: { resumedCommandId: original.command.commandId, accepted: true } };
         this.stateVersion += 1;
         const projection = this.projectFor(playerId);
         this.appendJournal(playerId, command, receipt, receipt.result!);
         this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
+        this.decisions = null;
+        this.preparedPlay = null;
         this.choiceVisibilityGrants = [];
         return { receipt, projection };
       });
     } catch (error) {
       if (error instanceof PendingChoiceError) {
         this.pending = { request: error.request, command: original.command, playerId: original.playerId,
-          visibilityGrants: this.choiceVisibilityGrants };
+          visibilityGrants: this.choiceVisibilityGrants, answers,
+          preparedPlay: this.preparedPlay };
         const receipt: RuntimeReceipt = { commandId: command.commandId, status: "pending", stateVersion: this.stateVersion,
           eventSeq: this.match!.events().length, choice: { choiceId: error.request.id, ownerPlayerId: error.request.chooser, stateVersion: this.stateVersion } };
         this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
@@ -462,7 +482,8 @@ class MatchRuntime implements EngineRuntime {
         });
         return { receipt, projection: this.projectFor(playerId) };
       }
-      this.decision = undefined; this.pending = original; this.choiceVisibilityGrants = original.visibilityGrants;
+      this.decisions = null; this.pending = original; this.preparedPlay = original.preparedPlay;
+      this.choiceVisibilityGrants = original.visibilityGrants;
       return this.rejected(command, playerId, error instanceof Error ? error.message : String(error));
     }
   }
@@ -512,11 +533,18 @@ class MatchRuntime implements EngineRuntime {
       const location = command.destination === undefined
         ? undefined
         : this.resolvePlayDestination(command.destination, playerId, source);
-      const base = this.binding.describePlay({
-        type: "play", object: source.ref, player: playerId,
-        ...(source.types.some(type => ["unit", "gear"].includes(type.toLowerCase())) && location !== undefined
-          ? { location } : {}),
-      }, source);
+      const prepared = this.preparedPlay?.playerId === playerId &&
+          this.preparedPlay.objectId === command.cardObjectId &&
+          this.preparedPlay.commandId === command.commandId &&
+          this.preparedPlay.stateVersion === command.stateVersion
+        ? this.preparedPlay.base : undefined;
+      const base = prepared ?? this.binding.describePlay({
+          type: "play", object: source.ref, player: playerId,
+          ...(source.types.some(type => ["unit", "gear"].includes(type.toLowerCase())) && location !== undefined
+            ? { location } : {}),
+        }, source);
+      this.preparedPlay = { playerId, objectId: command.cardObjectId, commandId: command.commandId,
+        stateVersion: command.stateVersion, base };
       const targets = this.finalizeTargets(base.body, base.targets, command.targets, playerId);
       const selections = command.cost;
       if (selections !== undefined && (selections.energy !== undefined || selections.power !== undefined || selections.xp !== undefined ||
@@ -596,18 +624,23 @@ class MatchRuntime implements EngineRuntime {
     const projection = this.projectFor(playerId);
     this.appendJournal(playerId, command, receipt, result);
     this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
+    if (this.preparedPlay?.playerId === playerId && this.preparedPlay.commandId === command.commandId) {
+      this.preparedPlay = null;
+    }
     return { receipt, projection };
   }
 
   private metadataCheckpoint(): RuntimeMetadataCheckpoint {
-    return { stateVersion: this.stateVersion, pending: this.pending, decision: this.decision,
+    return { stateVersion: this.stateVersion, pending: this.pending, decisions: this.decisions,
+      preparedPlay: this.preparedPlay,
       visibilityGrants: this.choiceVisibilityGrants, seen: new Map(this.seen) };
   }
 
   private restoreMetadata(before: RuntimeMetadataCheckpoint): void {
     this.stateVersion = before.stateVersion;
     this.pending = before.pending;
-    this.decision = before.decision;
+    this.decisions = before.decisions;
+    this.preparedPlay = before.preparedPlay;
     this.choiceVisibilityGrants = before.visibilityGrants;
     this.seen.clear();
     for (const [commandId, seen] of before.seen) this.seen.set(commandId, seen);
@@ -623,10 +656,21 @@ class MatchRuntime implements EngineRuntime {
       this.syncHiddenTurn();
       return chain.atomic(run);
     } catch (error) {
+      const suspended = error instanceof PendingChoiceError ? {
+        decisions: this.decisions,
+        preparedPlay: this.preparedPlay,
+      } : null;
       flow.restore(flowCheckpoint);
       const grants = error instanceof PendingChoiceError ? this.choiceVisibilityGrants : metadata.visibilityGrants;
       this.restoreMetadata(metadata);
-      if (error instanceof PendingChoiceError) this.choiceVisibilityGrants = grants;
+      if (suspended !== null) {
+        this.choiceVisibilityGrants = grants;
+        // A suspended command is a commit point for the frozen choice replay
+        // state only. Objects, TurnFlow, receipts and seen commands still roll
+        // back to the pre-command checkpoint above.
+        this.decisions = suspended.decisions;
+        this.preparedPlay = suspended.preparedPlay;
+      }
       throw error;
     }
   }
