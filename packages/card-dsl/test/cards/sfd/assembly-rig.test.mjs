@@ -37,6 +37,7 @@ const LINK_PREFIX = "create-mech-token.token.";
 const PRODUCTION_TEST_NAMES = Object.freeze({
   golden: "sfd-019-221 Assembly Rig production golden: costs settle and the Mech enters exhausted through token Play",
   gap: "sfd-019-221 Assembly Rig production gap: token Play is synchronous and publishes no independent Pending or Finalize item",
+  universalPower: "sfd-019-221 Assembly Rig production boundary: Universal Power pays the Fury requirement and recycle keeps existing deck order",
   missingTrash: "sfd-019-221 Assembly Rig production counterexample: no Trash Unit means no activation or partial payment",
   missingEnergy: "sfd-019-221 Assembly Rig production counterexample: insufficient Energy rolls Finalize back",
   missingPower: "sfd-019-221 Assembly Rig production counterexample: insufficient Fury Power rolls Finalize back",
@@ -86,7 +87,8 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
       ]),
       ruleRefs: Object.freeze([
         "151.2", "337.1", "337.1.a", "337.4", "338.1", "338.1.b",
-        "339.1", "355.5", "357.1", "357.2", "415.4", "415.5", "417.3", "417.5"
+        "135.2.e.5", "135.2.e.5.b", "163.2.b", "339.1", "355.5", "357.1",
+        "357.2", "415.4", "415.5", "417.1", "417.3", "417.5"
       ]),
       timeline: Object.freeze([
         "Activation/Pending: the action-speed Gear ability enters the Chain with its source and controller; Finalize pays without passing Priority.",
@@ -104,6 +106,7 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
       productionTestNames: Object.freeze([
         PRODUCTION_TEST_NAMES.golden,
         PRODUCTION_TEST_NAMES.gap,
+        PRODUCTION_TEST_NAMES.universalPower,
         PRODUCTION_TEST_NAMES.missingTrash,
         PRODUCTION_TEST_NAMES.missingEnergy,
         PRODUCTION_TEST_NAMES.missingPower,
@@ -291,13 +294,20 @@ test("Assembly Rig body executes through the reference kernel: create-on-Chain t
   assert.equal(run.linked["token.createdAmount"], 1);
 });
 
-function assemblyRigScene({ energy = 1, power = ["Fury"], trash = true, exhausted = false } = {}) {
+function assemblyRigScene({
+  energy = 1,
+  power = ["Fury"],
+  trash = true,
+  exhausted = false,
+  deck = []
+} = {}) {
   return productionPlay({
     programs: [executableCarrier],
     answers: { "recycled-unit": ["fodder"] },
     build: builder => builder
       .player("A", { energy, power })
       .player("B")
+      .deck(deck, { owner: "A" })
       .object("rig", {
         owner: "A",
         controller: "A",
@@ -429,6 +439,19 @@ test(PRODUCTION_TEST_NAMES.gap, () => {
   "a chain-zone transition alone does not satisfy the Pending Chain item requirement");
   assert.equal(f.engine.pipeline.events.some(event =>
     event.timingPoint === "object-enters-board" && event.object?.ref.id === mech.ref.id), true);
+});
+
+test(PRODUCTION_TEST_NAMES.universalPower, () => {
+  const f = assemblyRigScene({ power: ["universal"], deck: ["top", "middle"] });
+  activate(f);
+  assert.equal(f.kernel.player("A").energy, 0);
+  assert.deepEqual(f.kernel.player("A").power, []);
+  assert.deepEqual(f.kernel.zone("A", "deck").map(ref => ref.id), ["top", "middle", "fodder"],
+    "CR 417.1/417.5 place the recycled card at the existing Main Deck bottom");
+  f.engine.pass("A");
+  f.engine.pass("B");
+  const [mech] = f.kernel.objects.filter(object => object.isToken);
+  assert.equal(mech.exhausted, true);
 });
 
 function assertUnchangedActivationFailure(f, pattern) {
