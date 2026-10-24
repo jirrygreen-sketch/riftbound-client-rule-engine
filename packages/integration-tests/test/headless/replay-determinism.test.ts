@@ -40,4 +40,22 @@ describe("RIFT-1030 headless journal determinism", () => {
       expect(digest).toBe(integrity);
     },
   );
+
+  it("preserves runtime counters through canonical persisted JSON", () => {
+    const runtime = {
+      events: [{ object: { counters: new Map([["Ready", 0]]) } }],
+      omitted: undefined,
+    };
+    const persisted = stringifyPersistedReplayJson(runtime);
+    const restored = reviveLegacyJournalCounters(JSON.parse(persisted));
+    const { integrity: _integrity, ...content } = {
+      integrity: "irrelevant",
+      ...restored as Record<string, unknown>,
+    };
+
+    expect(JSON.parse(persisted)).toEqual({
+      events: [{ object: { counters: { map: [["Ready", 0]] } } }],
+    });
+    expect(stringifyPersistedReplayJson(content)).toBe(persisted);
+  });
 });

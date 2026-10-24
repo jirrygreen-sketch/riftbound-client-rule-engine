@@ -103,12 +103,15 @@ as an integration request instead of being edited.
 
 ## Contract requests for the parent
 
-1. In `packages/integration-tests/src/headless/duel.ts`, import and use
+1. In `packages/integration-tests/src/headless/stats.ts:513-518` and `:592`,
+   import and use
    `reviveLegacyJournalCounters`, `stringifyPersistedReplayJson`, and the
    matching parse helper before integrity validation, persistence, and replay
    comparison. This requires the parent to add the replay-core workspace
    dependency/export wiring. The journal archive must then be written in the
-   canonical form so a new Map round-trips without migration.
+   canonical form so a new Map round-trips without migration. The same codec
+   must be used by `packages/integration-tests/src/headless/duel.ts` for its
+   in-memory integrity digest and before the final strict comparison.
 2. In `packages/engine-core/src/programs/play.ts:359` (and the hidden-play id
    at line 331), replace the process-global `playSequence` dependency with a
    stable command/action-derived id or a per-Match counter recorded in the
