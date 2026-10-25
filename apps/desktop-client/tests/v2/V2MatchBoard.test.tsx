@@ -17,10 +17,13 @@ describe("protocol v2 match board", () => {
     expect(buildV2PlayCommand("hand-card")).toEqual({ type: "play", cardObjectId: "hand-card" });
   });
 
-  it("renders startup/mulligan controls from the setup projection", () => {
+  it("does not infer a mulligan window from phase setup alone", () => {
     const html = render(makeState({ phase: "setup" }));
     expect(html).toContain("启动");
-    expect(html).toContain("确认起手（调度 0 张）");
+    expect(html).toContain("保留起手");
+    expect(html).toContain("等待服务端开放你的换牌窗口");
+    expect(html).not.toContain(">Pass</button>");
+    expect(html).not.toContain(">推进</button>");
     expect(buildV2MulliganCommand(["hand-card"])).toEqual({ type: "mulligan", selectedObjectIds: ["hand-card"] });
   });
 
