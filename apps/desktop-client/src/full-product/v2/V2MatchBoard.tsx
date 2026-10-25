@@ -48,6 +48,7 @@ export interface V2MatchBoardProps {
   readonly onJoinRoom?: (roomId: string, playerName: string) => Promise<RoomView>;
   readonly onSubmitDeck?: (deck: RoomDeckSubmission) => Promise<RoomView>;
   readonly onSetReady?: (ready: boolean) => Promise<RoomView>;
+  readonly onLeaveRoom?: () => void;
   /** Test/static-render seam for a preselected hand incarnation; still validated against the projection. */
   readonly initialSelectedCardId?: string | null;
   /** Test/static-render seam for allocation input; still validated against the projection. */
@@ -190,6 +191,7 @@ export function V2MatchBoard({
   onJoinRoom,
   onSubmitDeck,
   onSetReady,
+  onLeaveRoom,
   initialSelectedCardId = null,
   initialCombatDamageDrafts = {},
   onCommand
@@ -325,6 +327,7 @@ export function V2MatchBoard({
             <button type="button" disabled={!onSetReady || self?.deckSubmitted !== true || self.ready || busy} onClick={() => {
               void onSetReady?.(true).catch(caught => setLobbyError(caught instanceof Error ? caught.message : "准备失败。"));
             }}>准备</button>
+            {onLeaveRoom ? <button type="button" onClick={onLeaveRoom}>离开房间</button> : null}
             {catalogStatus === "loading" ? <p role="status">正在加载服务端卡牌目录…</p> : null}
             {catalogStatus === "error" ? <p className="v2-muted">无法从服务端目录生成预组；不会提交本地猜测的印刷 ID。</p> : null}
           </section>
@@ -433,6 +436,13 @@ export function V2MatchBoard({
   const canSubmitCombatDamage = canAct && choiceOpen && !choiceExpired && combatDamageCommand !== null;
   const selectedCard = ownHand.find(card => card.objectId === selectedCardId) ?? null;
   const selectedTarget = targetCandidates.find(object => object.objectId === selectedTargetId) ?? null;
+  const winner = projection.winnerPlayerId === null ? null :
+    projection.players.find(player => player.playerId === projection.winnerPlayerId) ?? null;
+  const matchEnded = projection.phase === "ended" || winner !== null;
+  const score = (playerId: string): number =>
+    projection.scoring.players.find(player => player.playerId === playerId)?.points ??
+      projection.players.find(player => player.playerId === playerId)?.score ?? 0;
+  const scoreLine = projection.players.map(player => `${player.name} ${score(player.playerId)}`).join(" : ");
 
   return (
     <section className="v2-match-board" aria-label="协议 v2 对局">
@@ -440,6 +450,14 @@ export function V2MatchBoard({
         <div><p className="v2-kicker">协议 v2 · {projection.rulesetVersion}</p><h2>{phaseLabel(projection.phase)} · 第 {projection.turnNumber} 回合</h2></div>
         <div className="v2-match-meta"><ConnectionState state={state.connectionStatus} /><span>状态 {projection.stateVersion}</span><span>事件 {projection.eventSeq}</span></div>
       </header>
+      {matchEnded ? (
+        <section className="v2-lobby" role="status" aria-label="对局结果">
+          <h3>{winner === null ? "对局结束" : projection.winnerPlayerId === projection.viewerPlayerId ? "你获胜" : "你落败"}</h3>
+          <p>{winner === null ? "服务端尚未公布胜者。" : `胜者：${winner.name}`}</p>
+          <p>{`比分：${scoreLine}`}</p>
+          {onLeaveRoom ? <button type="button" className="v2-primary-action" onClick={onLeaveRoom}>返回大厅</button> : null}
+        </section>
+      ) : null}
       {lastReceipt ? (
         <p className="v2-receipt" role="status" aria-label="最近的命令确认">
           命令 {lastReceipt.commandId} {lastReceipt.accepted ? "已接受" : "已拒绝"}

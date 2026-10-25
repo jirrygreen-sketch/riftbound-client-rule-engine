@@ -14,6 +14,7 @@ const sessionProbe = vi.hoisted(() => ({
   create: vi.fn(),
   starts: 0,
   stops: 0,
+  discards: 0,
   initialSessions: [] as unknown[],
   snapshot: {
     state: {
@@ -85,6 +86,7 @@ vi.mock("../../src/full-product/v2/V2MatchSession", async importOriginal => {
         },
         start() { sessionProbe.starts += 1; },
         stop() { sessionProbe.stops += 1; },
+        discardRecoverySession() { sessionProbe.discards += 1; },
         createRoom: vi.fn(), joinRoom: vi.fn(), submitDeck: vi.fn(),
         setReady: vi.fn(), sendCommand: vi.fn(), connect: vi.fn()
       } as unknown as original.V2MatchSessionController;
@@ -93,6 +95,14 @@ vi.mock("../../src/full-product/v2/V2MatchSession", async importOriginal => {
 });
 
 import { buildV2RoomUrl, useV2Match } from "../../src/hooks/useV2Match";
+import {
+  clearV2Session,
+  readV2Session,
+  V2_SESSION_STORAGE_KEY,
+  writeV2Session,
+  type V2SessionStorage
+} from "../../src/full-product/v2/session-storage";
+import type { V2Socket } from "../../src/transport/v2";
 
 type StableTransportKey = {
   readonly enabled: boolean;
@@ -117,6 +127,7 @@ beforeEach(() => {
   sessionProbe.create.mockClear();
   sessionProbe.starts = 0;
   sessionProbe.stops = 0;
+  sessionProbe.discards = 0;
   sessionProbe.initialSessions.length = 0;
 });
 
@@ -188,4 +199,75 @@ describe("useV2Match room URL", () => {
     expect(sessionProbe.starts).toBe(1);
     expect(sessionProbe.stops).toBe(0);
   });
+
+  it("drops the live controller's room and projection when leaving", () => {
+    const client = renderHook({
+      enabled: true, serverUrl: "ws://127.0.0.1:8787/ws", roomId: null, session: null
+    });
+    client.leaveRoom();
+    expect(sessionProbe.discards).toBe(1);
+  });
 });
+
+describe("useV2Match leave-room storage", () => {
+  it("removes the persisted session so a reload cannot resume the finished room", () => {
+    const values = new Map<string, string>();
+    const storage: V2SessionStorage = {
+      getItem: key => values.get(key) ?? null,
+      setItem: (key, value) => { values.set(key, value); },
+      removeItem: key => { values.delete(key); }
+    };
+    const session = { roomId: "finished-room", playerId: "player-1", resumeToken: "token" };
+    expect(writeV2Session(storage, session)).toBe(true);
+    expect(readV2Session(storage)).toEqual(session);
+
+    expect(clearV2Session(storage)).toBe(true);
+    expect(storage.getItem(V2_SESSION_STORAGE_KEY)).toBeNull();
+    expect(readV2Session(storage)).toBeNull();
+  });
+});
+
+describe("V2MatchSessionController leave room", () => {
+  it("reconnects without a resume identity after clearing room and projection", async () => {
+    const { V2MatchSessionController } = await vi.importActual<
+      typeof import("../../src/full-product/v2/V2MatchSession")
+    >("../../src/full-product/v2/V2MatchSession");
+    const sockets: FakeV2Socket[] = [];
+    const controller = new V2MatchSessionController({
+      serverUrl: "ws://example.test",
+      socketFactory: () => {
+        const socket = new FakeV2Socket();
+        sockets.push(socket);
+        return socket;
+      },
+      reconnectDelayMs: 0
+    }, { roomId: "finished-room", playerId: "player-1", resumeToken: "finished-token" });
+    controller.start();
+    sockets[0]!.open();
+    expect(JSON.parse(sockets[0]!.sent[0]!)).toMatchObject({
+      type: "hello", roomId: "finished-room", resumeToken: "finished-token"
+    });
+
+    controller.discardRecoverySession();
+    expect(controller.snapshot.session).toBeNull();
+    expect(controller.snapshot.room).toBeNull();
+    expect(controller.snapshot.state.projection).toBeNull();
+    expect(sockets).toHaveLength(2);
+    sockets[1]!.open();
+    expect(JSON.parse(sockets[1]!.sent[0]!)).toEqual({
+      type: "hello", protocolVersion: "2.0.0"
+    });
+    controller.stop();
+  });
+});
+
+class FakeV2Socket implements V2Socket {
+  readonly sent: string[] = [];
+  onopen: ((event: unknown) => void) | null = null;
+  onmessage: ((event: { readonly data: unknown }) => void) | null = null;
+  onclose: ((event: unknown) => void) | null = null;
+  onerror: ((event: unknown) => void) | null = null;
+  send(data: string): void { this.sent.push(data); }
+  close(): void { this.onclose?.({}); }
+  open(): void { this.onopen?.({}); }
+}
