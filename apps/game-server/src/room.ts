@@ -1741,15 +1741,11 @@ export class GameRoom {
         this.submitMulliganSetup(playerId, command, transport);
         return;
       }
-      // Preserve the existing no-mulligan API clients: the first non-mulligan
-      // command supplies both empty choices only before either seat has chosen.
-      // Once a choice is recorded, waiting for both is mandatory.
-      if (this.engineMulligan.choices[0] === null && this.engineMulligan.choices[1] === null) {
-        this.engineMulligan = { ...this.engineMulligan, choices: [[], []] };
-        this.finishMulliganSetup();
-      } else {
-        throw new RoomError("Waiting for both players to finish their Mulligan", "command-rejected");
-      }
+      // CR 117 completes before CR 118 begins. No ordinary game command may
+      // implicitly keep both hands or advance either seat's mulligan window.
+      // The client must answer the projected choice explicitly, including an
+      // empty selection when the player keeps all four cards.
+      throw new RoomError("Waiting for both players to finish their Mulligan", "command-rejected");
     }
     if (!this.engineRuntime) {
       throw new RoomError("Game has not started", "command-rejected");

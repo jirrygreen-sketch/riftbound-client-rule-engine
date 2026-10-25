@@ -24,6 +24,14 @@ class Client {
 
   send(value: unknown): void { this.socket.send(JSON.stringify(value)); }
 
+  discardProjections(): void {
+    for (let index = this.messages.length - 1; index >= 0; index -= 1) {
+      const value = this.messages[index];
+      if (value !== null && typeof value === "object" &&
+          (value as { type?: unknown }).type === "projection") this.messages.splice(index, 1);
+    }
+  }
+
   async wait(predicate: (value: any) => boolean, timeoutMs = 90_000): Promise<any> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
@@ -47,17 +55,26 @@ afterEach(async () => {
   for (const server of servers.splice(0)) await server.stop();
 });
 
+function taskPort(): number {
+  const port = Number(process.env.SWARM_PORT_BASE);
+  if (!Number.isInteger(port) || port < 34100 || port > 34119) {
+    throw new Error("SWARM_PORT_BASE must be within the assigned 34100-34119 range");
+  }
+  return port;
+}
+
 async function start(): Promise<{ readonly url: string; readonly server: GameServer }> {
   const roomId = `mulligan-real-${++roomNumber}`;
+  const port = taskPort();
   const server = createGameServer({
-    port: 34100,
+    port,
     roomIdFactory: () => roomId,
     // A fixed battlefield RNG keeps the approved battlefield selection stable.
     duelRandomIndex: () => 0,
   });
   servers.push(server);
   await server.start();
-  return { url: "ws://127.0.0.1:34100/ws", server };
+  return { url: `ws://127.0.0.1:${port}/ws`, server };
 }
 
 async function connect(url: string): Promise<Client> {
@@ -103,6 +120,13 @@ async function projection(client: Client, minimumStateVersion = -1): Promise<V2P
     (value.projection?.stateVersion ?? -1) >= minimumStateVersion);
   if (!isV2Projection(message.projection)) throw new Error("Invalid V2 projection");
   return message.projection;
+}
+
+async function syncProjection(client: Client, requestId: string): Promise<V2Projection> {
+  client.discardProjections();
+  client.send({ type: "sync-events", requestId });
+  await client.wait(value => value?.type === "request-result" && value.requestId === requestId);
+  return projection(client);
 }
 
 async function readyPair(url: string) {
@@ -253,6 +277,45 @@ describe("protocol v2 real mulligan ceremony", () => {
     expect(finalB.zones.find(zone => zone.zone === "hand" && zone.ownerPlayerId === sessionA.playerId)?.objects).toBeUndefined();
   }, 180_000);
 
+  it("uses the full two-card mulligan limit and records each canonical identity through real setup", async () => {
+    const { url } = await start();
+    const { alice, bob, sessionA, sessionB, room } = await readyPair(url);
+    const [initialA, initialB] = await Promise.all([projection(alice), projection(bob)]);
+    const firstIsAlice = initialA.activePlayerId === sessionA.playerId;
+    const first = firstIsAlice ? alice : bob;
+    const second = firstIsAlice ? bob : alice;
+    const firstView = firstIsAlice ? initialA : initialB;
+    const opening = hand(firstView, firstView.viewerPlayerId!);
+    const selected = opening.slice(0, 2);
+    expect(selected).toHaveLength(2);
+
+    command(first, { type: "mulligan", selectedObjectIds: selected.map(card => card.objectId) }, "two-cards");
+    await expect(receipt(first, "two-cards")).resolves.toMatchObject({ accepted: true, rejection: null });
+    const secondView = second === alice ? await projection(alice, 0) : await projection(bob, 0);
+    expect(openedChoice(secondView).ownerPlayerId).toBe(second === alice ? sessionA.playerId : sessionB.playerId);
+    command(second, { type: "mulligan", selectedObjectIds: [] }, "keep-all-after-limit");
+    await expect(receipt(second, "keep-all-after-limit")).resolves.toMatchObject({ accepted: true, rejection: null });
+
+    const journal = room.exportArchive().engineRuntimeJournal;
+    expect(journal).not.toBeNull();
+    const recorded = journal?.header.setup?.mulligans;
+    const firstIndex = firstIsAlice ? 0 : 1;
+    expect(recorded?.[firstIndex]).toEqual(selected.map(card => card.cardId));
+    expect(recorded?.[firstIndex]).toHaveLength(2);
+    expect(recorded?.[firstIsAlice ? 1 : 0]).toEqual([]);
+    const [finalA, finalB] = await Promise.all([
+      syncProjection(alice, "after-two-final-a"),
+      syncProjection(bob, "after-two-final-b"),
+    ]);
+    const finalView = firstIsAlice ? finalA : finalB;
+    expect(finalView.phase).not.toBe("setup");
+    const finalHand = hand(finalView, finalView.viewerPlayerId!);
+    expect(finalHand).toHaveLength(5);
+    expect(finalHand.map(card => card.objectId)).not.toEqual(expect.arrayContaining(
+      selected.map(card => card.objectId)));
+    expect(sessionA.playerId).not.toBe(sessionB.playerId);
+  }, 180_000);
+
   it("rejects over-limit, foreign and stale mulligans without accepting or leaking cards", async () => {
     const { url } = await start();
     const { alice, bob, sessionA, sessionB } = await readyPair(url);
@@ -281,5 +344,45 @@ describe("protocol v2 real mulligan ceremony", () => {
     expect(unchanged.stateVersion).toBe(0);
     expect(unchanged.pendingChoice.status).toBe("pending");
     expect(hand(unchanged, dueSession.playerId)).toEqual(handCards);
+  }, 180_000);
+
+  it("rejects an out-of-order pass until both explicit mulligan answers are recorded", async () => {
+    const { url } = await start();
+    const { alice, bob, sessionA, sessionB, room } = await readyPair(url);
+    const [viewA, viewB] = await Promise.all([projection(alice), projection(bob)]);
+    const firstIsAlice = viewA.activePlayerId === sessionA.playerId;
+    const waiting = firstIsAlice ? bob : alice;
+    const waitingSession = firstIsAlice ? sessionB : sessionA;
+    const roomVersion = room.currentRoomVersion;
+    const roomEventSeq = room.currentRoomEventSeq;
+
+    command(waiting, { type: "pass" }, "out-of-order-pass");
+    const setupError = await waiting.wait(value => value?.type === "error" &&
+      value.requestId === "out-of-order-pass");
+    expect(setupError).toMatchObject({
+      type: "error",
+      code: "command-rejected",
+      message: "Waiting for both players to finish their Mulligan",
+    });
+    expect(room.status).toBe("playing");
+    expect(room.exportArchive().engineRuntimeJournal).toBeNull();
+    expect(room.currentRoomVersion).toBe(roomVersion);
+    expect(room.currentRoomEventSeq).toBe(roomEventSeq);
+    const waitingView = await syncProjection(waiting, "setup-after-rejected-pass");
+    expect(waitingView.viewerPlayerId).toBe(waitingSession.playerId);
+    expect(waitingView.phase).toBe("setup");
+    expect(waitingView.pendingChoice).toEqual({ status: "none" });
+
+    const first = firstIsAlice ? alice : bob;
+    const second = first === alice ? bob : alice;
+    for (const [index, actor] of [first, second].entries()) {
+      const commandId = `pass-regression-mulligan-${index}`;
+      command(actor, { type: "mulligan", selectedObjectIds: [] }, commandId);
+      await expect(receipt(actor, commandId)).resolves.toMatchObject({ accepted: true });
+    }
+    expect(room.status).toBe("playing");
+    expect(room.exportArchive().engineRuntimeJournal).not.toBeNull();
+    const started = await syncProjection(first, "main-after-explicit-mulligans");
+    expect(started.phase).toBe("main");
   }, 180_000);
 });

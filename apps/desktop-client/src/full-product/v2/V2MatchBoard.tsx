@@ -325,7 +325,7 @@ export function V2MatchBoard({
             {catalogStatus === "error" ? <p className="v2-muted">无法从服务端目录生成预组；不会提交本地猜测的印刷 ID。</p> : null}
           </section>
         ) : null}
-        <p className="v2-empty-state">双方提交合法 M1 预组并准备后，服务端会开始权威对局并下发投影。</p>
+        <p className="v2-empty-state">双方提交合法 M1 预组并准备后，服务端会依次开放换牌窗口；双方确认后才开始正式对局。</p>
       </section>
     );
   }
