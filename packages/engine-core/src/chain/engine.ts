@@ -374,6 +374,19 @@ function isWeaponmasterUnpayableResolve(item: ChainItem, error: unknown): boolea
   return error instanceof CostPlanError && error.reason === 'cannot-pay-cost' && isWeaponmasterResolveShape(item);
 }
 
+/**
+ * A leading-may Triggered Ability is already on the Chain. If its cost within
+ * instructions has no legal object choice while Finalize locks the receipt,
+ * CR 403.4 removes the Triggered Ability instead of treating the authored
+ * choice as a malformed cost plan. Keep this narrow: direct Card Plays and
+ * every other invalid plan retain their existing CostPlanError contract.
+ */
+function isUnpayableFinalizeMayCost(item: ChainItem, error: unknown): boolean {
+  return item.kind === 'triggered' && item.mayAtFinalize === true &&
+    error instanceof CostPlanError && error.reason === 'invalid-cost-plan' &&
+    error.message === 'Cost choice cannot be completed from the current zone';
+}
+
 function isWeaponmasterResolveShape(item: ChainItem): boolean {
   if (item.source.cardId !== 'card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef' ||
       item.kind !== 'triggered' || item.body.length !== 1 || item.body[0]?.op !== 'sequence' ||
@@ -1482,7 +1495,8 @@ export class ChainEngine {
       } catch (error) {
         const noOptions = error instanceof TargetSelectionError && (error.code === 'no-legal-targets' || error.code === 'target-tax-unpayable');
         const cannotPay = error instanceof CostPlanError && error.reason === 'cannot-pay-cost';
-        if (item.kind === 'triggered' && (noOptions || cannotPay)) throw new TriggerFinalizeFailure(error);
+        const unpayableMay = isUnpayableFinalizeMayCost(item, error);
+        if (item.kind === 'triggered' && (noOptions || cannotPay || unpayableMay)) throw new TriggerFinalizeFailure(error);
         if (error instanceof ChoicePlanError) throw new ChainContractBlockedError(error.message);
         if (error instanceof CostPlanError && (error.reason === 'judge-required' || error.reason === 'missing-printed-cost')) throw new ChainContractBlockedError(error.message);
         throw error;
