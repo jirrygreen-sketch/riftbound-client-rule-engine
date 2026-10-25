@@ -1605,12 +1605,19 @@ export class ChainEngine {
     const destination = item.location ?? { type: 'base' as const, player: item.controller };
     const objects = this.hostObjects();
     const state = this.playDestinationState(destination, objects);
+    // CR 355.2.a gives Units (including Unit+Gear under 178.1/.2) a Base or
+    // controller-controlled Battlefield. CR 148.1.a.1, 149.2, and 359.2.d
+    // instead send a Non-Unit Gear to its player's Base unless a specific
+    // effect such as Deploy grants another destination.
+    const unitLike = item.kind === 'unit';
     const baselineAllowed = destination.type === 'base'
       ? destination.player === item.controller
+      : !unitLike
+        ? false
       : !this.battlefieldControllers.has(destination.id)
         ? !state.battlefieldExists || state.controller === item.controller
         : this.battlefieldControllers.get(destination.id) === item.controller;
-    // CR 355.2.a; 806.3 and 813.3.a do not broaden this inherent play rule.
+    // CR 355.2.a/b; 806.3 and 813.3.a do not broaden this inherent play rule.
     const hasPermission = this.hasStructuredPlayLocationPermission(item, destination, state, objects);
     const view = playLocations(this.layers.registry, item.source.ref, item.source, item.controller);
     const deployAllowed = item.kind === 'gear' && this.hasDeployPermission(item, destination, objects);
