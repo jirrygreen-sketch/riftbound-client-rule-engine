@@ -127,8 +127,9 @@ function moveIntoCombat(view: V2Projection, actor: string, commandId: string): V
   if (view.chain.items.length > 0 || view.combat.status !== "none") return null;
   const choices = view.actionOptions.moves.flatMap(option => {
     if (option.destination.kind !== "battlefield") return [];
+    const battlefieldId = option.destination.battlefieldId;
     const field = view.battlefields.find(candidate =>
-      candidate.battlefieldId === option.destination.battlefieldId);
+      candidate.battlefieldId === battlefieldId);
     if (field === undefined || field.controllerPlayerId === actor) return [];
     return [{ option, field }];
   });
@@ -230,13 +231,11 @@ describe("RIFT-1074 protocol v2 real two-client beta match", () => {
     expect(result.privacy.violations).toEqual([]);
     expect(result.privacy.checkedProjections).toBeGreaterThan(0);
     expect(result.rejectedCommands).toEqual({ "player-1": 0, "player-2": 0 });
-    expect(Object.values(result.rejectedCommands).reduce((sum, count) => sum + count, 0)).toBe(0);
     expect(result.rejectionReasons["player-1"]).toEqual([]);
     expect(result.rejectionReasons["player-2"]).toEqual([]);
     expect(result.termination, result.blockedReason ?? undefined).toBe("winner");
     expect(result.winnerPlayerId).toMatch(/^player-[12]$/);
     expect(result.turnCount).toBeGreaterThan(1);
-    expect(result.commandCount).toBeGreaterThan(2);
     expect(result.coverage.play).toBeGreaterThan(0);
     expect(result.coverage.move).toBeGreaterThan(0);
     expect(result.coverage["choose-optional"] + result.coverage["choose-mode"] +
@@ -308,24 +307,24 @@ describe("RIFT-1074 protocol v2 real two-client beta match", () => {
     expect(damageSubmissions).toBeGreaterThanOrEqual(2);
     expect(sawScore, JSON.stringify(trace.slice(-10))).toBe(true);
     expect(terminal, JSON.stringify(trace.slice(-10))).not.toBeNull();
-    const afterWinner = submitThroughRoom(started, terminal!.winnerPlayerId!, {
-      type: "pass", commandId: "RIFT-1074-after-winner",
-      stateVersion: terminal!.stateVersion,
-    });
-    expect(afterWinner.accepted).toBe(false);
-    const afterWinnerFirst = readProjection(started.room, "player-1");
-    const afterWinnerSecond = readProjection(started.room, "player-2");
-    expect(afterWinnerFirst.phase).toBe("ended");
-    expect(afterWinnerSecond.phase).toBe("ended");
-    expect(afterWinnerFirst.winnerPlayerId).toBe(terminal!.winnerPlayerId);
-    expect(afterWinnerSecond.winnerPlayerId).toBe(terminal!.winnerPlayerId);
-    expect(afterWinnerFirst.stateVersion).toBe(terminal!.stateVersion);
-    expect(afterWinnerSecond.stateVersion).toBe(terminal!.stateVersion);
     expect(terminal!.phase).toBe("ended");
     expect(terminal!.winnerPlayerId).toMatch(/^player-[12]$/);
     expect(terminal!.scoring.players.find(player =>
       player.playerId === terminal!.winnerPlayerId)?.points)
       .toBeGreaterThanOrEqual(terminal!.scoring.victoryScore);
+    const afterWinner = submitThroughRoom(started, terminal!.winnerPlayerId!, {
+      type: "pass", commandId: "RIFT-1074-after-winner",
+      stateVersion: terminal!.stateVersion,
+    });
+    expect(afterWinner.accepted).toBe(false);
+    const afterFirst = readProjection(started.room, "player-1");
+    const afterSecond = readProjection(started.room, "player-2");
+    expect(afterFirst.phase).toBe("ended");
+    expect(afterSecond.phase).toBe("ended");
+    expect(afterFirst.winnerPlayerId).toBe(terminal!.winnerPlayerId);
+    expect(afterSecond.winnerPlayerId).toBe(terminal!.winnerPlayerId);
+    expect(afterFirst.stateVersion).toBe(terminal!.stateVersion);
+    expect(afterSecond.stateVersion).toBe(terminal!.stateVersion);
     process.stdout.write(JSON.stringify({ test: "RIFT-1074-v2-combat-e2e",
       commandCount: trace.length, damageSubmissions, sawConquer, sawScore,
       winnerPlayerId: terminal!.winnerPlayerId, turnNumber: terminal!.turnNumber,
