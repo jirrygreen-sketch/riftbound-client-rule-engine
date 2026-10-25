@@ -220,6 +220,10 @@ describe("RIFT-1072 headless play candidate legality", () => {
         ? [{ destination: candidate.destination, failure: entry.failure }] : [];
     });
     expect(ordinaryGear.length).toBeGreaterThan(0);
+    const doranCandidates = journal!.commands.flatMap(entry => entry.trace?.candidates.filter(candidate =>
+      candidate.name === "Doran's Blade") ?? []);
+    expect(doranCandidates.length).toBeGreaterThan(0);
+    expect(doranCandidates.every(candidate => candidate.destination?.type === "base")).toBe(true);
     expect(ordinaryGear.every(entry => entry.destination?.type === "base")).toBe(true);
     expect(ordinaryGear.every(entry => entry.failure === null)).toBe(true);
     expect(result.replayMatches).toBe(true);
