@@ -21,6 +21,7 @@ import type { CostPlanInput } from "../../../engine-core/dist/cost/plan-types.js
 import { buildCostPlan } from "../../../engine-core/dist/cost/cost-plan.js";
 import { assessCostPayment } from "../../../engine-core/dist/cost/payment.js";
 import { collectCostModifications } from "../../../engine-core/dist/cost/discounts/collect.js";
+import { locationPermissionMatches, playPermissionAllows } from "../../../engine-core/dist/programs/play-permissions.js";
 import { movement, playLocations, restrictions } from "../../../engine-core/dist/layers/rules/query.js";
 import {
   executeBasicRuneResourcePlan,
@@ -1234,11 +1235,20 @@ function enumerateCandidates(context: HeadlessContext, sequence: number): Headle
   }
   for (const source of objects) {
     if (source.controller !== player || source.zone !== "hand" || !source.cardId) continue;
-    // Prefer the legal default Base. A permanent may also be played to an
-    // already controlled Battlefield. Entering an arbitrary enemy field is not a play permission.
-    const locations: (LocationRef | undefined)[] = source.types.some(type => type === "unit" || type === "gear")
+    // Units may use their Base or a Battlefield they can normally contest.
+    // Non-Unit Gear defaults to its controller's Base (CR 148.1.a.1, 149.2,
+    // 152.2); a Battlefield is offered only through an explicit Play-location
+    // permission such as Deploy.
+    const unitLike = source.types.some(type => type.toLowerCase() === "unit");
+    const gearLike = source.types.some(type => type.toLowerCase() === "gear");
+    const locations: (LocationRef | undefined)[] = unitLike
       ? [{ type: "base", player }, ...flow.battlefields.filter(field => field.controller === player)
-        .map(field => ({ type: "battlefield" as const, id: field.id }))] : [undefined];
+        .map(field => ({ type: "battlefield" as const, id: field.id }))]
+      : gearLike
+        ? [{ type: "base", player }, ...flow.battlefields.filter(field =>
+          gearBattlefieldDestinationIsLegal(chain, source, player, field, objects))
+          .map(field => ({ type: "battlefield" as const, id: field.id }))]
+        : [undefined];
     const locationRules = playLocations(chain.layers.registry, source.ref, source, player);
     for (const location of locations) {
       if (location && locationRules.restrictions.some(rule =>
@@ -1277,6 +1287,59 @@ function enumerateCandidates(context: HeadlessContext, sequence: number): Headle
     }
   }
   return { commands, objects };
+}
+
+/**
+ * The same public permission readers used by Chain Finalize, with the default
+ * Non-Unit Gear destination kept fail-closed at Base. This is read-only and is
+ * called only during candidate enumeration; Finalize still revalidates.
+ */
+export function gearBattlefieldDestinationIsLegal(
+  chain: Match["flow"]["chain"],
+  source: ObjectSnapshot,
+  player: PlayerId,
+  battlefield: Match["flow"]["battlefields"][number],
+  objects: readonly ObjectSnapshot[],
+): boolean {
+  const destination: LocationRef = { type: "battlefield", id: battlefield.id };
+  const units = objects.filter(object => object.zone === "board" &&
+    object.types.some(type => type.toLowerCase() === "unit") &&
+    object.location?.type === "battlefield" && object.location.id === battlefield.id).map(object => object.ref);
+  const state = {
+    ref: destination,
+    controller: battlefield.controller,
+    occupied: units.length > 0,
+    contested: battlefield.contestedBy !== null,
+    units,
+  };
+  if (playPermissionAllows(chain.layers.registry, source, destination, {
+    player, state, objects,
+  })) return true;
+
+  for (const entry of chain.layers.registry.list()) {
+    const effect = entry.effect.effect as Readonly<Record<string, unknown>>;
+    const kind = String(effect.kind ?? "").toLowerCase();
+    if (kind !== "play-location-permission" && kind !== "continuous.location" && kind !== "location") continue;
+    if (entry.effect.source !== undefined && entry.effect.source.id !== source.ref.id) continue;
+    if (entry.effect.source?.zoneEntryId !== undefined && entry.effect.source.zoneEntryId !== source.ref.zoneEntryId) continue;
+    const raw = literalPlayLocation(effect.value);
+    const candidate = literalPlayLocation(raw && typeof raw === "object" && "kind" in raw
+      ? (raw as Readonly<Record<string, unknown>>).value :
+      effect.location ?? (raw as Readonly<Record<string, unknown>> | undefined)?.location ?? effect.permission);
+    if (candidate === null || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    if (locationPermissionMatches(candidate as never, destination, { player, state, objects })) return true;
+  }
+
+  return source.keywords.some(keyword => keyword.id.toLowerCase() === "deploy") ||
+    chain.layers.registry.list().some(entry => entry.effect.source?.id === source.ref.id &&
+      (entry.effect.effect as { readonly kind?: unknown }).kind === "continuous.location" &&
+      (entry.effect.effect as { readonly play?: { readonly anyBattlefield?: unknown } }).play?.anyBattlefield === true);
+}
+
+function literalPlayLocation(value: unknown): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
+  const record = value as Readonly<Record<string, unknown>>;
+  return record.kind === "constant" || record.kind === "literal" ? record.value : value;
 }
 
 function finalState(

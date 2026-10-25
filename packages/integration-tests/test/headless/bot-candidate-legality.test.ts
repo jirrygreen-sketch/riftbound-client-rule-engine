@@ -7,6 +7,7 @@ import { bindResolveContext, createActionPipelineHost } from "../../../engine-co
 import { createProgramBinding } from "../../../engine-core/dist/programs/index.js";
 import { buildM1Deck, trustedPrintedCatalog, type HeadlessCard, type M1PreconId } from "../../src/headless/decks.js";
 import {
+  gearBattlefieldDestinationIsLegal,
   prioritizedHeadlessCommands,
   runHeadlessGame,
   type HeadlessCommand,
@@ -200,5 +201,49 @@ describe("RIFT-1072 headless play candidate legality", () => {
     expect(journal!.commands.filter(entry => entry.failure?.code === "cannot-pay-cost")).toEqual([]);
     expect(result.replayMatches).toBe(true);
   }, 120_000);
+
+  it("sends ordinary Gear to Base instead of an unpromised Battlefield", () => {
+    let journal: HeadlessJournal | undefined;
+    const result = runHeadlessGame("RIFT-990-m1-seed-026", {
+      deckPair: { A: "rumble-sfd" as M1PreconId, B: "fiora-sfd" as M1PreconId },
+      onJournal: value => { journal = value; },
+    });
+    expect(journal).toBeDefined();
+    expect(journal!.commands.filter(entry =>
+      entry.failure?.message === "Play destination is not legally allowed")).toEqual([]);
+    const ordinaryGear = journal!.commands.flatMap(entry => {
+      if (entry.command.type !== "play") return [];
+      const candidate = entry.trace?.candidates.find(value => value.id ===
+        (entry.command as Extract<HeadlessCommand, { type: "play" }>).id);
+      return candidate?.types.includes("gear") &&
+        ["Doran's Blade", "Warmog's Armor", "B.F. Sword", "Assembly Rig"].includes(candidate.name ?? "")
+        ? [{ destination: candidate.destination, failure: entry.failure }] : [];
+    });
+    expect(ordinaryGear.length).toBeGreaterThan(0);
+    expect(ordinaryGear.every(entry => entry.destination?.type === "base")).toBe(true);
+    expect(ordinaryGear.every(entry => entry.failure === null)).toBe(true);
+    expect(result.replayMatches).toBe(true);
+  }, 240_000);
+
+  it("keeps Deploy's explicit Battlefield play permission", () => {
+    const { kernel, match } = productionWorld([{ id: "deploy", source: STUPEFY as HeadlessCard }]);
+    const source = kernel.getObject("deploy")!;
+    expect(gearBattlefieldDestinationIsLegal(
+      match.flow.chain,
+      source,
+      "A",
+      match.flow.battlefields[0]!,
+      kernel.objects,
+    )).toBe(false);
+    kernel.addObject({ ...source, keywords: [{ id: "deploy" }] }, "hand");
+    const deploy = kernel.getObject("deploy")!;
+    expect(gearBattlefieldDestinationIsLegal(
+      match.flow.chain,
+      deploy,
+      "A",
+      match.flow.battlefields[0]!,
+      kernel.objects,
+    )).toBe(true);
+  });
 
 });
