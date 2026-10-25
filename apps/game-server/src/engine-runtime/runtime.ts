@@ -10,6 +10,7 @@ import { createEngineStaticBinder } from "../../../../packages/engine-core/dist/
 import { playPermissionAllows } from "../../../../packages/engine-core/dist/programs/play-permissions.js";
 import { moveUnits } from "../../../../packages/engine-core/dist/game/commands/movement.js";
 import type { ChoiceRequest, Domain, GameAction, LocationRef, ObjectRef, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
+import type { TriggerRegistration } from "../../../../packages/engine-core/dist/events/pipeline-types.js";
 import {
   executeBasicRuneResourcePlan,
   planBasicRuneResourceActivation,
@@ -202,13 +203,69 @@ function objectChoiceCandidates(request: ChoiceRequest<unknown>, host: EngineRun
 }
 
 function choiceOptions(request: ChoiceRequest<unknown>, host: EngineRuntimeHost, viewer: string | null,
-  grants?: readonly RuntimeVisibilityGrant[]): readonly V2ChoiceOption[] | undefined {
+  grants: readonly RuntimeVisibilityGrant[] = host.visibility(),
+  triggerRegistrations: readonly TriggerRegistration[] = []): readonly V2ChoiceOption[] | undefined {
   if (viewer !== request.chooser) return undefined;
   if (request.type === "optional" || request.type === "number") return undefined;
-  if (request.type === "mode") return request.options.map(option => {
-    const value = typeof option === "string" || typeof option === "number" || typeof option === "boolean" ? option : undefined;
-    return { id: String(option), label: String(option), ...(value === undefined ? {} : { value }) };
-  });
+  if (request.type === "mode") {
+    const registrations = new Map(triggerRegistrations.map(registration => [registration.id, registration] as const));
+    const triggerOrder = /^trigger:\d+:[^:]+:order:\d+$/.test(request.id);
+    const resolved = new Map(request.options.map(option => {
+      const id = String(option);
+      if (!triggerOrder) return [id, undefined] as const;
+      const exact = registrations.get(id);
+      const prefixed = exact === undefined
+        ? [...registrations.values()]
+            .filter(registration => id.startsWith(`${registration.id}:`))
+            .sort((left, right) => right.id.length - left.id.length)[0]
+        : exact;
+      const programSource = /^program:(.+):\d+:\d+$/.exec(id)?.[1];
+      const currentSource = programSource === undefined ? undefined : host.objects().filter(object =>
+        object.ref.id === programSource);
+      // A Chain-to-Board play effect is collected while the new source is
+      // still on the Chain. Prefer the authoritative registered snapshot; its
+      // name is stable and already subject to the viewer visibility check.
+      const source = prefixed?.source ?? (currentSource?.length === 1 ? currentSource[0] : undefined);
+      const candidate = source === undefined ? undefined : {
+        source, controller: prefixed?.controller ?? source.controller,
+      };
+      if (candidate === undefined) return [id, undefined] as const;
+      const projected = projectObjectForChoice(candidate.source, viewer, grants);
+      // A trigger collected by a just-played Permanent can still name its
+      // pre-board snapshot. The chooser controls the trigger; reveal only the
+      // printed name in the prompt, never the card's hidden live identity.
+      const visible = candidate.controller === viewer && !candidate.source.faceDown && !projected.faceDown;
+      return [id, visible ? candidate : undefined] as const;
+    }));
+    // Two independent, visible cards may have the same printed name. Number
+    // the entries for the chooser so the label is actionable; the occurrence
+    // is derived from this option list and never replaces the engine token.
+    const duplicateNames = new Set<string>();
+    const optionNames = new Set<string>();
+    for (const registration of resolved.values()) {
+      const optionName = registration?.source.name.trim();
+      if (optionName === undefined || optionName.length === 0) continue;
+      if (optionNames.has(optionName)) duplicateNames.add(optionName);
+      optionNames.add(optionName);
+    }
+    const seenName = new Map<string, number>();
+    return request.options.map(option => {
+      const value = typeof option === "string" || typeof option === "number" || typeof option === "boolean" ? option : undefined;
+      const id = String(option);
+      const registration = resolved.get(id);
+      const name = registration?.source.name.trim();
+      // `resolved` contains only the chooser's non-face-down sources; never
+      // re-admit a name here from an unprojected snapshot.
+      const readable = registration !== undefined && name !== undefined && name.length > 0;
+      const occurrence = name === undefined || name.length === 0
+        ? 0 : (seenName.get(name) ?? 0) + 1;
+      if (occurrence > 0) seenName.set(name!, occurrence);
+      const label = occurrence > 0 && readable && duplicateNames.has(name!)
+        ? `${name} (trigger ${occurrence})`
+        : occurrence > 0 && readable ? name! : id;
+      return { id, label, ...(value === undefined ? {} : { value }) };
+    });
+  }
   const candidates = objectChoiceCandidates(request, host, viewer, grants);
   // An order answer must be a permutation of the engine's complete candidate
   // set. If any identity is invisible, withhold the whole prompt rather than
@@ -907,7 +964,8 @@ class MatchRuntime implements EngineRuntime {
   private pendingChoiceFor(viewer: string | null): Parameters<typeof projectRuntime>[5] {
     if (!this.pending) return null;
     const request = this.pending.request;
-    const options = this.host ? choiceOptions(request, this.host, viewer, this.pending.visibilityGrants) : undefined;
+    const options = this.host ? choiceOptions(request, this.host, viewer, this.pending.visibilityGrants,
+      this.match?.flow.chain.pipeline.registeredTriggers() ?? []) : undefined;
     return {
       choiceId: request.id,
       ownerPlayerId: request.chooser,
