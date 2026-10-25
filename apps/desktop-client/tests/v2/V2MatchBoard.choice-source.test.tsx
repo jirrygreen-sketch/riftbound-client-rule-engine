@@ -83,6 +83,16 @@ describe("V2 choice source and prompt", () => {
     expect(html).not.toContain("来源：");
   });
 
+  it("renders select-objects and mode source metadata with the same heading treatment", () => {
+    for (const [kind, choiceId] of [["select-objects", "target:pit-rookie"], ["mode", "fiora:mode"]] as const) {
+      const value = projection({ objectId: "source-1", name: "Pit Rookie" }, "Choose a friendly unit.");
+      value.pendingChoice = { ...value.pendingChoice, choiceId, kind };
+      const html = render(value);
+      expect(html).toContain("来源：Pit Rookie");
+      expect(html).toContain("Choose a friendly unit.");
+    }
+  });
+
   it("does not render a hidden identity or prompt when only the redacted source id is present", () => {
     const html = render(projection({ objectId: "hidden:source" }, undefined));
     expect(html).not.toContain("来源：");

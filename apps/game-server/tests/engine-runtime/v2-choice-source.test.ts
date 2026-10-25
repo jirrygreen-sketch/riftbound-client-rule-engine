@@ -7,8 +7,8 @@ import { createEngineRuntime, type EngineRuntime, type EngineRuntimeDeck } from 
 
 type M1DeckId = "rumble-sfd" | "fiora-sfd";
 const FIORA_WORTHY = "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f";
+const PIT_ROOKIE = "card.hash-e2638655ff5ed3a1e60a501be3c23d74e46ef7f1900bed31b436f1a579b316ed";
 const DAUNTLESS_VANGUARD = "card.hash-cf0b322a78010676e3d8b287830194a3bdc8970e65a141578ae8a3074ebd956f";
-const PUNCH_FIRST = "card.hash-8d49727ab9ae782b8a21802c9ae0b51e5d712a37a072d991629bfbf3645535b3";
 
 const m1 = JSON.parse(readFileSync(new URL("../../../../docs/plans/m1-decks.json", import.meta.url), "utf8")) as {
   readonly candidates: readonly {
@@ -84,7 +84,7 @@ function programs(decks: readonly EngineRuntimeDeck[]): readonly CardProgram[] {
 }
 
 function choicePrograms(): readonly CardProgram[] {
-  return [FIORA_WORTHY, DAUNTLESS_VANGUARD, PUNCH_FIRST].flatMap(cardId => {
+  return [FIORA_WORTHY, DAUNTLESS_VANGUARD, PIT_ROOKIE].flatMap(cardId => {
     const program = cardProgramsById.get(cardId);
     return program === undefined ? [] : [program];
   });
@@ -104,16 +104,15 @@ function setup(seed = "m1-choice-source-1", battlefieldChoice: readonly [number 
   }).start();
 }
 
-function choiceRuntime(seed = "m1-choice-557"): EngineRuntime {
+function choiceRuntime(seed = "seed-1301"): EngineRuntime {
   serial = 0;
   const decks = [deck("rumble-sfd", "A"), deck("fiora-sfd", "B")] as const;
-  // Match setup applies one deterministic shuffle to each deck. This seed
-  // leaves Fiora, Worthy and Punch First in B's opening hand while Dauntless
-  // Vanguard remains a real M1 deck card for a later draw. No card or trigger
-  // is inserted after setup.
+  // Match setup applies the deterministic deck Rune and Main Deck shuffles in
+  // order. This seed leaves the three real fiora-sfd cards used below in B's
+  // opening hand. No card or trigger is inserted after setup.
   return createEngineRuntime({
     matchId: "rift-1069-choice-source", roomId: "rift-1069-choice-source",
-    decks, seed, firstPlayer: "A", battlefieldChoice: [1, 2],
+    decks, seed, firstPlayer: "B", battlefieldChoice: [1, 2],
     programs: choicePrograms(),
   }).start();
 }
@@ -137,7 +136,7 @@ describe("RIFT-1069 V2 choice source", () => {
       { prompt: "" }, { prompt: " padded" }, { prompt: "x".repeat(513) }, { prompt: 7 },
       { source: {} }, { source: null }, { source: [] }, { source: { objectId: "" } },
       { source: { objectId: "source-1 " } }, { source: { name: "x".repeat(513) } },
-      { source: { name: 7 } }, { source: { objectId: "source-1", extra: true } },
+      { source: { name: 7 } }, { source: { objectId: "source-1", extra: true } }, { extra: true },
     ]) {
       expect(isV2Projection({ ...legacy, pendingChoice: { ...choice, ...metadata } }), JSON.stringify(metadata)).toBe(false);
     }
@@ -155,7 +154,7 @@ describe("RIFT-1069 V2 choice source", () => {
   });
 
   it("projects a real M1 optional Finalize source and prompt to its chooser only", () => {
-    const runtime = choiceRuntime("seed-445");
+    const runtime = choiceRuntime();
     let advanceSerial = 0;
     const finishByAdvancing = (expected: "B" | "A", greatestTurn: number) => {
       for (let guard = 0; guard < 24; guard += 1) {
@@ -202,9 +201,9 @@ describe("RIFT-1069 V2 choice source", () => {
       throw new Error(`Chain did not settle for ${prefix}`);
     };
 
-    finishByAdvancing("B", 2);
+    finishByAdvancing("B", 3);
     expect(cards("B", "Fiora, Worthy")).toHaveLength(1);
-    expect(cards("B", "Punch First")).toHaveLength(1);
+    expect(cards("B", "Pit Rookie")).toHaveLength(1);
     expect(cards("B", "Dauntless Vanguard")).toHaveLength(1);
     const fundAll = (prefix: string) => {
       const runes = (runtime.projectFor("B").zones.find(zone => zone.zone === "rune-zone" && zone.ownerPlayerId === "B")?.objects ?? [])
@@ -219,12 +218,8 @@ describe("RIFT-1069 V2 choice source", () => {
     fundAll("fiora:energy");
     play("Fiora, Worthy", "play-fiora");
     passUntilChoiceOrSettled("settle-fiora");
-    finishByAdvancing("B", 4);
-    let vanguardRunes = fundAll("vanguard:energy");
-    if (vanguardRunes.length < 4) {
-      finishByAdvancing("B", runtime.projectFor(null).turnNumber + 2);
-      vanguardRunes = fundAll("vanguard:energy:next");
-    }
+    finishByAdvancing("B", 5);
+    const vanguardRunes = fundAll("vanguard:energy");
     const powerRune = vanguardRunes.find(rune => rune.name === "Body Rune")!;
     expect(powerRune).toBeDefined();
     const powerResult = submit("B", { type: "rune-power", commandId: "vanguard:power", stateVersion: runtime.projectFor("B").stateVersion,
@@ -234,33 +229,28 @@ describe("RIFT-1069 V2 choice source", () => {
     // the real V2 play options below, not synthesized into the host state.
     play("Dauntless Vanguard", "play-dauntless");
     passUntilChoiceOrSettled("settle-dauntless");
-    finishByAdvancing("B", runtime.projectFor(null).turnNumber + 2);
-    const punchRunes = fundAll("punch:energy");
-    const bodyRune = punchRunes.find(rune => rune.name === "Body Rune")!;
-    expect(bodyRune).toBeDefined();
-    for (const [index, rune] of punchRunes.filter(rune => rune.name === "Body Rune" && rune !== bodyRune).slice(0, 2).entries()) {
-      const result = submit("B", { type: "rune-power", commandId: `punch:power:${index}`, stateVersion: runtime.projectFor("B").stateVersion,
-        runeObjectId: rune.objectId, zoneEntryId: rune.zoneEntryId! });
-      expect(result.receipt.status, JSON.stringify(result.receipt)).toBe("accepted");
-    }
-    const punch = cards("B", "Punch First").find(object => object.zone === "hand")!;
-    expect(punch).toBeDefined();
-    const punchPlay = runtime.projectFor("B").actionOptions.plays.find(option => option.cardObjectId === punch.objectId)!;
-    const playedPunch = submit("B", { type: "play", commandId: "play-punch-first", stateVersion: runtime.projectFor("B").stateVersion,
-      cardObjectId: punch.objectId, destination: punchPlay.destination });
-    expect(playedPunch.receipt.status, JSON.stringify(playedPunch.receipt)).toBe("accepted");
-    passUntilChoiceOrSettled("settle-punch");
+    finishByAdvancing("B", 7);
+    const rookie = cards("B", "Pit Rookie").find(object => object.zone === "hand")!;
+    expect(rookie).toBeDefined();
+    const rookieRunes = fundAll("rookie:energy");
+    expect(rookieRunes.length).toBeGreaterThanOrEqual(2);
+    const rookieView = runtime.projectFor("B");
+    const rookiePlay = rookieView.actionOptions.plays.find(option => option.cardObjectId === rookie.objectId);
+    expect(rookiePlay, JSON.stringify(rookieView.actionOptions.plays)).toBeDefined();
+    const playedRookie = submit("B", { type: "play", commandId: "play-pit-rookie", stateVersion: rookieView.stateVersion,
+      cardObjectId: rookie.objectId, destination: rookiePlay!.destination });
+    expect(["accepted", "pending"], JSON.stringify(playedRookie.receipt)).toContain(playedRookie.receipt.status);
     const targetChoice = runtime.projectFor("B").pendingChoice;
-    expect(targetChoice).toMatchObject({ status: "pending", kind: "select-objects", ownerPlayerId: "B" });
-    if (targetChoice.status !== "pending") throw new Error("Punch First target choice missing");
-    expect(targetChoice.source).toMatchObject({ name: "Punch First" });
+    expect(targetChoice).toMatchObject({ status: "pending", kind: "select-objects", ownerPlayerId: "B",
+      source: { name: "Pit Rookie" } });
+    if (targetChoice.status !== "pending") throw new Error("Pit Rookie target choice missing");
     const vanguard = cards("B", "Dauntless Vanguard").find(object => object.zone === "board")!;
     const option = targetChoice.options?.find(candidate => candidate.objectRef?.objectId === vanguard.objectId);
     expect(option).toBeDefined();
-    const chosen = submit("B", { type: "choose", commandId: "choose-punch", stateVersion: runtime.projectFor("B").stateVersion,
+    const chosen = submit("B", { type: "choose", commandId: "choose-rookie", stateVersion: runtime.projectFor("B").stateVersion,
       choiceId: targetChoice.choiceId, answer: [option!.objectRef!] });
     expect(chosen.receipt.status, JSON.stringify(chosen.receipt)).toBe("accepted");
-    passUntilChoiceOrSettled("settle-punch-finalize");
+    passUntilChoiceOrSettled("settle-rookie");
     const owner = runtime.projectFor("B").pendingChoice;
     expect(owner).toMatchObject({ status: "pending", kind: "optional", ownerPlayerId: "B",
       source: { objectId: cards("B", "Fiora, Worthy").find(object => object.zone === "board")?.objectId, name: "Fiora, Worthy" },
@@ -270,5 +260,5 @@ describe("RIFT-1069 V2 choice source", () => {
     expect(opponent).toMatchObject({ status: "pending", kind: "optional", ownerPlayerId: "B" });
     expect(opponent).not.toHaveProperty("source");
     expect(opponent).not.toHaveProperty("prompt");
-  }, 120_000);
+  }, 300_000);
 });

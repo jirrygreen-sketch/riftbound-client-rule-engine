@@ -307,7 +307,7 @@ function choiceMetadataRequest(request: ChoiceRequest<unknown>, host: EngineRunt
     const escaped = registration.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     if (!new RegExp(`^trigger:\\d+:${escaped}:(?:\\d+):optional$`).test(request.id)) continue;
     source = host.objects().find(object => object.ref.id === registration.source.ref.id &&
-      object.ref.zoneEntryId === registration.source.ref.zoneEntryId) ?? registration.source;
+      object.ref.zoneEntryId === registration.source.ref.zoneEntryId);
     triggerItem = chainItems.find(item => item.trigger?.registration.id === registration.id &&
       item.source.ref.id === registration.source.ref.id &&
       item.source.ref.zoneEntryId === registration.source.ref.zoneEntryId);
@@ -319,8 +319,7 @@ function choiceMetadataRequest(request: ChoiceRequest<unknown>, host: EngineRunt
     triggerItem = item;
     const captured = item.trigger?.source ?? item.source;
     const current = host.objects().find(object => object.ref.id === captured.ref.id &&
-      object.ref.zoneEntryId === captured.ref.zoneEntryId) ??
-      item.trigger?.registration.source ?? (item.trigger === undefined ? item.source : undefined);
+      object.ref.zoneEntryId === captured.ref.zoneEntryId);
     if (current !== undefined) source = current;
   }
   const prompt = wireChoicePrompt(request.prompt ??
@@ -1181,7 +1180,7 @@ class MatchRuntime implements EngineRuntime {
   private normalizeDecks(decks: readonly [EngineRuntimeDeck, EngineRuntimeDeck]): readonly [EngineRuntimeDeck, EngineRuntimeDeck] {
     const copy = (card: RuntimeCard): RuntimeCard => ({
       ...card,
-    ...(card.domains === undefined ? {} : { domains: [...card.domains] }),
+      ...(card.domains === undefined ? {} : { domains: [...card.domains] }),
     });
     return decks.map(deck => ({
       ...deck, mainDeck: deck.mainDeck.map(copy), runeDeck: deck.runeDeck.map(copy),
