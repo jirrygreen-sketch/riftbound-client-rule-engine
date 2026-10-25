@@ -168,6 +168,13 @@ export type V2PendingChoice =
       readonly options?: readonly V2ChoiceOption[];
       readonly min?: number;
       readonly max?: number;
+      /** Engine-authored instruction text, present only on the chooser's view. */
+      readonly prompt?: string;
+      /** The choice source as redacted for the chooser; fields are independently optional. */
+      readonly source?: {
+        readonly objectId?: string;
+        readonly name?: string;
+      };
     }
   | { readonly status: "none" };
 
@@ -363,7 +370,7 @@ function actionOptions(value: unknown): boolean {
 function pendingChoice(value: unknown, viewer: string | null): boolean {
   if (!data(value) || !text(value.status, 32)) return false;
   if (value.status === "none") return exact(value, ["status"]);
-  if (!exact(value, ["status", "choiceId", "ownerPlayerId", "stateVersion", "kind"], ["options", "min", "max"]) ||
+  if (!exact(value, ["status", "choiceId", "ownerPlayerId", "stateVersion", "kind"], ["options", "min", "max", "prompt", "source"]) ||
       !text(value.choiceId) || !text(value.ownerPlayerId) || !count(value.stateVersion) ||
       !["optional", "mode", "select-objects", "order", "number"].includes(value.kind as string)) return false;
   if (value.options !== undefined) {
@@ -380,6 +387,14 @@ function pendingChoice(value: unknown, viewer: string | null): boolean {
   }
   if (value.min !== undefined && !count(value.min)) return false;
   if (value.max !== undefined && !count(value.max)) return false;
+  if (value.prompt !== undefined && !text(value.prompt)) return false;
+  if (value.source !== undefined) {
+    if (!data(value.source) || !exact(value.source, [], ["objectId", "name"]) ||
+        value.source.objectId === undefined && value.source.name === undefined) return false;
+    if (value.source.objectId !== undefined && !text(value.source.objectId)) return false;
+    if (value.source.name !== undefined && !text(value.source.name)) return false;
+  }
+  if (viewer !== value.ownerPlayerId && (value.prompt !== undefined || value.source !== undefined)) return false;
   return value.min === undefined || value.max === undefined || value.min <= value.max;
 }
 
