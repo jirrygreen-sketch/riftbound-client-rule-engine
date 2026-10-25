@@ -21,30 +21,18 @@ import type { CardProgram } from "../../ir/index.js";
  * symbolic "controller" as a player id. The Unit enters exhausted under CR
  * 143.4 / 185.2.d. No abilities are invented for the token.
  *
- * Status is judge-required because the production Chain currently performs
- * that Play synchronously inside the activated ability's Resolve. The token
- * is momentarily created on the Chain, but it enters the Board before any
- * Pending/Finalized token item appears. The authored IR is the correct printed
- * behavior; this status records the engine gap rather than claiming the full
- * card works.
+ * RIFT-1038 closed the former production gap. During the parent activation's
+ * Resolve, the played Mech is created on the Chain and becomes its own Pending
+ * item. CR 354.3 pauses that nested Play until the parent Resolve completes;
+ * the same FEPR pass then Finalizes the child and immediately Resolves the Unit
+ * under CR 337.1-337.2. Unit entry is exhausted under CR 143.4 / 185.2.d, at
+ * the requested Base, with the printed 3 Might / Mech characteristics and
+ * absent printed costs preserved. The full effect is therefore executable.
  */
 export default {
   canonicalCardId: "card.hash-d490b51d08bdd7f97b1708aabfa6309995106f10de815b6fd927368e4a630569",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "生产链尚不能把本卡的 token Play 建成独立链项：effect.token 在 " +
-    "engine-core/src/effects/instructions/effect.token.ts:380-408 已发起 " +
-    "create-token(to: \"chain\") 与 play；两者都经 ChainEngine.commit 与 " +
-    "pipeline.routeAction/appendCard（chain/engine.ts:514-533；pipeline.ts:681）建立链项。问题在嵌套时机：" +
-    "effect.token 的嵌套 transaction 返回时，父 Resolve 尚未完成；现行 execute()/advance() 调度" +
-    "（chain/engine.ts:877-888、1689-1705）会继续处理 token 链项，执行其 Finalize 并立即 Resolve 入场。" +
-    "实测事件仅出现 object-enters-chain、" +
-    "object-enters-board，不出现该 token 独立的 chain-item-pending/chain-item-finalize。" +
-    "CR 350.2、440.2.c、354 要求先创建为 token 的 Play 链项；CR 143.4/185.2.d 还要求" +
-    "其 Unit 入场横置。费用、回收、Exhaust 与最终 3-Might 横置 Mech 已走生产路径验证；" +
-    "缺失能力应把 token Play 作为独立链项保留到父 activation Resolve 后，再经 " +
-    "Finalize/Resolve 入 Base。父 activation 与 token 子项的顺序不得凭实现猜成统一 FIFO/LIFO；需按 CR 327/340 与 303.2.a 的适用条件实现，当前不把同步入场当作已验收。",
+  status: "executable",
   abilities: [
     {
       kind: "activated",
