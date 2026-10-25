@@ -9,7 +9,7 @@ import type {
   V2CommandReceipt,
   V2Projection
 } from "../../../protocol/src/v2/index.js";
-import { botCommand, projectedPlayableCards } from "./bot.js";
+import { botCommand, projectedCombatDamagePlayer, projectedPlayableCards } from "./bot.js";
 import { V2_M1_PRECONS, type V2M1PreconId } from "./m1-precons.js";
 import { auditProjectionPrivacy, type PrivacyAudit } from "./privacy.js";
 import {
@@ -210,7 +210,12 @@ function serializeRejection(value: V2DuelRejection): string {
 }
 
 function debugProgress(seed: string, value: Readonly<Record<string, unknown>>): void {
-  if (process.env.V2_DUEL_DEBUG === "1") console.error(JSON.stringify({ seed, ...value }));
+  if (process.env.V2_DUEL_DEBUG === "1") {
+    // Vitest captures console output from worker threads. Write directly so a
+    // failed fixed-seed probe retains the exact state that selected each
+    // command, including the combat/chain boundary that caused the guard.
+    process.stderr.write(JSON.stringify({ seed, ...value }) + "\n");
+  }
 }
 
 async function persistNdjson(
@@ -395,6 +400,8 @@ async function runV2DuelInternal(options: V2DuelRunOptions, deadline: number): P
         stateVersion: current.stateVersion,
         phase: current.phase, turn: current.turnNumber, actor, command: command?.type ?? null,
         cardName: cardNameFor(authoritativeView, command),
+        combat: authoritativeView.combat,
+        actionOptions: authoritativeView.actionOptions,
         chain: { phase: authoritativeView.chain.phase, priority: authoritativeView.chain.priorityPlayerId },
         choice: choiceDebug,
         resource: playerDebug === undefined ? null : {
@@ -641,7 +648,7 @@ function projectedActor(projection: V2Projection): string | null {
   const pending = projection.pendingChoice;
   if (pending.status === "pending") return pending.ownerPlayerId;
   if (projection.combat.status === "active") {
-    if (projection.combat.step === "damage" && projection.combat.damage) return projection.combat.damage.expectedPlayerId;
+    if (projection.combat.step === "damage") return projectedCombatDamagePlayer(projection);
     if (projection.priority.playerId !== null) return projection.priority.playerId;
   }
   if (projection.priority.playerId !== null) return projection.priority.playerId;

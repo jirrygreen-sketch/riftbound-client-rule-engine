@@ -48,6 +48,20 @@ export function readyRunes(projection: V2Projection, viewerPlayerId: string) {
       rune.exhausted === false && rune.cardId !== undefined && rune.zoneEntryId !== undefined);
 }
 
+/** Combat allocation is submitted by the public attacker first, then defender.
+ * A room projection may still carry the engine's A/B identity in this nested
+ * field. Keep a public identity when present; otherwise map the legacy seat
+ * through the two public players without synthesizing an engine command. */
+export function projectedCombatDamagePlayer(projection: V2Projection): string | null {
+  const damage = projection.combat.status === "active" ? projection.combat.damage : undefined;
+  if (damage === undefined) return null;
+  if (projection.players.some(player => player.playerId === damage.expectedPlayerId)) {
+    return damage.expectedPlayerId;
+  }
+  return damage.expectedPlayerId === "A" ? projection.players[0]?.playerId ?? null :
+    damage.expectedPlayerId === "B" ? projection.players[1]?.playerId ?? null : null;
+}
+
 export function projectedPlayCommand(
   option: V2Projection["actionOptions"]["plays"][number],
   commandId: string,
@@ -89,7 +103,9 @@ export function botCommand(
   // The projection identifies its authenticated viewer. Never let a runner's
   // seat bookkeeping turn a different player's view into an action request.
   if (projection.viewerPlayerId !== viewerPlayerId) return null;
-  if (projection.priority.playerId !== viewerPlayerId) return null;
+  const combatDamageActor = projectedCombatDamagePlayer(projection);
+  const responsibleActor = combatDamageActor ?? projection.priority.playerId;
+  if (responsibleActor !== viewerPlayerId) return null;
   // A pending request may be answered only by its owner with projected
   // candidates. Passing would resolve the surrounding Finalize without an
   // answer, so report that the current client cannot act instead.
@@ -138,20 +154,31 @@ export function botCommand(
     return { type: "end-turn", commandId, stateVersion: projection.stateVersion };
   }
   if (projection.combat.status === "active") {
-    if (projection.combat.step === "damage" && projection.combat.damage?.expectedPlayerId === viewerPlayerId) {
+    const damage = projection.combat.damage;
+    // After both Focus holders pass, the server exposes `advance` only at the
+    // stable Combat Showdown handoff. Passing again is accepted but cannot
+    // progress; consume the handoff before considering another pass.
+    if (projection.actionOptions.canAdvance === true &&
+        projection.priority.playerId === viewerPlayerId) {
+      return { type: "advance", commandId, stateVersion: projection.stateVersion };
+    }
+    if (projection.combat.step === "damage" && damage !== undefined) {
       const battlefield = projection.battlefields.find(field => field.battlefieldId === projection.combat.battlefieldId);
       const opponent = projection.players.find(player => player.playerId !== viewerPlayerId)?.playerId ?? null;
       const units = (battlefield?.occupantObjectIds ?? []).flatMap(id => {
         const unit = projection.objects.find(object => object.objectId === id);
-        return unit ? [unit] : [];
+        return unit && (unit.zone === "board" || unit.zone === "battlefield") ? [unit] : [];
       });
-      const attackerIds = units.filter(unit => unit.controllerPlayerId === viewerPlayerId).map(unit => unit.objectId);
-      const defenderIds = units.filter(unit => unit.controllerPlayerId === opponent).map(unit => unit.objectId);
-      const targets = projection.combat.damage.attackerSubmitted ? defenderIds : attackerIds;
+      // The server omits controllerPlayerId when controller == owner. Treat
+      // ownership as the projected default, while retaining an explicit
+      // controller after a control-changing effect.
+      const controllerOf = (unit: V2Projection["objects"][number]) =>
+        unit.controllerPlayerId ?? unit.ownerPlayerId;
+      // The current actor always assigns its Might to opposing Units. The
+      // projected attackerSubmitted stage selects that actor's budget.
+      const targets = units.filter(unit => controllerOf(unit) === opponent).map(unit => unit.objectId);
       if (targets.length === 0) return null;
-      const total = projection.combat.damage.attackerSubmitted
-        ? projection.combat.damage.defenderMight
-        : projection.combat.damage.attackerMight;
+      const total = damage.attackerSubmitted ? damage.defenderMight : damage.attackerMight;
       const assignments = targets.map((unitObjectId, index) => ({
         unitObjectId,
         amount: index === targets.length - 1 ? total - Math.floor(total / targets.length) * (targets.length - 1) : Math.floor(total / targets.length)

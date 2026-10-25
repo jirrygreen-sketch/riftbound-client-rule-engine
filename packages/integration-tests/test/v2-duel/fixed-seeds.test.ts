@@ -1,5 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import type { V2Projection } from "../../../protocol/src/v2/index.js";
+import { botCommand, projectedCombatDamagePlayer } from "../../src/v2-duel/bot.js";
 import { runV2Duel } from "../../src/v2-duel/runner.js";
 import { V2_DUEL_FIXED_SEEDS } from "../../src/v2-duel/types.js";
 
@@ -8,6 +10,104 @@ const portBase = Number(process.env.SWARM_PORT_BASE ?? "31800");
 const portSpan = Number(process.env.SWARM_PORT_SPAN ?? "20");
 
 describe("RIFT-955 V2 two-client duel", () => {
+  it("uses the projected Combat handoff instead of repeating a no-progress pass", () => {
+    const projection = {
+      projectionContract: "riftbound.protocol.v2.projection",
+      protocolVersion: "2.0.0",
+      rulesetVersion: "core-1.5",
+      matchId: "RIFT-955-v2-07",
+      viewerPlayerId: "player-2",
+      stateVersion: 108,
+      eventSeq: 1852,
+      phase: "main",
+      turnNumber: 16,
+      activePlayerId: "player-2",
+      players: ["player-1", "player-2"].map((playerId, index) => ({
+        playerId, name: playerId, score: 0, energy: 3, power: {}, xp: 0,
+        handCount: 0, deckCount: 20 - index, runeDeckCount: 0, zoneCounts: {},
+      })),
+      zones: [],
+      objects: [],
+      chain: {
+        status: "closed", phase: "open", priorityPlayerId: "player-2",
+        focusPlayerId: null, items: [],
+      },
+      priority: { playerId: "player-2", focusPlayerId: null, window: "open" },
+      scoring: { victoryScore: 8, battlefieldLocationIds: ["bf-1"], players: [] },
+      battlefields: [],
+      combat: {
+        status: "active", battlefieldId: "bf-1", step: "showdown",
+        combatId: "combat:bf-1:1", attackerPlayerId: "player-2",
+        defenderPlayerId: "player-1",
+      },
+      actionOptions: { canEndTurn: false, canAdvance: true, moves: [], plays: [] },
+      pendingChoice: { status: "none" },
+      winnerPlayerId: null,
+      events: [],
+    } satisfies V2Projection;
+
+    expect(botCommand(projection, "player-2", "RIFT-1050-combat-handoff"))
+      .toEqual({ type: "advance", commandId: "RIFT-1050-combat-handoff", stateVersion: 108 });
+  });
+
+  it("maps a legacy engine seat in the Combat damage window to its public actor", () => {
+    const projection = {
+      projectionContract: "riftbound.protocol.v2.projection",
+      protocolVersion: "2.0.0",
+      rulesetVersion: "core-1.5",
+      matchId: "RIFT-955-v2-07",
+      viewerPlayerId: "player-2",
+      stateVersion: 109,
+      eventSeq: 1852,
+      phase: "main",
+      turnNumber: 16,
+      activePlayerId: "player-2",
+      players: ["player-1", "player-2"].map(playerId => ({
+        playerId, name: playerId, score: 0, energy: 0, power: {}, xp: 0,
+        handCount: 0, deckCount: 20, runeDeckCount: 0, zoneCounts: {},
+      })),
+      zones: [],
+      chain: { status: "closed", phase: "open", priorityPlayerId: "player-2",
+        focusPlayerId: null, items: [] },
+      priority: { playerId: "player-2", focusPlayerId: null, window: "open" },
+      scoring: { victoryScore: 8, battlefieldLocationIds: ["bf-1"], players: [] },
+      battlefields: [{
+        battlefieldId: "bf-1", controllerPlayerId: "player-1",
+        contestedByPlayerId: null, staged: "none", occupantObjectIds: ["unit-1", "unit-2"],
+      }],
+      objects: [
+        { objectId: "unit-1", ownerPlayerId: "player-1", controllerPlayerId: "player-1",
+          zone: "board", might: 2, location: { kind: "battlefield", battlefieldId: "bf-1" } },
+        { objectId: "unit-2", ownerPlayerId: "player-2", controllerPlayerId: "player-2",
+          zone: "board", might: 3, location: { kind: "battlefield", battlefieldId: "bf-1" } },
+      ],
+      combat: { status: "active", battlefieldId: "bf-1", step: "damage",
+        combatId: "combat:bf-1:1", attackerPlayerId: "B", defenderPlayerId: "A",
+        damage: { attackerMight: 3, defenderMight: 2, attackerSubmitted: false,
+          expectedPlayerId: "B" } },
+      actionOptions: { canEndTurn: false, canAdvance: false, moves: [], plays: [] },
+      pendingChoice: { status: "none" }, winnerPlayerId: null, events: [],
+    } satisfies V2Projection;
+
+    expect(projectedCombatDamagePlayer(projection)).toBe("player-2");
+    const defenderWindow = {
+      ...projection,
+      viewerPlayerId: "player-1",
+      activePlayerId: "player-1",
+      combat: { ...projection.combat, damage: { ...projection.combat.damage!, attackerSubmitted: true,
+        expectedPlayerId: "A" } },
+    } satisfies V2Projection;
+    expect(projectedCombatDamagePlayer(defenderWindow)).toBe("player-1");
+    expect(botCommand(defenderWindow, "player-1", "RIFT-1050-defender-window"))
+      .toMatchObject({ type: "combat-damage", combatId: "combat:bf-1:1",
+        assignments: [{ unitObjectId: "unit-2", amount: 2 }] });
+    expect(botCommand(projection, "player-1", "RIFT-1050-wrong-damage-actor")).toBeNull();
+    expect(botCommand(projection, "player-2", "RIFT-1050-damage-actor")).toMatchObject({
+      type: "combat-damage", combatId: "combat:bf-1:1",
+      assignments: [{ unitObjectId: "unit-1", amount: 3 }],
+    });
+  });
+
   for (const [index, seed] of V2_DUEL_FIXED_SEEDS.entries()) {
     it(`runs private protocol clients for ${seed}`, async () => {
       await mkdir(outputDirectory, { recursive: true });
