@@ -41,10 +41,28 @@ const SOURCE_TEXT =
 // has Attacker designation (807.1.c-d.1, 478/479). A real self Conquer under
 // 383.4.c.2.a makes the trigger Pending; its leading may and recycle are
 // Finalize choices (355.1, 383.3.a, 405), and 417.1.c uses card ownership for
-// the recycle destination. The reduced printed Play cost is frozen under
-// 356.1.c/356.4; both players get Priority before 359.3.d Resolve plays the
-// selected Trash Mech. Missing trusted printed cost remains fail-closed.
+// the recycle destination. If accepting the leading may leaves no legal object
+// for its mandatory recycle cost, 403.4 removes the Pending trigger without
+// finalizing it; 403.4.a says that removal is not a counter. The reduced printed
+// Play cost is frozen under 356.1.c/356.4; both players get Priority before
+// 359.3.d Resolve plays the selected Trash Mech. Missing trusted printed cost
+// remains fail-closed.
 const RULES_URL = RUMBLE_OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.coreRules.url;
+const RIFT_1073_UNPERFORMABLE_RECYCLE_RULES = Object.freeze({
+  canonicalCardId: CANONICAL,
+  version: "1.5",
+  published: "2026-10-09",
+  effective: "2026-10-16",
+  url: RULES_URL,
+  clauses: Object.freeze(["383.3.a", "383.3.b.1", "403.4", "403.4.a", "404.1.b.1"]),
+  timeline: Object.freeze([
+    "The real Conquer event places Rumble's Triggered Ability on the Chain as Pending.",
+    "The controller accepts the leading may and makes the legal Trash Mech target choice.",
+    "The Finalize recycle cost has no other friendly Unit candidate and pays no cost.",
+    "CR 403.4 removes the Pending trigger; CR 403.4.a says this is not a counter.",
+    "The Chain clears and the real TurnFlow advances the match.",
+  ]),
+});
 const OFFICIAL_EFFECT_ORDER_EVIDENCE = {
   contract: "riftbound.official-effect-order-evidence.v1",
   canonicalCardId: CANONICAL,
@@ -656,17 +674,69 @@ test("Rumble, Hotheaded production boundary: declining Finalize neither selects 
   }
 });
 
-test("Rumble, Hotheaded production boundary: without another friendly Unit Finalize rejects the unpayable recycle", () => {
+test("Rumble, Hotheaded production boundary: an accepted Finalize with no eligible recycle Unit removes its trigger as unperformable-trigger", () => {
+  assert.deepEqual(RIFT_1073_UNPERFORMABLE_RECYCLE_RULES, {
+    canonicalCardId: CANONICAL,
+    version: "1.5",
+    published: "2026-10-09",
+    effective: "2026-10-16",
+    url: "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf",
+    clauses: ["383.3.a", "383.3.b.1", "403.4", "403.4.a", "404.1.b.1"],
+    timeline: [
+      "The real Conquer event places Rumble's Triggered Ability on the Chain as Pending.",
+      "The controller accepts the leading may and makes the legal Trash Mech target choice.",
+      "The Finalize recycle cost has no other friendly Unit candidate and pays no cost.",
+      "CR 403.4 removes the Pending trigger; CR 403.4.a says this is not a counter.",
+      "The Chain clears and the real TurnFlow advances the match.",
+    ],
+  });
   const fixture = productionConquer({ energy: 10, fodder: false });
   try {
-    assert.throws(() => fixture.settle(), (error) =>
-      /Cost choice cannot be completed from the current zone/u.test(error.message));
+    const trashBeforeA = fixture.kernel.objectsInZone("A", "trash").map((ref) => ref.id);
+    assert.deepEqual(fixture.kernel.objects
+      .filter((object) => object.zone === "board" && object.controller === "A" && object.types.includes("unit"))
+      .map((object) => object.ref.id), ["rumble"], "Rumble is the only friendly Unit");
+    const wasRemoved = () => fixture.flow.chain.trace.some((entry) =>
+      entry.item === "trigger:1" && entry.step === "removed" && entry.reason === "unperformable-trigger");
+    for (let guard = 0; guard < 200 && !wasRemoved(); guard++) {
+      if (fixture.flow.chain.items.some((item) => item.status === "pending")) fixture.flow.advance();
+      else if (fixture.flow.chain.items.length) fixture.flow.pass(fixture.flow.chain.priority);
+      else if (fixture.flow.chain.focus !== null) fixture.flow.pass(fixture.flow.chain.focus);
+      else if (fixture.flow.chain.priority !== null) fixture.flow.pass(fixture.flow.chain.priority);
+      else fixture.flow.advance();
+    }
+    assert.equal(wasRemoved(), true, "the production Chain removes the accepted unpayable trigger");
+
+    const triggerTrace = fixture.flow.chain.trace.filter((entry) => entry.item === "trigger:1");
+    const lifecycle = triggerTrace
+      .filter((entry) => ["pending", "finalized", "resolve-start", "resolved", "removed"].includes(entry.step))
+      .map((entry) => `${entry.step}${entry.reason === undefined ? "" : `(${entry.reason})`}`);
+    assert.deepEqual(lifecycle, ["pending", "removed(unperformable-trigger)"],
+      "CR 403.4 removes the Pending trigger without creating a Finalized Chain item");
+    assert.equal(triggerTrace.some((entry) => entry.step === "finalized"), false);
+    assert.equal(triggerTrace.some((entry) => entry.step === "resolve-start" || entry.step === "resolved"), false);
+    assert.equal(triggerTrace.some((entry) => entry.reason === "countered"), false,
+      "CR 403.4.a: unperformable-trigger removal is not an Ability being countered");
+
     assert.deepEqual(fixture.requests.map((request) => request.id), [
       "finalize:trigger:1:optional",
       "target:rumble.mech-in-trash",
     ]);
-    assert.equal(fixture.kernel.getObject("trash-mech").zone, "trash");
+    assert.equal(fixture.requests.some((request) => request.id.endsWith(":pick:rumble.fodder")), false,
+      "an empty recycle candidate set is detected before asking for an invalid cost object");
+    assert.equal(fixture.kernel.history({ action: "recycle" }), 0);
+    assert.equal(fixture.kernel.history({ action: "pay", player: "A" }), 0,
+      "the unperformable trigger pays neither the recycle nor a nested Play cost");
     assert.equal(fixture.kernel.player("A").energy, 10);
+    assert.equal(fixture.kernel.objectsInZone("A", "deck").some((ref) => ref.id === "fodder"), false);
+    assert.deepEqual(fixture.kernel.objectsInZone("A", "trash").map((ref) => ref.id), trashBeforeA);
+    assert.equal(fixture.kernel.getObject("trash-mech").zone, "trash");
+    assert.equal(playedPlans(fixture).length, 0);
+    assert.deepEqual(fixture.flow.chain.items, [], "removing the unperformable trigger clears the Chain");
+    const eventsAtRemoval = fixture.flow.chain.pipeline.events.length;
+    fixture.settle();
+    assert.ok(fixture.flow.chain.pipeline.events.length > eventsAtRemoval,
+      "the real TurnFlow proceeds after removing the trigger");
   } finally {
     fixture.restoreCatalogProgram();
   }
