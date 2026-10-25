@@ -76,6 +76,26 @@ describe("RIFT-1056 V2 permanent play destinations", () => {
       .every(option => option.destination.kind !== "battlefield")).toBe(true);
   });
 
+  it("does not widen non-Unit Gear through a Unit-only location permission", () => {
+    const runtime = setup();
+    const match = (runtime as unknown as { readonly match: Match }).match;
+    const source = hand(runtime.projectFor("A"), GEAR)!;
+    const rawSource = match.flow.chain.pipeline.host.objects().find(object => object.ref.id === source.objectId)!;
+    const field = match.flow.battlefields[0]!;
+    match.flow.chain.layers.addContinuous({
+      id: "rift-1056:unit-only-battlefield-power",
+      layer: "ability",
+      source: rawSource.ref,
+      filter: { objectRefs: [rawSource.ref] },
+      effect: { kind: "location", permission: "any-battlefield" },
+    }, { type: "permanent" });
+    const view = projectRuntime(match, (runtime as unknown as { readonly host: EngineRuntimeHost }).host,
+      "RIFT-1056-play-destinations", "A", runtime.projectFor(null).stateVersion, null);
+    expect(view.actionOptions.plays.filter(option => option.cardObjectId === source.objectId)
+      .map(option => option.destination)).toEqual([{ kind: "base", playerId: "A" }]);
+    expect(field.id).toBeTruthy();
+  });
+
   it("offers a Unit no foreign or uncontrolled Battlefield", () => {
     const runtime = setup();
     assertRealMainWindow(runtime);

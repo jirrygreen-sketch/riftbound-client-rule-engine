@@ -267,6 +267,20 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
       const view = playLocations(chain.layers.registry, source.ref, source, viewer);
       if (view.restrictions.some(rule => ["no-base", "cannot-base", "cannot-play-base"].includes(rule.name.toLowerCase()))) continue;
       const permissions = explicitPermissions(source);
+      const unitLocationPermission = (field: (typeof battlefields)[number]) =>
+        unit && permissions.length > 0 &&
+        playPermissionAllows(chain.layers.registry, source, { type: "battlefield", id: field.id }, {
+          player: viewer,
+          state: {
+            ref: { type: "battlefield", id: field.id }, owner: field.id, controller: field.controller,
+            occupied: objects.some(object => object.zone === "board" && object.types.includes("unit") &&
+              object.location?.type === "battlefield" && object.location.id === field.id),
+            contested: field.contestedBy !== null,
+            units: objects.filter(object => object.zone === "board" && object.types.includes("unit") &&
+              object.location?.type === "battlefield" && object.location.id === field.id).map(object => object.ref),
+          },
+          objects,
+        });
       // CR 355.2.a and 148.1.a.1/149.2 make the viewer's Base a default for
       // Unit and Gear plays. A 355.2.b permission adds locations and does not
       // remove destinations that were already valid. Unit+Gear follows the
@@ -276,19 +290,7 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
       for (const field of battlefields) {
         if (view.restrictions.some(rule => ["no-battlefield", "cannot-battlefield", "cannot-play-battlefield"].includes(rule.name.toLowerCase()))) continue;
         const defaultLocationMatches = unit && field.controller === viewer;
-        const battlefieldPermissionMatches = permissions.length > 0 &&
-          playPermissionAllows(chain.layers.registry, source, { type: "battlefield", id: field.id }, {
-            player: viewer,
-            state: {
-              ref: { type: "battlefield", id: field.id }, owner: field.id, controller: field.controller,
-              occupied: objects.some(object => object.zone === "board" && object.types.includes("unit") &&
-                object.location?.type === "battlefield" && object.location.id === field.id),
-              contested: field.contestedBy !== null,
-              units: objects.filter(object => object.zone === "board" && object.types.includes("unit") &&
-                object.location?.type === "battlefield" && object.location.id === field.id).map(object => object.ref),
-            },
-            objects,
-          });
+        const battlefieldPermissionMatches = unitLocationPermission(field);
         if (!defaultLocationMatches && !battlefieldPermissionMatches) continue;
         plays.push({ cardObjectId: source.ref.id, destination: { kind: "battlefield", battlefieldId: field.id },
           requiresDestination: true, ...(requirements === undefined ? {} : { targetRequirements: requirements }) });
