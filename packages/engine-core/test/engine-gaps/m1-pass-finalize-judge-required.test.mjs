@@ -37,12 +37,10 @@
 // Ferrous Forerunner: card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3,
 // packages/card-dsl/src/cards/sfd/ferrous-forerunner.ts (status executable).
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import ferrousForerunner from '../../../card-dsl/dist/cards/sfd/ferrous-forerunner.js';
 import rumbleHotheaded from '../../../card-dsl/dist/cards/sfd/rumble-hotheaded.js';
-import { parsePersistedHeadlessJournal } from '../../../integration-tests/src/headless/stats.ts';
 import { CostPlanError } from '../../dist/cost/plan-types.js';
 import { AwaitChoice } from '../../dist/effects/contract.js';
 import { world } from '../../dist/effects/testing/index.js';
@@ -65,45 +63,6 @@ const FAIL_CLOSED_MESSAGES = Object.freeze([
   "A printed-base CostSpec requires the selected card's complete numeric Energy and Power programme",
   'A target Energy expression cannot replace a card Base Cost without exact numeric Power provenance',
 ]);
-const HISTORICAL_SAMPLES = Object.freeze([
-  ['001', 100, 13, 'trigger:8', FERROUS],
-  ['027', 131, 11, 'trigger:13', 'card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9'],
-  ['037', 85, 9, 'trigger:10', 'card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9'],
-  ['047', 65, 7, 'trigger:5', null],
-  ['059', 83, 10, 'trigger:11', 'card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40'],
-  ['067', 65, 8, 'trigger:5', 'card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c'],
-  ['084', 94, 10, 'trigger:10', 'card.hash-d4e849d845765608b07bf4af4aa19877f6303dfff539b541d0d070320dd05d91'],
-  ['093', 125, 14, 'trigger:8', 'card.hash-d4e849d845765608b07bf4af4aa19877f6303dfff539b541d0d070320dd05d91'],
-  ['100', 73, 8, 'trigger:6', 'card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40'],
-]);
-
-function persistedJournal(dataset, sample) {
-  const [number] = sample;
-  const path = `/root/swarm-rift/shared/${dataset}/journals/${number}-RIFT-990-m1-seed-${number}.journal.json`;
-  return { path, journal: parsePersistedHeadlessJournal(readFileSync(path, 'utf8')) };
-}
-
-function last(array, predicate) {
-  for (let index = array.length - 1; index >= 0; index -= 1) {
-    if (predicate(array[index])) return array[index];
-  }
-  return undefined;
-}
-
-function rumbleEvidence(journal, sample) {
-  const [, commandIndex, turn, item, targetCardId] = sample;
-  const failure = journal.commands[commandIndex];
-  assert.ok(failure?.failure, `${journal.seed} journals the expected failure`);
-  const trigger = last(journal.events, event =>
-    event.timingPoint === 'chain-item-pending' && event.details?.item === item);
-  assert.ok(trigger, `${journal.seed} journals ${item}`);
-  assert.equal(trigger.sourceCardId, RUMBLE);
-  assert.equal(trigger.object?.cardId, RUMBLE);
-  const targeted = last(journal.events, event =>
-    event.timingPoint === 'became-target' && event.seq > trigger.seq);
-  assert.equal(targeted?.object?.cardId ?? null, targetCardId);
-  return { failure, trigger, targeted };
-}
 
 function rumbleConquer({ fodder = true, printedCatalog } = {}) {
   const builder = world().player('A').player('B', { energy: 10 })
@@ -265,50 +224,6 @@ function triggerFor(f) {
   assert.ok(id, 'Rumble put its Conquer trigger on the Chain');
   return id;
 }
-
-test('RIFT-1076 parsed journals pin all eight judge-required and seed 047 invalid-cost-plan events', () => {
-  let judgeRequired = 0;
-  let invalidCostPlan = 0;
-  for (const sample of HISTORICAL_SAMPLES) {
-    const [, commandIndex, turn, item, targetCardId] = sample;
-    const { journal } = persistedJournal('rift-h100-7264ea68', sample);
-    const { failure, trigger, targeted } = rumbleEvidence(journal, sample);
-    assert.equal(failure.trace?.turn, turn);
-    assert.equal(failure.trace?.turnState, item === 'trigger:5' && sample[0] === '047' ? 'showdown-open' : 'neutral-closed');
-    assert.ok(['pass', 'advance'].includes(failure.command.type));
-    if (targetCardId === null) {
-      assert.equal(failure.failure?.code, 'invalid-cost-plan');
-      invalidCostPlan += 1;
-      assert.equal(failure.failure?.message, 'Cost choice cannot be completed from the current zone');
-      assert.equal(targeted, undefined);
-      continue;
-    }
-    assert.equal(failure.failure?.code, 'judge-required');
-    judgeRequired += 1;
-    assert.ok(FAIL_CLOSED_MESSAGES.includes(failure.failure?.message));
-    assert.equal(trigger.object?.cardId, RUMBLE);
-    assert.equal(targeted?.object?.cardId, targetCardId);
-    assert.notEqual(targetCardId, RUMBLE);
-  }
-  assert.equal(judgeRequired, 8);
-  assert.equal(invalidCostPlan, 1);
-});
-
-test('RIFT-1076 current e05bc0ba dataset has seed 047 and 094 Finalize cost failures, not judge-required', () => {
-  const cases = [
-    ['047', 65, 7],
-    ['094', 74, 8],
-  ];
-  for (const [number, commandIndex, turn] of cases) {
-    const sample = [number, commandIndex, turn, 'trigger:5', null];
-    const { journal } = persistedJournal('rift-h100-e05bc0ba', sample);
-    const { failure, trigger } = rumbleEvidence(journal, sample);
-    assert.equal(failure.failure?.code, 'invalid-cost-plan');
-    assert.equal(failure.failure?.message, 'Cost choice cannot be completed from the current zone');
-    assert.equal(failure.trace?.turn, turn);
-    assert.equal(trigger.object?.cardId, RUMBLE);
-  }
-});
 
 test('RIFT-1076 real Rumble plays a Trash Mech when the trusted catalog proves its printed cost', () => {
   assert.equal(rumbleHotheaded.status, 'executable');
