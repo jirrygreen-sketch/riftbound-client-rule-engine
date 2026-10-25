@@ -594,6 +594,20 @@ export class CombatFlow {
   advance(): void {
     if (this.chain.items.length) return;
     const activeCombat = this.engagement;
+    // CR 467.1: Combat Damage is outstanding only while Units from both the
+    // Attacker and Defender sides remain at the battlefield. If a side left
+    // during the Combat Showdown, CR 467.3 goes straight to the 468 Resolution
+    // tasks. Keep the Showdown lifecycle step until the ordinary Cleanup/advance
+    // caller transforms it; requesting Cleanup here cannot manufacture a
+    // one-sided assignment plan or deal damage while preserving that boundary.
+    if (activeCombat?.step === 'showdown' && this.chain.turnState === 'neutral-open' &&
+        activeCombat.attacker !== undefined && activeCombat.defender !== undefined) {
+      const controllers = new Set(this.units(activeCombat.field).map(unit => unit.controller));
+      if (!controllers.has(activeCombat.attacker) || !controllers.has(activeCombat.defender)) {
+        activeCombat.step = 'cleanup';
+        this.chain.requestCleanup('combat-damage-skipped');
+      }
+    }
     if (activeCombat?.step === 'control' && activeCombat.result?.noResult === true &&
         !activeCombat.controlEstablished && !this.units(activeCombat.field).length) {
       activeCombat.endState = 'ordinary';
