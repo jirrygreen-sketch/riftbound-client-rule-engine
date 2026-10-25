@@ -7,8 +7,10 @@ import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter
 import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
-import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const [triggered] = program.abilities;
 const [optIn] = triggered.body;
@@ -180,17 +182,67 @@ test.todo(
 );
 
 test("Battlefield Armorer resweep: death retains the battlefield snapshot while Trash gets a new incarnation", () => {
-  const f = fixture({ cards: [{ id: "gear", types: ["gear"], energy: 0 }] });
-  f.engine.advance();
-  f.engine.execute(f.card("gear", { kind: "gear", body: [], location: { type: "battlefield", id: "bf-1" } }));
-  const dying = f.engine.layers.evaluate(f.kernel.ref("gear"));
-  assert.equal(f.engine.commit({ type: "kill", object: dying.ref }).status, "done");
-  const events = f.engine.pipeline.events.filter(event => event.timingPoint === "object-killed");
-  assert.equal(events.length, 1);
-  assert.deepEqual(events[0].object, dying);
-  assert.equal(matchesTriggerEvent(triggered.trigger.filter, events[0], "A"), true);
-  const inTrash = f.kernel.getObject("gear");
-  assert.equal(inTrash.zone, "trash");
-  assert.equal(inTrash.ref.id, dying.ref.id);
-  assert.notEqual(inTrash.ref.zoneEntryId, dying.ref.zoneEntryId);
+  const battlefield = { type: "battlefield", id: "bf-1" };
+  // CR 148.1.a.1 / 149.2 / 152.2: this test starts after an offscreen special
+  // effect has brought an ordinary Gear to the Battlefield. Seed that trusted
+  // Board state directly instead of using an illegal Play, then exercise the
+  // real replacement/death pipeline. Both printed cost fields remain null.
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .object("gear", {
+      cardId: null,
+      types: ["gear"],
+      zone: "board",
+      location: battlefield,
+      energy: null,
+      power: null,
+      might: null
+    })
+    .build();
+  const choose = request => {
+    throw new Error(`Unexpected choice ${request.id}`);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => {
+      kernel.restore(saved.state);
+      kernel.copyLinkedFrom(saved.links);
+    },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    ...kernel.deathBoundaryPort(),
+    choose,
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host,
+    cleanup: () => false
+  });
+  const lifecycle = binding.attachLifecycle(engine, error => { throw error; });
+  try {
+    const setup = kernel.getObject("gear");
+    assert.equal(setup.zone, "board");
+    assert.deepEqual(setup.location, battlefield);
+    const dying = engine.layers.evaluate(kernel.ref("gear"));
+    assert.equal(engine.commit({ type: "kill", object: dying.ref }).status, "done");
+    const events = engine.pipeline.events.filter(event => event.timingPoint === "object-killed");
+    assert.equal(events.length, 1);
+    assert.deepEqual(events[0].object, dying);
+    assert.equal(matchesTriggerEvent(triggered.trigger.filter, events[0], "A"), true);
+    const inTrash = kernel.getObject("gear");
+    assert.equal(inTrash.zone, "trash");
+    assert.equal(inTrash.ref.id, dying.ref.id);
+    assert.notEqual(inTrash.ref.zoneEntryId, dying.ref.zoneEntryId);
+  } finally {
+    lifecycle.detach();
+  }
 });
