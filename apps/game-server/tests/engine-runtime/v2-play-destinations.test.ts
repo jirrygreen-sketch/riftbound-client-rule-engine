@@ -76,7 +76,7 @@ describe("RIFT-1056 V2 permanent play destinations", () => {
       .every(option => option.destination.kind !== "battlefield")).toBe(true);
   });
 
-  it("does not widen non-Unit Gear through a Unit-only location permission", () => {
+  it("allows non-Unit Gear at a Battlefield only through an explicit location permission", () => {
     const runtime = setup();
     const match = (runtime as unknown as { readonly match: Match }).match;
     const source = hand(runtime.projectFor("A"), GEAR)!;
@@ -87,12 +87,18 @@ describe("RIFT-1056 V2 permanent play destinations", () => {
       layer: "ability",
       source: rawSource.ref,
       filter: { objectRefs: [rawSource.ref] },
-      effect: { kind: "location", permission: "any-battlefield" },
+      effect: {
+        kind: "location", permission: "any-battlefield",
+        location: { type: "battlefield", id: field.id }, objectRefs: [rawSource.ref],
+      },
     }, { type: "permanent" });
     const view = projectRuntime(match, (runtime as unknown as { readonly host: EngineRuntimeHost }).host,
       "RIFT-1056-play-destinations", "A", runtime.projectFor(null).stateVersion, null);
     expect(view.actionOptions.plays.filter(option => option.cardObjectId === source.objectId)
-      .map(option => option.destination)).toEqual([{ kind: "base", playerId: "A" }]);
+      .map(option => option.destination)).toEqual([
+      { kind: "base", playerId: "A" },
+      { kind: "battlefield", battlefieldId: field.id },
+    ]);
     expect(field.id).toBeTruthy();
   });
 

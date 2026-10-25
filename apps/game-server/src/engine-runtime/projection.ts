@@ -267,8 +267,8 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
       const view = playLocations(chain.layers.registry, source.ref, source, viewer);
       if (view.restrictions.some(rule => ["no-base", "cannot-base", "cannot-play-base"].includes(rule.name.toLowerCase()))) continue;
       const permissions = explicitPermissions(source);
-      const unitLocationPermission = (field: (typeof battlefields)[number]) =>
-        unit && permissions.length > 0 &&
+      const battlefieldPermission = (field: (typeof battlefields)[number]) =>
+        permissions.length > 0 &&
         playPermissionAllows(chain.layers.registry, source, { type: "battlefield", id: field.id }, {
           player: viewer,
           state: {
@@ -290,7 +290,7 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
       for (const field of battlefields) {
         if (view.restrictions.some(rule => ["no-battlefield", "cannot-battlefield", "cannot-play-battlefield"].includes(rule.name.toLowerCase()))) continue;
         const defaultLocationMatches = unit && field.controller === viewer;
-        const battlefieldPermissionMatches = unitLocationPermission(field);
+        const battlefieldPermissionMatches = battlefieldPermission(field);
         if (!defaultLocationMatches && !battlefieldPermissionMatches) continue;
         plays.push({ cardObjectId: source.ref.id, destination: { kind: "battlefield", battlefieldId: field.id },
           requiresDestination: true, ...(requirements === undefined ? {} : { targetRequirements: requirements }) });
