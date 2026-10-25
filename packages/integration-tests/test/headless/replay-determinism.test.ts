@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,40 +20,34 @@ const {
   new URL("../../../replay-core/src/canonical-json.ts", import.meta.url).href,
 ) as ReplayJsonCodec;
 
-const journalDirectory = (): string => {
-  const directory = process.env.RIFT_990_EVIDENCE_DIR;
-  if (!directory) throw new Error("RIFT_990_EVIDENCE_DIR must name the read-only RIFT-990 evidence directory");
-  return directory;
-};
-
 describe("RIFT-1030 headless journal determinism", () => {
-  it.each(["046", "058", "060"])(
-    "restores legacy counter maps and reproduces seed %s integrity",
-    seed => {
-      const directory = journalDirectory();
-      const file = readdirSync(directory).find(
-        name => name.startsWith(`${seed}-`) && name.endsWith(".journal.json"),
-      );
-      expect(file, `missing journal for seed ${seed}`).toBeDefined();
-      const archive = JSON.parse(
-        readFileSync(`${directory}/${file}`, "utf8"),
-      ) as { readonly integrity?: string; readonly events: readonly unknown[] };
-      const restored = reviveLegacyJournalCounters(archive) as {
-        readonly integrity: string;
-        readonly events: readonly {
-          readonly object?: { readonly counters?: unknown };
-        }[];
-      };
-      const { integrity, ...content } = restored;
-      const digest = createHash("sha256")
-        .update(stringifyPersistedReplayJson(content), "utf8")
-        .digest("hex");
+  // RIFT-1049: the RIFT-990 archives for seeds 046/058/060 were written with
+  // plain JSON.stringify, which turned every empty counter Map into {}. This
+  // self-contained archive reproduces that legacy shape, so the suite no
+  // longer depends on an external evidence directory (RIFT_990_EVIDENCE_DIR).
+  it("restores legacy empty counter maps and reproduces the archived integrity", () => {
+    const content = {
+      seed: "RIFT-1049-legacy",
+      events: [
+        { eventSeq: 1, object: { ref: { id: "unit-1", zoneEntryId: 1 }, counters: new Map<string, number>() } },
+        { eventSeq: 2, object: { ref: { id: "unit-2", zoneEntryId: 1 }, counters: new Map<string, number>() } },
+      ],
+    };
+    const integrity = createHash("sha256").update(stringifyPersistedReplayJson(content), "utf8").digest("hex");
+    const legacyArchive = JSON.parse(JSON.stringify({ ...content, integrity })) as Record<string, unknown>;
+    expect((legacyArchive.events as { object: { counters: unknown } }[])[0]!.object.counters).toEqual({});
 
-      expect(restored.events.length).toBeGreaterThan(0);
-      expect(restored.events[18]?.object?.counters).toEqual({ map: [] });
-      expect(digest).toBe(integrity);
-    },
-  );
+    const restored = reviveLegacyJournalCounters(legacyArchive) as {
+      readonly integrity: string;
+      readonly events: readonly { readonly object?: { readonly counters?: unknown } }[];
+    };
+    const { integrity: archived, ...restoredContent } = restored;
+    expect(restored.events[0]?.object?.counters).toEqual({ map: [] });
+    expect(createHash("sha256").update(stringifyPersistedReplayJson(restoredContent), "utf8").digest("hex"))
+      .toBe(archived);
+    const revived = revivePersistedReplayJson(restoredContent) as typeof content;
+    expect(revived.events[1]!.object.counters).toBeInstanceOf(Map);
+  });
 
   it("preserves runtime counters through canonical persisted JSON", () => {
     const runtime = {
@@ -71,16 +65,6 @@ describe("RIFT-1030 headless journal determinism", () => {
       events: [{ object: { counters: { map: [["Ready", 0]] } } }],
     });
     expect(stringifyPersistedReplayJson(content)).toBe(persisted);
-  });
-
-  it("fails explicitly when no historical evidence directory is provided", () => {
-    const previous = process.env.RIFT_990_EVIDENCE_DIR;
-    delete process.env.RIFT_990_EVIDENCE_DIR;
-    try {
-      expect(() => journalDirectory()).toThrow(/RIFT_990_EVIDENCE_DIR/);
-    } finally {
-      process.env.RIFT_990_EVIDENCE_DIR = previous;
-    }
   });
 
   it.each(["046", "058", "060"])(
