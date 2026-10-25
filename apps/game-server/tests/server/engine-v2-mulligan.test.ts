@@ -55,26 +55,21 @@ afterEach(async () => {
   for (const server of servers.splice(0)) await server.stop();
 });
 
-function taskPort(): number {
-  const port = Number(process.env.SWARM_PORT_BASE);
-  if (!Number.isInteger(port) || port < 34100 || port > 34119) {
-    throw new Error("SWARM_PORT_BASE must be within the assigned 34100-34119 range");
-  }
-  return port;
-}
-
 async function start(): Promise<{ readonly url: string; readonly server: GameServer }> {
   const roomId = `mulligan-real-${++roomNumber}`;
-  const port = taskPort();
   const server = createGameServer({
-    port,
+    // Let the OS allocate a free ephemeral port. This keeps focused tests
+    // independent of an optional scheduler-provided range.
+    port: 0,
     roomIdFactory: () => roomId,
     // A fixed battlefield RNG keeps the approved battlefield selection stable.
     duelRandomIndex: () => 0,
   });
   servers.push(server);
   await server.start();
-  return { url: `ws://127.0.0.1:${port}/ws`, server };
+  const address = server.httpServer.address();
+  if (!address || typeof address === "string") throw new Error("No TCP address");
+  return { url: `ws://127.0.0.1:${address.port}/ws`, server };
 }
 
 async function connect(url: string): Promise<Client> {
