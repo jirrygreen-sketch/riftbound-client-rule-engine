@@ -610,10 +610,9 @@ export class GameRoom {
   }
 
   private publicEngineProjection(projection: V2Projection): V2Projection {
-    const mapPlayer = (id: string | null): string | null => id === null ? null : id === "A" ? "player-1" : id === "B" ? "player-2" : id;
+    const mapPlayer = (id: string | null): string | null => this.publicEnginePlayerId(id);
     const mapEventValue = (value: unknown): unknown => {
-      if (value === "A") return "player-1";
-      if (value === "B") return "player-2";
+      if (value === "A" || value === "B") return mapPlayer(value);
       if (Array.isArray(value)) return value.map(mapEventValue);
       if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, mapEventValue(nested)]));
       return value;
@@ -629,9 +628,94 @@ export class GameRoom {
       chain: { ...projection.chain, priorityPlayerId: mapPlayer(projection.chain.priorityPlayerId), focusPlayerId: mapPlayer(projection.chain.focusPlayerId), items: projection.chain.items.map(item => ({ ...item, controllerPlayerId: mapPlayer(item.controllerPlayerId)! })) },
       priority: { ...projection.priority, playerId: mapPlayer(projection.priority.playerId), focusPlayerId: mapPlayer(projection.priority.focusPlayerId) },
       scoring: { ...projection.scoring, players: projection.scoring.players.map(player => ({ ...player, playerId: mapPlayer(player.playerId)! })) },
+      battlefields: projection.battlefields.map(battlefield => ({
+        ...battlefield,
+        controllerPlayerId: mapPlayer(battlefield.controllerPlayerId),
+        contestedByPlayerId: mapPlayer(battlefield.contestedByPlayerId),
+      })),
+      combat: projection.combat.status === "active" ? {
+        ...projection.combat,
+        ...(projection.combat.attackerPlayerId === undefined ? {} : {
+          attackerPlayerId: mapPlayer(projection.combat.attackerPlayerId)!,
+        }),
+        ...(projection.combat.defenderPlayerId === undefined ? {} : {
+          defenderPlayerId: mapPlayer(projection.combat.defenderPlayerId)!,
+        }),
+        ...(projection.combat.damage === undefined ? {} : {
+          damage: {
+            ...projection.combat.damage,
+            expectedPlayerId: mapPlayer(projection.combat.damage.expectedPlayerId)!,
+          },
+        }),
+      } : projection.combat,
+      actionOptions: {
+        ...projection.actionOptions,
+        moves: projection.actionOptions.moves.map(option => ({
+          ...option,
+          destination: this.publicEngineLocation(option.destination),
+        })),
+        plays: projection.actionOptions.plays.map(option => ({
+          ...option,
+          destination: this.publicEngineLocation(option.destination),
+        })),
+      },
       pendingChoice: projection.pendingChoice.status === "pending" ? { ...projection.pendingChoice, ownerPlayerId: mapPlayer(projection.pendingChoice.ownerPlayerId)! } : projection.pendingChoice,
       events: projection.events.map(event => mapEventValue(event) as typeof event),
     };
+  }
+
+  private publicEnginePlayerId(id: string | null): string | null {
+    if (id === null) return null;
+    if (id === "A") return "player-1";
+    if (id === "B") return "player-2";
+    return id;
+  }
+
+  private publicEngineLocation(location: V2Projection["actionOptions"]["moves"][number]["destination"]):
+    V2Projection["actionOptions"]["moves"][number]["destination"] {
+    return location.kind === "base"
+      ? { ...location, playerId: this.publicEnginePlayerId(location.playerId)! }
+      : location;
+  }
+
+  private engineCommandPlayerId(id: string): string {
+    if (id === "player-1") return "A";
+    if (id === "player-2") return "B";
+    // Preserve unknown ids so the authoritative engine performs ownership and
+    // target validation with the same rejection semantics as before.
+    return id;
+  }
+
+  private engineCommand<T extends V2Command>(command: T): T {
+    const mapPlayer = (id: string): string => this.engineCommandPlayerId(id);
+    const mapLocation = (location: Extract<V2Command, { readonly type: "play" }>["destination"]):
+      Extract<V2Command, { readonly type: "play" }>["destination"] =>
+      location?.kind === "base" ? { ...location, playerId: mapPlayer(location.playerId) } : location;
+    const mapMoveDestination = <D extends Extract<V2Command, { readonly type: "move" }>["to"]>(to: D): D =>
+      "playerId" in to && to.playerId !== undefined
+        ? { ...to, playerId: mapPlayer(to.playerId) }
+        : to;
+    switch (command.type) {
+      case "play":
+      case "activate": {
+        const targets = command.targets?.map(target =>
+          target.kind === "player" ? { ...target, playerId: mapPlayer(target.playerId) } : target);
+        const picks = command.picks?.map(pick =>
+          pick.kind === "player" ? { ...pick, playerId: mapPlayer(pick.playerId) } : pick);
+        return {
+          ...command,
+          ...(command.type === "play" && command.destination !== undefined
+            ? { destination: mapLocation(command.destination) }
+            : {}),
+          ...(targets === undefined ? {} : { targets }),
+          ...(picks === undefined ? {} : { picks }),
+        } as T;
+      }
+      case "move":
+        return { ...command, to: mapMoveDestination(command.to) } as T;
+      default:
+        return command;
+    }
   }
 
   exportArchive(): RoomArchive {
@@ -1750,7 +1834,7 @@ export class GameRoom {
     if (!this.engineRuntime) {
       throw new RoomError("Game has not started", "command-rejected");
     }
-    const result = this.engineRuntime.submit(this.enginePlayerId(playerId), command);
+    const result = this.engineRuntime.submit(this.enginePlayerId(playerId), this.engineCommand(command));
     const receipt: V2CommandReceipt = {
       type: "command-receipt",
       protocolVersion: "2.0.0",
