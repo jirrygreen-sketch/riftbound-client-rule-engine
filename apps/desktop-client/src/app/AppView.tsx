@@ -18,6 +18,7 @@ import { SettingsPage } from "../settings/SettingsPage";
 import { MatchControls } from "../settings/MatchControls";
 import { ReplayPage } from "../replays/ReplayPage";
 import { writeReplayLibrary, removeReplayRecording } from "../replays/replay-library";
+import type { RoomView } from "@riftbound/protocol";
 import { ActionBar } from "../components/ActionBar";
 import { ChainPanel } from "../components/ChainPanel";
 import { ConnectionPanel } from "../components/ConnectionPanel";
@@ -177,6 +178,21 @@ export function AppView({
     clearV2Session(preferenceStorage);
     v2Match.leaveRoom();
     setActiveTab("room");
+  };
+  const rememberV2PlayerName = (name: string): void => {
+    const normalized = name.trim();
+    if (!normalized) return;
+    setProfile(current => current.name === normalized ? current : { ...current, name: normalized });
+  };
+  const createV2Room = async (name: string): Promise<RoomView> => {
+    const nextRoom = await v2Match.createRoom(name);
+    rememberV2PlayerName(name);
+    return nextRoom;
+  };
+  const joinV2Room = async (roomIdValue: string, name: string): Promise<RoomView> => {
+    const nextRoom = await v2Match.joinRoom(roomIdValue, name);
+    rememberV2PlayerName(name);
+    return nextRoom;
   };
 
   return (
@@ -412,8 +428,8 @@ export function AppView({
               serverUrl={v2Match.reconnectUrl || v2ServerUrl || catalogServerUrl}
               onServerUrlChange={setV2ServerUrl}
               onConnect={v2Match.connect}
-              onCreateRoom={name => v2Match.createRoom(name)}
-              onJoinRoom={(roomIdValue, name) => v2Match.joinRoom(roomIdValue, name)}
+              onCreateRoom={createV2Room}
+              onJoinRoom={joinV2Room}
               onSubmitDeck={v2Match.submitDeck}
               onSetReady={v2Match.setReady}
               onLeaveRoom={leaveV2Room}
@@ -474,8 +490,8 @@ export function AppView({
             serverUrl={v2Match.reconnectUrl || v2ServerUrl || catalogServerUrl}
             onServerUrlChange={setV2ServerUrl}
             onConnect={v2Match.connect}
-            onCreateRoom={name => v2Match.createRoom(name)}
-            onJoinRoom={(roomIdValue, name) => v2Match.joinRoom(roomIdValue, name)}
+            onCreateRoom={createV2Room}
+            onJoinRoom={joinV2Room}
             onSubmitDeck={v2Match.submitDeck}
             onSetReady={v2Match.setReady}
             onLeaveRoom={leaveV2Room}

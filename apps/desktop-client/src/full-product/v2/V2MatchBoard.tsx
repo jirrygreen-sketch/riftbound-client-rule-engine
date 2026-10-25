@@ -53,6 +53,8 @@ export interface V2MatchBoardProps {
   readonly initialSelectedCardId?: string | null;
   /** Test/static-render seam for allocation input; still validated against the projection. */
   readonly initialCombatDamageDrafts?: Readonly<Record<string, string>>;
+  /** Test/static-render seam for an open concede confirmation. */
+  readonly initialConcedeConfirmationOpen?: boolean;
   readonly onCommand: (request: V2CommandRequest) => Promise<V2CommandReceipt>;
 }
 
@@ -194,6 +196,7 @@ export function V2MatchBoard({
   onLeaveRoom,
   initialSelectedCardId = null,
   initialCombatDamageDrafts = {},
+  initialConcedeConfirmationOpen = false,
   onCommand
 }: V2MatchBoardProps) {
   const projection = state.projection;
@@ -216,6 +219,7 @@ export function V2MatchBoard({
   const [selectedDestination, setSelectedDestination] = useState<string>("");
   const [selectedPlayDestination, setSelectedPlayDestination] = useState<string>("");
   const [combatDamageDrafts, setCombatDamageDrafts] = useState<Readonly<Record<string, string>>>(initialCombatDamageDrafts);
+  const [concedeConfirmationOpen, setConcedeConfirmationOpen] = useState(initialConcedeConfirmationOpen);
   const [commandError, setCommandError] = useState<string | null>(null);
   const sceneKey = projection === null ? "none" : `${projection.matchId}:${projection.stateVersion}`;
   const busy = pendingCommandIds.length > 0;
@@ -232,6 +236,7 @@ export function V2MatchBoard({
     setSelectedDestination("");
     setSelectedPlayDestination("");
     setCombatDamageDrafts({});
+    setConcedeConfirmationOpen(false);
     setCommandError(null);
   }, [sceneKey]);
 
@@ -600,7 +605,18 @@ export function V2MatchBoard({
       {!setup ? <section className="v2-action-row" aria-label="对局操作">
         <button type="button" disabled={setup || !canPass} onClick={() => submit(buildV2PassCommand())}>Pass</button>
         <button type="button" disabled={setup || !canEndTurn} onClick={() => submit(buildV2EndTurnCommand())}>结束回合</button>
-        {projection.winnerPlayerId === null ? <button type="button" disabled={setup || !canAct} onClick={() => submit({ type: "concede" })}>认输</button> : <strong>胜者：{projection.players.find(player => player.playerId === projection.winnerPlayerId)?.name ?? projection.winnerPlayerId}</strong>}
+        {matchEnded ? null : concedeConfirmationOpen ? (
+          <span role="group" aria-label="认输确认">
+            <span>确认认输？</span>
+            <button type="button" disabled={!canAct} onClick={() => {
+              setConcedeConfirmationOpen(false);
+              submit({ type: "concede" });
+            }}>确认认输</button>
+            <button type="button" onClick={() => setConcedeConfirmationOpen(false)}>取消</button>
+          </span>
+        ) : (
+          <button type="button" disabled={setup || !canAct} onClick={() => setConcedeConfirmationOpen(true)}>认输</button>
+        )}
         {busy ? <span role="status">等待命令确认…</span> : null}
       </section> : null}
       {!setup ? <ChoicePanel choice={state.choice} selectedIds={selectedChoiceIds} numberAnswer={numberAnswer} optionalAnswer={optionalChoiceAnswer} disabled={!canAct}
