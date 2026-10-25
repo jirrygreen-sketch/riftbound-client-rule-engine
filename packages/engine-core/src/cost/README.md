@@ -53,6 +53,13 @@ choices and each can be paid once. Accelerate defaults to `[1][C]`; multiple
 Accelerate entries are rejected as redundant. Chosen optional costs remain marked
 paid in the receipt even when reduced to zero (356.4.f.1).
 
+When a target-aware Base Cost descriptor supplies only Energy, exact printed
+Power must come from the selected card's numeric program or trusted catalog.
+If the selected program has no Play cost and the trusted catalog explicitly says
+`power: null`, the effect-play owner may preserve zero Power. The cost layer
+does not derive an amount from the runtime Domain
+list; a nonempty Domain list or missing catalog row remains `judge-required`.
+
 `buildHiddenCostPlan` provides only the costs specified in 811.1.b: hiding costs
 `[A]`; playing from Hidden ignores base Energy and Power, retaining later fees.
 The caller must already have verified the Hide/play permission. This helper does
