@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   M1_STATS_GAMES,
@@ -7,6 +10,7 @@ import {
   commandTimings,
   durationDistribution,
   m1StatsCases,
+  parsePersistedHeadlessJournal,
   runIsolatedM1Game,
   runM1StatsCases,
   summarizeM1Games,
@@ -67,6 +71,62 @@ function game(testCase: M1StatsCase, outcome: M1GameStats["outcome"]): M1GameSta
 }
 
 describe("RIFT-990 M1 hundred-game statistics", () => {
+  it("RIFT-1039: a persisted journal keeps its Maps, including legacy empty counter Maps", async () => {
+    const { stringifyPersistedReplayJson } = await import(
+      new URL("../../../replay-core/src/canonical-json.ts", import.meta.url).href) as
+      typeof import("../../../replay-core/src/canonical-json.ts");
+    const object = { ref: { id: "u1", zoneEntryId: 1 }, counters: new Map<string, number>() };
+    const charged = { ref: { id: "u2", zoneEntryId: 1 }, counters: new Map([["buff", 2]]) };
+    const journal = { seed: "s", events: [{ object }, { object: charged }] } as unknown as HeadlessJournal;
+    const persisted = stringifyPersistedReplayJson(journal);
+    const restored = parsePersistedHeadlessJournal(persisted) as unknown as typeof journal & {
+      events: { object: { counters: Map<string, number> } }[] };
+    expect(restored.events[0]!.object.counters).toBeInstanceOf(Map);
+    expect(restored.events[0]!.object.counters.size).toBe(0);
+    expect([...restored.events[1]!.object.counters]).toEqual([["buff", 2]]);
+    // A legacy archive written with plain JSON.stringify lost the empty Map as {}.
+    const legacy = parsePersistedHeadlessJournal(JSON.stringify(journal)) as unknown as typeof restored;
+    expect(legacy.events[0]!.object.counters).toBeInstanceOf(Map);
+    expect(legacy.events[0]!.object.counters.size).toBe(0);
+  });
+
+  it("RIFT-1039: the isolated-game writer persists Maps through its disk read path", async () => {
+    const testCase = m1StatsCases(1)[0]!;
+    const directory = await mkdtemp(join(tmpdir(), "rift-1039-write-roundtrip-"));
+    const workerUrl = new URL("data:text/javascript," + encodeURIComponent(`
+      import { parentPort } from "node:worker_threads";
+      parentPort.postMessage({
+        ok: true,
+        replayMatches: true,
+        stats: ${JSON.stringify(stats({ seed: testCase.seed, decks: testCase.decks }))},
+        journal: {
+          seed: ${JSON.stringify(testCase.seed)},
+          decks: ${JSON.stringify(testCase.decks)},
+          mulligans: [[], []],
+          commands: [],
+          events: [{ object: { counters: new Map([["ready", 2]]) } }],
+          final: {}
+        }
+      });
+    `));
+    try {
+      const result = await runIsolatedM1Game(testCase, {
+        wallTimeoutMs: 5_000, maxTurns: 1, maxCommands: 1, journalDirectory: directory, workerUrl,
+      });
+      expect(result.journalPath).not.toBeNull();
+      const serialized = await readFile(result.journalPath!, "utf8");
+      expect(serialized).toContain('"map":[["ready",2]]');
+      const restored = parsePersistedHeadlessJournal(serialized);
+      const counters = (restored.events[0] as unknown as {
+        readonly object: { readonly counters: Map<string, number> };
+      }).object.counters;
+      expect(counters).toBeInstanceOf(Map);
+      expect([...counters]).toEqual([["ready", 2]]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("pins the 100-seed plan to 50 games per seat orientation", () => {
     const cases = m1StatsCases();
     expect(cases).toHaveLength(M1_STATS_GAMES);

@@ -17,7 +17,7 @@ import { literal, record } from '../programs/static-adapters/model.js';
 import { locationPermissionMatches, playPermissionAllows } from '../programs/play-permissions.js';
 import { EventPipeline } from '../events/pipeline.js';
 import { evaluateAcceleratePayment } from '../effects/keywords/Accelerate.js';
-import { triggerEventObjectBinding, type PipelineHost, type ReplacementCostEvidence, type TimingEmission, type TriggerSnapshot } from '../events/pipeline-types.js';
+import { triggerEventObjectBinding, type PipelineHost, type ReplacementCostEvidence, type TimingEmission, type TriggerRegistration, type TriggerSnapshot } from '../events/pipeline-types.js';
 import type { TimingPointId } from '../events/timing-points.js';
 import { bindResolveContext } from '../events/action-adapter.js';
 import { deriveMightChangedEmissions } from '../events/producers/might-change.js';
@@ -387,6 +387,79 @@ function isWeaponmasterResolveShape(item: ChainItem): boolean {
     body.value.some(candidate => candidate.id === 'weaponmaster-attach' && candidate.op === 'effect.attach');
 }
 
+/**
+ * Recognise the authored form `effect.exhaust source -> linked effect.channel`.
+ * Its exact argument/payment shape is required so this adapter cannot silently
+ * reinterpret an unrelated trigger or a different exhaust effect.
+ */
+function leadingSourceExhaustShape(body: readonly Instruction[]): string | undefined {
+  const [first, second] = body;
+  if (first?.op !== 'effect.exhaust' || first.condition !== undefined || first.targets !== undefined ||
+      first.picks !== undefined || first.locations !== undefined || first.linkedTo !== undefined) return undefined;
+  const args = first.args as Readonly<Record<string, { readonly kind?: unknown; readonly value?: unknown }>>;
+  if (Object.keys(args).length !== 1 || args.target?.kind !== 'constant' || args.target.value !== 'source' ||
+      second?.op !== 'effect.channel' || second.linkedTo !== first.id) return undefined;
+  const channel = second.args as Readonly<Record<string, { readonly kind?: unknown; readonly value?: unknown }>>;
+  if (channel.amount?.kind !== 'constant' || channel.amount.value !== 1 ||
+      channel.exhausted?.kind !== 'constant' || channel.exhausted.value !== true) return undefined;
+  return first.id;
+}
+
+/**
+ * CR 383.3.a/383.3.a.2 decides the leading may at Finalize. CR 383.3.b/
+ * 383.3.b.1 then makes the immediately following "exhaust me" its base cost.
+ * Move that authored instruction into the Chain item's cost and remove the
+ * paid `linkedTo` gate before Resolve; a failed Finalize cannot reach Resolve.
+ * Keep the raw registration unchanged so program registration remains a pure
+ * compile/bind view until an actual Chain item needs Finalize semantics.
+ */
+function chainTriggerDraft(registration: TriggerRegistration): ChainDraft {
+  const base: ChainDraft = {
+    id: '', controller: registration.controller, source: registration.source,
+    kind: 'triggered', body: registration.body, cost: registration.cost,
+    targets: registration.targets, mayAtFinalize: registration.mayAtFinalize,
+  };
+  if (registration.optional !== true || registration.mayAtFinalize === true) return base;
+  const paidId = leadingSourceExhaustShape(registration.body);
+  if (paidId === undefined) return base;
+  return {
+    ...base,
+    mayAtFinalize: true,
+    cost: {
+      id: 'cost:leading-source-exhaust',
+      cost: { kind: 'activated', payments: [{ kind: 'exhaust', object: 'self' }] },
+    },
+    body: registration.body.slice(1).map(instruction => instruction.linkedTo === paidId
+      ? Object.fromEntries(Object.entries(instruction).filter(([key]) => key !== 'linkedTo')) as unknown as Instruction
+      : instruction),
+  };
+}
+
+function paysLeadingSourceExhaustDuringFinalize(item: ChainItem): boolean {
+  return item.kind === 'triggered' && item.trigger !== undefined && item.cost?.id === 'cost:leading-source-exhaust' &&
+    item.source.zone === 'legend' && item.body.length > 0 &&
+    item.trigger.registration.body.some(instruction => instruction.op === 'effect.exhaust');
+}
+
+/**
+ * CR 107 includes the Legend Zone in the Board. The generic cost evaluator's
+ * exhaust check predates that zone spelling and accepts only `board` and
+ * `rune-zone`; expose the exact Legend source as Board only inside this
+ * Finalize payment read. The submitted action and state owner still receive the
+ * exact authoritative Legend ref and mutate the real host object.
+ */
+function boardViewForLegendExhaustCost(context: ResolveContext, source: ObjectSnapshot): ResolveContext {
+  return bindResolveContext(context, {
+    object: ref => {
+      const object = context.object(ref);
+      return object !== null && object.ref.id === source.ref.id &&
+        object.ref.zoneEntryId === source.ref.zoneEntryId && object.zone === 'legend'
+        ? { ...object, zone: 'board' }
+        : object;
+    },
+  });
+}
+
 /** RIFT-999 debug: report the first field where a cached layered view differs from a fresh pass. */
 function assertSameLayerView(kind: string, memo: readonly ObjectSnapshot[], fresh: readonly ObjectSnapshot[]): void {
   const index = (view: readonly ObjectSnapshot[]) => new Map(view.map(object => [`${object.ref.id}:${object.ref.zoneEntryId}`, object]));
@@ -443,6 +516,8 @@ export class ChainEngine {
   private readonly chainHost: PipelineHost;
   readonly layers: LayerEngine;
   private entries: ChainItem[] = [];
+  /** A nested Play remains Pending while its parent Resolve is in progress (CR 354.3). */
+  private parentResolveDepth = 0;
   private issued = new Set<string>();
   private traces: ChainTrace[] = [];
   private outstanding: string[] = [];
@@ -489,7 +564,7 @@ export class ChainEngine {
       objects: () => this.layerObjects(),
       context: (source, controller, at) => this.hostObjectContext(source, controller, at),
       finalizedCardPlaysThisTurn: () => this.finalizedPlaysThisTurn,
-      execute: action => this.executeStateAction(action),
+      execute: action => this.executeHostAction(action),
       ...(options.host.executeContract === undefined ? {} : {
         executeContract: (action: Parameters<NonNullable<PipelineHost['executeContract']>>[0]) =>
           hostWrite(() => options.host.executeContract!(action)),
@@ -498,19 +573,31 @@ export class ChainEngine {
       // applied when the boundary callback runs) and after its boundary.
       ...(options.host.deathBoundary === undefined ? {} : (() => {
         const boundary = options.host.deathBoundary;
-        type Callback = Parameters<typeof boundary.execute>[1];
-        const counted = (callback: Callback): Callback => context => hostWrite(() => callback(context));
         return { deathBoundary: {
           version: boundary.version,
-          execute: (action: Parameters<typeof boundary.execute>[0], callback: Callback) =>
-            hostWrite(() => boundary.execute(action, counted(callback))),
-          executeContract: (action: Parameters<typeof boundary.executeContract>[0], callback: Callback) =>
-            hostWrite(() => boundary.executeContract(action, counted(callback))),
+          execute: (action: Parameters<typeof boundary.execute>[0], callback: Parameters<typeof boundary.execute>[1]) =>
+            this.executeDeathBoundary(boundary.execute.bind(boundary), action, callback),
+          executeContract: (action: Parameters<typeof boundary.executeContract>[0], callback: Parameters<typeof boundary.executeContract>[1]) =>
+            this.executeDeathBoundary(boundary.executeContract.bind(boundary), action, callback),
         } };
       })()),
     };
     this.chainHost = chainHost;
     this.pipeline = new EventPipeline(this.chainHost, options.turnOrder, options.turnPlayer);
+    const scanChoose = this.pipeline.host.choose;
+    this.pipeline.host.choose = <T>(request: import('../effects/contract.js').ChoiceRequest<T>): T => {
+      if (request.type === 'optional' && request.id.startsWith('trigger:') && request.id.endsWith(':optional')) {
+        const eventId = request.id.split(':')[1];
+        const occurrence = request.id.split(':').at(-2);
+        const owned = this.pipeline.registeredTriggers().some(candidate =>
+          request.id === `trigger:${eventId}:${candidate.id}:${occurrence}:optional` &&
+          leadingSourceExhaustShape(candidate.body) !== undefined);
+        // CR 383.3.a: admit the verified shape to Pending. Its single optional
+        // choice is performed during Finalize by acceptAtFinalize below.
+        if (owned) return true as T;
+      }
+      return scanChoose(request);
+    };
     this.pipeline.routeAction = action => {
       if (action.type === 'play') {
         const source = options.host.objects().find(object => object.ref.id === action.object.id && object.ref.zoneEntryId === action.object.zoneEntryId);
@@ -541,7 +628,15 @@ export class ChainEngine {
       }
       return undefined;
     };
-    this.pipeline.onTrigger = trigger => this.append({ id: `trigger:${++this.triggerSequence}`, controller: trigger.controller, source: trigger.source, kind: 'triggered', body: trigger.registration.body, cost: trigger.registration.cost, targets: trigger.registration.targets, mayAtFinalize: trigger.registration.mayAtFinalize, trigger });
+    this.pipeline.onTrigger = trigger => {
+      this.append({
+        ...chainTriggerDraft(trigger.registration),
+        id: `trigger:${++this.triggerSequence}`,
+        controller: trigger.controller,
+        source: trigger.source,
+        trigger,
+      });
+    };
     this.pipeline.onEvent = event => {
       if (event.timingPoint === 'turn-start') this.finalizedPlaysThisTurn = [];
       this.observeCombatRoleEvent(event);
@@ -734,7 +829,128 @@ export class ChainEngine {
     hostWriteEpoch++;
     const after = new Map(this.layerObjects().map(object => [key(object), object]));
     const snapshot = (object: ObjectSnapshot | undefined, previous = false) => object ? (previous ? before.get(key(object)) : after.get(key(object))) ?? before.get(key(object)) ?? object : undefined;
-    return { ...execution, emissions: execution.emissions.map(event => ({ ...event, object: snapshot(event.object, event.timingPoint.startsWith('object-leaves-') || event.timingPoint === 'object-killed'), source: snapshot(event.source, true), target: snapshot(event.target) })) };
+    return { ...execution, emissions: execution.emissions.map(event => {
+      const leaving = event.timingPoint.startsWith('object-leaves-') || event.timingPoint === 'object-killed';
+      return {
+        ...event,
+        object: snapshot(event.object, leaving),
+        ...(event.it === undefined ? {} : { it: snapshot(event.it, leaving) }),
+        source: snapshot(event.source, true),
+        target: snapshot(event.target),
+      };
+    }) };
+  }
+  /**
+   * The adapter's confirmed-Kill callback runs after replacements but before
+   * Trash. Freeze the complete layered Board view at that exact boundary and
+   * use it only for death and leave timings (CR 383.2.c.3.b, 429.1.a.1.b,
+   * 708, 710, 808.1.d.3). Ordinary action emissions keep their existing path.
+   */
+  private executeDeathBoundary<
+    Action,
+    Callback extends (context: import('../events/pipeline-types.js').PipelineDeathBoundaryContext) => void,
+    Execution extends { readonly emissions: readonly TimingEmission[] },
+  >(
+    invoke: (action: Action, callback: Callback) => Execution,
+    action: Action,
+    callback: Callback,
+  ): Execution {
+    const key = (object: ObjectSnapshot) => JSON.stringify(object.ref);
+    let confirmed: Map<string, ObjectSnapshot> | undefined;
+    const layeredCallback = ((context: import('../events/pipeline-types.js').PipelineDeathBoundaryContext) => {
+      if (confirmed !== undefined) throw new Error('Death boundary invoked more than once');
+      confirmed = new Map(this.layerObjects().map(object => [key(object), object]));
+      const before = context.before.map(object => confirmed!.get(key(object)) ?? object);
+      const emissions = context.emissions.map(event => this.withDeathLkiSnapshot(event, confirmed!, confirmed!));
+      hostWrite(() => callback({ ...context, before, emissions }));
+    }) as Callback;
+    const execution = hostWrite(() => invoke(action, layeredCallback));
+    if (confirmed === undefined) return execution;
+    const after = new Map(this.layerObjects().map(object => [key(object), object]));
+    return {
+      ...execution,
+      emissions: execution.emissions.map(event => this.withDeathLkiSnapshot(event, confirmed!, after)),
+    };
+  }
+  private withDeathLkiSnapshot(
+    event: TimingEmission,
+    before: ReadonlyMap<string, ObjectSnapshot>,
+    after: ReadonlyMap<string, ObjectSnapshot>,
+  ): TimingEmission {
+    const key = (object: ObjectSnapshot) => JSON.stringify(object.ref);
+    const previous = (object: ObjectSnapshot | undefined) => object === undefined
+      ? undefined : before.get(key(object)) ?? object;
+    const current = (object: ObjectSnapshot | undefined) => object === undefined
+      ? undefined : after.get(key(object)) ?? before.get(key(object)) ?? object;
+    const deathObject = event.timingPoint.startsWith('object-leaves-') || event.timingPoint === 'object-killed';
+    return {
+      ...event,
+      ...(event.object === undefined ? {} : {
+        object: deathObject ? previous(event.object) : event.object,
+      }),
+      ...(event.source === undefined ? {} : { source: previous(event.source) }),
+      ...(event.target === undefined ? {} : { target: current(event.target) }),
+      ...(deathObject && (event.it ?? event.object) !== undefined
+        ? { it: previous(event.it ?? event.object) }
+        : {}),
+    };
+  }
+  /**
+   * Preserve a token Play as a Pending Chain item when lifecycle falls back to
+   * the host because the token has no registered CardProgram. The source
+   * identity is already the Chain incarnation returned by create-token.
+   */
+  private executeHostAction(action: GameAction) {
+    if (action.type === 'play' && this.parentResolveDepth > 0 && this.isProgramlessTokenPlay(action)) {
+      const id = `play:${action.object.id}:${action.object.zoneEntryId}:${action.player}`;
+      const source = this.options.host.objects().find(object => object.ref.id === action.object.id &&
+        object.ref.zoneEntryId === action.object.zoneEntryId)!;
+      // Its zero cost is rule-level (185.3.a.1). Retain the primitive's Chain
+      // incarnation and continue through the ordinary Finalize/Resolve path.
+      if (this.entries.some(item => item.id === id)) {
+        return { outcome: { status: 'impossible' as const, events: [] }, emissions: [] };
+      }
+      this.appendCard(this.programlessTokenDraft(action, source, id));
+      return { outcome: { status: 'done' as const, events: [] }, emissions: [] };
+    }
+    return this.executeStateAction(action);
+  }
+  /** The host fallback is scoped to tokens without any registered program. */
+  private isProgramlessTokenPlay(action: Extract<GameAction, { type: 'play' }>): boolean {
+    const source = this.options.host.objects().find(object => object.ref.id === action.object.id &&
+      object.ref.zoneEntryId === action.object.zoneEntryId);
+    if (source?.isToken !== true || source.zone !== 'chain') return false;
+    // Without a program registry the unstable cardId cannot prove that the
+    // token is programless; preserve the previous legacy host behavior.
+    if (this.options.describePlay === undefined) return false;
+    try { this.options.describePlay(action, source); }
+    catch (error) {
+      const code = error !== null && typeof error === 'object' && 'code' in error ? error.code : undefined;
+      if (code === 'unknown-program') return true;
+      throw error;
+    }
+    return false;
+  }
+  private programlessTokenDraft(action: Extract<GameAction, { type: 'play' }>, source: ObjectSnapshot, id: string): ChainDraft {
+    const types = source.types.map(type => type.toLowerCase());
+    const kind = (['spell', 'unit', 'gear'] as const).find(type => types.includes(type));
+    if (kind === undefined) throw new Error('Played token has no supported card type');
+    return {
+      id,
+      controller: action.player,
+      source,
+      kind,
+      body: [],
+      cost: {
+        id: `cost:${id}`,
+        cost: {
+          energy: { kind: 'constant', value: 0 },
+          power: { kind: 'constant', value: [] },
+          payments: [],
+        },
+      },
+      ...(action.location === undefined ? {} : { location: action.location }),
+    };
   }
 
   /** Compare effective snapshots in the same transaction after all instruction effects commit. */
@@ -1022,11 +1238,7 @@ export class ChainEngine {
         item.body.some(instruction => this.options.finalizeExtensions?.some(extension => extension.op === instruction.op));
       assertFinalizationSurface(item.body, controlPlanRequired);
       let context = this.context(item);
-      if (item.mayAtFinalize) {
-        const accepted = context.choose<boolean>({ id: `finalize:${item.id}:optional`, chooser: item.controller, visibility: 'public', type: 'optional' });
-        if (typeof accepted !== 'boolean') throw new TypeError('Finalize decision must be boolean');
-        if (!accepted) { this.remove(item, 'declined'); this.busy = 'idle'; return; }
-      }
+      if (item.mayAtFinalize && !this.acceptAtFinalize(item, context)) return;
       if (item.trigger?.frequencyKey && !this.pipeline.consume(item.trigger)) { this.remove(item, 'frequency-exhausted'); this.busy = 'idle'; return; }
       if ([...(item.requirements ?? []), ...(item.restrictions ?? [])].some(condition => !context.test(condition))) throw new Error('Finalize legality failed');
       if (!this.playDestinationIsLegal(item)) throw new Error('Play destination is not legally allowed');
@@ -1034,7 +1246,9 @@ export class ChainEngine {
       const targetTaxes: CostComponentInput[] = [];
       const answerPrefix = this.finalizeAnswerPrefix(item);
       try {
-        const baseInput = item.costInput ?? item.cost ?? (['unit', 'gear', 'spell'].includes(item.kind) ? { id: `cost:${item.id}`, cost: { kind: 'printed' } } : undefined);
+        const legendExhaustCost = paysLeadingSourceExhaustDuringFinalize(item);
+        const baseInput = item.costInput ?? item.cost ??
+          (['unit', 'gear', 'spell'].includes(item.kind) ? { id: `cost:${item.id}`, cost: { kind: 'printed' } } : undefined);
         if (controlPlanRequired) {
           const rememberModes = hasChoiceMemory(item.body);
           const abilityId = item.trigger?.registration.id ?? `${item.kind}:${item.body.map(instruction => instruction.id).join('/')}`;
@@ -1238,7 +1452,10 @@ export class ChainEngine {
           // Leaving-source abilities retain LKI for the effect, but a leading
           // "recycle me" cost acts on the card now in Trash (CR 383.3.b).
           const currentSource = item.kind === 'triggered' ? this.options.host.objects().find(object => object.ref.id === item.source.ref.id) : undefined;
-          const paymentContext = currentSource ? bindResolveContext(context, { source: currentSource }) : context;
+          const incumbentContext = currentSource ? bindResolveContext(context, { source: currentSource }) : context;
+          const paymentContext = legendExhaustCost
+            ? boardViewForLegendExhaustCost(incumbentContext, currentSource ?? context.source)
+            : incumbentContext;
           const rawInput = baseInput ?? { id: `cost:${item.id}`, cost: { energy: { kind: 'constant' as const, value: 0 } } };
           const finalized = finalizeCostPlanInput(paymentContext, rawInput, item.costInput?.costChoices);
           const mandatoryAdditional = [...(finalized.input.mandatoryAdditional ?? []), ...targetTaxes.filter(tax => tax.id !== '' && !('stage' in tax))];
@@ -1281,6 +1498,28 @@ export class ChainEngine {
         details: { item: item.id, ...(['unit', 'gear', 'spell'].includes(item.kind) ? { cardFinalize: true } : {}) } });
       this.requestCleanup('item-finalized'); this.busy = 'idle';
     });
+  }
+  private acceptAtFinalize(item: ChainItem, context: ResolveContext): boolean {
+    const requestId = `finalize:${item.id}:optional`;
+    const registration = item.trigger?.registration;
+    const stableId = /^program:/.test(registration?.id ?? '') &&
+      leadingSourceExhaustShape(registration?.body ?? []) !== undefined
+      ? `trigger:${item.trigger!.event.eventId}:${registration!.id}:${item.trigger!.occurrence ?? 0}:optional`
+      : requestId;
+    const answerKey = `${this.finalizeAnswerPrefix(item)}\u0000${stableId}`;
+    const locked = this.finalizeAnswers.get(answerKey);
+    if (typeof locked === 'boolean') {
+      if (locked) return true;
+      this.remove(item, 'declined'); this.busy = 'idle';
+      return false;
+    }
+    const finalizeAccepted = context.choose<boolean>({
+      id: stableId, chooser: item.controller, visibility: 'public', type: 'optional',
+    });
+    if (typeof finalizeAccepted !== 'boolean') throw new TypeError('Finalize decision must be boolean');
+    if (finalizeAccepted) return true;
+    this.remove(item, 'declined'); this.busy = 'idle';
+    return false;
   }
   private emitBecameTarget(item: ChainDraft, context: ResolveContext, target: ObjectRef): void {
     const object = context.object(target);
@@ -1688,6 +1927,11 @@ export class ChainEngine {
   }
   advance(): void {
     if (this.busy !== 'idle') throw new Error('HOT FEPR is not reentrant');
+    // A Game Effect may Play a card/token during its own Resolve. CR 354.3
+    // requires the parent Resolve to finish before the nested item continues
+    // through Playing steps 2-5. The nested item is already Pending; it must
+    // never be finalized or resolved reentrantly by this outer advance pass.
+    if (this.parentResolveDepth > 0) return;
     while (true) {
       this.atomic(() => this.handleOutstanding());
       const pending = this.entries.find(item => item.status === 'pending');
@@ -1757,6 +2001,7 @@ export class ChainEngine {
       const beforeMight = this.layerObjects();
       let result: ExecutionOutcome;
       try {
+        this.parentResolveDepth++;
         if (isWeaponmasterResolveShape(item)) {
           bindWeaponmasterNoEquipPolicy(context.contractActions);
         }
@@ -1767,6 +2012,8 @@ export class ChainEngine {
         // inner transaction rolled back resources/events. The Chain item
         // completes without a payment receipt, so linkedTo never attaches.
         result = { status: 'executed', results: [], linkedValues: {}, events: [] };
+      } finally {
+        this.parentResolveDepth--;
       }
       this.publishMightChanges(beforeMight, item.source, `resolve:${item.id}`);
       if (item.kind === 'spell' || item.kind === 'unit' || item.kind === 'gear') {
