@@ -556,7 +556,12 @@ export function V2MatchBoard({
               {target.name ?? target.cardId ?? target.objectId}
               <input aria-label={`${target.name ?? target.cardId ?? target.objectId} 伤害`} type="number" min="0" step="1"
                 value={combatDamageDrafts[target.objectId] ?? ""}
-                onChange={event => setCombatDamageDrafts(current => ({ ...current, [target.objectId]: event.currentTarget.value }))} />
+                onChange={event => {
+                  // Read the value now: React clears currentTarget before it runs
+                  // the updater, which crashed the board on the first keystroke.
+                  const amount = event.currentTarget.value;
+                  setCombatDamageDrafts(current => ({ ...current, [target.objectId]: amount }));
+                }} />
             </label>)}</div>}
           <button type="button" className="v2-primary-action" disabled={!canSubmitCombatDamage} onClick={() => {
             if (combatDamageCommand === null) return;
