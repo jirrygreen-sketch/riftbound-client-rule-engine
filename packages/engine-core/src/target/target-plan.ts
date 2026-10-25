@@ -158,6 +158,7 @@ export class TargetSelectionError extends Error {
 }
 
 const DEFAULT_SELECTION: TargetSelectionMode = "one";
+const BOARD_DEFAULT_TYPES = new Set(["unit", "gear"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -267,6 +268,24 @@ function matchesCandidateFilter(
   });
 }
 
+/**
+ * CR v1.5 133.3.a and 355.9.a.1: a Unit or Gear means the Board object of that
+ * type unless the card text says otherwise. Runes remain in the host's Rune
+ * Zone rather than the generic board slice, so they keep their existing model.
+ * TargetSpec.filter.zone is the explicit-zone surface; only an omitted zone is
+ * scoped here.
+ */
+function targetFilterUsesBoardByDefault(filter: ObjectFilter): ObjectFilter {
+  if (Object.hasOwn(filter, "zone")) return filter;
+  const types = filter.type ?? filter.types;
+  if (types === undefined) return filter;
+  const values = Array.isArray(types) ? types : [types];
+  if (values.length === 0 || !values.every(type => typeof type === "string" && BOARD_DEFAULT_TYPES.has(type))) {
+    return filter;
+  }
+  return Object.freeze({ ...filter, zone: "board" });
+}
+
 function refKey(ref: ObjectRef): string {
   return `${ref.id}\u0000${ref.zoneEntryId}`;
 }
@@ -340,10 +359,11 @@ function matchesRequirement(
   snapshot: ObjectSnapshot,
   requirement: TargetRequirement,
   phase: TargetPlanPhase,
-  objects: readonly ObjectSnapshot[]
+  objects: readonly ObjectSnapshot[],
+  filter: ObjectFilter
 ): boolean {
-  if (!matchesCandidateFilter(context, snapshot, requirement.filter, objects)) return false;
-  if (phase === "finalize" && !matchesTargetRelations(context, snapshot, requirement.filter)) return false;
+  if (!matchesCandidateFilter(context, snapshot, filter, objects)) return false;
+  if (phase === "finalize" && !matchesTargetRelations(context, snapshot, filter)) return false;
   if (requirement.location === undefined) return true;
   const location = requirement.location;
   if (location === null) return snapshot.location === null;
@@ -382,6 +402,7 @@ function enumerateLegalCandidates(
   const refs: ObjectRef[] = [];
   const seen = new Set<string>();
   const pending = options.isPending ?? defaultPending;
+  const filter = targetFilterUsesBoardByDefault(requirement.filter);
   // The host query is the visible-object source. TargetPlan performs the full
   // selector check below because different hosts implement only partial filter
   // vocabularies; passing relation or sparse selectors through them can either
@@ -397,7 +418,7 @@ function enumerateLegalCandidates(
     if (current === null ||
       (typeof controller === "string" && !isRelativePlayer(controller, context, current, "controller")) ||
       (typeof owner === "string" && !isRelativePlayer(owner, context, current, "owner")) ||
-      !matchesRequirement(context, current, requirement, phase, objects)) continue;
+      !matchesRequirement(context, current, requirement, phase, objects, filter)) continue;
     if (pending(ref, current, phase)) continue;
     if (options.isLegal && !options.isLegal(current, phase)) continue;
     if (options.ruleRegistry !== undefined && (
