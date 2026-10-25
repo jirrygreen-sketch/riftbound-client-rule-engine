@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { MatchCard, MatchDeck } from "../../../engine-core/dist/game/lifecycle.js";
+import type { ProgramPrintedCatalogCard } from "../../../engine-core/dist/programs/index.js";
 
 export type M1PreconId = "rumble-sfd" | "fiora-sfd" | "vex-unl" | "vi-unl";
 export type HeadlessSeat = "A" | "B";
@@ -38,6 +39,7 @@ interface M1Candidate {
 }
 
 interface CatalogCard {
+  readonly id: string;
   readonly canonicalCardId: string;
   readonly name: string;
   readonly cardType: string;
@@ -62,6 +64,50 @@ const catalog = readJson<{ readonly cards: readonly CatalogCard[] }>(
   "../../../../packages/card-data/data/deck-catalog.json",
 );
 const catalogByCanonical = new Map(catalog.cards.map(card => [card.canonicalCardId, card]));
+
+/**
+ * Project the trusted deck catalog for effect Play. A canonical identity may
+ * have cosmetic reprints, but divergence in a printed characteristic cannot be
+ * resolved by printing order; omit that identity so the engine fails closed.
+ * This deliberately mirrors the server room catalog policy.
+ */
+export function trustedPrintedCatalog(): readonly ProgramPrintedCatalogCard[] {
+  const projections = new Map<string, ProgramPrintedCatalogCard>();
+  const conflictingCanonicalIds = new Set<string>();
+  for (const card of catalog.cards) {
+    const projection: ProgramPrintedCatalogCard = {
+      id: card.id,
+      canonicalCardId: card.canonicalCardId,
+      cardType: card.cardType,
+      domains: [...card.domains],
+      energy: card.energy,
+      power: card.power,
+    };
+    const signature = JSON.stringify([
+      projection.cardType,
+      projection.domains,
+      projection.energy,
+      projection.power,
+    ]);
+    const existing = projections.get(projection.canonicalCardId);
+    if (existing === undefined) {
+      projections.set(projection.canonicalCardId, projection);
+      continue;
+    }
+    const existingSignature = JSON.stringify([
+      existing.cardType,
+      existing.domains,
+      existing.energy,
+      existing.power,
+    ]);
+    if (existingSignature !== signature) {
+      projections.delete(projection.canonicalCardId);
+      conflictingCanonicalIds.add(projection.canonicalCardId);
+    }
+  }
+  for (const canonicalCardId of conflictingCanonicalIds) projections.delete(canonicalCardId);
+  return Object.freeze([...projections.values()]);
+}
 
 function candidate(id: M1PreconId): M1Candidate {
   const found = m1.candidates.find(value => value.id === id);
