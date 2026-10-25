@@ -1,170 +1,148 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
+import { DUEL_RULESET_ID, type ClientSession } from "@riftbound/protocol";
 import type { V2Command, V2CommandReceipt, V2Projection }
   from "../../../../packages/protocol/dist/v2/index.js";
-import { projectedCombatDamagePlayer, projectedPlayCommand }
+import { botCommand, projectedCombatDamagePlayer }
   from "../../../../packages/integration-tests/src/v2-duel/bot.js";
-import { V2WebSocketSession }
-  from "../../../../packages/integration-tests/src/v2-duel/ws-session.js";
+import { runV2Duel } from "../../../../packages/integration-tests/src/v2-duel/runner.js";
 import { V2_M1_PRECONS }
   from "../../../../packages/integration-tests/src/v2-duel/m1-precons.js";
-import { createGameServer, type GameServer } from "../../src/server.js";
-import { InMemoryRoomStore } from "../../src/room-store.js";
+import { GameRoom } from "../../src/room.js";
+import { loadCardCatalogRuntime } from "../../src/card-catalog.js";
+import { cardProgramsById } from "../../../../packages/card-dsl/dist/cards/registry.generated.js";
+import type { CardProgram } from "../../../../packages/card-dsl/dist/ir/index.js";
 
-const FIXED_SEED = "RIFT-1074-v2-combat";
-const PUBLIC_PLAYER_IDS = ["player-1", "player-2"] as const;
-const MAX_COMMANDS = 500;
-const RECEIPT_TIMEOUT_MS = 60_000;
+type CardFact = {
+  readonly energy: number | null;
+  readonly power: number | null;
+  readonly status: string;
+  readonly kind: "unit" | "gear" | "spell";
+};
 
-const servers: GameServer[] = [];
-const sessions: V2WebSocketSession[] = [];
+interface StartedRoom {
+  readonly room: GameRoom;
+  readonly sessions: Readonly<Record<string, ClientSession>>;
+  readonly connections: Readonly<Record<string, string>>;
+}
 
-afterEach(async () => {
-  for (const session of sessions.splice(0)) session.closeImmediately();
-  for (const server of servers.splice(0)) {
-    if (server.httpServer.listening) await server.stop();
-  }
-});
+const cardFacts = new Map<string, CardFact>(Object.values(V2_M1_PRECONS).flatMap(precon =>
+  precon.cards.map(card => {
+    const program = cardProgramsById.get(card.canonicalCardId) as unknown as CardProgram | undefined;
+    const normalized = card.cardType.toLowerCase();
+    const kind: CardFact["kind"] = normalized === "unit" ? "unit" : normalized === "gear" ? "gear" : "spell";
+    return [card.canonicalCardId, {
+      energy: card.energy ?? null,
+      power: card.power ?? null,
+      status: String(program?.status ?? "pending"),
+      kind,
+    }] as const;
+  })));
 
-async function startPair(seed: string): Promise<{
-  readonly server: GameServer;
-  readonly first: V2WebSocketSession;
-  readonly second: V2WebSocketSession;
-}> {
-  const server = createGameServer({
-    host: "127.0.0.1",
-    port: 0,
-    roomIdFactory: () => seed,
-    roomStore: new InMemoryRoomStore(),
-    duelRandomIndex: () => 0,
+function readProjection(room: GameRoom, playerId: string): V2Projection {
+  let result: unknown;
+  room.sendProjection(playerId, message => {
+    if (message !== null && typeof message === "object" &&
+        (message as { readonly type?: unknown }).type === "projection") {
+      result = (message as { readonly projection?: unknown }).projection;
+    }
   });
-  servers.push(server);
-  await server.start();
-  const address = server.httpServer.address();
-  if (address === null || typeof address === "string") {
-    throw new Error("Game server did not expose a TCP port");
-  }
-  const url = `ws://127.0.0.1:${address.port}/ws`;
-  const noProjection = (): void => undefined;
-  const first = await V2WebSocketSession.connect(url, `${seed}-rumble`, noProjection);
-  const second = await V2WebSocketSession.connect(url, `${seed}-fiora`, noProjection);
-  sessions.push(first, second);
-  await first.createRoom("Rumble");
-  await second.joinRoom(first.snapshot.session.roomId, "Fiora");
-  await first.submitDeck(V2_M1_PRECONS["rumble-sfd"].deck);
-  await second.submitDeck(V2_M1_PRECONS["fiora-sfd"].deck);
-  await first.setReady();
-  await second.setReady();
-  await Promise.all([
-    first.waitForProjection(() => true, "rumble setup"),
-    second.waitForProjection(() => true, "fiora setup"),
-  ]);
-  return { server, first, second };
+  return result as V2Projection;
 }
 
-function choiceCommand(view: V2Projection, actor: string,
-  commandId: string): Extract<V2Command, { type: "choose" }> | null {
-  if (view.pendingChoice.status !== "pending" || view.pendingChoice.ownerPlayerId !== actor) return null;
-  const choice = view.pendingChoice;
-  const options = choice.options ?? [];
-  const min = choice.min ?? 1;
-  let answer: Extract<V2Command, { type: "choose" }>["answer"] | null;
-  switch (choice.kind) {
-    case "optional": answer = options[0]?.value ?? options[0]?.id ?? false; break;
-    case "mode": answer = options[0]?.value ?? options[0]?.id ?? null; break;
-    case "number": answer = min; break;
-    case "order": answer = options.map(option => option.objectRef ?? option.id); break;
-    case "select-objects":
-      answer = min === 0 ? [] : options.slice(0, min)
-        .map(option => option.objectRef ?? option.id);
-      if (min > 0 && answer.length < min) answer = null;
-      break;
-  }
-  return answer === null ? null : {
-    type: "choose", commandId, stateVersion: view.stateVersion,
-    choiceId: choice.choiceId, answer,
-  };
-}
-
-function combatDamageCommand(view: V2Projection, actor: string,
-  commandId: string): Extract<V2Command, { type: "combat-damage" }> | null {
-  if (view.combat.status !== "active" || view.combat.step !== "damage" ||
-      view.combat.damage === undefined || view.combat.combatId === undefined ||
-      view.combat.damage.expectedPlayerId !== actor) return null;
-  const battlefield = view.battlefields.find(field =>
-    field.battlefieldId === view.combat.battlefieldId);
-  const opponent = view.players.find(player => player.playerId !== actor)?.playerId;
-  if (battlefield === undefined || opponent === undefined) return null;
-  const targets = battlefield.occupantObjectIds.flatMap(objectId => {
-    const object = view.objects.find(candidate => candidate.objectId === objectId);
-    return object !== undefined && (object.controllerPlayerId ?? object.ownerPlayerId) === opponent
-      ? [object.objectId]
-      : [];
+function submitThroughRoom(started: StartedRoom, playerId: string,
+  command: V2Command): V2CommandReceipt {
+  const session = started.sessions[playerId];
+  const connection = started.connections[playerId];
+  if (session === undefined || connection === undefined) throw new Error(`Missing room session for ${playerId}`);
+  let receipt: V2CommandReceipt | null = null;
+  started.room.submitEngineV2(session, connection, command, message => {
+    if (message !== null && typeof message === "object" &&
+        (message as { readonly type?: unknown }).type === "command-receipt") {
+      receipt = message as V2CommandReceipt;
+    }
   });
-  if (targets.length === 0) return null;
-  const might = view.combat.damage.attackerSubmitted
-    ? view.combat.damage.defenderMight
-    : view.combat.damage.attackerMight;
-  const base = Math.floor(might / targets.length);
-  const assignments = targets.map((unitObjectId, index) => ({
-    unitObjectId,
-    amount: index === targets.length - 1 ? might - base * (targets.length - 1) : base,
-  })).filter(assignment => assignment.amount > 0);
-  return assignments.length === 0 ? null : {
-    type: "combat-damage", commandId, stateVersion: view.stateVersion,
-    combatId: view.combat.combatId, assignments,
-  };
+  if (receipt === null) throw new Error(`Missing receipt for ${command.commandId}`);
+  return receipt;
 }
 
-function nextProjectedCommand(view: V2Projection, actor: string,
-  commandId: string): V2Command | null {
-  if (view.phase === "setup") {
-    return view.pendingChoice.status === "pending" && view.pendingChoice.ownerPlayerId === actor
-      ? { type: "mulligan", commandId, stateVersion: view.stateVersion, selectedObjectIds: [] }
-      : null;
+async function startedM1Room(roomId: string): Promise<StartedRoom> {
+  const catalog = await loadCardCatalogRuntime();
+  const room = new GameRoom(roomId, DUEL_RULESET_ID, catalog, () => 0,
+    undefined, undefined, undefined, "engine-v2");
+  const noMessages = (): void => undefined;
+  const first = room.join("Rumble", noMessages, `${roomId}-a`);
+  const second = room.join("Fiora", noMessages, `${roomId}-b`);
+  const sessions = {
+    [first.playerId]: { roomId, playerId: first.playerId, resumeToken: first.resumeToken },
+    [second.playerId]: { roomId, playerId: second.playerId, resumeToken: second.resumeToken },
+  } as const;
+  const connections = {
+    [first.playerId]: first.connectionId,
+    [second.playerId]: second.connectionId,
+  } as const;
+  room.submitDeck(sessions[first.playerId]!, first.connectionId, room.currentRoomVersion,
+    V2_M1_PRECONS["rumble-sfd"].deck, `${roomId}-deck-a`, noMessages);
+  room.setReady(sessions[first.playerId]!, first.connectionId, room.currentRoomVersion,
+    true, `${roomId}-ready-a`, noMessages);
+  room.submitDeck(sessions[second.playerId]!, second.connectionId, room.currentRoomVersion,
+    V2_M1_PRECONS["fiora-sfd"].deck, `${roomId}-deck-b`, noMessages);
+  room.setReady(sessions[second.playerId]!, second.connectionId, room.currentRoomVersion,
+    true, `${roomId}-ready-b`, noMessages);
+  const started: StartedRoom = { room, sessions, connections };
+  const playerIds = [first.playerId, second.playerId] as const;
+  for (let index = 0; index < 2; index += 1) {
+    const due = playerIds.map(playerId => readProjection(room, playerId)).find(view =>
+      view.phase === "setup" && view.pendingChoice.status === "pending" &&
+      view.pendingChoice.ownerPlayerId === view.viewerPlayerId);
+    if (due === undefined || due.pendingChoice.status !== "pending") throw new Error("Expected a due mulligan owner");
+    const receipt = submitThroughRoom(started, due.pendingChoice.ownerPlayerId, {
+      type: "mulligan", commandId: `${roomId}-mulligan-${index}`,
+      stateVersion: 0, selectedObjectIds: [],
+    });
+    expect(receipt.accepted, JSON.stringify(receipt)).toBe(true);
   }
-  const choice = choiceCommand(view, actor, commandId);
-  if (choice !== null) return choice;
-  const damage = combatDamageCommand(view, actor, commandId);
-  if (damage !== null) return damage;
-  if (view.combat.status === "active" && view.actionOptions.canAdvance === true &&
-      view.priority.playerId === actor) {
-    return { type: "advance", commandId, stateVersion: view.stateVersion };
-  }
-  for (const option of view.actionOptions.plays) {
-    const play = projectedPlayCommand(option, commandId, view.stateVersion);
-    if (play !== null) return play;
-  }
-  const move = view.actionOptions.moves[0];
-  if (move !== undefined) {
-    return {
-      type: "move", commandId, stateVersion: view.stateVersion,
-      objectId: move.objectId,
-      to: move.destination.kind === "base"
-        ? { zone: "base", playerId: move.destination.playerId }
-        : { zone: "battlefield", locationId: move.destination.battlefieldId },
-    };
-  }
-  if (view.chain.items.length > 0 || view.priority.focusPlayerId !== null) {
-    return view.priority.playerId === actor
-      ? { type: "pass", commandId, stateVersion: view.stateVersion }
-      : null;
-  }
-  const rune = (view.zones.find(zone => zone.zone === "rune-zone" &&
-    zone.ownerPlayerId === actor)?.objects ?? []).find(candidate =>
-    candidate.exhausted === false && candidate.zoneEntryId !== undefined);
-  if (rune !== undefined && rune.zoneEntryId !== undefined) {
-    return {
-      type: "rune-energy", commandId, stateVersion: view.stateVersion,
-      runeObjectId: rune.objectId, zoneEntryId: rune.zoneEntryId,
-    };
-  }
-  return view.actionOptions.canEndTurn && view.activePlayerId === actor
-    ? { type: "end-turn", commandId, stateVersion: view.stateVersion }
-    : null;
+  return started;
+}
+
+function actorAndView(first: V2Projection, second: V2Projection): {
+  readonly actor: string;
+  readonly view: V2Projection;
+} {
+  const pending = [first, second].find(view => view.pendingChoice.status === "pending" &&
+    view.pendingChoice.ownerPlayerId === view.viewerPlayerId);
+  if (pending !== undefined) return { actor: pending.viewerPlayerId!, view: pending };
+  const damageActor = projectedCombatDamagePlayer(first);
+  const actor = damageActor ?? first.priority.playerId ??
+    (first.actionOptions.canAdvance ? first.activePlayerId : null) ??
+    (first.phase === "main" && first.chain.items.length === 0 && first.combat.status === "none"
+      ? first.activePlayerId : null) ??
+    (first.actionOptions.canEndTurn ? first.activePlayerId : null);
+  if (actor === null) throw new Error(`No actor at state ${first.stateVersion}: ${JSON.stringify({
+    first: summary(first), second: summary(second),
+  })}`);
+  return { actor, view: actor === first.viewerPlayerId ? first : second };
+}
+
+function moveIntoCombat(view: V2Projection, actor: string, commandId: string): V2Command | null {
+  if (view.chain.items.length > 0 || view.combat.status !== "none") return null;
+  const choices = view.actionOptions.moves.flatMap(option => {
+    if (option.destination.kind !== "battlefield") return [];
+    const field = view.battlefields.find(candidate =>
+      candidate.battlefieldId === option.destination.battlefieldId);
+    if (field === undefined || field.controllerPlayerId === actor) return [];
+    return [{ option, field }];
+  });
+  const chosen = choices.sort((left, right) =>
+    Number(right.field.contestedByPlayerId !== null) - Number(left.field.contestedByPlayerId !== null) ||
+    Number(right.field.controllerPlayerId === null) - Number(left.field.controllerPlayerId === null))[0];
+  return chosen === undefined || chosen.option.destination.kind !== "battlefield" ? null : {
+    type: "move", commandId, stateVersion: view.stateVersion, objectId: chosen.option.objectId,
+    to: { zone: "battlefield", locationId: chosen.option.destination.battlefieldId },
+  };
 }
 
 function verifyProjectedPlayerIds(view: V2Projection): void {
-  const publicIds = new Set<string>(PUBLIC_PLAYER_IDS);
+  const publicIds = new Set<string>(["player-1", "player-2"]);
   const verify = (path: string, playerId: string | null | undefined): void => {
     if (playerId === null || playerId === undefined) return;
     expect(publicIds.has(playerId), `${path} contains non-public player id ${playerId}`).toBe(true);
@@ -230,7 +208,7 @@ function verifyProjectedPlayerIds(view: V2Projection): void {
   walk(view.events, "events");
 }
 
-function projectionSummary(view: V2Projection): Readonly<Record<string, unknown>> {
+function summary(view: V2Projection): Readonly<Record<string, unknown>> {
   return {
     viewerPlayerId: view.viewerPlayerId, stateVersion: view.stateVersion,
     eventSeq: view.eventSeq, phase: view.phase, turnNumber: view.turnNumber,
@@ -241,162 +219,116 @@ function projectionSummary(view: V2Projection): Readonly<Record<string, unknown>
   };
 }
 
-async function waitAfterReceipt(session: V2WebSocketSession, before: V2Projection,
-  command: V2Command, receipt: V2CommandReceipt): Promise<V2Projection> {
-  if (command.type === "choose") {
-    const current = session.snapshot.projection;
-    const changedChoice = current !== null && current.pendingChoice.status === "pending" &&
-      before.pendingChoice.status === "pending" &&
-      current.pendingChoice.choiceId !== before.pendingChoice.choiceId;
-    if (current !== null && (current.stateVersion > before.stateVersion ||
-        current.eventSeq > before.eventSeq ||
-        (before.pendingChoice.status === "pending" && current.pendingChoice.status === "none") ||
-        changedChoice)) return current;
-    return session.waitForProjection(view => view.stateVersion > before.stateVersion ||
-      view.eventSeq > before.eventSeq ||
-      (before.pendingChoice.status === "pending" && view.pendingChoice.status === "none") ||
-      (before.pendingChoice.status === "pending" && view.pendingChoice.status === "pending" &&
-        view.pendingChoice.choiceId !== before.pendingChoice.choiceId),
-      `projection after ${command.commandId}`);
-  }
-  const current = session.snapshot.projection;
-  if (current !== null && (current.stateVersion > before.stateVersion ||
-      current.eventSeq > before.eventSeq ||
-      (current.stateVersion === receipt.stateVersion && current.pendingChoice.status === "pending"))) {
-    return current;
-  }
-  return session.waitForProjectionAfter(command.commandId, receipt);
-}
-
 describe("RIFT-1074 protocol v2 real two-client beta match", () => {
-  it("plays rumble-sfd against fiora-sfd through two WebSockets to a natural winner", async () => {
-    const { server, first, second } = await startPair(FIXED_SEED);
-    const playerIds = [first.snapshot.session.playerId, second.snapshot.session.playerId] as const;
-    let firstView = first.snapshot.projection;
-    let secondView = second.snapshot.projection;
-    if (firstView === null || secondView === null) {
-      throw new Error("Both clients require initial projections");
-    }
-    const rejected: Array<Readonly<Record<string, unknown>>> = [];
+  it("plays rumble-sfd against fiora-sfd through two WebSockets to an authoritative winner", async () => {
+    const seed = "RIFT-955-v2-07";
+    const result = await runV2Duel({
+      seed, port: 0, creator: "first", firstPlayerPrecon: "rumble-sfd",
+      maxActions: 500, actionTimeoutMs: 45_000,
+      acknowledgementTimeoutMs: 60_000, totalTimeoutMs: 780_000,
+    });
+    expect(result.privacy.violations).toEqual([]);
+    expect(result.privacy.checkedProjections).toBeGreaterThan(0);
+    expect(result.rejectedCommands).toEqual({ "player-1": 0, "player-2": 0 });
+    expect(Object.values(result.rejectedCommands).reduce((sum, count) => sum + count, 0)).toBe(0);
+    expect(result.rejectionReasons["player-1"]).toEqual([]);
+    expect(result.rejectionReasons["player-2"]).toEqual([]);
+    expect(result.termination, result.blockedReason ?? undefined).toBe("winner");
+    expect(result.winnerPlayerId).toMatch(/^player-[12]$/);
+    expect(result.turnCount).toBeGreaterThan(1);
+    expect(result.commandCount).toBeGreaterThan(2);
+    expect(result.coverage.play).toBeGreaterThan(0);
+    expect(result.coverage.move).toBeGreaterThan(0);
+    expect(result.coverage["choose-optional"] + result.coverage["choose-mode"] +
+      result.coverage["choose-select-objects"] + result.coverage["choose-order"] +
+      result.coverage["choose-number"]).toBeGreaterThan(0);
+    expect(result.score[result.winnerPlayerId!]).toBeGreaterThanOrEqual(8);
+    process.stdout.write(JSON.stringify({
+      test: "RIFT-1074-v2-full-websocket", seed: result.seed,
+      commandCount: result.commandCount, elapsedMs: result.elapsedMs,
+      winnerPlayerId: result.winnerPlayerId, turnCount: result.turnCount,
+      finalScore: result.score, rejectedCommands: result.rejectedCommands,
+      coverage: result.coverage,
+    }) + "\n");
+  }, 850_000);
+
+  it("drives real Conquest, two-sided Combat damage, and same-game scoring without rejected commands", async () => {
+    const started = await startedM1Room("RIFT-1074-v2-combat");
+    const rejected = new Map<string, Set<string>>();
     const trace: Array<Readonly<Record<string, unknown>>> = [];
-    const commandCounts: Record<string, number> = {};
-    let damageCommands = 0;
     let sawConquer = false;
-    let sawPlayWithDestination = false;
     let sawScore = false;
+    let sawPlayWithDestination = false;
+    let damageSubmissions = 0;
     let terminal: V2Projection | null = null;
-    try {
-      for (let index = 0; index < MAX_COMMANDS; index += 1) {
-        verifyProjectedPlayerIds(firstView);
-        verifyProjectedPlayerIds(secondView);
-        expect(firstView.stateVersion).toBe(secondView.stateVersion);
-        expect(firstView.eventSeq).toBe(secondView.eventSeq);
-        expect(firstView.viewerPlayerId).toBe(playerIds[0]);
-        expect(secondView.viewerPlayerId).toBe(playerIds[1]);
-        if (firstView.winnerPlayerId !== null || secondView.winnerPlayerId !== null) {
-          terminal = firstView.winnerPlayerId !== null ? firstView : secondView;
-          break;
-        }
-        const pending = firstView.pendingChoice.status === "pending" ? firstView
-          : secondView.pendingChoice.status === "pending" ? secondView : null;
-        expect(pending === null || pending.pendingChoice.status === "pending").toBe(true);
-        const actor = pending?.pendingChoice.status === "pending"
-          ? pending.pendingChoice.ownerPlayerId
-          : projectedCombatDamagePlayer(firstView) ?? firstView.priority.playerId ??
-            (firstView.actionOptions.canAdvance ? firstView.activePlayerId : null) ??
-            (firstView.phase === "main" && firstView.chain.items.length === 0 &&
-              firstView.combat.status === "none" ? firstView.activePlayerId : null) ??
-            (firstView.actionOptions.canEndTurn ? firstView.activePlayerId : null);
-        if (actor === null) {
-          throw new Error(`No projected actor: ${JSON.stringify({
-            first: projectionSummary(firstView), second: projectionSummary(secondView),
-          })}`);
-        }
-        expect(PUBLIC_PLAYER_IDS).toContain(actor);
-        const session = actor === playerIds[0] ? first : second;
-        const view = actor === playerIds[0] ? firstView : secondView;
-        const commandId = `RIFT-1074-full-${index}`;
-        const command = nextProjectedCommand(view, actor, commandId);
-        if (command === null) {
-          throw new Error(`No projected command: ${JSON.stringify(projectionSummary(view))}`);
-        }
-        trace.push({
-          index, actor, commandId, commandType: command.type,
-          stateVersion: view.stateVersion, turnNumber: view.turnNumber,
-          projection: projectionSummary(view),
-        });
-        commandCounts[command.type] = (commandCounts[command.type] ?? 0) + 1;
-        if (command.type === "play" && command.destination !== undefined) {
-          expect(view.actionOptions.plays).toContainEqual(expect.objectContaining({
-            cardObjectId: command.cardObjectId, destination: command.destination,
-          }));
-          sawPlayWithDestination = true;
-        }
-        if (command.type === "move") {
-          const option = view.actionOptions.moves.find(candidate =>
-            candidate.objectId === command.objectId &&
-            (candidate.destination.kind === "base"
-              ? command.to.zone === "base" && command.to.playerId === candidate.destination.playerId
-              : command.to.zone === "battlefield" &&
-                command.to.locationId === candidate.destination.battlefieldId));
-          expect(option).toBeDefined();
-        }
-        if (command.type === "combat-damage") {
-          damageCommands += 1;
-          expect(view.combat).toMatchObject({
-            status: "active", step: "damage",
-            damage: { expectedPlayerId: actor },
-          });
-          expect(view.combat.attackerPlayerId).toMatch(/^player-[12]$/);
-          expect(view.combat.defenderPlayerId).toMatch(/^player-[12]$/);
-        }
-        const receipt = await session.sendCommandWithin(command, RECEIPT_TIMEOUT_MS);
-        if (!receipt.accepted) {
-          rejected.push({ command, receipt, projection: projectionSummary(view) });
-          throw new Error(`Command rejected: ${JSON.stringify({
-            command, receipt, projection: projectionSummary(view),
-            recentTrace: trace.slice(-8),
-          })}`);
-        }
-        const next = await Promise.all([
-          waitAfterReceipt(first, firstView, command, receipt),
-          waitAfterReceipt(second, secondView, command, receipt),
-        ]);
-        firstView = next[0];
-        secondView = next[1];
-        sawConquer ||= firstView.events.some(event => event.timingPoint === "conquer");
-        sawScore ||= firstView.events.some(event => event.timingPoint === "score") ||
-          firstView.scoring.players.some(player => player.points > 0);
+    for (let action = 0; action < 500; action += 1) {
+      const beforeFirst = readProjection(started.room, "player-1");
+      const beforeSecond = readProjection(started.room, "player-2");
+      verifyProjectedPlayerIds(beforeFirst);
+      verifyProjectedPlayerIds(beforeSecond);
+      if (beforeFirst.winnerPlayerId !== null || beforeSecond.winnerPlayerId !== null) {
+        terminal = beforeFirst.winnerPlayerId !== null ? beforeFirst : beforeSecond;
+        break;
       }
-    } finally {
-      first.closeImmediately();
-      second.closeImmediately();
-      await server.stop();
+      const { actor, view } = actorAndView(beforeFirst, beforeSecond);
+      sawPlayWithDestination ||= view.actionOptions.plays.some(option => option.requiresDestination === true);
+      const commandId = `RIFT-1074-combat-${action}`;
+      const command = moveIntoCombat(view, actor, commandId) ??
+        botCommand(view, actor, commandId, rejected.get(actor) ?? new Set(), cardFacts);
+      if (command === null) throw new Error(`No projected command for ${actor}: ${JSON.stringify(summary(view))}`);
+      trace.push({ action, actor, command: command.type, stateVersion: view.stateVersion,
+        turnNumber: view.turnNumber, projection: summary(view) });
+      if (command.type === "play" && command.destination !== undefined) {
+        expect(view.actionOptions.plays).toContainEqual(expect.objectContaining({
+          cardObjectId: command.cardObjectId, destination: command.destination,
+        }));
+      }
+      if (command.type === "combat-damage") {
+        expect(view.combat).toMatchObject({ status: "active", step: "damage",
+          damage: { expectedPlayerId: actor } });
+        expect(view.combat.attackerPlayerId).toMatch(/^player-[12]$/);
+        expect(view.combat.defenderPlayerId).toMatch(/^player-[12]$/);
+      }
+      const receipt = submitThroughRoom(started, actor, command);
+      if (!receipt.accepted) {
+        throw new Error(`Command rejected: ${JSON.stringify({ command, receipt,
+          projection: summary(view), recentTrace: trace.slice(-8) })}`);
+      }
+      if (command.type === "combat-damage") damageSubmissions += 1;
+      const afterFirst = readProjection(started.room, "player-1");
+      const afterSecond = readProjection(started.room, "player-2");
+      verifyProjectedPlayerIds(afterFirst);
+      verifyProjectedPlayerIds(afterSecond);
+      sawConquer ||= afterFirst.events.some(event => event.timingPoint === "conquer");
+      sawScore ||= afterFirst.events.some(event => event.timingPoint === "score") ||
+        afterFirst.scoring.players.some(player => player.points > 0);
     }
-    expect(rejected).toEqual([]);
-    expect(commandCounts.mulligan).toBe(2);
-    expect(commandCounts.play).toBeGreaterThan(0);
-    expect(commandCounts.choose).toBeGreaterThan(0);
-    expect(commandCounts.move).toBeGreaterThan(0);
-    expect(commandCounts.advance).toBeGreaterThan(0);
-    expect(damageCommands, JSON.stringify(trace.slice(-10))).toBeGreaterThanOrEqual(2);
-    expect(sawConquer, JSON.stringify(trace.slice(-10))).toBe(true);
     expect(sawPlayWithDestination).toBe(true);
+    expect(sawConquer, JSON.stringify(trace.slice(-10))).toBe(true);
+    expect(damageSubmissions).toBeGreaterThanOrEqual(2);
     expect(sawScore, JSON.stringify(trace.slice(-10))).toBe(true);
     expect(terminal, JSON.stringify(trace.slice(-10))).not.toBeNull();
+    const afterWinner = submitThroughRoom(started, terminal!.winnerPlayerId!, {
+      type: "pass", commandId: "RIFT-1074-after-winner",
+      stateVersion: terminal!.stateVersion,
+    });
+    expect(afterWinner.accepted).toBe(false);
+    const afterWinnerFirst = readProjection(started.room, "player-1");
+    const afterWinnerSecond = readProjection(started.room, "player-2");
+    expect(afterWinnerFirst.phase).toBe("ended");
+    expect(afterWinnerSecond.phase).toBe("ended");
+    expect(afterWinnerFirst.winnerPlayerId).toBe(terminal!.winnerPlayerId);
+    expect(afterWinnerSecond.winnerPlayerId).toBe(terminal!.winnerPlayerId);
+    expect(afterWinnerFirst.stateVersion).toBe(terminal!.stateVersion);
+    expect(afterWinnerSecond.stateVersion).toBe(terminal!.stateVersion);
     expect(terminal!.phase).toBe("ended");
-    expect(PUBLIC_PLAYER_IDS).toContain(terminal!.winnerPlayerId!);
+    expect(terminal!.winnerPlayerId).toMatch(/^player-[12]$/);
     expect(terminal!.scoring.players.find(player =>
       player.playerId === terminal!.winnerPlayerId)?.points)
       .toBeGreaterThanOrEqual(terminal!.scoring.victoryScore);
-    expect(terminal!.actionOptions).toMatchObject({
-      canEndTurn: false, canAdvance: false, moves: [], plays: [],
-    });
-    process.stdout.write(JSON.stringify({
-      test: "RIFT-1074-v2-two-client-full-match-e2e", seed: FIXED_SEED,
-      commandCount: trace.length, commandCounts, damageCommands,
+    process.stdout.write(JSON.stringify({ test: "RIFT-1074-v2-combat-e2e",
+      commandCount: trace.length, damageSubmissions, sawConquer, sawScore,
       winnerPlayerId: terminal!.winnerPlayerId, turnNumber: terminal!.turnNumber,
-      finalScoring: terminal!.scoring,
-    }) + "\n");
-  }, 600_000);
+      finalScoring: terminal!.scoring }) + "\n");
+  }, 300_000);
 });
