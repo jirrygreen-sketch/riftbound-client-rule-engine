@@ -257,22 +257,26 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
           (!waitingForFutureCommand && !chain.canAct(viewer, source.types.includes("spell") || source.types.includes("gear") ? "action" : "normal", source.ref, source))) continue;
       const requirements = targetRequirements(source);
       if (requirements === null) continue;
-      const permanent = source.types.some(type => ["unit", "gear"].includes(type.toLowerCase()));
-      if (!permanent) {
+      const unit = source.types.some(type => type.toLowerCase() === "unit");
+      const gear = source.types.some(type => type.toLowerCase() === "gear");
+      if (!unit && !gear) {
         plays.push({ cardObjectId: source.ref.id, destination: { kind: "base", playerId: viewer },
           requiresDestination: false, ...(requirements === undefined ? {} : { targetRequirements: requirements }) });
         continue;
       }
       const view = playLocations(chain.layers.registry, source.ref, source, viewer);
       if (view.restrictions.some(rule => ["no-base", "cannot-base", "cannot-play-base"].includes(rule.name.toLowerCase()))) continue;
-      if (explicitPermissions(source).length === 0) {
-        plays.push({ cardObjectId: source.ref.id, destination: { kind: "base", playerId: viewer },
-          requiresDestination: true, ...(requirements === undefined ? {} : { targetRequirements: requirements }) });
-      }
+      const permissions = explicitPermissions(source);
+      // CR 355.2.a and 148.1.a.1/149.2 make the viewer's Base a default for
+      // Unit and Gear plays. A 355.2.b permission adds locations and does not
+      // remove destinations that were already valid. Unit+Gear follows the
+      // Unit branch under 152.2/359.2.c.
+      plays.push({ cardObjectId: source.ref.id, destination: { kind: "base", playerId: viewer },
+        requiresDestination: true, ...(requirements === undefined ? {} : { targetRequirements: requirements }) });
       for (const field of battlefields) {
         if (view.restrictions.some(rule => ["no-battlefield", "cannot-battlefield", "cannot-play-battlefield"].includes(rule.name.toLowerCase()))) continue;
-        const permissions = explicitPermissions(source);
-        const objectLocationMatches = permissions.length === 0 ||
+        const defaultLocationMatches = unit && field.controller === viewer;
+        const battlefieldPermissionMatches = permissions.length > 0 &&
           playPermissionAllows(chain.layers.registry, source, { type: "battlefield", id: field.id }, {
             player: viewer,
             state: {
@@ -285,7 +289,7 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
             },
             objects,
           });
-        if (!objectLocationMatches) continue;
+        if (!defaultLocationMatches && !battlefieldPermissionMatches) continue;
         plays.push({ cardObjectId: source.ref.id, destination: { kind: "battlefield", battlefieldId: field.id },
           requiresDestination: true, ...(requirements === undefined ? {} : { targetRequirements: requirements }) });
       }
