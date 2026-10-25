@@ -406,8 +406,8 @@ export function AppView({
               serverUrl={v2Match.reconnectUrl || v2ServerUrl || catalogServerUrl}
               onServerUrlChange={setV2ServerUrl}
               onConnect={v2Match.connect}
-              onCreateRoom={() => v2Match.createRoom(profile.name)}
-              onJoinRoom={roomIdValue => v2Match.joinRoom(roomIdValue, profile.name)}
+              onCreateRoom={name => v2Match.createRoom(name)}
+              onJoinRoom={(roomIdValue, name) => v2Match.joinRoom(roomIdValue, name)}
               onSubmitDeck={v2Match.submitDeck}
               onSetReady={v2Match.setReady}
               onCommand={v2Match.sendCommand}
@@ -467,8 +467,8 @@ export function AppView({
             serverUrl={v2Match.reconnectUrl || v2ServerUrl || catalogServerUrl}
             onServerUrlChange={setV2ServerUrl}
             onConnect={v2Match.connect}
-            onCreateRoom={() => v2Match.createRoom(profile.name)}
-            onJoinRoom={roomIdValue => v2Match.joinRoom(roomIdValue, profile.name)}
+            onCreateRoom={name => v2Match.createRoom(name)}
+            onJoinRoom={(roomIdValue, name) => v2Match.joinRoom(roomIdValue, name)}
             onSubmitDeck={v2Match.submitDeck}
             onSetReady={v2Match.setReady}
             onCommand={v2Match.sendCommand}
