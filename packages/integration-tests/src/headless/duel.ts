@@ -1385,8 +1385,15 @@ export function prioritizedHeadlessCommands(
   const active = combat.current;
   if (active === null) return rankHeadlessBotCommands(candidates, trace)
     .flatMap(tier => tier.commands);
-  if (active.step === "showdown" && trace.turnState === "neutral-open") {
-    return [{ type: "combat-damage" }];
+  if (active.step === "showdown") {
+    if (trace.turnState === "neutral-open") return [{ type: "combat-damage" }];
+    // CR 355-357 Finalize and Pay Costs apply during Showdown exactly as in
+    // other Play windows. Do not bypass the bot's affordability ranking here:
+    // a timing-legal card with an unpaid Energy/Power component is not a
+    // playable candidate. When no ranked command remains, the caller submits
+    // the public Pass command instead of causing a rules rejection.
+    if (trace.turnState === "showdown-open") return rankHeadlessBotCommands(candidates, trace)
+      .flatMap(tier => tier.commands);
   }
   if (active.step === "cleanup" || active.step === "result" || active.step === "control" || active.step === "end") {
     // A Score/Combat trigger can remain finalized on the Chain while Combat
