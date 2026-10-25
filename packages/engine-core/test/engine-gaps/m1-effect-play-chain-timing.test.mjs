@@ -142,7 +142,9 @@ test('RIFT-1038 Assembly Rig: effect Played Mech Pending waits for the parent Re
   assert.ok(tokenPendingEvent < tokenFinalizeEvent,
     'the child Play is registered Pending before Finalize');
   assert.deepEqual(f.errors, []);
-  assert.equal(assemblyRig.status, 'judge-required', 'the card file remains parent-owned');
+  // RIFT-1057 retested the complete printed effect on the production chain and
+  // upgraded the parent-owned card program to executable.
+  assert.equal(assemblyRig.status, 'executable', 'RIFT-1057 production review closed the former gap');
   assert.equal(f.engine.items.length, 0);
   f.lifecycle.detach();
 });

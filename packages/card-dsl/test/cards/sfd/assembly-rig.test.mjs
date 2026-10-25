@@ -19,29 +19,21 @@ const CORE_RULES_URL =
   "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf";
 const RADIANCE_URL =
   "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/";
+const RADIANCE_RULE_303_URL = `${RADIANCE_URL}#:~:text=303.2.a`;
 const SFD_ERRATA_URL =
   "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-spiritforged-errata/";
 const SFD_PATCH_URL =
   "https://playriftbound.com/en-us/news/rules-and-releases/riftbound-core-rules-spiritforged-patch-notes/";
 
-// The shipped program is withheld at the binding gate until the token Play is
-// represented by a real Chain item. A same-identity, same-IR carrier below
-// exercises the supported cost and final-state halves through production.
-// Assertions on the gap itself use the carrier, never relabel the shipped card
-// as executable.
-const executableCarrier = Object.freeze({
-  ...program,
-  status: "executable",
-  judgeReason: undefined
-});
 const LINK_PREFIX = "create-mech-token.token.";
 
 const PRODUCTION_TEST_NAMES = Object.freeze({
   golden: "sfd-019-221 Assembly Rig production golden: costs settle and the Mech enters exhausted through token Play",
   integrationGolden: "sfd-019-221 Assembly Rig integration production golden: Finalize pays Energy, Fury Power, recycle and Exhaust, then Resolve creates one exhausted Mech",
-  gap: "sfd-019-221 Assembly Rig production gap: token Play is synchronous and publishes no independent Pending or Finalize item",
+  chainTiming: "sfd-019-221 Assembly Rig production timing: the child token Play stays Pending until the parent Resolve ends, then Finalizes and Resolves",
   universalPower: "sfd-019-221 Assembly Rig production boundary: Universal Power pays the Fury requirement and recycle keeps existing deck order",
   missingTrash: "sfd-019-221 Assembly Rig production counterexample: no Trash Unit means no activation or partial payment",
+  trashChoice: "sfd-019-221 Assembly Rig production boundary: the printed cost recycles exactly the chosen Trash Unit",
   missingEnergy: "sfd-019-221 Assembly Rig production counterexample: insufficient Energy rolls Finalize back",
   missingPower: "sfd-019-221 Assembly Rig production counterexample: insufficient Fury Power rolls Finalize back",
   exhaustedSource: "sfd-019-221 Assembly Rig production counterexample: an exhausted Rig cannot pay its Exhaust cost"
@@ -51,6 +43,11 @@ const PRODUCTION_TEST_NAMES = Object.freeze({
 // repository policy. The effective Radiance rulings and Spiritforged errata
 // name neither this printing nor its canonical id and make no Mech-token rule
 // change. This card therefore follows CR v1.5; it adds no numbered priority.
+// The Radiance snapshot's 303.2.a reminder concerns simultaneous items; this
+// activation creates one child Play during its Resolve, so that rule does not
+// supply the ordering. CR 354.3 defers the child until the parent finishes and
+// CR 337.1.b then Finalizes the oldest actual Pending item. The Spiritforged
+// patch's Repeat and copy clarifications do not alter this path.
 const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
   contract: "riftbound.official-effect-order-evidence.v1",
   policyId: "official-effect-order-20261019",
@@ -67,6 +64,7 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
       published: "2026-10-09",
       effective: "2026-10-16",
       url: RADIANCE_URL,
+      ruleUrl: RADIANCE_RULE_303_URL,
       applicableToThisCard: false,
       result: "reviewed: no Assembly Rig, SFD-019, 187.4 or token Play change"
     }),
@@ -110,16 +108,19 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
       ]),
       priorityFocus: "Priority belongs to the ordinary Main Phase turn player. CR 337.1.a says Finalize does not pass it; CR 338.1.b and 339.1 grant the Execute/pass window before Resolve.",
       responseWindow: "The Gear activation is limited to its controller's Main Phase in an Open State and never a Showdown under CR 151.2. While the finalized ability is on the Chain, CR 338.1.a.2 permits legally timed Reaction plays. No numeric priority is assigned.",
+      optionalAdditionalCost: "None. The printed Energy, Fury Power, recycle and Exhaust are all mandatory; no additional-cost choice is authored.",
       replacement: "No replacement or prevention clause applies. The complete cost must be payable at Finalize under CR 357 and 415.4/417.3.",
       layers: "No continuous effect changes the Energy, Power, recycle choice, Exhaust payment or Mech characteristics.",
       lki: "The recycle choice reads the exact selected Trash incarnation and replaces it with a new deck incarnation. The later token body consumes no departed-object LKI.",
       simultaneousTriggers: "This activation supplies one Pending item and no simultaneous trigger. Its Resolve starts the separate token Play described below.",
+      orderingBasis: "This is one parent item, then one child Play created during its Resolve. CR 337.1.b orders actual Pending items and CR 354.3 pauses the child; CR 303.2.a is not invoked as a blanket FIFO/LIFO rule.",
       productionTestNames: Object.freeze([
         PRODUCTION_TEST_NAMES.golden,
         PRODUCTION_TEST_NAMES.integrationGolden,
-        PRODUCTION_TEST_NAMES.gap,
+        PRODUCTION_TEST_NAMES.chainTiming,
         PRODUCTION_TEST_NAMES.universalPower,
         PRODUCTION_TEST_NAMES.missingTrash,
+        PRODUCTION_TEST_NAMES.trashChoice,
         PRODUCTION_TEST_NAMES.missingEnergy,
         PRODUCTION_TEST_NAMES.missingPower,
         PRODUCTION_TEST_NAMES.exhaustedSource
@@ -139,19 +140,21 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
       timeline: Object.freeze([
         "The activation Resolve calls effect.token in mode play; the fixed CR 187.4 Mech is created on the Chain.",
         "Required: the created token becomes a new Pending Play item and its own Finalize applies the rule-level zero cost of CR 185.3.a.1.",
-        "Current production gap: Play is committed synchronously during the parent Resolve, so the token travels Chain to Board without a Pending or Finalize item.",
-        "The Mech nevertheless enters the controller's Base exhausted; the final state is correct while the required chain boundary remains judge-required."
+        "The child remains Pending while the creating activation completes Resolve, then Finalizes after the parent under CR 354.3 and 337.1.b.",
+        "The Unit resolves immediately after its own Finalize under CR 337.2 and enters the controller's Base exhausted; no Priority pass occurs between the child Finalize and Resolve."
       ]),
-      priorityFocus: "Required: CR 337.2 resolves the Unit immediately after its own Play Finalize. Current code has no token Finalize item or Priority boundary; the parent Resolve therefore owns the entry in this build.",
-      responseWindow: "The activated ability itself has the ordinary Finalize/Priority response window. The production gap test requires a distinct token Pending event that the current synchronous host does not publish.",
+      priorityFocus: "CR 337.2 resolves the Unit immediately after its own Play Finalize. The parent activation has already completed its CR 338-339 Priority sequence; the child Finalize does not grant another pass.",
+      responseWindow: "The activated ability itself has the ordinary Finalize/Priority response window. The child Play remains Pending during the parent Resolve under CR 354.3 and then follows the same FEPR process; the test checks its actual Pending/Finalize events.",
+      optionalAdditionalCost: "None. A token's rules-level Play cost is zero (CR 185.3.a.1); there is no optional additional cost to choose or pay.",
       replacement: "No replacement or prevention is authored. The ordinary exhausted Unit entry is a rule result, not a post-entry Exhaust effect.",
       layers: "Mech has fixed Might 3 and tag Mech under CR 187.4; no layer modifies its characteristics here.",
       lki: "The played token is a new object with no prior zone incarnation. Its null printed costs remain null; only the rule-level Play cost is zero.",
       simultaneousTriggers: "The card has no trigger. The Mech is one token Play started by the resolving instruction, with no array-order priority rule.",
+      orderingBasis: "The parent finishes Resolve before the already-created child leaves Pending under CR 354.3. CR 337.1.b then finalizes the oldest Pending item, and CR 337.2 immediately resolves the Unit. CR 303.2.a does not govern this parent/child procedure because no actions or triggers are simultaneous.",
       productionTestNames: Object.freeze([
         PRODUCTION_TEST_NAMES.golden,
         PRODUCTION_TEST_NAMES.integrationGolden,
-        PRODUCTION_TEST_NAMES.gap
+        PRODUCTION_TEST_NAMES.chainTiming
       ])
     })
   ])
@@ -170,8 +173,8 @@ const OFFICIAL_EFFECT_ORDER_EVIDENCE = Object.freeze({
 // resolves the body only after both passes. The printed body requires the
 // 187.4 Mech token to be played, which creates it on the Chain under 440.2.c
 // before normal Play and eventual exhausted entry under 143.4/185.2.d. This
-// focused cost/state regression does not claim that Play timing is complete;
-// the shipped program's exact token-play behavior is reported by the audit.
+// production test now asserts the complete parent/child timing and the shipped
+// executable program itself is the bound source.
 // The activation creates no Focus outside a Showdown, and its recycle cost reads
 // the exact selected trash incarnation. The resolved token is a new object;
 // the body consumes no departed-object LKI.
@@ -181,13 +184,8 @@ test("Assembly Rig card program passes validateCardProgram", () => {
   assert.equal(result.ok, true, JSON.stringify(result.ok ? null : result.issues));
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /effect\.token\.ts:380-408/);
-  assert.match(program.judgeReason, /chain\/engine\.ts:514-533/);
-  assert.match(program.judgeReason, /chain\/engine\.ts:877-888、1689-1705/);
-  assert.match(program.judgeReason, /chain-item-pending/);
-  assert.match(program.judgeReason, /350\.2/);
-  assert.match(program.judgeReason, /440\.2\.c/);
+  assert.equal(program.status, "executable");
+  assert.equal(Object.hasOwn(program, "judgeReason"), false);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CARD_ID), program);
 });
@@ -204,11 +202,21 @@ test("Assembly Rig official CR, Radiance, SFD errata and production timelines ar
     localSha256: "bbc81327eb21242452db3c56348b0725b1e0b6186c1a682dde541f3c7a864ba2"
   });
   assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.radianceRulings.effective, "2026-10-16");
+  assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.radianceRulings.url, RADIANCE_URL);
+  assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.radianceRulings.ruleUrl, RADIANCE_RULE_303_URL);
   assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.radianceRulings.applicableToThisCard, false);
   assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.spiritforgedErrata.applicableToThisCard, false);
   assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.spiritforgedRulings.published, "2025-12-05");
   assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.spiritforgedRulings.effective, "2025-12-12");
   assert.equal(OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.spiritforgedRulings.applicableToThisCard, false);
+  assert.match(
+    OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.radianceRulings.result,
+    /no Assembly Rig.*token Play change/
+  );
+  assert.match(
+    OFFICIAL_EFFECT_ORDER_EVIDENCE.sources.spiritforgedErrata.result,
+    /no Assembly Rig/
+  );
   assert.deepEqual(OFFICIAL_EFFECT_ORDER_EVIDENCE.interactions.map(interaction => interaction.id), [
     "activation-finalize", "play-mech-token"
   ]);
@@ -223,8 +231,10 @@ test("Assembly Rig official CR, Radiance, SFD errata and production timelines ar
     assert.ok(interaction.timeline.length >= 3);
     assert.match(interaction.priorityFocus, /Priority/);
     assert.match(interaction.responseWindow, /Reaction|Resolve|response/i);
+    assert.match(interaction.optionalAdditionalCost, /None/);
     assert.match(interaction.replacement, /No replacement|not a post-entry/i);
     assert.match(interaction.layers, /No continuous|no layer/i);
+    assert.match(interaction.orderingBasis, /303\.2\.a|simultaneous/);
     assert.ok(interaction.productionTestNames.every(name => productionNames.has(name)));
   }
   assert.deepEqual(OFFICIAL_EFFECT_ORDER_EVIDENCE.interactions[1].ruleRefs.filter(rule => [
@@ -244,7 +254,7 @@ test("Assembly Rig official CR, Radiance, SFD errata and production timelines ar
   ].includes(rule)), ["329", "329.1", "329.2", "329.3"]);
 });
 
-test("Assembly Rig production registry refuses the shipped judge-required program before activation", () => {
+test("Assembly Rig production registry binds the shipped executable program and exposes its real activation", () => {
   const binding = createProgramBinding({ cardPrograms: [program] });
   const kernel = world()
     .object("rig", {
@@ -256,16 +266,9 @@ test("Assembly Rig production registry refuses the shipped judge-required progra
       location: { type: "base", player: "A" }
     })
     .build();
-  assert.throws(
-    () => binding.describeActivate(kernel.getObject("rig"), "A", 0),
-    error => {
-      assert.equal(error.name, "ProgramBindingError");
-      assert.equal(error.code, "judge-required");
-      assert.equal(error.message, program.judgeReason);
-      assert.equal(error.detail, program);
-      return true;
-    }
-  );
+  const draft = binding.describeActivate(kernel.getObject("rig"), "A", 0);
+  assert.equal(draft.speed, "action");
+  assert.deepEqual(draft.body.map(instruction => instruction.op), ["effect.token"]);
 });
 
 test("Assembly Rig has one action-speed activated ability with the printed three-part cost", () => {
@@ -317,6 +320,10 @@ test("Assembly Rig body executes through the reference kernel: create-on-Chain t
   const kernel = world()
     .hand("assembly-rig", { name: "Assembly Rig", types: ["gear"], tags: ["Equipment"], energy: null, power: null })
     .build();
+  const scoped = kernel.clone({
+    sourceSnapshot: kernel.getObject("assembly-rig"),
+    controller: "A"
+  });
   const base = { type: "base", player: "A" };
   const [instruction] = program.abilities[0].body;
   // The reference kernel evaluates Expr args itself; substitute the printed
@@ -325,9 +332,9 @@ test("Assembly Rig body executes through the reference kernel: create-on-Chain t
     ...instruction.args,
     location: { kind: "constant", value: base }
   };
-  const run = runInstruction(tokenDefinition, args, { world: kernel });
+  const run = runInstruction(tokenDefinition, args, { world: scoped });
   assert.equal(run.result.status, "executed");
-  const created = kernel.query({ zone: "board", type: "unit" }).filter(object => object.isToken);
+  const created = scoped.query({ zone: "board", type: "unit" }).filter(object => object.isToken);
   assert.equal(created.length, 1);
   const [tokenRef] = run.linked["token.objects"];
   assert.deepEqual(tokenRef, created[0].ref);
@@ -351,7 +358,7 @@ function assemblyRigScene({
   deck = []
 } = {}) {
   return productionPlay({
-    programs: [executableCarrier],
+    programs: [program],
     answers: { "recycled-unit": ["fodder"] },
     build: builder => builder
       .player("A", { energy, power })
@@ -430,23 +437,33 @@ test(PRODUCTION_TEST_NAMES.golden, () => {
     event.timingPoint === "chain-item-finalize" && event.details?.item === draft.id);
   const tokenEntersChainAt = timeline.findIndex((event, index) => index > activationFinalizeAt &&
     event.timingPoint === "object-enters-chain" && event.object?.ref.id === mech.ref.id);
-  // The contract action bridge records the create/play leaves, but the event
-  // adapter only derives kill/move emissions from contract steps. It therefore
-  // emits the zone transitions without a card-played event for the token.
-  const tokenEntersAt = timeline.findIndex((event, index) => index > tokenEntersChainAt &&
-    event.timingPoint === "object-enters-board" && event.object?.ref.id === mech.ref.id);
-  const activationResolveAt = timeline.findIndex((event, index) => index > tokenEntersAt &&
+  const tokenItemId = f.engine.trace.find(entry => entry.item?.startsWith(`play:${mech.ref.id}:`))?.item;
+  assert.ok(tokenItemId, "the played token receives its own deterministic Play item");
+  const tokenPendingAt = timeline.findIndex((event, index) => index > tokenEntersChainAt &&
+    event.timingPoint === "chain-item-pending" && event.details?.item === tokenItemId);
+  const activationResolveAt = timeline.findIndex((event, index) => index > tokenPendingAt &&
     event.timingPoint === "chain-item-resolve" && event.details?.item === draft.id);
+  const tokenFinalizeAt = timeline.findIndex((event, index) => index > activationResolveAt &&
+    event.timingPoint === "chain-item-finalize" && event.details?.item === tokenItemId);
+  const tokenEntersAt = timeline.findIndex((event, index) => index > tokenFinalizeAt &&
+    event.timingPoint === "object-enters-board" && event.object?.ref.id === mech.ref.id);
+  // The event adapter emits the Resolve start after entering the permanent as
+  // part of the same Resolve transaction. Trace order remains pending ->
+  // Finalize -> Resolve; this event is not a boundary after Board entry.
+  const tokenResolveAt = timeline.findIndex((event, index) => index > tokenEntersAt &&
+    event.timingPoint === "chain-item-resolve" && event.details?.item === tokenItemId);
   assert.ok(activationPendingAt >= 0 && activationPendingAt < activationFinalizeAt);
-  assert.ok(activationFinalizeAt < tokenEntersChainAt && tokenEntersChainAt < tokenEntersAt &&
-    tokenEntersAt < activationResolveAt,
-  "the token action occurs synchronously inside the activated ability's final Resolve");
-  assert.equal(timeline.some(event => event.timingPoint === "card-played" &&
-    event.object?.ref.id === mech.ref.id), false,
-  "the same production gap also omits the token's card-played event");
-  assert.equal(timeline.some(event => event.timingPoint === "chain-item-pending" &&
-    event.object?.ref.id === mech.ref.id), false,
-  "the synthetic chain zone transition is not a Pending Chain item event");
+  assert.ok(activationFinalizeAt < tokenEntersChainAt && tokenEntersChainAt < tokenPendingAt &&
+    tokenPendingAt < activationResolveAt,
+  "CR 354.2-354.3: the child Play becomes Pending during the parent Resolve and waits for that Resolve");
+  assert.ok(activationResolveAt < tokenFinalizeAt && tokenFinalizeAt < tokenEntersAt &&
+    tokenEntersAt < tokenResolveAt,
+  "CR 337.1.b-337.2: the child Finalizes after the parent Resolve, then its Unit Resolve enters the Board");
+  assert.equal(timeline.filter(event => event.timingPoint === "card-played" &&
+    event.object?.ref.id === mech.ref.id).length, 1,
+  "the child is observable as a completed Play, not a bare zone jump");
+  assert.equal(timeline.filter(event => event.timingPoint === "chain-item-pending" &&
+    event.details?.item === tokenItemId).length, 1);
   assert.equal(timeline.filter(event => event.timingPoint === "object-enters-board" &&
     event.object?.ref.id === mech.ref.id).length, 1);
   assert.equal(f.kernel.linked(`${LINK_PREFIX}createdAmount`), 1);
@@ -455,12 +472,16 @@ test(PRODUCTION_TEST_NAMES.golden, () => {
   assert.deepEqual(f.engine.trace.filter(entry => entry.item === draft.id &&
     ["pending", "finalized", "resolved"].includes(entry.step)).map(entry => entry.step),
   ["pending", "finalized", "resolved"]);
-  assert.equal(f.engine.trace.filter(entry => String(entry.item).startsWith(`play:${mech.ref.id}:`) &&
-    entry.step === "finalized").length, 0,
-  "the production gap: the token does not receive its own Finalize trace");
-  assert.equal(f.engine.trace.filter(entry => String(entry.item).startsWith(`play:${mech.ref.id}:`) &&
-    entry.step === "resolved").length, 0,
-  "the production gap: the token does not receive its own Resolve trace");
+  assert.deepEqual(f.engine.trace.filter(entry => entry.item === tokenItemId)
+    .map(entry => entry.step),
+  ["pending", "finalize-start", "finalized", "resolve-start", "resolved", "removed"],
+  "the token Play receives its own Pending, Finalize and Resolve trace");
+  const traceFinalizeAt = f.engine.trace.findIndex(entry => entry.item === tokenItemId && entry.step === "finalized");
+  const traceResolveAt = f.engine.trace.findIndex(entry => entry.item === tokenItemId && entry.step === "resolve-start");
+  assert.ok(traceFinalizeAt >= 0 && traceFinalizeAt < traceResolveAt);
+  assert.equal(f.engine.trace.slice(traceFinalizeAt, traceResolveAt)
+    .some(entry => entry.step === "pass"), false,
+  "CR 337.2 has no Priority pass between the Unit token's Finalize and Resolve");
 });
 
 test(PRODUCTION_TEST_NAMES.integrationGolden, () => {
@@ -502,31 +523,35 @@ test(PRODUCTION_TEST_NAMES.integrationGolden, () => {
   "pending,finalized,resolved");
 });
 
-test(PRODUCTION_TEST_NAMES.gap, () => {
+test(PRODUCTION_TEST_NAMES.chainTiming, () => {
   const f = assemblyRigScene();
-  activate(f);
+  const draft = activate(f);
   f.engine.pass("A");
+  assert.equal(f.kernel.objects.filter(object => object.isToken).length, 0,
+    "the child Play remains Pending and off-Board during Priority");
   f.engine.pass("B");
   const [mech] = f.kernel.objects.filter(object => object.isToken);
   assert.ok(mech);
-  const tokenPending = f.engine.pipeline.events.filter(event =>
-    event.timingPoint === "chain-item-pending" &&
-    event.details?.item?.startsWith(`play:${mech.ref.id}:`));
-  const tokenFinalize = f.engine.pipeline.events.filter(event =>
-    event.timingPoint === "chain-item-finalize" &&
-    event.details?.item?.startsWith(`play:${mech.ref.id}:`));
-  assert.deepEqual(tokenPending, [],
-    "CR 350.2/352.1/440.2.c require the played token to become a Pending Chain item");
-  assert.deepEqual(tokenFinalize, [],
-    "the same token must pass its own Finalize before entering the Board");
-  assert.equal(f.engine.pipeline.events.some(event =>
-    event.timingPoint === "object-enters-chain" && event.object?.ref.id === mech.ref.id), true,
-  "the creation half is observable; only the deferred Chain Play boundary is missing");
-  assert.equal(f.engine.pipeline.events.some(event =>
-    event.timingPoint === "chain-item-pending" && event.object?.ref.id === mech.ref.id), false,
-  "a chain-zone transition alone does not satisfy the Pending Chain item requirement");
-  assert.equal(f.engine.pipeline.events.some(event =>
-    event.timingPoint === "object-enters-board" && event.object?.ref.id === mech.ref.id), true);
+  const tokenItem = f.engine.trace.find(entry => entry.item?.startsWith(`play:${mech.ref.id}:`))?.item;
+  assert.ok(tokenItem);
+  const steps = f.engine.trace.filter(entry => entry.item === tokenItem).map(entry => entry.step);
+  assert.deepEqual(steps, ["pending", "finalize-start", "finalized", "resolve-start", "resolved", "removed"]);
+  const events = f.engine.pipeline.events.filter(event =>
+    ["chain-item-pending", "chain-item-finalize", "chain-item-resolve",
+      "object-enters-chain", "object-enters-board", "card-played"].includes(event.timingPoint) &&
+    (event.details?.item === draft.id || event.details?.item === tokenItem || event.object?.ref.id === mech.ref.id));
+  assert.deepEqual(events.map(event =>
+    `${event.timingPoint}:${event.details?.item ?? event.object?.ref.id}`), [
+    `chain-item-pending:${draft.id}`,
+    `chain-item-finalize:${draft.id}`,
+    `object-enters-chain:${mech.ref.id}`,
+    `chain-item-pending:${tokenItem}`,
+    `chain-item-resolve:${draft.id}`,
+    `chain-item-finalize:${tokenItem}`,
+    `object-enters-board:${mech.ref.id}`,
+    `card-played:${mech.ref.id}`,
+    `chain-item-resolve:${tokenItem}`
+  ]);
 });
 
 test(PRODUCTION_TEST_NAMES.universalPower, () => {
@@ -572,6 +597,55 @@ test(PRODUCTION_TEST_NAMES.missingTrash, () => {
   assertUnchangedActivationFailure(f, error =>
     error.name === "CostPlanError" && error.reason === "invalid-cost-plan" &&
     /Cost choice cannot be completed/.test(error.message));
+});
+
+test(PRODUCTION_TEST_NAMES.trashChoice, () => {
+  const f = productionPlay({
+    programs: [program],
+    answers: { "cost:activate:rig": ["chosen-fodder"] },
+    build: builder => {
+      builder = builder
+        .player("A", { energy: 1, power: ["Fury"] })
+        .player("B")
+        .deck(["top"], { owner: "A" })
+        .object("rig", {
+          owner: "A",
+          controller: "A",
+          cardId: CARD_ID,
+          name: "Assembly Rig",
+          types: ["gear"],
+          zone: "board",
+          location: { type: "base", player: "A" },
+          energy: 4,
+          power: null,
+          might: null,
+          exhausted: false
+        });
+      for (const id of ["left-fodder", "chosen-fodder"]) {
+        builder = builder.card(id, {
+          owner: "A",
+          types: ["unit"],
+          tags: ["Mech"],
+          zone: "trash",
+          energy: 2,
+          power: null,
+          might: 2
+        });
+      }
+      return builder;
+    }
+  });
+  activate(f);
+  assert.equal(f.requests.some(request => request.id.endsWith("pick:recycled-unit")), true);
+  assert.equal(f.kernel.getObject("chosen-fodder").zone, "deck");
+  assert.equal(f.kernel.getObject("left-fodder").zone, "trash");
+  assert.deepEqual(f.kernel.zone("A", "deck").map(ref => ref.id),
+    ["top", "chosen-fodder"]);
+  f.engine.pass("A");
+  f.engine.pass("B");
+  const [mech] = f.kernel.objects.filter(object => object.isToken);
+  assert.equal(mech.location.player, "A");
+  assert.equal(mech.exhausted, true);
 });
 
 test(PRODUCTION_TEST_NAMES.missingEnergy, () => {

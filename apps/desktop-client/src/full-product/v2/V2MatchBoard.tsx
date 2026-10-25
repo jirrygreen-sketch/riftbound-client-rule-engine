@@ -196,6 +196,9 @@ export function V2MatchBoard({
 }: V2MatchBoardProps) {
   const projection = state.projection;
   const [joinRoomId, setJoinRoomId] = useState("");
+  // Both clients defaulted to the same profile name, so the board showed two
+  // players called "玩家" (RIFT-1055); the lobby lets each player set theirs.
+  const [seatName, setSeatName] = useState(playerName);
   const [selectedPrecon, setSelectedPrecon] = useState<V2M1PreconId>("rumble-sfd");
   const [catalogCards, setCatalogCards] = useState<readonly CatalogCard[]>([]);
   const [catalogStatus, setCatalogStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
@@ -295,18 +298,19 @@ export function V2MatchBoard({
         {!connected && onConnect ? <button type="button" className="v2-primary-action" onClick={onConnect}>连接 V2 服务</button> : null}
         {connected && room === null ? (
           <section className="v2-lobby" aria-label="V2 房间入口">
-            <button type="button" className="v2-primary-action" disabled={!onCreateRoom} onClick={() => {
+            <label>玩家名 <input value={seatName} maxLength={32} onChange={event => setSeatName(event.currentTarget.value)} /></label>
+            <button type="button" className="v2-primary-action" disabled={!onCreateRoom || !seatName.trim()} onClick={() => {
               setLobbyError(null);
-              void onCreateRoom?.(playerName).catch(caught => setLobbyError(caught instanceof Error ? caught.message : "建房失败。"));
+              void onCreateRoom?.(seatName.trim()).catch(caught => setLobbyError(caught instanceof Error ? caught.message : "建房失败。"));
             }}>创建 1v1 房间</button>
             <form onSubmit={event => {
               event.preventDefault();
-              if (!joinRoomId.trim()) return;
+              if (!joinRoomId.trim() || !seatName.trim()) return;
               setLobbyError(null);
-              void onJoinRoom?.(joinRoomId.trim(), playerName).catch(caught => setLobbyError(caught instanceof Error ? caught.message : "加入失败。"));
+              void onJoinRoom?.(joinRoomId.trim(), seatName.trim()).catch(caught => setLobbyError(caught instanceof Error ? caught.message : "加入失败。"));
             }}>
               <label>房间号 <input value={joinRoomId} onChange={event => setJoinRoomId(event.currentTarget.value)} /></label>
-              <button type="submit" disabled={!onJoinRoom || !joinRoomId.trim()}>加入房间</button>
+              <button type="submit" disabled={!onJoinRoom || !joinRoomId.trim() || !seatName.trim()}>加入房间</button>
             </form>
           </section>
         ) : null}
@@ -334,13 +338,23 @@ export function V2MatchBoard({
   const opponent = projection.players.find(player => player.playerId !== projection.viewerPlayerId) ?? null;
   const ownHand = projection.zones.find(zone => zone.zone === "hand" && zone.ownerPlayerId === projection.viewerPlayerId)?.objects ??
     projection.objects.filter(object => object.zone === "hand" && object.ownerPlayerId === projection.viewerPlayerId);
-  const baseObjects = visibleV2Objects(projection, "base");
-  const battlefieldObjects = visibleV2Objects(projection, "battlefield").concat(visibleV2Objects(projection, "board"));
+  // Permanents sit in the "board" zone wherever they are; where they are comes
+  // from `location`, so units and gear in a base must not be listed as being on
+  // a battlefield (found in a real two-browser M1 run, RIFT-1055).
+  const boardObjects = [...visibleV2Objects(projection, "base"), ...visibleV2Objects(projection, "battlefield"),
+    ...visibleV2Objects(projection, "board")];
+  const baseObjects = boardObjects.filter(object => baseOwnerOf(object) !== null);
+  const battlefieldObjects = boardObjects.filter(object => object.location?.kind === "battlefield");
+  const battlefieldPanels = projectedBattlefieldPanels(projection, boardObjects);
   const runeObjects = visibleV2Objects(projection, "rune-zone");
   const ownRunes = runeObjects.filter(object => object.ownerPlayerId === projection.viewerPlayerId);
   const opponentRunes = runeObjects.filter(object => object.ownerPlayerId !== projection.viewerPlayerId);
   const ownUnits = [...baseObjects, ...battlefieldObjects].filter(object =>
     (object.controllerPlayerId ?? object.ownerPlayerId) === projection.viewerPlayerId);
+  const objectName = (objectId: string): string => {
+    const object = projection.objects.find(candidate => candidate.objectId === objectId);
+    return object?.name ?? object?.cardId ?? objectId;
+  };
   const targetCandidates = projectedTargetCandidates(projection);
   // Plain derivations, not hooks: this code runs only after the
   // `projection === null` early return above, so a hook here would change the
@@ -356,7 +370,7 @@ export function V2MatchBoard({
     }
     return [...groups].map(([key, options]) => ({
       key, options,
-      label: options[0]!.destination.kind === "base" ? "我的基地" : `战场 ${options[0]!.destination.battlefieldId}`
+      label: locationLabel(projection, options[0]!.destination)
     }));
   })();
   const selectedPlayDestinationOption = playDestinationOptions.find(option => option.key === selectedPlayDestination) ??
@@ -443,9 +457,9 @@ export function V2MatchBoard({
       </section>
       <section className="v2-board-grid" aria-label="牌桌区域">
         <ZonePanel title="对手手牌" count={opponent?.handCount ?? 0} hidden />
-        <ZonePanel title="对手基地" objects={baseObjects.filter(object => object.location?.kind === "base" && object.location.playerId !== projection.viewerPlayerId)} />
-        <ZonePanel title="战场" objects={battlefieldObjects} />
-        <ZonePanel title="我的基地" objects={baseObjects.filter(object => object.location?.kind === "base" && object.location.playerId === projection.viewerPlayerId)} />
+        <ZonePanel title="对手基地" objects={baseObjects.filter(object => baseOwnerOf(object) !== projection.viewerPlayerId)} />
+        {battlefieldPanels.map(panel => <ZonePanel key={panel.battlefieldId} title={panel.title} objects={panel.objects} />)}
+        <ZonePanel title="我的基地" objects={baseObjects.filter(object => baseOwnerOf(object) === projection.viewerPlayerId)} />
         <ZonePanel title="对手公开符文" objects={opponentRunes} />
         <ZonePanel title="我的符文" objects={ownRunes} count={viewer?.zoneCounts["rune-zone"] ?? ownRunes.length} />
       </section>
@@ -552,7 +566,7 @@ export function V2MatchBoard({
         </div>}
       </section> : null}
       {!setup ? <section className="v2-action-panel" aria-label="移动操作">
-        <div className="v2-section-heading"><h3>移动</h3><span>{selectedUnitId ?? "选择单位与目的地"}</span></div>
+        <div className="v2-section-heading"><h3>移动</h3><span>{selectedUnitId === null ? "选择单位与目的地" : objectName(selectedUnitId)}</span></div>
         <div className="v2-choice-options">{movableUnits.length === 0 ? <p className="v2-muted">当前没有可移动的单位</p> : null}{movableUnits.map(unit => <button key={unit.objectId} type="button" aria-pressed={selectedUnitId === unit.objectId} disabled={setup} onClick={() => setSelectedUnitId(unit.objectId)}>{unit.name ?? unit.cardId ?? unit.objectId}</button>)}</div>
         <label>目的地 <select value={selectedDestination} onChange={event => setSelectedDestination(event.currentTarget.value)}><option value="">选择</option>{destinationOptions.map(destination => <option key={destination.id} value={destination.id}>{destination.label}</option>)}</select></label>
         <button type="button" disabled={setup || !canAct || selectedUnitId === null || selectedDestination === ""} onClick={() => {
@@ -597,9 +611,46 @@ function projectedMoveDestinations(projection: V2Projection): readonly {
   readonly value: { readonly kind: "base"; readonly playerId: string } | { readonly kind: "battlefield"; readonly battlefieldId: string };
 }[] {
   const base = projection.viewerPlayerId ? [{ id: `base:${projection.viewerPlayerId}`, label: "我的基地", value: { kind: "base" as const, playerId: projection.viewerPlayerId } }] : [];
-  const battlefieldName = (id: string): string =>
-    projection.objects.find(object => object.objectId === id)?.name ?? id;
-  return [...base, ...projection.scoring.battlefieldLocationIds.map(id => ({ id: `battlefield:${id}`, label: `战场 ${battlefieldName(id)}`, value: { kind: "battlefield" as const, battlefieldId: id } }))];
+  return [...base, ...projection.scoring.battlefieldLocationIds.map(id => {
+    const value = { kind: "battlefield" as const, battlefieldId: id };
+    return { id: `battlefield:${id}`, label: locationLabel(projection, value), value };
+  })];
+}
+
+/** The player whose base holds this object, or null when it is not in a base. */
+function baseOwnerOf(object: V2ProjectedObject): string | null {
+  if (object.location?.kind === "base") return object.location.playerId;
+  return object.zone === "base" && object.location === undefined ? object.controllerPlayerId ?? object.ownerPlayerId : null;
+}
+
+function battlefieldName(projection: V2Projection, battlefieldId: string): string {
+  const card = projection.objects.find(object => object.objectId === battlefieldId);
+  return card?.name ?? card?.cardId ?? battlefieldId;
+}
+
+function locationLabel(projection: V2Projection, location: V2PlayOption["destination"]): string {
+  if (location.kind === "battlefield") return `战场 ${battlefieldName(projection, location.battlefieldId)}`;
+  return location.playerId === projection.viewerPlayerId ? "我的基地" :
+    `${projection.players.find(player => player.playerId === location.playerId)?.name ?? "对手"} 的基地`;
+}
+
+/** One panel per battlefield: the battlefield card's name, its controller, and the units there. */
+function projectedBattlefieldPanels(projection: V2Projection, boardObjects: readonly V2ProjectedObject[]): readonly {
+  readonly battlefieldId: string;
+  readonly title: string;
+  readonly objects: readonly V2ProjectedObject[];
+}[] {
+  return projection.scoring.battlefieldLocationIds.map(battlefieldId => {
+    const controllerId = projection.battlefields?.find(field => field.battlefieldId === battlefieldId)?.controllerPlayerId ?? null;
+    const controller = controllerId === null ? "无人控制" : controllerId === projection.viewerPlayerId ? "我方控制" :
+      `${projection.players.find(player => player.playerId === controllerId)?.name ?? "对手"} 控制`;
+    return {
+      battlefieldId,
+      title: `战场 · ${battlefieldName(projection, battlefieldId)}（${controller}）`,
+      objects: boardObjects.filter(object => object.objectId !== battlefieldId &&
+        object.location?.kind === "battlefield" && object.location.battlefieldId === battlefieldId)
+    };
+  });
 }
 
 function sameMoveDestination(
@@ -650,7 +701,13 @@ function choiceKindLabel(kind: Extract<V2PendingChoice, { status: "pending" }>["
 }
 
 function ChainPanel({ projection }: { readonly projection: V2Projection }) {
-  return <section className="v2-chain" aria-label="链与优先权"><div className="v2-section-heading"><h3>链 / 优先权</h3><span>{projection.priority.playerId ? `优先权：${projection.priority.playerId}` : "无优先权"}</span></div><p>链状态：{projection.chain.status} · 阶段：{projection.chain.phase} · 窗口：{projection.priority.window} · Focus：{projection.priority.focusPlayerId ?? "无"}</p>{projection.chain.items.length === 0 ? <p className="v2-muted">链为空</p> : <ol>{projection.chain.items.map(item => <li key={item.itemId}>{item.kind} · {item.status}{item.sourceObjectId ? ` · ${item.sourceObjectId}` : ""}</li>)}</ol>}</section>;
+  const playerName = (playerId: string): string =>
+    projection.players.find(player => player.playerId === playerId)?.name ?? playerId;
+  const sourceName = (objectId: string): string => {
+    const object = projection.objects.find(candidate => candidate.objectId === objectId);
+    return object?.name ?? object?.cardId ?? objectId;
+  };
+  return <section className="v2-chain" aria-label="链与优先权"><div className="v2-section-heading"><h3>链 / 优先权</h3><span>{projection.priority.playerId ? `优先权：${playerName(projection.priority.playerId)}` : "无优先权"}</span></div><p>链状态：{projection.chain.status} · 阶段：{projection.chain.phase} · 窗口：{projection.priority.window} · Focus：{projection.priority.focusPlayerId ? playerName(projection.priority.focusPlayerId) : "无"}</p>{projection.chain.items.length === 0 ? <p className="v2-muted">链为空</p> : <ol>{projection.chain.items.map(item => <li key={item.itemId}>{item.kind} · {item.status}{item.sourceObjectId ? ` · ${sourceName(item.sourceObjectId)}` : ""}</li>)}</ol>}</section>;
 }
 
 function LogPanel({ projection, events }: { readonly projection: V2Projection; readonly events: V2ClientState["events"] }) {
