@@ -7,7 +7,7 @@
 // - 001/Ferrous Forerunner: "complete numeric Energy and Power"
 // - 027/Gem Jammer, 037/Gem Jammer, 059/Forecaster, 084/Dangerous Duo,
 //   093/Dangerous Duo, 100/Forecaster: exact numeric Power provenance
-// - 047: the recycle PickSpec's self-anchored relation filtered a legal fodder
+// - 047: no legal object for Rumble's Finalize recycle cost
 // - 067/Rumble Scrapper: "complete numeric Energy and Power"
 // A Conquer wave may also contain Minefield's trigger. The recorded failure is
 // associated with the last Rumble trigger item in that wave, not necessarily
@@ -17,12 +17,10 @@
 // play candidate; a Pass has no candidate. The first eight are not cards whose
 // programs were judge-required. They are the pre-RIFT-1066 effect-Play adapter
 // running without the trusted printed catalog, and must still fail closed if a
-// production binding lacks that evidence. In 047, the self-anchored relation was
-// not resolved by the historical cost-choice adapter, so an existing friendly
-// Unit became invalid rather than being excluded as the source. The current
-// engine fixes that adapter boundary. Separately, when the source truly is the
-// only friendly Unit (e05bc0ba/094), Finalize applies CR 403.4 and removes the
-// Pending may instead of leaking `invalid-cost-plan` from a later Pass/advance.
+// production binding lacks that evidence. The empty-candidate cases (historical
+// 047 and current e05bc0ba/094) had no friendly Unit other than Rumble. The
+// current engine applies CR 403.4 and removes the Pending may instead of
+// leaking `invalid-cost-plan` from a later Pass/advance.
 //
 // Official evidence: Core Rules v1.5, published 2026-10-09 and effective
 // 2026-10-16:
