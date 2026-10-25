@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { performance } from "node:perf_hooks";
-import assemblyRig from "../../../card-dsl/dist/cards/sfd/assembly-rig.js";
+import confront from "../../../card-dsl/dist/cards/ogn/confront.js";
 import { cardPrograms } from "../../../card-dsl/dist/cards/registry.generated.js";
 import { createProgramBinding } from "../../../engine-core/dist/programs/index.js";
 import type { CardProgram } from "../../../card-dsl/dist/ir/types.js";
@@ -19,7 +19,7 @@ import {
 
 const ref = (id: string) => ({ id, zoneEntryId: 1 });
 
-const blockerCardId = assemblyRig.canonicalCardId;
+const blockerCardId = confront.canonicalCardId;
 
 function harnessCard(id: string, name: string, types: readonly string[], seat: "A" | "B"): MatchCard {
   return { id: `${seat}:${id}`, cardId: `synthetic:${seat}:${id}`, name, types,
@@ -63,12 +63,12 @@ function runProductionSetupBlocker() {
     { player: (id: "A" | "B") => kernel.player(id) }) as MatchHost;
   const binding = createProgramBinding({ cardPrograms: cardPrograms as unknown as readonly CardProgram[] });
   const match = createMatch({ host, decks: [blockerDeck("A"), blockerDeck("B")],
-    programs: binding, seed: "RIFT-1042-assembly-rig-blocker", battlefieldChoice: [0, 0],
+    programs: binding, seed: "RIFT-1059-confront-blocker", battlefieldChoice: [0, 0],
     mulligans: [[], []], firstPlayer: 0 });
   const failures: Array<{ readonly error: unknown; readonly cardId: string | null }> = [];
   binding.attachLifecycle(match.flow.chain, (error, source) => failures.push({ error, cardId: source.cardId }));
   match.flow.chain.commit({ type: "create-token", player: "A", to: "board",
-    token: { cardId: blockerCardId, name: "Assembly Rig", types: ["gear"], tags: [],
+    token: { cardId: blockerCardId, name: "Confront", types: ["spell"], tags: [],
       energy: null, power: null, might: null },
     location: { type: "base", player: "A" } });
   return { failures };
@@ -128,17 +128,18 @@ function trace(
 describe("headless bot command strategy", () => {
   it("journals an active setup blocker without inventing gameplay or a winner", () => {
     // Both M1 precons are executable now, so they cannot reproduce a setup
-    // blocker. Assembly Rig remains judge-required in the production registry;
-    // place that real source on a Match and observe the production lifecycle.
+    // blocker. RIFT-1057 made Assembly Rig executable, so use Confront, which
+    // remains judge-required in the production registry; place that real source
+    // on a Match and observe the production lifecycle.
     const started = performance.now();
     const { failures } = runProductionSetupBlocker();
     const elapsedMs = performance.now() - started;
     expect(failures).toEqual(expect.arrayContaining([expect.objectContaining({
-      cardId: assemblyRig.canonicalCardId,
+      cardId: confront.canonicalCardId,
       error: expect.objectContaining({ name: "ProgramBindingError", code: "judge-required" }),
     })]));
-    expect(assemblyRig.status).toBe("judge-required");
-    expect(assemblyRig.judgeReason).toBeTruthy();
+    expect(confront.status).toBe("judge-required");
+    expect(confront.judgeReason).toBeTruthy();
     expect(elapsedMs).toBeLessThan(10_000);
 
     let journal: HeadlessJournal | undefined;
