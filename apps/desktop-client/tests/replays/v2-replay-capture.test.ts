@@ -229,6 +229,8 @@ describe("V2 local replay capture", () => {
     expect(swap.rejectedReason).toContain("不属于当前玩家");
   });
 
+  // This observed 15s under the full gate's parallel load, so keep a bounded
+  // margin above 10s while preserving every frame and event assertion.
   it("keeps every distinct frame through 56 turns and de-duplicates cumulative events", () => {
     const capture = captureFrames(600);
     expect(capture.frames).toHaveLength(600);
@@ -242,7 +244,7 @@ describe("V2 local replay capture", () => {
       projection: capture.frames.at(-1)!, events: capture.frames.at(-1)!.events
     });
     expect(same.capture?.frames).toHaveLength(600);
-  });
+  }, 30_000);
 
   it("saves a terminal recording and reads the identical viewer-scoped frames back", () => {
     const capture = captureFrames(5);

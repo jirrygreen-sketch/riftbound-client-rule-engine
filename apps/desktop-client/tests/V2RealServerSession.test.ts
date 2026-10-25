@@ -86,10 +86,13 @@ async function submissions(): Promise<readonly [RoomDeckSubmission, RoomDeckSubm
   return [submission("rumble-sfd", "A"), submission("fiora-sfd", "B")];
 }
 
-function projection(client: WireClient, minimumStateVersion = 0): Promise<V2Projection> {
+function projection(client: WireClient, minimumStateVersion = 0,
+  expectedPhase?: V2Projection["phase"]): Promise<V2Projection> {
   return client.wait(value => value !== null && typeof value === "object" &&
     (value as { type?: unknown }).type === "projection" &&
-    ((value as { projection?: { stateVersion?: number } }).projection?.stateVersion ?? -1) >= minimumStateVersion)
+    ((value as { projection?: { stateVersion?: number } }).projection?.stateVersion ?? -1) >= minimumStateVersion &&
+    (expectedPhase === undefined ||
+      (value as { projection?: { phase?: unknown } }).projection?.phase === expectedPhase))
     .then(message => {
       if (!isV2Projection(message.projection)) throw new Error("Invalid real V2 projection");
       return message.projection;
@@ -159,6 +162,16 @@ describe("desktop V2 session against the real public server", () => {
         (value as { requestId?: unknown }).requestId === `real-ready-${index}`)).roomVersion;
     }
     let [viewA, viewB] = await Promise.all([projection(alice), projection(bob)]);
+    const firstMulligan = viewA.activePlayerId === sessionA.playerId ? alice : bob;
+    for (const [index, client] of [firstMulligan,
+      firstMulligan === alice ? bob : alice].entries()) {
+      const commandId = `real-mulligan-${index}`;
+      client.send({ type: "command", protocolVersion: "2.0.0",
+        command: { type: "mulligan", commandId, stateVersion: 0, selectedObjectIds: [] } });
+      expect(await receipt(client, commandId))
+        .toMatchObject({ accepted: true, rejection: null });
+    }
+    [viewA, viewB] = await Promise.all([projection(alice, 0, "main"), projection(bob, 0, "main")]);
     for (let turn = 0; turn < 8; turn += 1) {
       const actorIsAlice = viewA.activePlayerId === sessionA.playerId;
       const actor = actorIsAlice ? alice : bob;

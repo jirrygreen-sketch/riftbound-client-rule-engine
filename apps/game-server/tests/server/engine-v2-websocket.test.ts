@@ -405,7 +405,24 @@ describe("protocol v2 engine runtime over WebSocket", () => {
     assertPrivateProjection(viewA, sessionA.playerId, sessionB.playerId);
     assertPrivateProjection(viewB, sessionB.playerId, sessionA.playerId);
 
-    let views: readonly [V2Projection, V2Projection] = [viewA, viewB];
+    const firstMulligan = viewA.activePlayerId === sessionA.playerId ? alice : bob;
+    for (const [index, client] of [firstMulligan,
+      firstMulligan === alice ? bob : alice].entries()) {
+      const commandId = `private-match-mulligan-${index}`;
+      client.send({ type: "command", protocolVersion: PROTOCOL_V2_VERSION,
+        command: { type: "mulligan", commandId, stateVersion: 0, selectedObjectIds: [] } });
+      expect(await client.wait(value => value !== null && typeof value === "object" &&
+        (value as { type?: unknown }).type === "command-receipt" &&
+        (value as { commandId?: unknown }).commandId === commandId))
+        .toMatchObject({ accepted: true, rejection: null });
+    }
+    const mainAfterMulligan = await Promise.all([
+      projection(alice, 0, "main"), projection(bob, 0, "main")
+    ]);
+    assertPrivateProjection(mainAfterMulligan[0], sessionA.playerId, sessionB.playerId);
+    assertPrivateProjection(mainAfterMulligan[1], sessionB.playerId, sessionA.playerId);
+
+    let views: readonly [V2Projection, V2Projection] = mainAfterMulligan;
     let receipt: any;
     let lastPass: any;
     let lastActor: Client;
