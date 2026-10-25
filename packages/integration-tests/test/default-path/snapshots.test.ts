@@ -8,6 +8,12 @@ import { scenarios } from "../../src/default-path/scenarios.js";
 
 const directory = fileURLToPath(new URL("./snapshots/", import.meta.url));
 const update = process.env.UPDATE_DEFAULT_PATH_SNAPSHOTS === "1";
+// This scenario is the suite's slowest surviving-game script and is sensitive
+// to the gate's package-wide CPU contention. It passed at 41.8s in gate
+// 5b654d5c and took 43.6-53.5s in isolated reruns, but exceeded the shared
+// 120s limit at 124-183s under two recent gate loads. Keep the 240s budget on
+// this scenario only; the upper observed time leaves about 31% headroom.
+const MOVEMENT_COMBAT_TIMEOUT_MS = 240_000;
 
 describe("CLI default room path snapshots", () => {
   it("pins the CLI fallback and exact existing real deck submissions", async () => {
@@ -33,7 +39,8 @@ describe("CLI default room path snapshots", () => {
   });
 
   for (const scenario of scenarios) {
-    it(scenario.id, async () => {
+    it(scenario.id, { timeout: scenario.id === "05-movement-combat-conquer-hold"
+      ? MOVEMENT_COMBAT_TIMEOUT_MS : undefined }, async () => {
       const driver = await DefaultPathDriver.create(scenario.seed);
       scenario.run(driver);
       const actual = driver.snapshot(scenario.id, scenario.coverage, scenario.stop);
