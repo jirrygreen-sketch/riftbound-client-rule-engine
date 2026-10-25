@@ -44,6 +44,14 @@ class Client {
 
   send(value: unknown): void { this.socket.send(JSON.stringify(value)); }
 
+  discardProjections(): void {
+    for (let index = this.messages.length - 1; index >= 0; index -= 1) {
+      const value = this.messages[index];
+      if (value !== null && typeof value === "object" &&
+          (value as { type?: unknown }).type === "projection") this.messages.splice(index, 1);
+    }
+  }
+
   async wait(
     predicate: (value: any) => boolean,
     rejectError = true,
@@ -172,8 +180,14 @@ async function connect(url: string, session?: ClientSession): Promise<Client> {
 
 async function projection(client: Client, minimumVersion = -1): Promise<V2Projection> {
   const message = await client.wait(value => value?.type === "projection" &&
-    (value.projection?.stateVersion ?? -1) >= minimumVersion);
+    (value.projection?.stateVersion ?? -1) >= minimumVersion && value.projection?.phase !== "setup");
   if (!isV2Projection(message.projection)) throw new Error("invalid v2 projection");
+  return message.projection;
+}
+
+async function setupProjection(client: Client): Promise<V2Projection> {
+  const message = await client.wait(value => value?.type === "projection" && value.projection?.phase === "setup");
+  if (!isV2Projection(message.projection)) throw new Error("invalid setup projection");
   return message.projection;
 }
 
@@ -187,6 +201,7 @@ async function command(client: Client, value: V2Command): Promise<any> {
 }
 
 async function sync(client: Client, requestId: string, minimumVersion: number): Promise<V2Projection> {
+  client.discardProjections();
   client.send({ type: "sync-events", requestId, afterEventSeq: 0 });
   await client.wait(value => value?.type === "request-result" && value.requestId === requestId);
   return projection(client, minimumVersion);
@@ -334,6 +349,18 @@ async function preparedPair(port: number, roomId: string) {
   room.setReady(sessionA, connectionA.connectionId, room.currentRoomVersion, true, "prepare-ready-a", noMessages);
   room.submitDeck(sessionB, connectionB.connectionId, room.currentRoomVersion, deckB, "prepare-deck-b", noMessages);
   room.setReady(sessionB, connectionB.connectionId, room.currentRoomVersion, true, "prepare-ready-b", noMessages);
+  let setup: V2Projection | undefined;
+  room.sendProjection("player-1", message => { setup = (message as { projection: V2Projection }).projection; });
+  if (!setup) throw new Error("prepared room did not project its mulligan window");
+  const order = setup.activePlayerId === "player-1"
+    ? [[sessionA, connectionA], [sessionB, connectionB]] as const
+    : [[sessionB, connectionB], [sessionA, connectionA]] as const;
+  for (const [index, [session, connection]] of order.entries()) {
+    room.submitEngineV2(session, connection.connectionId, {
+      type: "mulligan", commandId: `prepare-mulligan-${index}`, stateVersion: 0,
+      selectedObjectIds: [],
+    }, noMessages);
+  }
   const runtime = (room as unknown as { readonly engineRuntime: EngineRuntime | null }).engineRuntime;
   if (runtime === null) throw new Error("prepared room did not create its authoritative runtime");
   prepareTargetScene(runtime);
@@ -481,7 +508,37 @@ describe("protocol v2 play targets over the real runtime and WebSocket", () => {
       roomVersion = (await client.wait(value => value?.type === "request-result" &&
         value.requestId === `ready-${index}`)).roomVersion;
     }
-    const [beforeA, beforeB] = await Promise.all([projection(alice), projection(bob)]);
+    alice.send({ type: "sync-events", requestId: "error-sync-setup-a" });
+    bob.send({ type: "sync-events", requestId: "error-sync-setup-b" });
+    await Promise.all([
+      alice.wait(value => value?.type === "request-result" && value.requestId === "error-sync-setup-a"),
+      bob.wait(value => value?.type === "request-result" && value.requestId === "error-sync-setup-b"),
+    ]);
+    const waitingA = await setupProjection(alice);
+    const waitingB = await setupProjection(bob);
+    expect(waitingA.phase).toBe("setup");
+    expect(waitingB.phase).toBe("setup");
+    const firstClient = waitingA.activePlayerId === sessionA.playerId ? alice : bob;
+    const secondClient = firstClient === alice ? bob : alice;
+    firstClient.send({ type: "command", protocolVersion: PROTOCOL_V2_VERSION,
+      command: { type: "mulligan", commandId: "error-path-mulligan-a", stateVersion: 0, selectedObjectIds: [] } });
+    await receipt(firstClient, "error-path-mulligan-a");
+    secondClient.send({ type: "command", protocolVersion: PROTOCOL_V2_VERSION,
+      command: { type: "mulligan", commandId: "error-path-mulligan-b", stateVersion: 0, selectedObjectIds: [] } });
+    await receipt(secondClient, "error-path-mulligan-b");
+    for (const client of [alice, bob]) client.latestProjection = null;
+    alice.send({ type: "sync-events", requestId: "error-sync-main-a" });
+    bob.send({ type: "sync-events", requestId: "error-sync-main-b" });
+    await Promise.all([
+      alice.wait(value => value?.type === "request-result" && value.requestId === "error-sync-main-a"),
+      bob.wait(value => value?.type === "request-result" && value.requestId === "error-sync-main-b"),
+    ]);
+    const [beforeA, beforeB] = await Promise.all([
+      sync(alice, "error-main-sync-a", -1),
+      sync(bob, "error-main-sync-b", -1),
+    ]);
+    expect(beforeA.phase).toBe("main");
+    expect(beforeB.phase).toBe("main");
     const commandId = failingCommandId;
     store.failCommand = true;
     alice.send({ type: "command", protocolVersion: PROTOCOL_V2_VERSION,
