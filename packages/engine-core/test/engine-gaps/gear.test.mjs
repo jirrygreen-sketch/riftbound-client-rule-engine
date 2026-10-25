@@ -53,7 +53,7 @@ const gearObject = (id = 'gear') => ({
   might: null,
 });
 
-const hostObject = { id: 'host', types: ['unit'], might: 2, location: battlefield };
+const hostObject = { id: 'host', types: ['unit'], zone: 'board', might: 2, location: battlefield };
 const enemyObject = { id: 'enemy', owner: 'B', controller: 'B', types: ['unit'], might: 2, location: battlefield };
 const secondGearObject = { ...gearObject('second-gear'), cardId: 'test:second-gear' };
 

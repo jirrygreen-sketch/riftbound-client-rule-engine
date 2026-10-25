@@ -118,8 +118,8 @@ test("targeting-pending-item-not-targetable: pending chain objects are excluded 
 });
 
 test("host may distinguish finalized chain objects from pending objects", () => {
-  const ctx = world([object("a", { zone: "chain" }), object("b")]);
-  assert.deepEqual(queryTargetCandidates(ctx, requirement({ filter: { type: "unit" } }), { isPending: candidate => candidate.id === "b" }), [ref("a")]);
+  const ctx = world([object("a", { types: ["spell"], zone: "chain" }), object("b")]);
+  assert.deepEqual(queryTargetCandidates(ctx, requirement({ filter: { type: "spell", zone: "chain" } }), { isPending: candidate => candidate.id === "b" }), [ref("a")]);
 });
 
 test("mandatory target asks the context for one answer", () => {

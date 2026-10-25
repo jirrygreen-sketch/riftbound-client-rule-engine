@@ -70,9 +70,16 @@ test('keywords-quickdraw-attach-on-play: with no friendly Unit the attach trigge
     setup: w => w.hand('gear', { cardId: QUICK_DRAW, types: ['gear'], energy: 2, power: [], keywords: [{ id: 'Quick-Draw' }] })
   });
 
-  // The trigger enters the chain but its required ≥1 target cannot be selected.
-  assert.throws(() => { f.play('gear'); settle(f.engine); });
+  // RIFT-1063 / CR 403.4: after the Gear is successfully played, the mandatory
+  // trigger is put on the Chain and is removed there because its required target
+  // cannot be selected. Removal is not a counter; the Gear stays unattached.
+  f.play('gear');
+  settle(f.engine);
+  assert.equal(f.get('gear').zone, 'board', 'the Quick-Draw Gear is successfully played');
+  assert.ok(f.engine.trace.some(entry => entry.step === 'removed' && entry.reason === 'unperformable-trigger'),
+    'the targetless trigger is removed from the Chain under CR 403.4');
   assert.equal(f.get('gear').attachedTo, null);
+  assert.deepEqual(f.engine.items, []);
 });
 
 test.todo('keywords-quickdraw-playable-with-reaction-timing (CR 819.1.b/819.1.c): the printed keyword must let the Gear be played in a Closed State — blocked: `programs/keywords.ts abilitySpeed()` only maps the literal keyword ids `reaction`/`action`, and the Quick-Draw timing grant is a *static* ability that src/programs/lifecycle.ts binds only when the object enters the Board, so a Quick-Draw card in Hand still drafts at normal speed and the ChainEngine rejects it in a Closed State; the attach half above is real execution');
