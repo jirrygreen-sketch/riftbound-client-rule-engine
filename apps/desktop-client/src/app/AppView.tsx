@@ -31,6 +31,7 @@ import { writeCatalogServerUrl } from "../decks/ui-preferences";
 import { PlayableMatchBoard } from "../full-product/PlayableMatchBoard";
 import { DuelMatchBoard } from "../full-product/DuelMatchBoard";
 import { V2MatchBoard } from "../full-product/v2/V2MatchBoard";
+import { clearV2Session } from "../full-product/v2/session-storage";
 import { toPlayableConnectionStatus } from "../full-product/transport";
 import { normalizeCardServerUrl } from "../net/CardCatalogClient";
 import { DECK_ZONE_LABELS, DECK_ZONE_ORDER } from "./deck-policy";
@@ -171,6 +172,11 @@ export function AppView({
     disconnect();
     setActiveTab("home");
     void exitDesktopClient().catch(() => setExitError("客户端未能关闭，请使用窗口关闭按钮退出。"));
+  };
+  const leaveV2Room = (): void => {
+    clearV2Session(preferenceStorage);
+    v2Match.leaveRoom();
+    setActiveTab("room");
   };
 
   return (
@@ -410,6 +416,7 @@ export function AppView({
               onJoinRoom={(roomIdValue, name) => v2Match.joinRoom(roomIdValue, name)}
               onSubmitDeck={v2Match.submitDeck}
               onSetReady={v2Match.setReady}
+              onLeaveRoom={leaveV2Room}
               onCommand={v2Match.sendCommand}
             />
           ) : roomView ? (
@@ -471,6 +478,7 @@ export function AppView({
             onJoinRoom={(roomIdValue, name) => v2Match.joinRoom(roomIdValue, name)}
             onSubmitDeck={v2Match.submitDeck}
             onSetReady={v2Match.setReady}
+            onLeaveRoom={leaveV2Room}
             onCommand={v2Match.sendCommand}
           />
           {roomId ? chat : null}

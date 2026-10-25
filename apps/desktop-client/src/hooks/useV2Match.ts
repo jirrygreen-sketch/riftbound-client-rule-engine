@@ -37,6 +37,8 @@ export interface V2MatchClient extends V2MatchSessionSnapshot {
   readonly submitDeck: (deck: RoomDeckSubmission) => Promise<RoomView>;
   readonly setReady: (ready: boolean) => Promise<RoomView>;
   readonly sendCommand: (request: V2CommandRequest) => Promise<V2CommandReceipt>;
+  /** Drop the room/session and reconnect without a resume identity. */
+  readonly leaveRoom: () => void;
 }
 
 const emptySnapshot: V2MatchSessionSnapshot = {
@@ -97,6 +99,7 @@ export function useV2Match(options: UseV2MatchOptions): V2MatchClient {
     submitDeck: (deck: RoomDeckSubmission) => Promise<RoomView>;
     setReady: (ready: boolean) => Promise<RoomView>;
     sendCommand: (request: V2CommandRequest) => Promise<V2CommandReceipt>;
+    leaveRoom: () => void;
     connect: () => void;
   }>({
     createRoom: () => Promise.reject(new Error("Protocol v2 is not connected")),
@@ -104,6 +107,7 @@ export function useV2Match(options: UseV2MatchOptions): V2MatchClient {
     submitDeck: () => Promise.reject(new Error("Protocol v2 is not connected")),
     setReady: () => Promise.reject(new Error("Protocol v2 is not connected")),
     sendCommand: () => Promise.reject(new Error("Protocol v2 is not connected")),
+    leaveRoom: () => undefined,
     connect: () => undefined
   });
   useEffect(() => {
@@ -138,6 +142,7 @@ export function useV2Match(options: UseV2MatchOptions): V2MatchClient {
       submitDeck: deck => controller.submitDeck(deck),
       setReady: ready => controller.setReady(ready),
       sendCommand: request => controller.sendCommand(request),
+      leaveRoom: () => controller.discardRecoverySession(),
       connect: () => controller.connect()
     };
     const unsubscribe = controller.subscribe(setSnapshot);
@@ -163,6 +168,7 @@ export function useV2Match(options: UseV2MatchOptions): V2MatchClient {
     joinRoom: (roomId, playerName) => callbacksRef.current.joinRoom(roomId, playerName),
     submitDeck: deck => callbacksRef.current.submitDeck(deck),
     setReady: ready => callbacksRef.current.setReady(ready),
-    sendCommand: request => callbacksRef.current.sendCommand(request)
+    sendCommand: request => callbacksRef.current.sendCommand(request),
+    leaveRoom: () => callbacksRef.current.leaveRoom()
   };
 }
