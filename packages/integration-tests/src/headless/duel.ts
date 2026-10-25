@@ -24,7 +24,9 @@ import {
   type BasicRuneIdentity,
 } from "../../../engine-core/dist/runes/index.js";
 
-const { buildM1Deck, M1_DECK_IDS } = await import(new URL("./decks.ts", import.meta.url).href);
+const { buildM1Deck, M1_DECK_IDS, trustedPrintedCatalog } = await import(
+  new URL("./decks.ts", import.meta.url).href,
+);
 
 export const HEADLESS_SEEDS = Object.freeze(Array.from({ length: 20 }, (_, index) => `RIFT-345-seed-${index + 1}`));
 export const HEADLESS_MATRIX_SEEDS = Object.freeze(HEADLESS_SEEDS.slice(0, 5));
@@ -917,7 +919,10 @@ function createHeadlessContext(
   expectedSetupBlockers?: readonly HeadlessFailure[],
 ): HeadlessContext {
   const decks = [cloneDeck(buildM1Deck(pair.A, "A"), "A"), cloneDeck(buildM1Deck(pair.B, "B"), "B")] as const;
-  const programs = createProgramBinding({ cardPrograms: cardPrograms as unknown as readonly CardProgram[] });
+  const programs = createProgramBinding({
+    cardPrograms: cardPrograms as unknown as readonly CardProgram[],
+    printedCatalog: trustedPrintedCatalog(),
+  });
   const mulligans = requestedMulligans ?? chooseMulligans(seed, openingHandsFor(seed, decks));
   const state = makeWorld(seed);
   const match = setupMatch(seed, state, programs, decks, mulligans);
