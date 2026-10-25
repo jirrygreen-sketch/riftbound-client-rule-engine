@@ -6,11 +6,12 @@ import {
   type ProgramBinding,
   type ProgramPrintedCatalogCard,
 } from "../../../../packages/engine-core/dist/programs/index.js";
+import { triggerRegistrations } from "../../../../packages/engine-core/dist/programs/triggers.js";
 import { createEngineStaticBinder } from "../../../../packages/engine-core/dist/programs/statics.js";
 import { playPermissionAllows } from "../../../../packages/engine-core/dist/programs/play-permissions.js";
 import { moveUnits } from "../../../../packages/engine-core/dist/game/commands/movement.js";
-import type { ChoiceRequest, Domain, GameAction, LocationRef, ObjectRef, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
-import type { TriggerRegistration } from "../../../../packages/engine-core/dist/events/pipeline-types.js";
+import type { ChoiceRequest, Domain, GameAction, Instruction, LocationRef, ObjectRef, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
+import type { TriggerRegistration, TriggerSnapshot } from "../../../../packages/engine-core/dist/events/pipeline-types.js";
 import {
   executeBasicRuneResourcePlan,
   planBasicRuneResourceActivation,
@@ -80,6 +81,21 @@ interface ObjectChoiceCandidate {
   readonly objectRef: { readonly objectId: string; readonly zoneEntryId: number };
 }
 
+interface ChoiceSourceMetadata {
+  readonly objectId?: string;
+  readonly name?: string;
+}
+
+interface ChoiceSourceRequestResult {
+  readonly source?: ChoiceSourceMetadata;
+  readonly prompt?: string;
+}
+
+interface CapturedTriggerSource {
+  readonly source: ReturnType<EngineRuntimeHost["objects"]>[number];
+  readonly prompt?: string;
+}
+
 export interface EngineRuntime {
   readonly matchId: string;
   start(): EngineRuntime;
@@ -123,6 +139,7 @@ interface RuntimeMetadataCheckpoint {
   readonly preparedPlay: PreparedPlay | null;
   readonly visibilityGrants: readonly RuntimeVisibilityGrant[];
   readonly seen: ReadonlyMap<string, SeenCommand>;
+  readonly triggerSources: ReadonlyMap<string, CapturedTriggerSource>;
 }
 
 /**
@@ -274,6 +291,139 @@ function choiceOptions(request: ChoiceRequest<unknown>, host: EngineRuntimeHost,
   return candidates.map(({ id, label, value, objectRef }) => ({ id, label, value, objectRef }));
 }
 
+/**
+ * Resolve auxiliary prompt metadata without widening the viewer's visibility.
+ * Trigger ids and instruction paths must identify one Chain item exactly. Any
+ * missing or ambiguous source is omitted rather than synthesized from card text.
+ */
+function choiceSourceRequest(request: ChoiceRequest<unknown>, host: EngineRuntimeHost, viewer: string | null,
+  grants: readonly RuntimeVisibilityGrant[], triggerRegistrations: readonly TriggerRegistration[],
+  chainItems: readonly { readonly id: string; readonly body: readonly Instruction[]; readonly source: { readonly ref: { readonly id: string; readonly zoneEntryId?: number } } }[],
+  triggerSources: ReadonlyMap<string, CapturedTriggerSource>): ChoiceSourceRequestResult {
+  if (viewer === null || viewer !== request.chooser) return {};
+  let source: ReturnType<EngineRuntimeHost["objects"]>[number] | undefined;
+  for (const registration of triggerRegistrations) {
+    const escaped = registration.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (!new RegExp(`^trigger:\\d+:${escaped}:(?:\\d+):optional$`).test(request.id)) continue;
+    source = host.objects().find(object => object.ref.id === registration.source.ref.id &&
+      object.ref.zoneEntryId === registration.source.ref.zoneEntryId) ?? registration.source;
+    break;
+  }
+  const chainMatch = /^finalize:trigger:(\d+):optional$/.exec(request.id);
+  if (source === undefined && chainMatch !== null) {
+    const itemId = `trigger:${chainMatch[1]}`;
+    source = triggerSources.get(itemId)?.source;
+    if (source === undefined) {
+      const item = chainItems.find(candidate => candidate.id === itemId);
+      if (item !== undefined) source = host.objects().find(object =>
+        object.ref.id === item.source.ref.id && object.ref.zoneEntryId === item.source.ref.zoneEntryId);
+    }
+  }
+  if (source === undefined) {
+    const itemId = choiceSourceItemId(request, chainItems);
+    source = itemId === undefined ? undefined : triggerSources.get(itemId)?.source;
+    if (source === undefined && itemId !== undefined) {
+      const item = chainItems.find(candidate => candidate.id === itemId);
+      if (item !== undefined) source = host.objects().find(object =>
+        object.ref.id === item.source.ref.id && object.ref.zoneEntryId === item.source.ref.zoneEntryId);
+    }
+  }
+  if (source === undefined) return request.prompt === undefined ? {} : { prompt: request.prompt };
+  const projected = projectObjectForChoice(source, viewer, grants);
+  const objectId = projected.objectId;
+  const name = !source.faceDown && !projected.faceDown ? source.name.trim() : "";
+  const sourceMetadata = {
+    ...(objectId.length === 0 ? {} : { objectId }),
+    ...(name.length === 0 ? {} : { name }),
+  };
+  const capturedItemId = chainMatch !== null ? `trigger:${chainMatch[1]}` : choiceSourceItemId(request, chainItems);
+  const prompt = request.prompt ??
+    (capturedItemId === undefined ? undefined : triggerSources.get(capturedItemId)?.prompt);
+  return {
+    ...(prompt === undefined ? {} : { prompt }),
+    ...(Object.keys(sourceMetadata).length === 0 ? {} : { source: sourceMetadata }),
+  };
+}
+
+/** Wire metadata is chooser-only and bounded; invalid engine text is omitted. */
+function wireChoicePrompt(value: string | undefined, viewer: string | null, owner: string): string | undefined {
+  return viewer !== owner || value === undefined || value.length === 0 || value.length > 512 || value.trim() !== value
+    ? undefined : value;
+}
+
+function wireChoiceSource(value: ChoiceSourceMetadata | undefined, viewer: string | null, owner: string): ChoiceSourceMetadata | undefined {
+  if (viewer !== owner || value === undefined) return undefined;
+  const objectId = value.objectId !== undefined && value.objectId.length > 0 && value.objectId.length <= 512 &&
+    value.objectId.trim() === value.objectId ? value.objectId : undefined;
+  const name = value.name !== undefined && value.name.length > 0 && value.name.length <= 512 &&
+    value.name.trim() === value.name ? value.name : undefined;
+  return objectId === undefined && name === undefined ? undefined : {
+    ...(objectId === undefined ? {} : { objectId }),
+    ...(name === undefined ? {} : { name }),
+  };
+}
+
+/** Match a choice to exactly one owning Chain item; never guess across items. */
+function choiceSourceItemId(request: ChoiceRequest<unknown>, chainItems: readonly { readonly id: string; readonly body: readonly Instruction[] }[]): string | undefined {
+  const trigger = /^finalize:(trigger:\d+):optional$/.exec(request.id);
+  if (trigger !== null) return trigger[1];
+  const matches = chainItems.filter(item => choicePathNamesItem(request.id, item.body));
+  return matches.length === 1 ? matches[0]!.id : undefined;
+}
+
+/** A request path is evidence only when it names this item's instruction/target. */
+function choicePathNamesItem(requestId: string, body: readonly Instruction[]): boolean {
+  const segments = requestId.split("/").flatMap(segment => {
+    try { return [decodeURIComponent(segment)]; } catch { return []; }
+  });
+  const namesInstruction = (instruction: Instruction): boolean => {
+    if (segments.includes(instruction.id)) return true;
+    if (instruction.targets?.some(target => requestId === `target:${target.id}` || segments.includes(`target:${target.id}`))) return true;
+    const bodies: unknown[] = [];
+    const bodyExpr = instruction.args.body;
+    if ((bodyExpr?.kind === "constant" || bodyExpr?.kind === "literal") && Array.isArray(bodyExpr.value)) bodies.push(bodyExpr.value);
+    const modesExpr = instruction.args.modes;
+    if ((modesExpr?.kind === "constant" || modesExpr?.kind === "literal") && Array.isArray(modesExpr.value)) {
+      for (const mode of modesExpr.value) {
+        if (mode !== null && typeof mode === "object" && !Array.isArray(mode) && Array.isArray((mode as { readonly body?: unknown }).body)) {
+          bodies.push((mode as { readonly body: readonly unknown[] }).body);
+        }
+      }
+    }
+    return bodies.some(value => Array.isArray(value) &&
+      value.every(entry => entry !== null && typeof entry === "object") &&
+      choicePathNamesItem(requestId, value as readonly Instruction[]));
+  };
+  return body.some(namesInstruction);
+}
+
+/** Resolve the prompt from the exact trigger registration's authored program ability. */
+function optionalPrompt(trigger: TriggerSnapshot, binding: ProgramBinding): string | undefined {
+  const instruction = trigger.registration.body.find(candidate => candidate.op === "choice.optional");
+  if (instruction?.op === "choice.optional") {
+    const expression = instruction.args.prompt;
+    if (expression === undefined) return undefined;
+    if ((expression.kind === "constant" || expression.kind === "literal") &&
+        typeof expression.value === "string" && expression.value.length > 0 &&
+        expression.value.length <= 512 && expression.value.trim() === expression.value) {
+      return expression.value;
+    }
+  }
+  const abilityIndex = /:(\d+)$/.exec(trigger.registration.id)?.[1];
+  const abilities = binding.inspect(trigger.source).abilities;
+  const authored = abilityIndex === undefined ? undefined : abilities[Number(abilityIndex)];
+  if (authored?.kind !== "triggered") return undefined;
+  const authoredChoice = authored.body.find(candidate => candidate.op === "choice.optional");
+  const authoredPrompt = authoredChoice?.args.prompt;
+  if (authoredPrompt === undefined) return undefined;
+  if ((authoredPrompt.kind === "constant" || authoredPrompt.kind === "literal") &&
+      typeof authoredPrompt.value === "string" && authoredPrompt.value.length > 0 &&
+      authoredPrompt.value.length <= 512 && authoredPrompt.value.trim() === authoredPrompt.value) {
+    return authoredPrompt.value;
+  }
+  throw new TypeError("Pending optional prompt is invalid");
+}
+
 function orderedChoiceAnswer(request: ChoiceRequest<unknown>, answer: V2ChoiceAnswer,
   candidates: readonly ObjectChoiceCandidate[], mode: "select-objects" | "order"): readonly ObjectRef[] | null {
   if (request.type !== "select-objects" && request.type !== "order") return null;
@@ -318,6 +468,8 @@ class MatchRuntime implements EngineRuntime {
   private preparedPlay: PreparedPlay | null = null;
   private choiceVisibilityGrants: readonly RuntimeVisibilityGrant[] = [];
   private readonly seen = new Map<string, SeenCommand>();
+  /** Trigger item id to the exact immutable source captured by the engine sink. */
+  private readonly triggerSources = new Map<string, CapturedTriggerSource>();
   private runtimeOptions: EngineRuntimeOptions;
 
   constructor(options: EngineRuntimeOptions) { this.runtimeOptions = options; }
@@ -326,6 +478,7 @@ class MatchRuntime implements EngineRuntime {
 
   start(): EngineRuntime {
     if (this.match) throw new Error("Engine runtime has already started");
+    this.triggerSources.clear();
     const seats = this.runtimeOptions.seats ?? [{ playerId: "A", name: "Player A" }, { playerId: "B", name: "Player B" }];
     if (seats.length !== 2 || new Set(seats.map(seat => seat.playerId)).size !== 2) throw new TypeError("Engine runtime requires exactly two unique seats");
     let choice: ChoiceRequest<unknown> | null = null;
@@ -374,7 +527,30 @@ class MatchRuntime implements EngineRuntime {
           : { printedCatalog: this.runtimeOptions.printedCatalog }),
         staticBinder: createEngineStaticBinder(this.match.flow.chain),
       });
+      const pipeline = this.match.flow.chain.pipeline;
+      const onTrigger = pipeline.onTrigger;
+      pipeline.onTrigger = trigger => {
+        const before = new Set(this.match!.flow.chain.items.map(item => item.id));
+        onTrigger(trigger);
+        for (const item of this.match!.flow.chain.items) {
+          if (before.has(item.id) || item.trigger === undefined) continue;
+          const prompt = optionalPrompt(item.trigger, this.binding!);
+          this.triggerSources.set(item.id, { source: item.source, ...(prompt === undefined ? {} : { prompt }) });
+        }
+      };
       this.binding.attachLifecycle(this.match.flow.chain);
+      // Setup Battlefields remain in the host's dedicated `battlefield` zone
+      // for TurnFlow. Bind their real programs without rewriting that zone so
+      // event scans can still collect canonical battlefield triggers.
+      for (const object of hostState.objects()) {
+        if (String(object.zone) !== "battlefield" || !object.types.some(type => type.toLowerCase() === "battlefield") ||
+            this.binding.inspect(object).program?.status !== "executable") continue;
+        for (const registration of triggerRegistrations(this.binding.registry, object)) {
+          if (registration.mayAtFinalize !== true) continue;
+          if (this.match.flow.chain.pipeline.hasTriggerRegistration(registration.id)) continue;
+          this.match.flow.chain.pipeline.registerTrigger({ ...registration, activeZones: ["battlefield"] });
+        }
+      }
     }
     for (const field of this.match.flow.battlefields) {
       const battlefield = hostState.objects().find(object => object.ref.id === field.id);
@@ -690,7 +866,8 @@ class MatchRuntime implements EngineRuntime {
   private metadataCheckpoint(): RuntimeMetadataCheckpoint {
     return { stateVersion: this.stateVersion, pending: this.pending, decisions: this.decisions,
       preparedPlay: this.preparedPlay,
-      visibilityGrants: this.choiceVisibilityGrants, seen: new Map(this.seen) };
+      visibilityGrants: this.choiceVisibilityGrants, seen: new Map(this.seen),
+      triggerSources: new Map(this.triggerSources) };
   }
 
   private restoreMetadata(before: RuntimeMetadataCheckpoint): void {
@@ -701,6 +878,8 @@ class MatchRuntime implements EngineRuntime {
     this.choiceVisibilityGrants = before.visibilityGrants;
     this.seen.clear();
     for (const [commandId, seen] of before.seen) this.seen.set(commandId, seen);
+    this.triggerSources.clear();
+    for (const [itemId, source] of before.triggerSources) this.triggerSources.set(itemId, source);
   }
 
   /** One command transaction: all synchronous authoritative owners. */
@@ -716,6 +895,7 @@ class MatchRuntime implements EngineRuntime {
       const suspended = error instanceof PendingChoiceError ? {
         decisions: this.decisions,
         preparedPlay: this.preparedPlay,
+        triggerSources: new Map(this.triggerSources),
       } : null;
       flow.restore(flowCheckpoint);
       const grants = error instanceof PendingChoiceError ? this.choiceVisibilityGrants : metadata.visibilityGrants;
@@ -727,6 +907,8 @@ class MatchRuntime implements EngineRuntime {
         // back to the pre-command checkpoint above.
         this.decisions = suspended.decisions;
         this.preparedPlay = suspended.preparedPlay;
+        this.triggerSources.clear();
+        for (const [itemId, source] of suspended.triggerSources) this.triggerSources.set(itemId, source);
       }
       throw error;
     }
@@ -964,8 +1146,15 @@ class MatchRuntime implements EngineRuntime {
   private pendingChoiceFor(viewer: string | null): Parameters<typeof projectRuntime>[5] {
     if (!this.pending) return null;
     const request = this.pending.request;
+    const registeredTriggers = this.match?.flow.chain.pipeline.registeredTriggers() ?? [];
     const options = this.host ? choiceOptions(request, this.host, viewer, this.pending.visibilityGrants,
-      this.match?.flow.chain.pipeline.registeredTriggers() ?? []) : undefined;
+      registeredTriggers) : undefined;
+    const sourceRequest = this.host ? choiceSourceRequest(request, this.host, viewer, this.pending.visibilityGrants,
+      registeredTriggers, this.match?.flow.chain.items ?? [], this.triggerSources) : undefined;
+
+    const prompt = request.prompt;
+    const projectedPrompt = wireChoicePrompt(sourceRequest?.prompt ?? prompt, viewer, request.chooser);
+    const projectedSource = wireChoiceSource(sourceRequest?.source, viewer, request.chooser);
     return {
       choiceId: request.id,
       ownerPlayerId: request.chooser,
@@ -973,6 +1162,8 @@ class MatchRuntime implements EngineRuntime {
       kind: request.type,
       ...(options === undefined || options.length === 0 ? {} : { options }),
       ...choiceBounds(request),
+      ...(projectedPrompt === undefined ? {} : { prompt: projectedPrompt }),
+      ...(projectedSource === undefined ? {} : { source: projectedSource }),
     };
   }
 
