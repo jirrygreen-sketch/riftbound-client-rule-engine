@@ -97,6 +97,17 @@ export function botCommand(
     readonly kind: "unit" | "gear" | "spell";
   }> = new Map()
 ): V2Command | null {
+  // The setup window predates the engine runtime. Its projected selection is
+  // answered by the dedicated CR 117 mulligan command, not the normal in-game
+  // choice command. Keep all four opening cards so the headless client exposes
+  // the complete explicit setup ceremony without inventing card choices.
+  if (projection.phase === "setup" &&
+      projection.pendingChoice.status === "pending" &&
+      projection.pendingChoice.ownerPlayerId === viewerPlayerId &&
+      projection.pendingChoice.kind === "select-objects") {
+    return { type: "mulligan", commandId, stateVersion: projection.stateVersion,
+      selectedObjectIds: [] };
+  }
   const choice = chooseCommand(projection, viewerPlayerId, commandId);
   if (choice) return choice;
   if (projection.winnerPlayerId !== null) return null;

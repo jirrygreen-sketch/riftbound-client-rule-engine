@@ -364,7 +364,16 @@ async function runV2DuelInternal(options: V2DuelRunOptions, deadline: number): P
       }
       observeProjection(live[0]);
       observeProjection(live[1]);
-      const actor = projectedActor(current);
+      if (current.phase === "setup" && process.env.V2_DUEL_DEBUG === "1") {
+        process.stderr.write(JSON.stringify({ seed: options.seed, event: "setup-views",
+          views: live.map(value => ({ viewer: value.viewerPlayerId, active: value.activePlayerId,
+            pending: value.pendingChoice.status === "pending" ? {
+              choiceId: value.pendingChoice.choiceId,
+              owner: value.pendingChoice.ownerPlayerId,
+              options: value.pendingChoice.options?.length ?? null,
+            } : null })) }) + "\n");
+      }
+      const actor = current.phase === "setup" ? dueSetupPlayer(live) : projectedActor(current);
       if (actor === null) {
         blockedReason = `no actor exposed at ${current.phase}/${current.priority.window}, state ${current.stateVersion}`;
         break;
@@ -528,11 +537,14 @@ async function runV2DuelInternal(options: V2DuelRunOptions, deadline: number): P
         repeatSignature = null;
         repeated = 0;
       }
-      const next = await Promise.all([
-        waitForCommandProjection(pair.first, selected.view, command, receipt),
-        waitForCommandProjection(pair.second, selected.view, command, receipt)
-      ]) as readonly [V2Projection, V2Projection];
-      if (receipt.accepted) {
+      const next = command.type === "mulligan"
+        ? await Promise.all([pair.first.syncProjection(), pair.second.syncProjection()]) as
+            readonly [V2Projection, V2Projection]
+        : await Promise.all([
+            waitForCommandProjection(pair.first, selected.view, command, receipt),
+            waitForCommandProjection(pair.second, selected.view, command, receipt)
+          ]) as readonly [V2Projection, V2Projection];
+      if (receipt.accepted && command.type !== "mulligan") {
         const waitingForChoice = next[0].pendingChoice.status === "pending" &&
           next[1].pendingChoice.status === "pending";
         if (waitingForChoice) {
@@ -661,6 +673,15 @@ function projectedActor(projection: V2Projection): string | null {
     return projection.activePlayerId;
   }
   return projection.priority.playerId;
+}
+
+/** Setup projections are private: only the due seat carries the pending choice,
+ * while the waiting seat legitimately reports none. Select the actor from the
+ * authenticated pair without granting either client the other hand. */
+export function dueSetupPlayer(views: readonly [V2Projection, V2Projection]): string | null {
+  const pending = views.flatMap(view => view.phase === "setup" &&
+    view.pendingChoice.status === "pending" ? [view.pendingChoice.ownerPlayerId] : []);
+  return pending.length === 1 ? pending[0]! : null;
 }
 
 export async function runV2DuelBatch(options: {
