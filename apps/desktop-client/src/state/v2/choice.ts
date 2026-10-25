@@ -15,7 +15,12 @@ export interface V2ChoiceUiState {
 
 export interface V2ChoiceUiOptions {
   readonly viewerPlayerId?: string | null;
-  /** A local UI deadline. The server remains authoritative for acceptance. */
+  /**
+   * Optional local UI deadline. Riftbound has no turn or decision timer and the
+   * server waits for the answer indefinitely, so there is no deadline unless a
+   * caller asks for one; an expired local deadline would otherwise disable
+   * every action while the server still awaits this choice (RIFT-1053).
+   */
   readonly timeoutMs?: number;
   readonly now?: number;
 }
@@ -39,12 +44,12 @@ export function updateV2ChoiceUiState(
     return { status: "none", choice: pending, startedAt: null, expiresAt: null, answerable: false };
   }
 
-  const timeoutMs = Math.max(0, options.timeoutMs ?? DEFAULT_CHOICE_TIMEOUT_MS);
   const sameChoice = previous?.choice.status === "pending" && previous.choice.choiceId === pending.choiceId &&
     previous.choice.stateVersion === pending.stateVersion;
   const startedAt = sameChoice ? previous.startedAt ?? now : now;
-  const expiresAt = timeoutMs === 0 ? startedAt : startedAt + timeoutMs;
-  const expired = now >= expiresAt;
+  const timeoutMs = options.timeoutMs === undefined ? null : Math.max(0, options.timeoutMs);
+  const expiresAt = timeoutMs === null ? null : timeoutMs === 0 ? startedAt : startedAt + timeoutMs;
+  const expired = expiresAt !== null && now >= expiresAt;
   const answerable = pending.ownerPlayerId === options.viewerPlayerId && !expired;
   return {
     status: expired ? "expired" : "pending",

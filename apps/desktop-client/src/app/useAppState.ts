@@ -74,6 +74,19 @@ type SubmissionReceiptTracking = SubmissionTracking & {
   readonly pendingDeckSnapshot: DeckByZone | null;
 };
 
+/**
+ * Clear the playable-action selection without creating a new state value when
+ * it is already clear. The selection effect depends on the selection itself, so
+ * replacing an empty selection with a fresh empty object re-ran the effect on
+ * every render ("Maximum update depth exceeded" while the V2 board is shown,
+ * where fullProductEnabled is false) (RIFT-1053).
+ */
+export function clearedActionSelection(current: ActionSelection): ActionSelection {
+  return current.actionId === null && current.cardId === null && current.targetIds.length === 0
+    ? current
+    : { actionId: null, cardId: null, targetIds: [] };
+}
+
 export function useAppState() {
   const {
     status,
@@ -569,7 +582,7 @@ export function useAppState() {
 
   useEffect(() => {
     if (!fullProductEnabled) {
-      setActionSelection({ actionId: null, cardId: null, targetIds: [] });
+      setActionSelection(clearedActionSelection);
       return;
     }
     if (playableMatchView === null) return;
@@ -578,7 +591,7 @@ export function useAppState() {
     if (actionSelection.actionId !== null && selectedAction === null) {
       // The authority no longer offers this action (version change, hand change,
       // reader-only viewer): drop the selection instead of submitting stale ids.
-      setActionSelection({ actionId: null, cardId: null, targetIds: [] });
+      setActionSelection(clearedActionSelection);
       return;
     }
     if (selectedAction === null) {
@@ -586,7 +599,7 @@ export function useAppState() {
         .find(player => player.id === viewerPlayerId)
         ?.hand.find(card => card.instanceId === actionSelection.cardId);
       if (actionSelection.cardId !== null && selectedCard === undefined) {
-        setActionSelection({ actionId: null, cardId: null, targetIds: [] });
+        setActionSelection(clearedActionSelection);
       }
       return;
     }
