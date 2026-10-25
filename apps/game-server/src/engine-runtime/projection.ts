@@ -342,7 +342,7 @@ export function projectRuntime(
   matchId: string,
   viewer: string | null,
   stateVersion: number,
-  pendingChoice: { readonly choiceId: string; readonly ownerPlayerId: string; readonly stateVersion: number; readonly kind: "optional" | "mode" | "select-objects" | "order" | "number"; readonly options?: readonly V2ChoiceOption[]; readonly min?: number; readonly max?: number; readonly prompt?: string; readonly source?: { readonly objectId?: string; readonly name?: string } } | null,
+  pendingChoice: { readonly choiceId: string; readonly ownerPlayerId: string; readonly stateVersion: number; readonly kind: "optional" | "mode" | "select-objects" | "order" | "number"; readonly options?: readonly V2ChoiceOption[]; readonly min?: number; readonly max?: number } | null,
 ): V2Projection {
   if (viewer !== null && !Object.hasOwn(host.playerNames(), viewer)) throw new Error(`Unknown projection viewer: ${viewer}`);
   const players = Object.keys(host.playerNames()).map(playerId => {
@@ -395,8 +395,6 @@ export function projectRuntime(
     ...(viewer === pendingChoice.ownerPlayerId && pendingChoice.options !== undefined ? { options: pendingChoice.options } : {}),
     ...(pendingChoice.min === undefined ? {} : { min: pendingChoice.min }),
     ...(pendingChoice.max === undefined ? {} : { max: pendingChoice.max }),
-    ...(viewer !== pendingChoice.ownerPlayerId || pendingChoice.prompt === undefined ? {} : { prompt: pendingChoice.prompt }),
-    ...(viewer !== pendingChoice.ownerPlayerId || pendingChoice.source === undefined ? {} : { source: pendingChoice.source }),
   } : { status: "none" as const };
   return {
     projectionContract: "riftbound.protocol.v2.projection",
