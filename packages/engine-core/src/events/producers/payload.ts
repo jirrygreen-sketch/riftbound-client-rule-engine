@@ -127,19 +127,22 @@ export function withActionPayload(
   const hasPayload = Object.keys(payload).length > 0;
   const hasSnapshots = snapshots.before !== undefined || snapshots.after !== undefined || snapshots.objects !== undefined;
   if (!hasPayload && !hasSnapshots) return emission;
+  const before = snapshots.before === undefined ? undefined : structuredClone(snapshots.before);
+  const after = snapshots.after === undefined ? undefined : structuredClone(snapshots.after);
+  const objects = snapshots.objects === undefined ? undefined : structuredClone(snapshots.objects);
   const details = {
     ...(emission.details ?? {}),
     ...(payload as Record<string, unknown>),
-    ...(snapshots.before === undefined ? {} : { before: structuredClone(snapshots.before) }),
-    ...(snapshots.after === undefined ? {} : { after: structuredClone(snapshots.after) }),
-    ...(snapshots.objects === undefined ? {} : { objects: structuredClone(snapshots.objects) }),
+    ...(before === undefined ? {} : { before }),
+    ...(after === undefined ? {} : { after }),
+    ...(objects === undefined ? {} : { objects }),
   };
   const runtime = {
     ...emission,
     ...(payload as Record<string, unknown>),
-    ...(snapshots.before === undefined ? {} : { before: structuredClone(snapshots.before) }),
-    ...(snapshots.after === undefined ? {} : { after: structuredClone(snapshots.after) }),
-    ...(snapshots.objects === undefined ? {} : { objects: structuredClone(snapshots.objects) }),
+    ...(before === undefined ? {} : { before }),
+    ...(after === undefined ? {} : { after }),
+    ...(objects === undefined ? {} : { objects }),
     payload: structuredClone(payload),
     details,
   } as PayloadTimingEmission;
