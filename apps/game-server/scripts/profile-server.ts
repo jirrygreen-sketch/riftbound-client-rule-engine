@@ -912,20 +912,6 @@ function snapshots(first: V2WebSocketSession, second: V2WebSocketSession): reado
   return [left, right];
 }
 
-async function waitForCommandProjection(session: V2WebSocketSession,
-  before: V2Projection, command: V2Command, receipt: V2CommandReceipt): Promise<V2Projection> {
-  const changed = (projection: V2Projection): boolean =>
-    projection.stateVersion > receipt.stateVersion || projection.eventSeq > receipt.eventSeq ||
-    (receipt.rejection !== null && projection.stateVersion === before.stateVersion &&
-      projection.eventSeq === before.eventSeq) ||
-    projection.pendingChoice.status !== before.pendingChoice.status ||
-    (projection.pendingChoice.status === "pending" && before.pendingChoice.status === "pending" &&
-      (projection.pendingChoice.choiceId !== before.pendingChoice.choiceId ||
-        projection.pendingChoice.kind !== before.pendingChoice.kind));
-  return session.waitForProjection(changed,
-    `${session.name} projection after ${command.commandId}`, commandTimeoutMs);
-}
-
 async function waitForAnyMulliganTransition(first: V2WebSocketSession,
   second: V2WebSocketSession, before: V2Projection, receipt: V2CommandReceipt,
   timeoutMs: number): Promise<readonly [V2Projection, V2Projection]> {
@@ -1518,30 +1504,6 @@ async function warmUpCatalog(port: number): Promise<void> {
     await sleep(100);
   }
   throw new Error("Card catalog warm-up did not complete");
-}
-
-async function waitForHttp(port: number, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(`http://127.0.0.1:${port}/health`);
-      if (response.ok) return;
-    } catch { /* HTTP listener may lag the start marker. */ }
-    await sleep(100);
-  }
-  throw new Error(`HTTP listener unavailable on ${port}`);
-}
-
-async function waitForHttpForServer(port: number, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(`http://127.0.0.1:${port}/health`);
-      if (response.ok) return;
-    } catch { /* listener can bind asynchronously */ }
-    await sleep(10);
-  }
-  throw new Error(`Profiled server HTTP listener unavailable on ${port}`);
 }
 
 function option(name: string): string | undefined {
