@@ -248,6 +248,22 @@ describe("RIFT-1087-E private archive delta", () => {
     await reopened.close();
   });
 
+  it("serializes concurrent saves into a contiguous delta chain", async () => {
+    const root = await directory();
+    const store = new PersistentRoomArchiveStore(root);
+    const snapshots = [archive(1), archive(2), archive(3)];
+    await Promise.all(snapshots.map(snapshot => store.save("seed-room", snapshot)));
+    expect(await store.load("seed-room")).toEqual(snapshots.at(-1));
+    await store.close();
+
+    const reopened = new PersistentRoomArchiveStore(root);
+    expect(await reopened.load("seed-room")).toEqual(snapshots.at(-1));
+    expect((await reopened.readArchives("seed-room")).archives.map(record =>
+      record.archive
+    )).toEqual(snapshots);
+    await reopened.close();
+  });
+
   it("repairs an interrupted final write before replaying the last durable archive", async () => {
     const root = await directory();
     const store = new PersistentRoomArchiveStore(root);

@@ -365,6 +365,7 @@ export class PersistentRoomArchiveStore {
   private currentArchive: JsonObject | null = null;
   private currentArchiveSeq = 0;
   private lastCheckpointSeq = 0;
+  private saveTail: Promise<void> = Promise.resolve();
 
   constructor(private readonly directory: string) {}
 
@@ -381,6 +382,12 @@ export class PersistentRoomArchiveStore {
   }
 
   async save(roomId: string, archive: JsonObject): Promise<void> {
+    const pending = this.saveTail.then(() => this.appendArchive(roomId, archive));
+    this.saveTail = pending.then(() => undefined, () => undefined);
+    return pending;
+  }
+
+  private async appendArchive(roomId: string, archive: JsonObject): Promise<void> {
     const store = await this.openStore(roomId);
     if (!isPlainRecord(archive) || !isJsonValue(archive)) {
       throw new Error("Room archive must be a JSON object");
@@ -469,6 +476,7 @@ export class PersistentRoomArchiveStore {
   }
 
   async close(): Promise<void> {
+    await this.saveTail;
     await this.store?.close();
     this.store = null;
     this.currentArchive = null;
