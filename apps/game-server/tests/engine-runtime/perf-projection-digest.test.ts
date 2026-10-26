@@ -119,4 +119,19 @@ describe("RIFT-1089 projection and journal digest equivalence", () => {
     const writer = new RuntimeJournalWriter(journal as RuntimeJournal);
     expect(writer.snapshot()).toEqual(journal);
   }, 120_000);
+
+  it("uses the real production runtime binding and lifecycle for three lenses", () => {
+    const runtime = createEngineRuntime(runtimeOptions()).start();
+    const own = runtime.projectFor("A");
+    const opponent = runtime.projectFor("B");
+    const spectator = runtime.projectFor(null);
+    expect(own.zones.find(zone => zone.zone === "hand" && zone.ownerPlayerId === "A")?.objects?.length)
+      .toBe(own.players.find(player => player.playerId === "A")?.handCount);
+    expect(opponent.zones.find(zone => zone.zone === "hand" && zone.ownerPlayerId === "A")?.objects)
+      .toBeUndefined();
+    expect(opponent.objects.filter(object => object.ownerPlayerId === "A" && object.zone === "facedown")
+      .every(object => object.cardId === undefined && object.name === undefined && object.faceDown)).toBe(true);
+    expect(spectator.objects.filter(object => object.ownerPlayerId === "A" && object.zone === "facedown")
+      .every(object => object.cardId === undefined && object.name === undefined && object.faceDown)).toBe(true);
+  }, 120_000);
 });
