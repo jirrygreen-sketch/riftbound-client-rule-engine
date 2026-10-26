@@ -292,20 +292,27 @@ function relationMatches(value: unknown, object: SnapshotLike, context: FilterMa
   }
 }
 
+// Object-filter evaluation is a per-object hot path in layers. Keep the fixed
+// predicate vocabulary out of every invocation while preserving each alias's
+// iteration order and short-circuiting.
+const MIGHT_COMPARISONS = [
+  ["mightLt", "lt"], ["mightLessThan", "lt"], ["mightLessThanTarget", "lt"],
+  ["mightLte", "lte"], ["mightAtMost", "lte"], ["mightGte", "gte"], ["mightAtLeast", "gte"],
+  ["mightGt", "gt"], ["mightGreaterThan", "gt"], ["mightEq", "eq"],
+] as const;
+
+const PRINTED_COST_CEILINGS = [
+  ["energyMax", "energy"], ["printedEnergyMax", "energy"], ["energyAtMost", "energy"], ["costEnergyLte", "energy"],
+  ["powerMax", "power"], ["printedPowerMax", "power"], ["powerAtMost", "power"],
+] as const;
+
 function numericPredicates(filter: AnyRecord, object: SnapshotLike, context: FilterMatchContext): boolean {
   const currentMight = object.might;
-  for (const [key, operator] of [
-    ["mightLt", "lt"], ["mightLessThan", "lt"], ["mightLessThanTarget", "lt"],
-    ["mightLte", "lte"], ["mightAtMost", "lte"], ["mightGte", "gte"], ["mightAtLeast", "gte"],
-    ["mightGt", "gt"], ["mightGreaterThan", "gt"], ["mightEq", "eq"],
-  ] as const) {
+  for (const [key, operator] of MIGHT_COMPARISONS) {
     if (filter[key] !== undefined && !compareNumber(currentMight, referenceMight(filter[key], context), operator)) return false;
   }
   const printed = printedSnapshot(object);
-  for (const [key, property] of [
-    ["energyMax", "energy"], ["printedEnergyMax", "energy"], ["energyAtMost", "energy"], ["costEnergyLte", "energy"],
-    ["powerMax", "power"], ["printedPowerMax", "power"], ["powerAtMost", "power"],
-  ] as const) {
+  for (const [key, property] of PRINTED_COST_CEILINGS) {
     if (filter[key] === undefined) continue;
     const actual = property === "energy" ? printed.energy : powerCost(printed.power);
     if (!compareNumber(actual, filter[key], "lte")) return false;
