@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { availableParallelism, cpus, freemem, loadavg, totalmem } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
 import { WebSocket } from "ws";
 
@@ -46,6 +46,7 @@ interface CliOptions {
   readonly commandTimeoutMs: number;
   readonly gameTimeoutMs: number;
   readonly startupTimeoutMs: number;
+  readonly deterministicSeed: string | null;
 }
 
 type RunMode = "file" | "memory";
@@ -260,6 +261,8 @@ const taskName = process.env.SWARM_TASK ?? "RIFT-1082-server-load-test";
 let activeChild: ChildProcess | null = null;
 let activePortLease: PortLease | null = null;
 const portAcceptsConnectionsCache = new Map<number, boolean>();
+const scriptEntry = process.argv[1] !== undefined &&
+  pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
 
 async function cleanupActive(): Promise<void> {
   const child = activeChild;
@@ -274,10 +277,12 @@ async function cleanupActive(): Promise<void> {
   }
 }
 
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.once(signal, () => {
-    void cleanupActive().finally(() => process.exit(128 + (signal === "SIGINT" ? 2 : 15)));
-  });
+if (scriptEntry) {
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.once(signal, () => {
+      void cleanupActive().finally(() => process.exit(128 + (signal === "SIGINT" ? 2 : 15)));
+    });
+  }
 }
 
 function option(name: string): string | undefined {
@@ -295,6 +300,18 @@ function integerOption(name: string, fallback: number, minimum: number, maximum:
   return value;
 }
 
+export function deterministicLoadCommandId(
+  seed: string,
+  side: "first" | "second",
+  action: number
+): string {
+  if (seed.length === 0 || (side !== "first" && side !== "second") ||
+      !Number.isSafeInteger(action) || action < 0) {
+    throw new RangeError("deterministic load command identity is invalid");
+  }
+  return `load-${seed}-${side}-${action}`;
+}
+
 function parseOptions(): CliOptions {
   if (process.env.SWARM_TASK === undefined) {
     throw new Error("SWARM_TASK is required so owned server PIDs are recorded exactly");
@@ -302,6 +319,11 @@ function parseOptions(): CliOptions {
   const requiredPortBase = Number(process.env.SWARM_PORT_BASE);
   if (!Number.isSafeInteger(requiredPortBase) || requiredPortBase < 1 || requiredPortBase > 65_535) {
     throw new RangeError("SWARM_PORT_BASE must be a valid TCP port");
+  }
+  const requiredPortSpan = Number(process.env.SWARM_PORT_SPAN);
+  if (!Number.isSafeInteger(requiredPortSpan) || requiredPortSpan < 1 || requiredPortSpan > 100 ||
+      requiredPortBase + requiredPortSpan - 1 > 65_535) {
+    throw new RangeError("SWARM_PORT_SPAN must describe an owned TCP port range");
   }
   const modesRaw = option("modes") ?? "file";
   const modes = modesRaw.split(",");
@@ -316,10 +338,17 @@ function parseOptions(): CliOptions {
   }
   const portBase = integerOption("port-base", Number(process.env.SWARM_PORT_BASE ?? "35680"), 1, 65_535);
   const portSpan = integerOption("port-span", Number(process.env.SWARM_PORT_SPAN ?? "20"), 1, 100);
+  if (portBase !== requiredPortBase || portSpan !== requiredPortSpan) {
+    throw new RangeError("load-test port options must stay inside the task-owned SWARM port range");
+  }
   if (portBase + portSpan - 1 > 65_535) throw new RangeError("The selected port range exceeds 65535");
   const outputDirectory = path.resolve(option("output-dir") ??
     "/root/swarm-rift/shared/RIFT-1082-server-load-test");
   const storageRoot = path.resolve("/root/swarm-rift/shared/RIFT-1082-server-load-test");
+  const deterministicSeed = option("deterministic-seed") ?? null;
+  if (deterministicSeed !== null && deterministicSeed.length === 0) {
+    throw new Error("--deterministic-seed must be non-empty when provided");
+  }
   return {
     modes: [...new Set(modes)] as RunMode[],
     levels: [...new Set(levels)].sort((left, right) => left - right),
@@ -331,7 +360,8 @@ function parseOptions(): CliOptions {
     maxTurnsPerGame: integerOption("max-turns", 40, 1, 500),
     commandTimeoutMs: integerOption("command-timeout-ms", 30_000, 1_000, 300_000),
     gameTimeoutMs: integerOption("game-timeout-ms", 900_000, 10_000, 3_600_000),
-    startupTimeoutMs: integerOption("startup-timeout-ms", 180_000, 1_000, 300_000)
+    startupTimeoutMs: integerOption("startup-timeout-ms", 180_000, 1_000, 300_000),
+    deterministicSeed
   };
 }
 
@@ -835,7 +865,7 @@ function chooseSession(pair: RuntimePair, playerId: string): {
 }
 
 function nextCommandId(seed: string, side: Side, action: number): string {
-  return `load-${seed}-${side}-${action}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return deterministicLoadCommandId(seed, side, action);
 }
 
 async function startPair(
@@ -1373,6 +1403,13 @@ async function runLevel(
   };
   if (storageDirectory === null) delete env.RIFTBOUND_STORAGE_DIRECTORY;
   else env.RIFTBOUND_STORAGE_DIRECTORY = storageDirectory;
+  if (options.deterministicSeed === null) {
+    delete env.RIFTBOUND_ALLOW_DETERMINISTIC_RANDOM;
+    delete env.RIFTBOUND_DETERMINISTIC_RANDOM_SEED;
+  } else {
+    env.RIFTBOUND_ALLOW_DETERMINISTIC_RANDOM = "1";
+    env.RIFTBOUND_DETERMINISTIC_RANDOM_SEED = options.deterministicSeed;
+  }
   let child: ChildProcess | null = null;
   let childSettled = false;
   let cleanupError: unknown;
@@ -1685,7 +1722,11 @@ async function main(): Promise<void> {
       sharedHostLoadAtStart: loadavg().map(rounded),
       sharedHostNote: "load average includes all projects on the shared development host",
       fixedClientSeedPrefix: "RIFT-1082",
-      authoritativeSeedSource: "server-generated roomId, retained per game as roomId"
+      deterministicSeed: options.deterministicSeed,
+      deterministicRandomEnabled: options.deterministicSeed !== null && options.deterministicSeed.length > 0,
+      authoritativeSeedSource: options.deterministicSeed === null
+        ? "server-generated roomId, retained per game as roomId"
+        : "explicit deterministic server seed; roomId remains server-generated"
     },
     config: {
       modes: options.modes,
@@ -1697,6 +1738,7 @@ async function main(): Promise<void> {
       commandTimeoutMs: options.commandTimeoutMs,
       gameTimeoutMs: options.gameTimeoutMs,
       startupTimeoutMs: options.startupTimeoutMs,
+      deterministicSeed: options.deterministicSeed,
       storagePolicy: "file levels use RIFTBOUND_STORAGE_DIRECTORY; memory control omits it",
       productionEntrypoint: "apps/game-server/src/index.ts",
       clientsPerRoom: 2,
@@ -1719,4 +1761,6 @@ async function main(): Promise<void> {
   if (cleanupError !== undefined) throw cleanupError;
 }
 
-await main();
+if (scriptEntry) {
+  await main();
+}

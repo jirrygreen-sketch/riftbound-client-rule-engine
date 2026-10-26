@@ -185,6 +185,20 @@ export class GameRoom {
   private duelRuntime: CurrentDuelRuntime | null = null;
   private engineRuntime: EngineRuntime | null = null;
   private engineMulligan: EngineMulliganSetup | null = null;
+  /**
+   * Public event remaps are append-only. Templates own the recursively
+   * remapped payload while the event list still stamps each projection's
+   * current stateVersion.
+   */
+  private readonly publicEngineEventCaches = new Map<string | null, {
+    readonly runtime: EngineRuntime;
+    readonly matchId: string;
+    readonly viewerPlayerId: string | null;
+    readonly eventSeq: number;
+    readonly stateVersion: number;
+    readonly templates: readonly V2Projection["events"][number][];
+    readonly events: readonly V2Projection["events"][number][];
+  }>();
   private readonly engineMulliganReceipts = new Map<string, PersistedEngineMulliganReceipt>();
   private storageDirectory?: string;
   private roomVersion = 1;
@@ -382,6 +396,7 @@ export class GameRoom {
     // slot for staff diagnostics and setup tests, but never expose its command
     // surface: submitEngineV2's setup queue below intercepts every client
     // command and projection publication prefers setupMulliganProjection.
+    this.publicEngineEventCaches.clear();
     this.engineRuntime = createEngineRuntime(this.engineRuntimeOptions(
       [...this.seats.values()],
       setup.battlefieldChoice,
@@ -542,6 +557,7 @@ export class GameRoom {
   private finishMulliganSetup(): void {
     const setup = this.engineMulligan;
     if (!setup || setup.choices[0] === null || setup.choices[1] === null) return;
+    this.publicEngineEventCaches.clear();
     this.engineRuntime = createEngineRuntime(this.engineRuntimeOptions(
       [...this.seats.values()], setup.battlefieldChoice,
       [setup.choices[0], setup.choices[1]], setup.firstPlayer === "A" ? 0 : 1
@@ -610,13 +626,14 @@ export class GameRoom {
   }
 
   private publicEngineProjection(projection: V2Projection): V2Projection {
+    return this.publicEngineProjectionWithEvents(projection, this.publicEngineEvents(projection));
+  }
+
+  private publicEngineProjectionWithEvents(
+    projection: V2Projection,
+    events: readonly V2Projection["events"][number][],
+  ): V2Projection {
     const mapPlayer = (id: string | null): string | null => this.publicEnginePlayerId(id);
-    const mapEventValue = (value: unknown): unknown => {
-      if (value === "A" || value === "B") return mapPlayer(value);
-      if (Array.isArray(value)) return value.map(mapEventValue);
-      if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, mapEventValue(nested)]));
-      return value;
-    };
     return {
       ...projection,
       viewerPlayerId: mapPlayer(projection.viewerPlayerId),
@@ -660,8 +677,54 @@ export class GameRoom {
         })),
       },
       pendingChoice: projection.pendingChoice.status === "pending" ? { ...projection.pendingChoice, ownerPlayerId: mapPlayer(projection.pendingChoice.ownerPlayerId)! } : projection.pendingChoice,
-      events: projection.events.map(event => mapEventValue(event) as typeof event),
+      events,
     };
+  }
+
+  private publicEngineEvents(projection: V2Projection): readonly V2Projection["events"][number][] {
+    const runtime = this.engineRuntime;
+    const cached = this.publicEngineEventCaches.get(projection.viewerPlayerId) ?? null;
+    if (runtime !== null && cached !== null && cached.runtime === runtime && cached.matchId === projection.matchId &&
+        cached.viewerPlayerId === projection.viewerPlayerId &&
+        cached.eventSeq === projection.eventSeq && cached.stateVersion === projection.stateVersion) {
+      return cached.events;
+    }
+    const mapEventValue = (value: unknown): unknown => {
+      if (value === "A" || value === "B") return this.publicEnginePlayerId(value);
+      if (Array.isArray(value)) return value.map(mapEventValue);
+      if (value !== null && typeof value === "object") {
+        return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, mapEventValue(nested)]));
+      }
+      return value;
+    };
+    const reusablePrefix = runtime !== null && cached !== null && cached.runtime === runtime &&
+      cached.matchId === projection.matchId &&
+      cached.viewerPlayerId === projection.viewerPlayerId &&
+      projection.events.length >= cached.templates.length &&
+      (cached.templates.length === 0 ||
+        projection.events[cached.templates.length - 1]?.eventSeq === cached.templates.at(-1)?.eventSeq)
+      ? cached.templates.length
+      : 0;
+    const templates = Object.freeze([
+      ...(cached?.templates.slice(0, reusablePrefix) ?? []),
+      ...projection.events.slice(reusablePrefix).map(event =>
+        Object.freeze(mapEventValue(event) as V2Projection["events"][number])),
+    ] as V2Projection["events"][number][]);
+    const events = Object.freeze(templates.map(event => event.stateVersion === projection.stateVersion
+      ? event
+      : Object.freeze({ ...event, stateVersion: projection.stateVersion }))) as
+        readonly V2Projection["events"][number][];
+    if (runtime === null) this.publicEngineEventCaches.clear();
+    else this.publicEngineEventCaches.set(projection.viewerPlayerId, {
+      runtime,
+      matchId: projection.matchId,
+      viewerPlayerId: projection.viewerPlayerId,
+      eventSeq: projection.eventSeq,
+      stateVersion: projection.stateVersion,
+      templates,
+      events,
+    });
+    return events;
   }
 
   private publicEnginePlayerId(id: string | null): string | null {
@@ -963,6 +1026,7 @@ export class GameRoom {
     for (const seat of copy.seats) this.seats.set(seat.id, seat);
     this.state = copy.state;
     this.duelRuntime = restoredRuntime;
+    this.publicEngineEventCaches.clear();
     this.engineRuntime = validatedEngineRuntime;
     this.engineMulligan = copy.engineMulligan ?? null;
     if (this.engineMulligan) this.mulliganProbe("A");

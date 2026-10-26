@@ -143,11 +143,33 @@ export function advanceResponsiblePlayer(match: Match, pendingChoice: boolean,
   return viewer;
 }
 
+/**
+ * Mirror the public runtime's `pass` routing without mutating the Match.
+ * Pending Finalize is resumed by the runtime; an idle neutral Main Phase is
+ * an end-turn request; every other pass is owned by ChainEngine.canPass.
+ */
+export function canPassForViewer(match: Match, pendingChoice: boolean, viewer: PlayerId | null): boolean {
+  if (viewer === null || pendingChoice || match.result().winner !== null) return false;
+  const chain = match.flow.chain;
+  if (chain.items.some(item => item.status === "pending")) return true;
+  if (!chain.items.length && !match.flow.combat.active) {
+    // This is the exact condition evaluated by TurnFlow.endTurn after its own
+    // `advance()` pass. Reusing it keeps the projection aligned with the real
+    // command rather than approximating end-turn eligibility from Priority.
+    return match.flow.phase === "main" && chain.canAct(viewer, "normal");
+  }
+  // The method is private in the Engine TypeScript surface so only production
+  // rules code can expose it; this read-only call still targets that exact
+  // implementation rather than duplicating its internal state checks.
+  return (chain as unknown as { canPass(player: PlayerId): boolean }).canPass(viewer);
+}
+
 function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | null,
   pendingChoice: boolean): V2ActionOptions {
   const canAdvance = advanceResponsiblePlayer(match, pendingChoice, viewer) !== null;
+  const canPass = canPassForViewer(match, pendingChoice, viewer);
   if (viewer === null || match.result().winner !== null || match.flow.phase !== "main") {
-    return { canEndTurn: false, canAdvance, moves: [], plays: [] };
+    return { canEndTurn: false, canAdvance, canPass, moves: [], plays: [] };
   }
   const chain = match.flow.chain;
   const priority = chain.priority;
@@ -157,7 +179,7 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
     (chain.canAct(viewer, "normal") || waitingForFutureCommand);
   const canEndTurn = viewer === match.flow.turnPlayer && open;
   if ((priority !== viewer && !waitingForFutureCommand) || !open || chain.items.length > 0) {
-    return { canEndTurn, canAdvance, moves: [], plays: [] };
+    return { canEndTurn, canAdvance, canPass, moves: [], plays: [] };
   }
   const objects = host.objects();
   const battlefields = match.flow.battlefields;
@@ -297,7 +319,7 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
       }
     }
   }
-  return { canEndTurn, canAdvance, moves, plays };
+  return { canEndTurn, canAdvance, canPass, moves, plays };
 }
 
 function battlefieldProjection(match: Match, host: EngineRuntimeHost): readonly V2BattlefieldSnapshot[] {

@@ -142,6 +142,8 @@ export interface V2ActionOptions {
   readonly canEndTurn: boolean;
   /** Present on current servers; older projections omit this extension. */
   readonly canAdvance?: boolean;
+  /** Present on current servers; older projections omit this extension. */
+  readonly canPass?: boolean;
   readonly moves: readonly V2MoveOption[];
   /** The viewer can play a hand card without target/payment selections. */
   readonly plays: readonly V2PlayOption[];
@@ -362,8 +364,9 @@ function moveOption(value: unknown): boolean {
     text(value.objectId) && commandLocation(value.destination);
 }
 function actionOptions(value: unknown): boolean {
-  return data(value) && exact(value, ["canEndTurn", "moves", "plays"], ["canAdvance"]) &&
+  return data(value) && exact(value, ["canEndTurn", "moves", "plays"], ["canAdvance", "canPass"]) &&
     typeof value.canEndTurn === "boolean" && (value.canAdvance === undefined || typeof value.canAdvance === "boolean") &&
+    (value.canPass === undefined || typeof value.canPass === "boolean") &&
     Array.isArray(value.moves) && value.moves.every(moveOption) &&
     Array.isArray(value.plays) && value.plays.every(playOption);
 }

@@ -71,6 +71,11 @@ export function buildV2PassCommand(): V2CommandRequest {
   return { type: "pass" };
 }
 
+/** A successful receipt retires only this component's local command error. */
+export function commandErrorAfterReceipt(current: string | null, receipt: V2CommandReceipt): string | null {
+  return receipt.accepted ? null : current;
+}
+
 export function buildV2MulliganCommand(selectedObjectIds: readonly string[]): V2CommandRequest {
   return { type: "mulligan", selectedObjectIds: [...selectedObjectIds] };
 }
@@ -274,10 +279,10 @@ export function V2MatchBoard({
   }, [catalogServerUrl, catalogStatus, room]);
 
   const submit = (request: V2CommandRequest): void => {
-    setCommandError(null);
-    void onCommand(request).catch(caught => {
-      setCommandError(caught instanceof Error ? caught.message : "命令未能提交。");
-    });
+    void onCommand(request).then(
+      receipt => setCommandError(current => commandErrorAfterReceipt(current, receipt)),
+      caught => setCommandError(caught instanceof Error ? caught.message : "命令未能提交。")
+    );
   };
 
   if (projection === null) {
@@ -427,11 +432,15 @@ export function V2MatchBoard({
   const choiceOpen = projection.pendingChoice.status === "none";
   const choiceExpired = state.choice.status === "expired";
   const canAct = state.connectionStatus === "connected" && projection.winnerPlayerId === null && !busy;
-  const canPass = canAct && hasPriority && choiceOpen && !choiceExpired;
+  // Omitted canPass is the pre-RIFT-1081 fallback for old servers.
+  const actionOptions = projection.actionOptions;
+  const canPass = canAct && (actionOptions?.canPass === undefined
+    ? hasPriority && choiceOpen && !choiceExpired
+    : actionOptions.canPass === true && choiceOpen && !choiceExpired);
   const canPlay = !setup && canAct && hasPriority && choiceOpen && !choiceExpired;
   const canChooseMulligan = setup ? canAct && mulliganOpen && !choiceExpired : false;
-  const canEndTurn = canAct && projection.actionOptions?.canEndTurn === true && choiceOpen && !choiceExpired;
-  const canAdvance = canAct && projection.actionOptions?.canAdvance === true && choiceOpen && !choiceExpired;
+  const canEndTurn = canAct && actionOptions?.canEndTurn === true && choiceOpen && !choiceExpired;
+  const canAdvance = canAct && actionOptions?.canAdvance === true && choiceOpen && !choiceExpired;
   const combatDamage = projection.combat?.status === "active" && projection.combat.step === "damage" &&
     projection.combat.combatId !== undefined && projection.combat.damage !== undefined &&
     projection.combat.damage.expectedPlayerId === projection.viewerPlayerId ? projection.combat.damage : null;
@@ -450,6 +459,9 @@ export function V2MatchBoard({
     buildV2CombatDamageCommand(projection.combat.combatId, combatDamageBudget,
       combatDamageTargets.map(target => ({ unitObjectId: target.objectId, amount: combatDamageDrafts[target.objectId] ?? "" })));
   const canSubmitCombatDamage = canAct && choiceOpen && !choiceExpired && combatDamageCommand !== null;
+  const waitingForOpponentDamage = projection.combat?.status === "active" &&
+    projection.combat.step === "damage" && projection.combat.damage !== undefined &&
+    projection.combat.damage.expectedPlayerId !== projection.viewerPlayerId;
   const selectedCard = ownHand.find(card => card.objectId === selectedCardId) ?? null;
   const selectedTarget = targetCandidates.find(object => object.objectId === selectedTargetId) ?? null;
   const winner = projection.winnerPlayerId === null ? null :
@@ -603,6 +615,7 @@ export function V2MatchBoard({
             setCombatDamageDrafts({});
           }}>提交战斗伤害</button>
         </div>}
+        {waitingForOpponentDamage ? <p className="v2-waiting" role="status">等待对方分配伤害</p> : null}
       </section> : null}
       {!setup ? <section className="v2-action-panel" aria-label="移动操作">
         <div className="v2-section-heading"><h3>移动</h3><span>{selectedUnitId === null ? "选择单位与目的地" : objectName(selectedUnitId)}</span></div>
