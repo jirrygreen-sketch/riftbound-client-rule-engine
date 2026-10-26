@@ -465,6 +465,14 @@ export class LayerEngine {
   /** Synthetic registrations for printed Equipment Might Bonuses (CR 137.3). */
   private readonly attachmentBonuses = new Map<string, RegisteredContinuousEffect>();
   private readonly bonusOwnerRefs = new WeakMap<RegisteredContinuousEffect, ObjectRef>();
+  /** Increments at every explicit object boundary, including a reused Map. */
+  private objectBoundary = 0;
+  private derivedEffectsCache?: {
+    readonly active: readonly RegisteredContinuousEffect[];
+    readonly boundary: number;
+    readonly bonusSize: number;
+    readonly effects: readonly RegisteredContinuousEffect[];
+  };
 
   constructor(
     objects: readonly ObjectSnapshot[] | ReadonlyMap<string, ObjectSnapshot>,
@@ -502,6 +510,7 @@ export class LayerEngine {
     this.objects.clear();
     if (objects instanceof Map) for (const [key, object] of objects) this.objects.set(key, object);
     else for (const object of objects as readonly ObjectSnapshot[]) this.objects.set(refKey(object.ref), object);
+    this.objectBoundary++;
     this.rebuildAttachmentBonuses();
     this.invalidate();
     this.attachmentRevision = this.attachmentSignature();
@@ -785,11 +794,18 @@ export class LayerEngine {
 
   /** Printed Equipment bonuses and intrinsic Buff increases share arithmetic. */
   private arithmeticEffects(): readonly RegisteredContinuousEffect[] {
-    return Object.freeze([
+    const active = this.activeEffects();
+    const cached = this.derivedEffectsCache;
+    if (cached !== undefined && cached.active === active && cached.boundary === this.objectBoundary &&
+        cached.bonusSize === this.attachmentBonuses.size) return cached.effects;
+    const effects = Object.freeze([
       ...this.attachmentBonuses.values(),
       ...this.buffMightEffects(),
-      ...this.activeEffects(),
+      ...active,
     ]);
+    this.derivedEffectsCache = Object.freeze({ active, boundary: this.objectBoundary,
+      bonusSize: this.attachmentBonuses.size, effects });
+    return effects;
   }
 
   private isAttachmentBonus(entry: RegisteredContinuousEffect): boolean {
