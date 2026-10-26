@@ -39,6 +39,46 @@ interface ChoiceMetadata {
   readonly prompt?: string;
 }
 
+interface ResolvedTriggerOption {
+  readonly source?: ReturnType<EngineRuntimeHost["objects"]>[number];
+  readonly controller?: PlayerId;
+  readonly name: string;
+  readonly keyword?: string;
+}
+
+interface TriggerRegistrationSource {
+  readonly id: string;
+  readonly source: ReturnType<EngineRuntimeHost["objects"]>[number];
+  readonly controller: PlayerId;
+}
+
+function triggerOrderRegistration(id: string, registrations: readonly TriggerRegistrationSource[]): TriggerRegistrationSource | undefined {
+  const exact = registrations.find(registration => registration.id === id);
+  return exact ?? registrations.flatMap(registration =>
+    id.startsWith(`${registration.id}:`) ? [registration] : [])
+    .sort((left, right) => right.id.length - left.id.length)[0];
+}
+
+function readableKeyword(source: ReturnType<EngineRuntimeHost["objects"]>[number] | undefined, id: string): string | undefined {
+  const keyword = source?.keywords.find(candidate => candidate.id.toLowerCase() === id.toLowerCase());
+  return keyword?.id ?? (id.trim().length === 0 ? undefined
+    : `${id[0]!.toUpperCase()}${id.slice(1)}`);
+}
+
+function visibleTriggerSource(source: ReturnType<EngineRuntimeHost["objects"]>[number], controller: PlayerId,
+  viewer: string | null, grants: readonly RuntimeVisibilityGrant[]): boolean {
+  if (viewer === null || controller !== viewer || source.faceDown) return false;
+  return !projectObjectForChoice(source, viewer, grants).faceDown;
+}
+
+function triggerSourceMetadata(source: ReturnType<EngineRuntimeHost["objects"]>[number], viewer: string,
+  grants: readonly RuntimeVisibilityGrant[]): V2PendingChoiceSource | undefined {
+  if (!visibleTriggerSource(source, source.controller, viewer, grants)) return undefined;
+  const projected = projectObjectForChoice(source, viewer, grants);
+  const name = projected.name?.trim() ?? source.name.trim();
+  return { objectId: projected.objectId, ...(name.length === 0 ? {} : { name }) };
+}
+
 interface ChainChoiceItem {
   readonly id: string;
   readonly source: ReturnType<EngineRuntimeHost["objects"]>[number];
@@ -225,65 +265,102 @@ function objectChoiceCandidates(request: ChoiceRequest<unknown>, host: EngineRun
 
 function choiceOptions(request: ChoiceRequest<unknown>, host: EngineRuntimeHost, viewer: string | null,
   grants: readonly RuntimeVisibilityGrant[] = host.visibility(),
-  triggerRegistrations: readonly TriggerRegistration[] = []): readonly V2ChoiceOption[] | undefined {
+  triggerRegistrations: readonly TriggerRegistrationSource[] = [],
+  capturedSource?: V2PendingChoiceSource): readonly V2ChoiceOption[] | undefined {
   if (viewer !== request.chooser) return undefined;
   if (request.type === "optional" || request.type === "number") return undefined;
   if (request.type === "mode") {
-    const registrations = new Map(triggerRegistrations.map(registration => [registration.id, registration] as const));
     const triggerOrder = /^trigger:\d+:[^:]+:order:\d+$/.test(request.id);
-    const resolved = new Map(request.options.map(option => {
+    const resolved = new Map<string, ResolvedTriggerOption | undefined>(request.options.map(option => {
       const id = String(option);
       if (!triggerOrder) return [id, undefined] as const;
-      const exact = registrations.get(id);
-      const prefixed = exact === undefined
-        ? [...registrations.values()]
-            .filter(registration => id.startsWith(`${registration.id}:`))
-            .sort((left, right) => right.id.length - left.id.length)[0]
-        : exact;
-      const programSource = /^program:(.+):\d+:\d+$/.exec(id)?.[1];
-      const currentSource = programSource === undefined ? undefined : host.objects().filter(object =>
-        object.ref.id === programSource);
+      const registration = triggerOrderRegistration(id, triggerRegistrations);
+      const registeredId = registration?.id ?? id;
+      const programSource = /^program:(.+):(\d+):\d+$/.exec(registeredId);
+      const keywordSource = keywordRegistrationLabel(registeredId);
+      if (registration !== undefined && keywordSource !== undefined &&
+          (registration!.source.ref.id !== keywordSource.objectId ||
+            registration!.source.ref.zoneEntryId !== keywordSource.zoneEntryId)) return [id, undefined] as const;
+      const currentSource = keywordSource === undefined
+        ? programSource === null ? [] : host.objects().filter(object =>
+            object.ref.id === programSource[1])
+        : host.objects().filter(object => object.ref.id === keywordSource.objectId);
       // A Chain-to-Board play effect is collected while the new source is
       // still on the Chain. Prefer the authoritative registered snapshot; its
       // name is stable and already subject to the viewer visibility check.
-      const source = prefixed?.source ?? (currentSource?.length === 1 ? currentSource[0] : undefined);
-      const candidate = source === undefined ? undefined : {
-        source, controller: prefixed?.controller ?? source.controller,
+      const current = currentSource.length === 1 ? currentSource[0] : undefined;
+      const source = registration?.source ?? current;
+      // On retry the lifecycle briefly has neither a live registration nor a
+      // current incarnation for the just-played card. Reuse only the already
+      // visibility-checked source captured with the pending order when the raw
+      // keyword token names that exact object incarnation.
+      const captured = source === undefined && current === undefined &&
+        capturedSource !== undefined && keywordSource !== undefined && capturedSource.objectId === keywordSource.objectId &&
+        capturedSource.name !== undefined ? capturedSource : undefined;
+      if (source === undefined && captured !== undefined) {
+        return [id, {
+          name: captured.name!, keyword: keywordSource!.keyword,
+        }] as const;
+      }
+      if (source === undefined) return [id, undefined] as const;
+      const candidate = {
+        source, controller: registration?.controller ?? source.controller,
+        name: source.name,
+        ...(keywordSource === undefined ? {} : { keyword: keywordSource.keyword }),
       };
-      if (candidate === undefined) return [id, undefined] as const;
-      const projected = projectObjectForChoice(candidate.source, viewer, grants);
       // A trigger collected by a just-played Permanent can still name its
       // pre-board snapshot. The chooser controls the trigger; reveal only the
       // printed name in the prompt, never the card's hidden live identity.
-      const visible = candidate.controller === viewer && !candidate.source.faceDown && !projected.faceDown;
+      const controller = registration?.controller ?? source.controller;
+      const visible = controller === viewer && !source.faceDown;
       return [id, visible ? candidate : undefined] as const;
     }));
-    // Two independent, visible cards may have the same printed name. Number
-    // the entries for the chooser so the label is actionable; the occurrence
-    // is derived from this option list and never replaces the engine token.
+    // Two independent cards may have the same printed name, and one source can
+    // register several separate keyword instances. Number those visible
+    // entries for the chooser; the occurrence is derived from this option list
+    // and never replaces the engine token.
     const duplicateNames = new Set<string>();
+    const duplicateKeywords = new Set<string>();
     const optionNames = new Set<string>();
+    const optionKeywords = new Map<string, number>();
     for (const registration of resolved.values()) {
-      const optionName = registration?.source.name.trim();
+      const optionName = registration?.name.trim();
       if (optionName === undefined || optionName.length === 0) continue;
       if (optionNames.has(optionName)) duplicateNames.add(optionName);
       optionNames.add(optionName);
+      if (registration?.keyword !== undefined) {
+        const key = `${optionName}\u0000${registration.keyword.toLowerCase()}`;
+        const count = optionKeywords.get(key) ?? 0;
+        if (count > 0) duplicateKeywords.add(key);
+        optionKeywords.set(key, count + 1);
+      }
     }
     const seenName = new Map<string, number>();
+    const seenKeyword = new Map<string, number>();
     return request.options.map(option => {
       const value = typeof option === "string" || typeof option === "number" || typeof option === "boolean" ? option : undefined;
       const id = String(option);
       const registration = resolved.get(id);
-      const name = registration?.source.name.trim();
+      const name = registration?.name.trim();
       // `resolved` contains only the chooser's non-face-down sources; never
       // re-admit a name here from an unprojected snapshot.
       const readable = registration !== undefined && name !== undefined && name.length > 0;
       const occurrence = name === undefined || name.length === 0
         ? 0 : (seenName.get(name) ?? 0) + 1;
       if (occurrence > 0) seenName.set(name!, occurrence);
-      const label = occurrence > 0 && readable && duplicateNames.has(name!)
-        ? `${name} (trigger ${occurrence})`
-        : occurrence > 0 && readable ? name! : id;
+      const keyword = registration?.keyword === undefined ? undefined
+        : readableKeyword(registration.source, registration.keyword);
+      const keywordKey = registration?.keyword === undefined || name === undefined
+        ? undefined : `${name}\u0000${registration.keyword.toLowerCase()}`;
+      const keywordOccurrence = keywordKey === undefined
+        ? 0 : (seenKeyword.get(keywordKey) ?? 0) + 1;
+      if (keywordKey !== undefined) seenKeyword.set(keywordKey, keywordOccurrence);
+      const optionLabel = occurrence > 0 && readable
+        ? `${name}${keyword === undefined ? "" : ` · ${keyword}`}` : undefined;
+      const label = optionLabel === undefined ? id
+        : keywordKey !== undefined && duplicateKeywords.has(keywordKey)
+          ? `${optionLabel} (trigger ${keywordOccurrence})`
+          : duplicateNames.has(name!) ? `${optionLabel} (trigger ${occurrence})` : optionLabel;
       return { id, label, ...(value === undefined ? {} : { value }) };
     });
   }
@@ -295,9 +372,25 @@ function choiceOptions(request: ChoiceRequest<unknown>, host: EngineRuntimeHost,
   return candidates.map(({ id, label, value, objectRef }) => ({ id, label, value, objectRef }));
 }
 
+/**
+ * Keyword lifecycle registrations use:
+ * `program-keyword-ability:<objectId>:<zoneEntryId>:<keyword>:<instance>:<ordinal>`.
+ * Object ids can contain colons, so the source identity is bounded by the
+ * numeric zone-entry segment immediately before the keyword. The caller still
+ * resolves the authoritative snapshot from the registered trigger; this
+ * parser only supplies the display keyword and an exact-incarnation guard.
+ */
+function keywordRegistrationLabel(id: string): { readonly objectId: string; readonly zoneEntryId: number; readonly keyword: string } | undefined {
+  const match = /^program-keyword-ability:(.+):(\d+):([^:]+):[^:]+:\d+$/.exec(id);
+  if (match === null) return undefined;
+  const zoneEntryId = Number(match[2]);
+  if (!Number.isSafeInteger(zoneEntryId) || zoneEntryId < 0) return undefined;
+  return { objectId: match[1]!, zoneEntryId, keyword: match[3]! };
+}
+
 /** Resolve metadata from an exact existing request path without widening visibility. */
 function choiceMetadataRequest(request: ChoiceRequest<unknown>, host: EngineRuntimeHost, viewer: string | null,
-  grants: readonly RuntimeVisibilityGrant[], triggerRegistrations: readonly TriggerRegistration[],
+  grants: readonly RuntimeVisibilityGrant[], triggerRegistrations: readonly TriggerRegistrationSource[],
   chainItems: readonly ChainChoiceItem[], binding: ProgramBinding | null): ChoiceMetadata {
   if (viewer === null || viewer !== request.chooser) return {};
   if (request.type !== "optional" && request.type !== "select-objects" && request.type !== "mode") return {};
@@ -312,6 +405,30 @@ function choiceMetadataRequest(request: ChoiceRequest<unknown>, host: EngineRunt
       item.source.ref.id === registration.source.ref.id &&
       item.source.ref.zoneEntryId === registration.source.ref.zoneEntryId);
     break;
+  }
+  if (request.type === "mode" && /^trigger:\d+:[^:]+:order:\d+$/.test(request.id)) {
+    const sources = new Map<string, ReturnType<EngineRuntimeHost["objects"]>[number]>();
+    for (const option of request.options) {
+      const registration = triggerOrderRegistration(String(option), triggerRegistrations);
+      // Any unresolved or invisible option makes the whole order's source
+      // ambiguous. Omitting the metadata is safer than claiming one source.
+      if (registration === undefined || registration.controller !== viewer ||
+          !visibleTriggerSource(registration.source, registration.controller, viewer, grants)) return {};
+      sources.set(`${registration.source.ref.id}:${registration.source.ref.zoneEntryId}`, registration.source);
+    }
+    // Across different cards there is no single source to attach. Several
+    // separate keyword instances from one visible card are still unique.
+    if (sources.size === 1) {
+      const uniqueSource = sources.values().next().value;
+      if (uniqueSource === undefined) return {};
+      source = uniqueSource;
+      const metadata = triggerSourceMetadata(uniqueSource, viewer, grants);
+      const prompt = wireChoicePrompt(request.prompt, viewer, request.chooser);
+      if (metadata === undefined) return prompt === undefined ? {} : { prompt };
+      return { source: metadata, ...(prompt === undefined ? {} : { prompt }) };
+    }
+    const prompt = wireChoicePrompt(request.prompt, viewer, request.chooser);
+    return prompt === undefined ? {} : { prompt };
   }
   const chainItemId = choiceSourceItemId(request, chainItems);
   const item = chainItemId === undefined ? undefined : chainItems.find(candidate => candidate.id === chainItemId);
@@ -1131,7 +1248,7 @@ class MatchRuntime implements EngineRuntime {
     const request = this.pending.request;
     const registeredTriggers = this.match?.flow.chain.pipeline.registeredTriggers() ?? [];
     const options = this.host ? choiceOptions(request, this.host, viewer, this.pending.visibilityGrants,
-      registeredTriggers) : undefined;
+      registeredTriggers, this.pending.source) : undefined;
     return {
       choiceId: request.id,
       ownerPlayerId: request.chooser,
@@ -1143,7 +1260,7 @@ class MatchRuntime implements EngineRuntime {
   }
 
   private choiceMetadataAtPending(request: ChoiceRequest<unknown>, host: EngineRuntimeHost,
-    grants: readonly RuntimeVisibilityGrant[], registeredTriggers: readonly TriggerRegistration[],
+    grants: readonly RuntimeVisibilityGrant[], registeredTriggers: readonly TriggerRegistrationSource[],
     chainItems: readonly ChainChoiceItem[]): ChoiceMetadata {
     return choiceMetadataRequest(request, host, request.chooser, grants, registeredTriggers, chainItems, this.binding);
   }
