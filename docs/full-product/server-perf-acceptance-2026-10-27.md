@@ -167,6 +167,14 @@ final 的 Top 5 以三次正式样本 self-time 中位数排序。百分比只�
 
 紧随其后的成本包括 `keyword-grants.alias` 993.89 ms、`writeCanonical` 925.23 ms、`evaluateDependency` 494.96 ms、`attachmentSignature` 489.26 ms 和 `canonicalJsonInto` 421.65 ms。下一步优先级建议：
 
+```mermaid
+xychart-beta
+  title "final 剩余热点 self-time 中位数（ms）"
+  x-axis ["copyValue", "evaluateGroup", "cloneSnapshot", "structuredClone", "snapshotFields"]
+  y-axis "ms" 0 --> 3000
+  bar [2704.26, 2631.33, 2022.05, 1388.47, 1345.14]
+```
+
 1. 为热点 1–3、5 建立生产装配的 `createProgramBinding + ChainEngine/TurnFlow + attachLifecycle` 基准，先消除可证明重复的 object/checkpoint copy，再测同一轨迹；不得用 fixture 跳步或修改 authoritative state。该基准还应覆盖 choice/fee 选择与支付、replacement/prevention、simultaneous trigger 的控制者/玩家选序、Pending/Finalize/Resolve 与 LKI，但这些语义需要各自卡文与官方裁定；缺失证据时保持 `judge-required`，本轮没有新增具体卡牌规则执行。
 2. 对层求值增加按真实 dependency/cycle/effect-once 语义细分的计数器，定位 `evaluateAll → evaluateGroup → cloneSnapshot/snapshotFields` 中剩余重复；保持 CR v1.5 478.1.a–478.4 与 CR v1.5 303.2.a 的 turn-order sequencing。
 3. 继续 C 的 canonical digest 调用树优化，覆盖 `writeCanonical / canonicalJsonInto`，同时锁定 legacy profile 1–9 与旧回放的 digest/schema。
