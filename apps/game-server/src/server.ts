@@ -1,5 +1,5 @@
 import { bindConstructedRegion, catalogForConstructedRegion, validateRegionalCatalogDeck } from './constructed-regional-context.js';
-import { randomUUID } from "node:crypto";
+import { createHash, randomInt, randomUUID } from "node:crypto";
 import {
   createServer,
   type IncomingMessage,
@@ -98,16 +98,64 @@ type ServerLifecycle =
   | "stopped";
 
 const MAX_DECK_REQUEST_BYTES = 64 * 1024;
+const DETERMINISTIC_RANDOM_SEED_ENV = "RIFTBOUND_DETERMINISTIC_RANDOM_SEED";
+const DETERMINISTIC_RANDOM_GATE_ENV = "RIFTBOUND_ALLOW_DETERMINISTIC_RANDOM";
 const PUBLIC_CORS_HEADERS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, OPTIONS",
   "access-control-allow-headers": "content-type"
 } as const satisfies Record<string, string>;
 
+/**
+ * Resolve Duel setup entropy. Determinism requires both an explicit gate and a
+ * non-empty seed. If either is absent, production retains the crypto source.
+ */
+export function resolveDuelRandomIndex(
+  environment: NodeJS.ProcessEnv = process.env,
+  cryptoRandomIndex: (exclusiveUpperBound: number) => number = bound => randomInt(bound)
+): (exclusiveUpperBound: number) => number {
+  const gate = environment[DETERMINISTIC_RANDOM_GATE_ENV];
+  const seed = environment[DETERMINISTIC_RANDOM_SEED_ENV];
+  if (gate !== "1" || seed === undefined || seed.length === 0) return cryptoRandomIndex;
+
+  const random = createSeededRandomIndex(seed);
+  console.warn(
+    "[SECURITY WARNING] Deterministic Duel RNG enabled. " +
+      "Use only for profiling, load tests, and reproducible local runs; never expose it as a production default."
+  );
+  return random;
+}
+
+export function createSeededRandomIndex(seed: string): (exclusiveUpperBound: number) => number {
+  let state = createHash("sha256").update(seed, "utf8").digest().readUInt32LE(0);
+  const nextUint32 = (): number => {
+    // SplitMix32 has a full 2^32 period and is deliberately small here; this is
+    // a reproducibility stream, not a credential or security primitive.
+    state = (state + 0x9e3779b9) >>> 0;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 16), 0x21f0aaad);
+    value = Math.imul(value ^ (value >>> 15), 0x735a2d97);
+    return (value ^ (value >>> 15)) >>> 0;
+  };
+  const maximum = 2 ** 48;
+  return exclusiveUpperBound => {
+    if (!Number.isSafeInteger(exclusiveUpperBound) ||
+        exclusiveUpperBound < 1 || exclusiveUpperBound > maximum) {
+      throw new RangeError(`exclusiveUpperBound must be an integer in 1..${maximum}`);
+    }
+    const limit = maximum - (maximum % exclusiveUpperBound);
+    for (;;) {
+      const value = nextUint32() * 0x10000 + (nextUint32() & 0xffff);
+      if (value < limit) return value % exclusiveUpperBound;
+    }
+  };
+}
+
 export function createGameServer(options: GameServerOptions = {}): GameServer {
   const host = options.host ?? "127.0.0.1";
   const port = options.port ?? 8787;
   const makeRoomId = options.roomIdFactory ?? createRoomId;
+  const duelRandomIndex = options.duelRandomIndex ?? resolveDuelRandomIndex();
   const duelRoomProfile = options.duelRoomProfile ?? "v1";
   if (duelRoomProfile !== "v1" && duelRoomProfile !== "p4") throw new TypeError("Invalid duel room profile");
   if (options.duelRuntimeProfile !== undefined &&
@@ -470,7 +518,7 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
           requireCatalog,
           loadPresets,
           m1PresetsOnly,
-          options.duelRandomIndex,
+          duelRandomIndex,
           options.storageDirectory,
           duelRuntimeMode
         )))
