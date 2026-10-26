@@ -27,9 +27,11 @@ import {
   type V2Projection,
   type V2RuneResourceCommand,
 } from "../../../../packages/protocol/dist/v2/index.js";
-import { assertRuntimeJournal, ENGINE_RUNTIME_RULESET_VERSION, RuntimeJournalWriter, canonicalJson, type RuntimeJournal, type RuntimeJournalEntry, digest } from "./journal.js";
+import { assertRuntimeJournal, ENGINE_RUNTIME_RULESET_VERSION, RuntimeJournalWriter, canonicalJson,
+  digestCanonicalJson, type RuntimeJournal, type RuntimeJournalEntry, digest } from "./journal.js";
 import { EngineRuntimeHost, type RuntimeCard, type RuntimeVisibilityGrant } from "./host.js";
-import { advanceResponsiblePlayer, projectObjectForChoice, projectRuntime, projectionDigest } from "./projection.js";
+import { advanceResponsiblePlayer, projectObjectForChoice, projectRuntime,
+  projectRuntimeFromSnapshot, projectionCanonicalJson, projectionDigest, projectionSnapshot } from "./projection.js";
 
 type PendingChoice = Extract<V2PendingChoice, { readonly status: "pending" }>;
 type V2PendingChoiceSource = NonNullable<PendingChoice["source"]>;
@@ -696,7 +698,7 @@ class MatchRuntime implements EngineRuntime {
     if (prior) {
       if (prior.playerId !== playerId || canonicalCommand(prior.command) !== canonicalCommand(command)) return this.rejected(command, playerId, "commandId was already used for a different command");
       const duplicate = { ...prior.receipt, status: "duplicate" as const };
-      this.appendJournal(playerId, command, duplicate, duplicate.result ?? { accepted: true }, true);
+      this.appendJournal(playerId, command, duplicate, duplicate.result ?? { accepted: true }, true, undefined, undefined);
       return { receipt: duplicate, projection: this.projectFor(playerId) };
     }
     if (command.stateVersion !== this.stateVersion) return this.rejected(command, playerId, `stateVersion mismatch: expected ${this.stateVersion}, received ${command.stateVersion}`);
@@ -715,7 +717,7 @@ class MatchRuntime implements EngineRuntime {
           choiceId: error.request.id,
           ownerPlayerId: error.request.chooser,
           kind: error.request.type,
-        });
+        }, undefined);
         return { receipt, projection: this.projectFor(playerId) };
       }
       return this.rejected(command, playerId, error instanceof Error ? error.message : String(error));
@@ -724,8 +726,14 @@ class MatchRuntime implements EngineRuntime {
 
   projectFor(playerId: PlayerId | null): V2Projection {
     this.requireStarted();
-    const projection = projectRuntime(this.match!, this.host!, this.runtimeOptions.matchId, playerId, this.stateVersion,
-      this.pendingChoiceFor(playerId));
+    const snapshot = projectionSnapshot(this.match!, this.host!, this.runtimeOptions.matchId, this.stateVersion);
+    return this.projectForSnapshot(playerId, snapshot);
+  }
+
+  private projectForSnapshot(playerId: PlayerId | null,
+    snapshot: Parameters<typeof projectRuntimeFromSnapshot>[6]): V2Projection {
+    const projection = projectRuntimeFromSnapshot(this.match!, this.host!, this.runtimeOptions.matchId,
+      playerId, this.stateVersion, this.pendingChoiceFor(playerId), snapshot);
     return withChoiceMetadata(projection, this.pending);
   }
 
@@ -799,8 +807,9 @@ class MatchRuntime implements EngineRuntime {
         const receipt = { commandId: command.commandId, status: "accepted" as const, stateVersion: this.stateVersion + 1,
           eventSeq: this.match!.events().length, result: { resumedCommandId: original.command.commandId, accepted: true } };
         this.stateVersion += 1;
-        const projection = this.projectFor(playerId);
-        this.appendJournal(playerId, command, receipt, receipt.result!);
+        const snapshot = projectionSnapshot(this.match!, this.host!, this.runtimeOptions.matchId, this.stateVersion);
+        const projection = this.projectForSnapshot(playerId, snapshot);
+        this.appendJournal(playerId, command, receipt, receipt.result!, false, undefined, projection, snapshot);
         this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
         this.decisions = null;
         this.preparedPlay = null;
@@ -818,7 +827,7 @@ class MatchRuntime implements EngineRuntime {
         this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
         this.appendJournal(playerId, command, receipt, { pending: true, choice: receipt.choice! }, false, {
           choiceId: error.request.id, ownerPlayerId: error.request.chooser, kind: error.request.type,
-        });
+        }, undefined);
         return { receipt, projection: this.projectFor(playerId) };
       }
       this.decisions = null; this.pending = original; this.preparedPlay = original.preparedPlay;
@@ -960,8 +969,9 @@ class MatchRuntime implements EngineRuntime {
     });
     const receipt: RuntimeReceipt = { commandId: command.commandId, status: "accepted", stateVersion: this.stateVersion,
       eventSeq: this.match!.events().length, result };
-    const projection = this.projectFor(playerId);
-    this.appendJournal(playerId, command, receipt, result);
+    const snapshot = projectionSnapshot(this.match!, this.host!, this.runtimeOptions.matchId, this.stateVersion);
+    const projection = this.projectForSnapshot(playerId, snapshot);
+    this.appendJournal(playerId, command, receipt, result, false, undefined, projection, snapshot);
     this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
     if (this.preparedPlay?.playerId === playerId && this.preparedPlay.commandId === command.commandId) {
       this.preparedPlay = null;
@@ -1221,16 +1231,29 @@ class MatchRuntime implements EngineRuntime {
     command: V2Command,
     receipt: RuntimeReceipt,
     result: Record<string, unknown>,
-    duplicate = false,
-    pendingReason?: Readonly<Record<string, unknown>>,
+    duplicate: boolean,
+    pendingReason: Readonly<Record<string, unknown>> | undefined,
+    actorProjection: V2Projection | undefined,
+    sharedSnapshot?: Parameters<typeof projectRuntimeFromSnapshot>[6],
   ): RuntimeJournalEntry {
     const writer = this.journalWriter!;
     const viewers = Object.keys(this.host!.playerNames());
+    const snapshot = sharedSnapshot ??
+      projectionSnapshot(this.match!, this.host!, this.runtimeOptions.matchId, this.stateVersion);
+    const projectionFor = (viewer: string | null) => projectRuntimeFromSnapshot(
+      this.match!, this.host!, this.runtimeOptions.matchId, viewer, this.stateVersion,
+      this.pendingChoiceFor(viewer), snapshot,
+    );
+    const spectator = projectionFor(null);
     const projections = [
-      withChoiceMetadata(projectRuntime(this.match!, this.host!, this.runtimeOptions.matchId, viewers[0]!, this.stateVersion, this.pendingChoiceFor(viewers[0]!)), this.pending),
-      withChoiceMetadata(projectRuntime(this.match!, this.host!, this.runtimeOptions.matchId, viewers[1]!, this.stateVersion, this.pendingChoiceFor(viewers[1]!)), this.pending),
-      projectRuntime(this.match!, this.host!, this.runtimeOptions.matchId, null, this.stateVersion, this.pendingChoiceFor(null)),
+      actorProjection !== undefined && playerId === viewers[0]
+        ? actorProjection : withChoiceMetadata(projectionFor(viewers[0]!), this.pending),
+      actorProjection !== undefined && playerId === viewers[1]
+        ? actorProjection : withChoiceMetadata(projectionFor(viewers[1]!), this.pending),
+      spectator,
     ] as const;
+    const canonical = projections.map(projectionCanonicalJson);
+    const projectionDigests = canonical.map(digestCanonicalJson);
     return writer.append({
       playerId, actor: playerId, requestId: command.commandId, commandId: command.commandId, command, payload: command,
       acceptedAt: new Date(0).toISOString(),
@@ -1238,8 +1261,12 @@ class MatchRuntime implements EngineRuntime {
       expectedRoomVersion: 0,
       appliedStateVersion: this.stateVersion, roomVersion: 0, eventSeq: this.match!.events().length, result, publicReceipt: receipt as unknown as Record<string, unknown>,
       duplicate, rejection: null, ...(pendingReason ? { pendingReason } : {}), entropyConsumed: [],
-      projectionDigestByViewer: Object.fromEntries(["spectator", ...viewers].map((viewer, index) => [viewer, projectionDigest(projections[index === 0 ? 2 : index - 1]!) ])),
-      stateDigest: projectionDigest(projections[2]), privateStateDigest: digest(projections.slice(0, 2)),
+      projectionDigestByViewer: {
+        spectator: projectionDigests[2]!, [viewers[0]!]: projectionDigests[0]!,
+        [viewers[1]!]: projectionDigests[1]!,
+      },
+      stateDigest: projectionDigests[2],
+      privateStateDigest: digestCanonicalJson(`[${canonical[0]},${canonical[1]}]`),
     });
   }
 

@@ -95,15 +95,49 @@ export interface RuntimeJournalAppendInput extends Omit<RuntimeJournalEntry, "ki
 }
 
 export function canonicalJson(value: unknown): string {
-  if (value === null) return "null";
-  if (typeof value === "string" || typeof value === "boolean" || typeof value === "number") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  return canonicalJsonInto(value);
+}
+
+function canonicalJsonInto(value: unknown): string {
+  const chunks: string[] = [];
+  writeCanonical(value, chunks);
+  return chunks.join("");
+}
+
+function writeCanonical(value: unknown, chunks: string[]): void {
+  if (value === null) { chunks.push("null"); return; }
+  if (typeof value === "string" || typeof value === "boolean" || typeof value === "number") {
+    chunks.push(JSON.stringify(value));
+    return;
+  }
   if (typeof value !== "object") throw new TypeError("Journal values must be JSON data");
-  return `{${Object.keys(value as Record<string, unknown>).sort().map(key => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`).join(",")}}`;
+  if (Array.isArray(value)) {
+    chunks.push("[");
+    for (let index = 0; index < value.length; index += 1) {
+      if (index > 0) chunks.push(",");
+      writeCanonical(value[index], chunks);
+    }
+    chunks.push("]");
+    return;
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).sort();
+  chunks.push("{");
+  for (let index = 0; index < keys.length; index += 1) {
+    if (index > 0) chunks.push(",");
+    const key = keys[index]!;
+    chunks.push(`${JSON.stringify(key)}:`);
+    writeCanonical(record[key], chunks);
+  }
+  chunks.push("}");
 }
 
 export function digest(value: unknown): string {
-  return createHash("sha256").update(canonicalJson(value), "utf8").digest("hex");
+  return digestCanonicalJson(canonicalJson(value));
+}
+
+export function digestCanonicalJson(canonical: string): string {
+  return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
 
 export class RuntimeJournalWriter {
