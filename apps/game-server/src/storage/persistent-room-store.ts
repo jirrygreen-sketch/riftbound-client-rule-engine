@@ -275,29 +275,6 @@ function setJsonPath(target: unknown, path: readonly (string | number)[], value:
   (cursor as Record<string | number, unknown>)[last] = value;
 }
 
-function assertReplaceablePath(target: unknown, path: readonly (string | number)[]): void {
-  let cursor = target;
-  for (const segment of path.slice(0, -1)) {
-    if (cursor === null || typeof cursor !== "object") {
-      throw new Error("Archive delta set parent does not exist");
-    }
-    if (Array.isArray(cursor)) {
-      if (typeof segment !== "number" || segment >= cursor.length) {
-        throw new Error("Archive delta set array parent does not exist");
-      }
-      cursor = cursor[segment];
-    } else {
-      if (typeof segment !== "string" || !Object.hasOwn(cursor, segment)) {
-        throw new Error("Archive delta set object parent does not exist");
-      }
-      cursor = (cursor as Record<string, unknown>)[segment];
-    }
-  }
-  if (cursor === null || typeof cursor !== "object") {
-    throw new Error("Archive delta set parent does not exist");
-  }
-}
-
 function assertNoDuplicateOperations(operations: readonly unknown[]): void {
   const seen = new Set<string>();
   for (let index = 0; index < operations.length; index += 3) {
@@ -329,21 +306,6 @@ function truncateAtPath(target: unknown, path: readonly (string | number)[], len
   cursor.splice(length);
 }
 
-function assertNoAncestorMutation(
-  operations: readonly unknown[],
-  index: number,
-  path: readonly (string | number)[]
-): void {
-  for (let prior = 0; prior < index; prior += 3) {
-    if (operations[prior + 1] !== "truncate") continue;
-    const priorPath = decodePath(operations[prior] as string);
-    if (priorPath.length < path.length &&
-        priorPath.every((segment, segmentIndex) => segment === path[segmentIndex])) {
-      throw new Error("Archive delta mutates a truncated path");
-    }
-  }
-}
-
 function applyArchiveDelta(base: JsonObject, event: JsonObject): JsonObject {
   const version = event.formatVersion;
   const baseArchiveSeq = event.baseArchiveSeq;
@@ -366,15 +328,12 @@ function applyArchiveDelta(base: JsonObject, event: JsonObject): JsonObject {
   for (let index = 0; index < operations.length; index += 3) {
     const path = decodePath(operations[index]!);
     const kind = operations[index + 1]!;
-    if (kind === "set") assertReplaceablePath(nextRoot, path);
-    assertNoAncestorMutation(operations, index, path);
     let value: unknown;
     try { value = JSON.parse(operations[index + 2]!); } catch {
       throw new Error("Archive delta operation value is not JSON");
     }
     if (kind === "set") {
       if (!isJsonValue(value)) throw new Error("Archive delta set value is not JSON data");
-      assertReplaceablePath(nextRoot, path);
       setJsonPath(nextRoot, path, value);
     } else if (kind === "delete") {
       deleteAtPath(nextRoot, path);

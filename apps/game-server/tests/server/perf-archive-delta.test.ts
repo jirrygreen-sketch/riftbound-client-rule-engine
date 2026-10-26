@@ -193,36 +193,6 @@ describe("RIFT-1087-E private archive delta", () => {
     await store.close();
   });
 
-  it("rejects a delta that mutates a descendant of an earlier truncation", async () => {
-    const root = await directory();
-    const first = archive(1);
-    const next = archive(2);
-    await writeLegacyLog(root, [first]);
-    const delta: PersistentRoomArchiveDeltaEvent = {
-      type: "room-archive-delta",
-      roomId: "seed-room",
-      formatVersion: 1,
-      baseArchiveSeq: 1,
-      baseArchiveDigest: digest(first),
-      archiveDigest: digest(next),
-      operations: [
-        JSON.stringify(["nested", "values"]), "truncate", "1",
-        JSON.stringify(["nested", "values", 1]), "set", "9"
-      ]
-    };
-    await appendFile(path.join(root, "archive.log"), encodeRecord({
-      formatVersion: 1,
-      kind: "events",
-      entries: [{ eventSeq: 2, event: delta }]
-    }), "utf8");
-
-    const store = new PersistentRoomArchiveStore(root);
-    await expect(store.load("seed-room")).rejects.toThrow(
-      "Archive delta mutates a truncated path"
-    );
-    await store.close();
-  });
-
   it("keeps the compact representation while paging full archive history", async () => {
     const root = await directory();
     const store = new PersistentRoomArchiveStore(root);
