@@ -220,7 +220,7 @@ Bandwidth 以主要场景的 WS 字节为依据：profile 每命令中位 416,09
 | 热点 Top 5 与建议 | 完成 | 见上表，未臆造统一 FIFO/LIFO 或卡牌语义 |
 | 推荐云配置 | 完成 | 只给当前可证明的保守配置；未把未验收 N=5 写成生产 SLO |
 | 清理进程与端口 | 完成 | 所有本任务记录的 PID 已退出，36080–36099 无监听；未使用 `pkill`/按端口杀进程 |
-| 最终 worktree 与提交 | 完成 | 任务分支 HEAD `35b6abf5`，相对 `integration@97029783` 只新增本报告，worktree clean |
+| 最终 worktree 与提交 | 完成 | 任务分支 HEAD `86c55c24`，相对 `integration@97029783` 只新增本报告，worktree clean |
 
 ## 原始产物与复核
 
