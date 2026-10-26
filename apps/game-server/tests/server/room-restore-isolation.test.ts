@@ -214,11 +214,25 @@ async function rewriteLastArchiveRecord(
 ): Promise<void> {
   const roomHash = createHash("sha256").update(divergingRoomId, "utf8").digest("hex");
   const logPath = path.join(directory, roomHash, "archive.log");
-  const line = (await readFile(logPath, "utf8")).trimEnd().split("\n").at(-1)!;
-  const persisted = JSON.parse(line) as unknown;
-  if (!isRecord(persisted) || !isRecord(persisted.record) || !Array.isArray(persisted.record.entries)) {
+  const lines = (await readFile(logPath, "utf8")).trimEnd().split("\n");
+  const indices = lines.map((_line, index) => index).reverse();
+  const persistedIndex = indices.find(index => {
+    const candidate = JSON.parse(lines[index]!) as unknown;
+    return isRecord(candidate) && isRecord(candidate.record) &&
+      Array.isArray(candidate.record.entries) &&
+      candidate.record.entries.some((entry: unknown) =>
+        isRecord(entry) && isRecord(entry.event) &&
+        entry.event.type === "room-archive" &&
+        isRecord(entry.event.archive) &&
+        isRecord(entry.event.archive.engineRuntimeJournal));
+  });
+  if (persistedIndex === undefined) {
     throw new Error("The private archive log record has an invalid shape");
   }
+  const persisted = JSON.parse(lines[persistedIndex]!) as {
+    readonly checksum: string;
+    readonly record: { readonly entries: readonly { readonly event: Record<string, unknown> }[] };
+  };
   const event = persisted.record.entries.at(-1)?.event;
   if (!isRecord(event) || event.type !== "room-archive" || !isRecord(event.archive) ||
       !isRecord(event.archive.engineRuntimeJournal)) {
@@ -227,10 +241,17 @@ async function rewriteLastArchiveRecord(
   event.archive.engineRuntimeJournal = rehashWithRejectedCommand(
     event.archive.engineRuntimeJournal as RuntimeJournal
   );
-  await writeFile(logPath, `${JSON.stringify({
+  lines[persistedIndex] = JSON.stringify({
     checksum: createHash("sha256").update(stableStringify(persisted.record)).digest("hex"),
     record: persisted.record
-  })}\n`, "utf8");
+  });
+  const deltas: string[] = [];
+  for (let index = persistedIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    const parsed = JSON.parse(line) as { readonly record?: unknown };
+    if (!isRecord(parsed.record) || parsed.record.entries === undefined) deltas.push(line);
+  }
+  await writeFile(logPath, `${[...lines.slice(0, persistedIndex + 1), ...deltas].join("\n")}\n`, "utf8");
 }
 
 describe("room restore isolation", () => {
