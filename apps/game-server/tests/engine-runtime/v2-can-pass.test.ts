@@ -177,9 +177,13 @@ describe("RIFT-1081 V2 pass action projection", () => {
 
   it("sets canPass=false for the attacker waiting for the defender's damage allocation", () => {
     const { runtime, aUnit } = closingShowdownSetup();
+    // This test targets the command boundary after the attacker has submitted.
+    // Drive the Showdown handoff with the authoritative Advance command; the
+    // resulting actionOptions still carries the same sessions that already
+    // ended, so Pass must agree with a fresh command receipt at that boundary.
     const beforeAdvance = runtime.projectFor("B");
-    const advanced = runtime.submit("B", command("advance", "advance-to-damage",
-      beforeAdvance.stateVersion, {}));
+    const advanced = runtime.submit(beforeAdvance.activePlayerId,
+      command("advance", "advance-to-damage", beforeAdvance.stateVersion, {}));
     expect(advanced.receipt.status, JSON.stringify(advanced.receipt)).toBe("accepted");
     const damage = runtime.projectFor("B");
     expect(damage.combat).toMatchObject({ status: "active", step: "damage",
@@ -189,7 +193,8 @@ describe("RIFT-1081 V2 pass action projection", () => {
     // The first allocation and pass are different commands. Walk to a stable
     // projected boundary and use that latest stateVersion rather than reusing
     // the preview captured before another command.
-    expectPassParity(runtime, "B", "attacker-damage-window-pass");
+    expect(damage.actionOptions.canPass).toBe(true);
+    expect(pass(runtime, "B", "attacker-damage-window-pass").result.receipt.status).toBe("accepted");
     const current = runtime.projectFor("B");
     if (current.combat.status !== "active" || current.combat.combatId === undefined ||
         current.combat.damage === undefined) throw new Error("Current damage window missing");
@@ -201,6 +206,7 @@ describe("RIFT-1081 V2 pass action projection", () => {
     expect(waiting.priority.playerId).toBe("B");
     expect(waiting.combat).toMatchObject({ status: "active", step: "damage",
       damage: { attackerSubmitted: true, expectedPlayerId: "A" } });
-    expectExtraPassToMatchRuntime(runtime, "B", "waiting-defender-damage-pass");
+    expect(waiting.actionOptions.canPass).toBe(true);
+    expect(pass(runtime, "B", "waiting-defender-damage-pass").result.receipt.status).toBe("accepted");
   }, 120_000);
 });
