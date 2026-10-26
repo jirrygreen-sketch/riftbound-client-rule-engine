@@ -136,7 +136,7 @@ export function digest(value: unknown): string {
   return digestCanonicalJson(canonicalJson(value));
 }
 
-function digestCanonicalJson(canonical: string): string {
+export function digestCanonicalJson(canonical: string): string {
   return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
 
