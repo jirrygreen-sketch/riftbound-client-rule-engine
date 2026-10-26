@@ -477,8 +477,7 @@ function snapshotObjects(snapshot: RuntimeProjectionSnapshot, viewer: string | n
   const hidden = new Map(snapshot.hiddenObjectSource.map(object => [objectRefKey(object), object]));
   const objects = Object.freeze([
     ...snapshot.objectSource.filter(object => !hidden.has(objectRefKey(object)) &&
-      (!object.faceDown || object.zone === "deck" || object.zone === "rune-deck") &&
-      ((object.controller === viewer && object.zone !== "hand") || isPublic(object, viewer, snapshot.visibilityGrants)))
+      (!object.faceDown || object.zone === "deck" || object.zone === "rune-deck"))
       .map(object => projectedObject(object, viewer, snapshot.visibilityGrants)),
     ...[...hidden.values()].map(object => projectedObject(object, viewer, snapshot.visibilityGrants)),
   ]);
