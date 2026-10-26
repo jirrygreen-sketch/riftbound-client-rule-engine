@@ -138,11 +138,16 @@ wait_for_url() {
   local name=$1
   local url=$2
   local log=$3
+  local offset=$4
+  local recent
   for _ in $(seq 1 120); do
     if curl -fsS --max-time 2 "${url}" >/dev/null 2>&1; then return 0; fi
-    if [[ -f ${log} ]] && grep -Eq 'EADDRINUSE|strictPort|Error:|Failed to start|failed to load' "${log}"; then
-      tail -80 "${log}" >&2
-      return 1
+    if [[ -f ${log} ]]; then
+      recent=$(log_since "${log}" "${offset}")
+      if grep -Eq 'EADDRINUSE|strictPort|Error:|Failed to start|failed to load' <<<"${recent}"; then
+        tail -80 "${log}" >&2
+        return 1
+      fi
     fi
     sleep 0.5
   done
@@ -254,6 +259,24 @@ launch_group() {
   record_pid "${name}" "${pid}"
 }
 
+log_size() {
+  local log=$1
+  if [[ -f ${log} ]]; then
+    wc -c <"${log}" | tr -d '[:space:]'
+  else
+    printf '0\n'
+  fi
+}
+
+log_since() {
+  local log=$1
+  local offset=$2
+  if [[ ! -f ${log} ]]; then
+    return 0
+  fi
+  tail -c +"$((offset + 1))" "${log}"
+}
+
 ensure_group_alive() {
   local name=$1
   local label=$2
@@ -264,6 +287,7 @@ ensure_group_alive() {
 }
 
 printf '启动 game-server（:%s）……\n' "${SERVER_PORT}"
+server_log_offset=$(log_size "${LOG_DIR}/server.log")
 launch_group server "${LOG_DIR}/server.log" \
   env PORT="${SERVER_PORT}" HOST=127.0.0.1 \
   RIFTBOUND_STORAGE_DIRECTORY="${STORAGE_DIR}" \
@@ -272,21 +296,23 @@ launch_group server "${LOG_DIR}/server.log" \
 ensure_group_alive server server
 
 printf '启动 client A（:%s）……\n' "${CLIENT_A_PORT}"
+client_a_log_offset=$(log_size "${LOG_DIR}/client-a.log")
 launch_group client-a "${LOG_DIR}/client-a.log" \
   pnpm --filter @riftbound/desktop-client exec vite \
   --config "${VITE_CONFIG}" --host 127.0.0.1 --port "${CLIENT_A_PORT}" --strictPort
 ensure_group_alive client-a client-a
 
 printf '启动 client B（:%s）……\n' "${CLIENT_B_PORT}"
+client_b_log_offset=$(log_size "${LOG_DIR}/client-b.log")
 launch_group client-b "${LOG_DIR}/client-b.log" \
   pnpm --filter @riftbound/desktop-client exec vite \
   --config "${VITE_CONFIG}" --host 127.0.0.1 --port "${CLIENT_B_PORT}" --strictPort
 ensure_group_alive client-b client-b
 
-wait_for_url "game-server" "http://127.0.0.1:${SERVER_PORT}/health" "${LOG_DIR}/server.log"
-wait_for_url "catalog" "http://127.0.0.1:${SERVER_PORT}/api/presets" "${LOG_DIR}/server.log"
-wait_for_url "client A" "http://127.0.0.1:${CLIENT_A_PORT}/" "${LOG_DIR}/client-a.log"
-wait_for_url "client B" "http://127.0.0.1:${CLIENT_B_PORT}/" "${LOG_DIR}/client-b.log"
+wait_for_url "game-server" "http://127.0.0.1:${SERVER_PORT}/health" "${LOG_DIR}/server.log" "${server_log_offset}"
+wait_for_url "catalog" "http://127.0.0.1:${SERVER_PORT}/api/presets" "${LOG_DIR}/server.log" "${server_log_offset}"
+wait_for_url "client A" "http://127.0.0.1:${CLIENT_A_PORT}/" "${LOG_DIR}/client-a.log" "${client_a_log_offset}"
+wait_for_url "client B" "http://127.0.0.1:${CLIENT_B_PORT}/" "${LOG_DIR}/client-b.log" "${client_b_log_offset}"
 
 trap - EXIT
 if [[ -w ${PID_FILE} ]]; then

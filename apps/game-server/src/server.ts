@@ -38,7 +38,11 @@ import { validateConstructedDeck } from "./constructed-policy.js";
 import { createRoomId, GameRoom, RoomError, type DuelRoomProfile, type DuelOptionalRoomRuntimeProfile, type DuelRuntimeMode } from "./room.js";
 import { DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT, DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK,
   DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN, DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY } from "./duel/authoritative-runtime-p4.js";
-import { FileRoomStore } from "./file-room-store.js";
+import {
+  FileRoomStore,
+  QuarantinedRoomError,
+  type QuarantinedRoomRecord
+} from "./file-room-store.js";
 import { InMemoryRoomStore, type RoomStore } from "./room-store.js";
 import {
   loadM1PresetCatalog,
@@ -73,6 +77,7 @@ export interface GameServerOptions {
 export interface GameServer {
   readonly httpServer: HttpServer;
   readonly rooms: ReadonlyMap<string, GameRoom>;
+  readonly quarantinedRooms: readonly QuarantinedRoomRecord[];
   start(): Promise<void>;
   stop(): Promise<void>;
 }
@@ -176,6 +181,7 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
           return requireCatalog();
         })
       : new InMemoryRoomStore());
+  let quarantinedRooms: readonly QuarantinedRoomRecord[] = [];
 
   const sendJson = (
     response: ServerResponse,
@@ -204,7 +210,21 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
   const httpServer = createServer((request, response) => {
     if (request.method === "GET" && request.url === "/health") {
       response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify({ status: "ok", rooms: rooms.size }));
+      response.end(JSON.stringify({
+        status: "ok",
+        rooms: rooms.size,
+        ...(quarantinedRooms.length === 0 ? {} : {
+          quarantinedRooms: quarantinedRooms.map(room => ({
+            roomId: room.roomId,
+            rulesetId: room.rulesetId,
+            rulesetVersion: room.rulesetVersion,
+            engineVersion: room.engineVersion,
+            protocolVersion: room.protocolVersion,
+            reason: room.reason,
+            quarantinedAt: room.quarantinedAt
+          }))
+        })
+      }));
       return;
     }
 
@@ -486,6 +506,7 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
   return {
     httpServer,
     rooms,
+    get quarantinedRooms() { return quarantinedRooms; },
     async start() {
       if (lifecycle === "started") return;
       if (lifecycle === "starting") return startupPromise;
@@ -507,6 +528,16 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
               await room.enableDurability(options.storageDirectory);
               rooms.set(room.roomId, room);
             }
+          }
+          if (roomStore instanceof FileRoomStore) {
+            try {
+              quarantinedRooms = await roomStore.inspectQuarantined();
+            } catch (error) {
+              console.error(`[room-restore] quarantine index unavailable: ${errorMessage(error)}`);
+              quarantinedRooms = [];
+            }
+          } else {
+            quarantinedRooms = [];
           }
           await new Promise<void>((resolve, reject) => {
             httpServer.once("error", reject);
@@ -1169,10 +1200,23 @@ async function requireRoom(
   rooms: Map<string, GameRoom>,
   roomId: string
 ): Promise<GameRoom> {
-  const room = await roomStore.get(roomId);
+  let room: GameRoom | null;
+  try {
+    room = await roomStore.get(roomId);
+  } catch (error) {
+    if (error instanceof QuarantinedRoomError) {
+      const message = errorMessage(error).replace(/\s+/g, " ").trim().slice(0, 512).trimEnd();
+      throw new RoomError(message, "room-not-found");
+    }
+    throw error;
+  }
   if (!room) throw new RoomError("Room not found", "room-not-found");
   rooms.set(room.roomId, room);
   return room;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function sendError(

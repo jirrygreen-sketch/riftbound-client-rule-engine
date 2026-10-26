@@ -6,9 +6,11 @@ import {
   readdir,
   readFile,
   realpath,
+  rename,
   rm,
   stat,
-  unlink
+  unlink,
+  writeFile
 } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -16,10 +18,46 @@ import {
   isPlainRecord,
   type JsonObject
 } from "@riftbound/replay-core/full-product";
-import { DUEL_RULESET_ID, FOUNDATION_RULESET_ID, type RoomId } from "@riftbound/protocol";
+import {
+  DUEL_RULESET_ID,
+  FOUNDATION_RULESET_ID,
+  PROTOCOL_VERSION,
+  type RoomId
+} from "@riftbound/protocol";
 import { GameRoom, type RoomArchive } from "./room.js";
 import type { CardCatalogRuntime } from "./card-catalog.js";
 import { PersistentRoomArchiveStore } from "./storage/persistent-room-store.js";
+
+const QUARANTINE_DIRECTORY = "quarantine";
+const QUARANTINE_MARKER = "quarantine.json";
+
+export interface QuarantinedRoom {
+  readonly roomId: RoomId;
+  readonly rulesetId: string;
+  readonly rulesetVersion: string;
+  readonly engineVersion: string;
+  readonly protocolVersion: string;
+  readonly reason: string;
+  readonly quarantinedAt: string;
+}
+
+export interface QuarantinedRoomRecord extends QuarantinedRoom {
+  readonly quarantinePath: string;
+}
+
+export class QuarantinedRoomError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "QuarantinedRoomError";
+  }
+}
+
+class SharedRestoreDependencyError extends Error {
+  constructor(message: string, cause: unknown) {
+    super(message, { cause });
+    this.name = "SharedRestoreDependencyError";
+  }
+}
 
 /**
  * File-backed RoomStore. Room archives remain server-private. Each room is
@@ -39,7 +77,7 @@ export class FileRoomStore {
 
   async create(room: GameRoom): Promise<void> {
     this.assertUsable();
-    if (this.rooms.has(room.roomId)) {
+    if (this.rooms.has(room.roomId) || await this.readQuarantine(room.roomId) !== null) {
       throw new Error(`Room ${room.roomId} already exists`);
     }
 
@@ -60,6 +98,15 @@ export class FileRoomStore {
     this.assertUsable();
     const inProcess = this.rooms.get(roomId);
     if (inProcess) return inProcess;
+
+    const quarantined = await this.readQuarantine(roomId);
+    if (quarantined !== null) {
+      this.rooms.delete(roomId);
+      throw new QuarantinedRoomError(
+        `Room ${roomId} could not be restored and is quarantined at ` +
+          `${quarantined.quarantinePath}: ${quarantined.reason}`
+      );
+    }
 
     try {
       await stat(this.archivePath(roomId));
@@ -86,6 +133,9 @@ export class FileRoomStore {
 
   async save(room: GameRoom): Promise<void> {
     this.assertUsable();
+    if (await this.readQuarantine(room.roomId) !== null) {
+      throw new Error(`Room ${room.roomId} is quarantined and cannot be saved`);
+    }
     const archive = room.exportArchive();
     const roundTripped = JSON.parse(JSON.stringify(archive)) as unknown;
     if (!isPlainRecord(roundTripped) || !isJsonValue(roundTripped)) {
@@ -114,7 +164,7 @@ export class FileRoomStore {
     if (this.closed) {
       throw new Error("The file room store is closed");
     }
-    if (this.rooms.get(room.roomId) !== room) {
+    if (this.rooms.get(room.roomId) !== room || await this.readQuarantine(room.roomId) !== null) {
       throw new Error(`Room ${room.roomId} is not registered`);
     }
 
@@ -135,40 +185,105 @@ export class FileRoomStore {
     return Promise.resolve(this.rooms.size);
   }
 
+  async quarantined(): Promise<readonly QuarantinedRoomRecord[]> {
+    this.assertUsable();
+    return this.listQuarantined();
+  }
+
+  /** Read the quarantine index without requiring the room store to be open. */
+  async inspectQuarantined(): Promise<readonly QuarantinedRoomRecord[]> {
+    return this.listQuarantined();
+  }
+
+  private async listQuarantined(): Promise<readonly QuarantinedRoomRecord[]> {
+    const root = path.join(this.directory, QUARANTINE_DIRECTORY);
+    let entries;
+    try {
+      entries = await readdir(root, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+
+    const result: QuarantinedRoomRecord[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !isHashDirectoryName(entry.name)) continue;
+      const quarantinePath = path.join(root, entry.name);
+      const markerPath = path.join(quarantinePath, QUARANTINE_MARKER);
+      let source: unknown;
+      try {
+        source = JSON.parse(await readFile(markerPath, "utf8"));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          console.error(`[room-restore] quarantine record ${quarantinePath} has no marker; review required`);
+        } else {
+          console.error(`[room-restore] invalid quarantine marker at ${markerPath}: ${errorMessage(error)}; review required`);
+        }
+        continue;
+      }
+      if (!isQuarantineMarker(source, entry.name)) {
+        console.error(`[room-restore] invalid quarantine marker at ${markerPath}; review required`);
+        continue;
+      }
+      result.push({ ...source, quarantinePath });
+    }
+    return result.sort((left, right) => left.quarantinedAt.localeCompare(right.quarantinedAt));
+  }
+
   async list(): Promise<readonly GameRoom[]> {
     this.assertUsable();
     await mkdir(this.directory, { recursive: true });
     await this.assertRootWritable();
 
     const entries = await readdir(this.directory, { withFileTypes: true });
+    const quarantined = await this.listQuarantined();
+    const retainedQuarantine = new Set(quarantined.map(record =>
+      hashRoomId(record.roomId)
+    ));
+    for (const roomId of [...this.rooms.keys()]) {
+      if (retainedQuarantine.has(hashRoomId(roomId))) this.rooms.delete(roomId);
+    }
     const roomsById = new Map(this.rooms);
 
+    let catalog: CardCatalogRuntime | null = null;
+    const failures: {
+      readonly roomId: RoomId;
+      readonly roomPath: string;
+      readonly archive: RoomArchive | null;
+      readonly error: unknown;
+      readonly quarantineError?: unknown;
+    }[] = [];
     for (const entry of entries) {
       if (!entry.isDirectory() || !isHashDirectoryName(entry.name)) continue;
 
       const roomPath = path.join(this.directory, entry.name);
-      const provisionalRoomId = await this.readArchiveRoomId(
-        path.join(roomPath, "archive.log")
-      );
+      let provisionalRoomId: string | null;
+      try {
+        provisionalRoomId = await this.readArchiveRoomId(path.join(roomPath, "archive.log"));
+      } catch (error) {
+        // The first record is needed to prove room identity. A malformed
+        // archive cannot be diagnosed or retried by room id and therefore is
+        // not mislabeled as a room-specific quarantine. Fail startup closed.
+        throw new Error(
+          `Cannot identify room archive ${roomPath}: ${errorMessage(error)}`,
+          { cause: error }
+        );
+      }
       if (provisionalRoomId === null) continue;
       if (hashRoomId(provisionalRoomId) !== entry.name) {
         throw new Error("Room archive directory does not match its roomId");
       }
+      await this.restoreRoomPath(provisionalRoomId, roomPath, roomsById, failures,
+        () => catalog, loaded => { catalog = loaded; });
+    }
 
-      const store = new PersistentRoomArchiveStore(roomPath);
-      try {
-        const archive = await store.load(provisionalRoomId);
-        if (archive === null || !isPlainRecord(archive)) continue;
-
-        const parsed = this.parseArchive(archive);
-        if (parsed.roomId !== provisionalRoomId) {
-          throw new Error("Room archive does not match its log event");
-        }
-        if (roomsById.has(parsed.roomId)) continue;
-        roomsById.set(parsed.roomId, await this.restoreRoom(parsed));
-      } finally {
-        await store.close();
-      }
+    const quarantineFailures = failures.filter(failure => failure.quarantineError !== undefined);
+    if (quarantineFailures.length > 0) {
+      const details = quarantineFailures.map(failure =>
+        `${failure.roomId}: restore failed (${errorMessage(failure.error)}); ` +
+          `quarantine failed (${errorMessage(failure.quarantineError)})`
+      );
+      throw new Error(`Failed to quarantine ${quarantineFailures.length} unrestorable room(s):\n${details.join("\n")}`);
     }
 
     this.rooms.clear();
@@ -201,12 +316,154 @@ ${messages.join("\n")}`);
     }
   }
 
-  private async restoreRoom(archive: RoomArchive): Promise<GameRoom> {
-    if (archive.rulesetId === FOUNDATION_RULESET_ID || archive.rulesetId === DUEL_RULESET_ID) {
-      const catalog = await this.loadCatalog();
-      return GameRoom.restore(archive, catalog);
+  private async restoreRoom(
+    archive: RoomArchive,
+    catalog?: CardCatalogRuntime
+  ): Promise<GameRoom> {
+    if (needsCardCatalog(archive)) {
+      return GameRoom.restore(archive, catalog ?? await this.loadCatalog());
     }
     return GameRoom.restore(archive);
+  }
+
+  private async restoreRoomPath(
+    roomId: RoomId,
+    roomPath: string,
+    roomsById: Map<RoomId, GameRoom>,
+    failures: {
+      readonly roomId: RoomId;
+      readonly roomPath: string;
+      readonly archive: RoomArchive | null;
+      readonly error: unknown;
+      readonly quarantineError?: unknown;
+    }[],
+    getCatalog: () => CardCatalogRuntime | null,
+    setCatalog: (catalog: CardCatalogRuntime) => void
+  ): Promise<void> {
+    let archiveForDiagnostics: RoomArchive | null = null;
+    const store = new PersistentRoomArchiveStore(roomPath);
+    try {
+      const archive = await store.load(roomId);
+      if (archive === null) return;
+      if (!isPlainRecord(archive)) return;
+      archiveForDiagnostics = parsedArchiveForDiagnostics(archive);
+      const parsed = this.parseArchive(archive);
+      if (parsed.roomId !== roomId) throw new Error("Room archive does not match its log event");
+      if (roomsById.has(parsed.roomId)) return;
+
+      let catalog = getCatalog();
+      if (needsCardCatalog(parsed) && catalog === null) {
+        try {
+          catalog = await this.loadCatalog();
+          setCatalog(catalog);
+        } catch (error) {
+          throw new SharedRestoreDependencyError(
+            `Could not load the shared card catalog required to restore room ${parsed.roomId}: ${errorMessage(error)}`,
+            error
+          );
+        }
+      }
+      roomsById.set(parsed.roomId, await this.restoreRoom(parsed, catalog ?? undefined));
+    } catch (error) {
+      if (error instanceof SharedRestoreDependencyError) throw error;
+      let quarantineError: unknown;
+      try {
+        await this.quarantineRoom(roomId, roomPath, archiveForDiagnostics, error);
+      } catch (caught) {
+        quarantineError = caught;
+      }
+      failures.push({
+        roomId,
+        roomPath,
+        archive: archiveForDiagnostics,
+        error,
+        ...(quarantineError === undefined ? {} : { quarantineError })
+      });
+    } finally {
+      await store.close();
+    }
+  }
+
+  private async quarantineRoom(
+    roomId: RoomId,
+    sourcePath: string,
+    archive: RoomArchive | null,
+    error: unknown
+  ): Promise<void> {
+    const root = path.join(this.directory, QUARANTINE_DIRECTORY);
+    const destination = path.join(root, hashRoomId(roomId));
+    await mkdir(root, { recursive: true });
+
+    try {
+      const existing = await stat(destination);
+      if (!existing.isDirectory()) throw new Error(`Quarantine path ${destination} is not a directory`);
+      const marker = await this.readQuarantine(roomId);
+      if (marker !== null) {
+        throw new Error(
+          `Room ${roomId} has both a live archive and an existing quarantine record`
+        );
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+
+    await rename(sourcePath, destination);
+    const reason = normalizeQuarantineReason(error);
+    const marker: QuarantinedRoom = {
+      roomId,
+      rulesetId: typeof archive?.rulesetId === "string" ? archive.rulesetId : "unknown",
+      rulesetVersion: archive === null ? "unknown" : runtimeRulesetVersion(archive),
+      engineVersion: archive === null ? "unknown" : runtimeEngineVersion(archive),
+      protocolVersion: archive?.runtimeMode === "engine-v2"
+        ? "2.0.0"
+        : PROTOCOL_VERSION,
+      reason,
+      quarantinedAt: new Date().toISOString()
+    };
+    try {
+      await writeFile(
+        path.join(destination, QUARANTINE_MARKER),
+        `${JSON.stringify(marker, null, 2)}\n`,
+        { encoding: "utf8", flag: "wx" }
+      );
+    } catch (writeError) {
+      await rename(destination, sourcePath).catch(() => undefined);
+      throw writeError;
+    }
+    console.error(
+      `[room-restore] quarantined room ${roomId} (ruleset=${marker.rulesetId}, ` +
+        `rules=${marker.rulesetVersion}, engine=${marker.engineVersion}, ` +
+        `protocol=${marker.protocolVersion}) ` +
+        `to ${destination}: ${reason}`
+    );
+  }
+
+  private async readQuarantine(roomId: RoomId): Promise<QuarantinedRoomRecord | null> {
+    const quarantinePath = path.join(this.directory, QUARANTINE_DIRECTORY, hashRoomId(roomId));
+    const markerPath = path.join(quarantinePath, QUARANTINE_MARKER);
+    let source: unknown;
+    try {
+      source = JSON.parse(await readFile(markerPath, "utf8"));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        const incomplete = await stat(quarantinePath).catch(caught =>
+          (caught as NodeJS.ErrnoException).code === "ENOENT" ? null : Promise.reject(caught)
+        );
+        if (incomplete === null) return null;
+        throw new QuarantinedRoomError(
+          `Room ${roomId} is in an incomplete quarantine record at ${quarantinePath}`
+        );
+      }
+      throw new QuarantinedRoomError(
+        `Room ${roomId} has an unreadable quarantine marker at ${markerPath}: ${errorMessage(error)}`
+      );
+    }
+    if (!isQuarantineMarker(source, hashRoomId(roomId)) || source.roomId !== roomId) {
+      throw new QuarantinedRoomError(
+        `Room ${roomId} has an invalid quarantine marker at ${markerPath}`
+      );
+    }
+    return { ...source, quarantinePath };
   }
 
   private parseArchive(archive: Record<string, unknown>): RoomArchive {
@@ -318,4 +575,67 @@ function hashRoomId(roomId: string): string {
 
 function isHashDirectoryName(name: string): boolean {
   return /^[0-9a-f]{64}$/.test(name);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function normalizeQuarantineReason(error: unknown): string {
+  return errorMessage(error).replace(/\s+/g, " ").trim().slice(0, 2000).trimEnd();
+}
+
+function parsedArchiveForDiagnostics(archive: Record<string, unknown>): RoomArchive {
+  return JSON.parse(JSON.stringify(archive)) as RoomArchive;
+}
+
+function runtimeEngineVersion(archive: RoomArchive): string {
+  if (archive.engineRuntimeJournal?.header.engineVersion !== undefined) {
+    return archive.engineRuntimeJournal.header.engineVersion;
+  }
+  if (archive.journal !== undefined && archive.journal !== null &&
+      typeof archive.journal === "object" &&
+      typeof (archive.journal as { readonly header?: { readonly engineVersion?: unknown } })
+        .header?.engineVersion === "string") {
+    return (archive.journal as { readonly header: { readonly engineVersion: string } })
+      .header.engineVersion;
+  }
+  return "unknown";
+}
+
+function needsCardCatalog(archive: RoomArchive): boolean {
+  return archive.rulesetId === FOUNDATION_RULESET_ID ||
+    archive.rulesetId === DUEL_RULESET_ID;
+}
+
+function runtimeRulesetVersion(archive: RoomArchive): string {
+  if (archive.engineRuntimeJournal?.header.rulesetVersion !== undefined) {
+    return archive.engineRuntimeJournal.header.rulesetVersion;
+  }
+  if (archive.journal !== undefined && archive.journal !== null &&
+      typeof archive.journal === "object" &&
+      typeof (archive.journal as { readonly header?: { readonly rulesetVersion?: unknown } })
+        .header?.rulesetVersion === "string") {
+    return (archive.journal as { readonly header: { readonly rulesetVersion: string } })
+      .header.rulesetVersion;
+  }
+  // Pre-journal Duel archives do not carry an explicit rules version. Mark
+  // that as unknown instead of applying any current-version assumption.
+  return archive.rulesetId === DUEL_RULESET_ID ? "legacy-unversioned" : "unknown";
+}
+
+function isQuarantineMarker(
+  value: unknown,
+  directoryHash: string
+): value is QuarantinedRoom {
+  if (!isPlainRecord(value) || !isJsonValue(value)) return false;
+  return typeof value.roomId === "string" && value.roomId.length > 0 &&
+    hashRoomId(value.roomId) === directoryHash &&
+    typeof value.rulesetId === "string" && value.rulesetId.length > 0 &&
+    typeof value.rulesetVersion === "string" && value.rulesetVersion.length > 0 &&
+    typeof value.engineVersion === "string" && value.engineVersion.length > 0 &&
+    typeof value.protocolVersion === "string" && value.protocolVersion.length > 0 &&
+    typeof value.reason === "string" && value.reason.length > 0 &&
+    typeof value.quarantinedAt === "string" &&
+    !Number.isNaN(Date.parse(value.quarantinedAt));
 }
