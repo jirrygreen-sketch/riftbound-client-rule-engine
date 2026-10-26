@@ -4,7 +4,9 @@
 
 **未达到“单房间 p95 ≤ 300 ms”目标。** 在最终提交 `97029783` 上，同一条经过认证的真实 M1 轨迹（78 条 WebSocket 命令）三次交替采样后的回执 p95 中位数为 **1,214 ms**，p50 为 **199 ms**，p99 为 **1,965 ms**。最终版相对基线 `da4439a4 + RIFT-1090` 已把每命令 active CPU 中位数从 **691.67 ms** 降到 **310.19 ms**（下降 55.15%），把文件 archive 从 **4,907,315 B** 降到 **253,751 B**（下降 94.83%），但剩余层求值、host 复制和 journal digest 仍足以使 p95 高于目标 4.05 倍。
 
-本次结论只适用于当前共享主机、Node 22.22.2、固定 `room 69dc614b / seed rift1091`、M1 真实生产房间和该 78 条自然命令轨迹。它是性能验收，不是所有卡牌、所有规则路径或生产机绝对容量的证明；未知能力仍保持 `judge-required` / `blocked`，旧 profile、旧回放和 schema 均未升级。
+本次结论只适用于当前共享主机、Node 22.22.2、固定 `room 69dc614b / seed rift1091`、M1 真实生产房间和该 78 条自然命令轨迹。profile 的机器可读 compliance 记录为 `core-1.5 / protocol 2.0.0 / engine-v2`；这里核对的是性能路径没有改变这些默认边界，并按 [CR v1.5](https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf) 的 117、303、478.1–478.4 约束解读执行顺序与层求值。官方 Radiance patch notes 将 v1.5 生效日列为 **2026-10-16**：[官方公告](https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/)。
+
+本次是性能验收，不是所有卡牌、所有规则路径或生产机绝对容量的证明；本次命令轨迹未出现每张卡的逐项判定证据，未知能力仍保持 `judge-required` / `blocked`，旧 profile、旧回放和 schema 均未升级。CR 117 的换牌按 turn order 执行；profile 与压测中的命令均经过权威服务端回执和两个客户端的投影收敛，不把客户端派生状态当作权威状态。CR 303.1–303.2.a 要求 game action 逐个完整执行，同时触发/效果按 turn order 排序；CR 478.1.a–478.4 要求 object dependency、循环依赖和 layer pass 在 effect-once 语义下持续重算。报告没有为所有卡牌硬编码统一 priority，也没有把 303.2.a 简化成全链统一 FIFO/LIFO。
 
 最终压测中文件 `N=1` 完赛，p95 **1,074.03 ms**；文件 `N=5` 有 4/5 局完赛，p95 **2,313.07 ms**，一局在公开投影中找不到合法命令而报错，脚本依既有 stop rule 停止，因此 `N=10`、`N=20` 未运行。内存 `N=10` 对照为 4/10 局完赛，p95 **4,169.64 ms**，说明关闭文件存储仍不足以达到 300 ms。
 
@@ -139,7 +141,7 @@ final 的 Top 5 以三次正式样本 self-time 中位数排序。百分比只�
 
 紧随其后的成本包括 `keyword-grants.alias` 993.89 ms、`writeCanonical` 925.23 ms、`evaluateDependency` 494.96 ms、`attachmentSignature` 489.26 ms 和 `canonicalJsonInto` 421.65 ms。下一步优先级建议：
 
-1. 为热点 1–3、5 建立生产装配的 `createProgramBinding + ChainEngine/TurnFlow + attachLifecycle` 基准，先消除可证明重复的 object/checkpoint copy，再测同一轨迹；不得用 fixture 跳步或修改 authoritative state。
+1. 为热点 1–3、5 建立生产装配的 `createProgramBinding + ChainEngine/TurnFlow + attachLifecycle` 基准，先消除可证明重复的 object/checkpoint copy，再测同一轨迹；不得用 fixture 跳步或修改 authoritative state。该基准还应覆盖 choice/fee 选择与支付、replacement/prevention、simultaneous trigger 的控制者/玩家选序、Pending/Finalize/Resolve 与 LKI，但这些语义需要各自卡文与官方裁定；缺失证据时保持 `judge-required`，本轮没有新增具体卡牌规则执行。
 2. 对层求值增加按真实 dependency/cycle/effect-once 语义细分的计数器，定位 `evaluateAll → evaluateGroup → cloneSnapshot/snapshotFields` 中剩余重复；保持 CR v1.5 478.1.a–478.4 与 CR v1.5 303.2.a 的 turn-order sequencing。
 3. 继续 C 的 canonical digest 调用树优化，覆盖 `writeCanonical / canonicalJsonInto`，同时锁定 legacy profile 1–9 与旧回放的 digest/schema。
 4. 修复 load bot 的 `no projected legal command` 覆盖后再合法跑文件 10/20；不能把 turn-1 state-4 的 blocked 样本当作完整负载。
@@ -162,7 +164,7 @@ Bandwidth 以主要场景的 WS 字节为依据：profile 每命令中位 416,09
 
 - profile 服务端子进程显式启用 `--cpu-prof --cpu-prof-interval=1000`，从构建后的 `dist` 加载；父进程用真实 WebSocket 驱动两个 M1 客户端，执行命令后才进入下一步。
 - 三轮每变体的中位数由相同 78 条命令、同一固定 room/seed 的样本计算。运行顺序严格交替；预热对不计中位数。
-- 原始 archive 在 base 是完整 snapshot，在 final 是 `room-archive-delta`。不能直接比较逐行 checksum；本报告用 final 的生产读取器把它们归一成逻辑 archive，且命令/投影轨迹先通过哈希认证。
+- 原始 archive 在 base 是完整 snapshot，在 final 是 `room-archive-delta`。不能直接比较逐行 checksum；本报告用 final 的生产读取器把它们归一成逻辑 archive，且命令/投影轨迹先通过哈希认证。`resumeToken` 和 `checksum` 等存储身份字段只用于剔除后的轨迹比较，没有被改写为 game state。
 - latency 是父进程墙钟的回执延迟；CPU 分位数只来自 profile samples，墙钟尾部会受共享机排队、WS I/O 和进程调度影响。
 - 压测不是同 N 文件/内存矩阵，因为脚本固定内存 N=10；文件 N=10/20 按既有 stop rule 未运行，不能标为通过。
 - 压测 storage root 在脚本内硬编码，正式记录显示 preexisting storage 和 `storageReused=true`；报告用新增 room 的逐文件大小校正，不用累计目录大小假装新对局 archive。
@@ -181,7 +183,7 @@ Bandwidth 以主要场景的 WS 字节为依据：profile 每命令中位 416,09
 | 单房间 p95 ≤ 300 ms | 未达成 | final 同轨迹 p95 中位 1,214 ms；压测 N=1 p95 1,074.03 ms |
 | 热点 Top 5 与建议 | 完成 | 见上表，未臆造统一 FIFO/LIFO 或卡牌语义 |
 | 推荐云配置 | 完成 | 只给当前可证明的保守配置；未把未验收 N=5 写成生产 SLO |
-| 清理进程与端口 | 完成 | 所有子进程 PID 已退出，36080–36099 无监听 |
+| 清理进程与端口 | 完成 | 所有本任务记录的 PID 已退出，36080–36099 无监听；未使用 `pkill`/按端口杀进程 |
 
 ## 原始产物与复核
 
