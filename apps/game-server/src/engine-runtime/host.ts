@@ -108,7 +108,38 @@ const emptyZones = (): Record<RuntimeZone, string[]> => ({
   base: [], battlefield: [], champion: [], legend: [],
 });
 
-const clone = <T>(value: T): T => structuredClone(value);
+/**
+ * Checkpoints contain only the runtime's plain JSON records, arrays, maps and
+ * sets. Clone those containers directly so nested transactions do not route
+ * the same player/object graph through generic structured cloning.
+ */
+const clone = <T>(value: T): T => {
+  const seen = new Map<object, unknown>();
+  const copyValue = (entry: unknown): unknown => {
+    if (entry === null || typeof entry !== "object") return entry;
+    const prior = seen.get(entry);
+    if (prior !== undefined) return prior;
+    if (entry instanceof Map) {
+      const copy = new Map<unknown, unknown>(); seen.set(entry, copy);
+      for (const [key, item] of entry) copy.set(copyValue(key), copyValue(item));
+      return copy;
+    }
+    if (entry instanceof Set) {
+      const copy = new Set<unknown>(); seen.set(entry, copy);
+      for (const item of entry) copy.add(copyValue(item));
+      return copy;
+    }
+    if (Array.isArray(entry)) {
+      const copy: unknown[] = []; seen.set(entry, copy);
+      for (const item of entry) copy.push(copyValue(item));
+      return copy;
+    }
+    const copy: Record<string, unknown> = {}; seen.set(entry, copy);
+    for (const [key, item] of Object.entries(entry)) copy[key] = copyValue(item);
+    return copy;
+  };
+  return copyValue(value) as T;
+};
 const deepFreeze = <T>(value: T): T => {
   if (value === null || typeof value !== "object" || Object.isFrozen(value)) return value;
   for (const child of Object.values(value as Readonly<Record<string, unknown>>)) deepFreeze(child);
@@ -330,9 +361,9 @@ export class EngineRuntimeHost {
   zoneObjects(player: PlayerId, zone: ZoneId | string): readonly ObjectSnapshot[] {
     if (Object.hasOwn(emptyZones(), zone)) {
       const ids = this.players.get(player)?.zones[zone as ZoneId] ?? [];
-      return ids.map(id => this.objectMap.get(id)).filter((object): object is MutableObject => object !== undefined).map(clone);
+      return ids.map(id => this.objectMap.get(id)).filter((object): object is MutableObject => object !== undefined).map(object => clone(object));
     }
-    return [...this.objectMap.values()].filter(object => object.owner === player && object.zone === zone).map(clone);
+    return [...this.objectMap.values()].filter(object => object.owner === player && object.zone === zone).map(object => clone(object));
   }
 
   visibility(): readonly RuntimeVisibilityGrant[] { return clone(this.grants); }
