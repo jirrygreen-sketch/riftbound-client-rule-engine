@@ -177,6 +177,13 @@ export function buildProjectedV2PlayCommand(
   return buildV2PlayCommand(cardObjectId, ordered, option.requiresDestination === false ? undefined : option.destination);
 }
 
+/** Local selections reset whenever this changes: a new state or a new pending choice. */
+export function v2BoardSceneKey(projection: V2Projection | null): string {
+  if (projection === null) return "none";
+  const choiceId = projection.pendingChoice.status === "pending" ? projection.pendingChoice.choiceId : "";
+  return `${projection.matchId}:${projection.stateVersion}:${choiceId}`;
+}
+
 export function V2MatchBoard({
   state,
   lastReceipt = null,
@@ -221,7 +228,11 @@ export function V2MatchBoard({
   const [combatDamageDrafts, setCombatDamageDrafts] = useState<Readonly<Record<string, string>>>(initialCombatDamageDrafts);
   const [concedeConfirmationOpen, setConcedeConfirmationOpen] = useState(initialConcedeConfirmationOpen);
   const [commandError, setCommandError] = useState<string | null>(null);
-  const sceneKey = projection === null ? "none" : `${projection.matchId}:${projection.stateVersion}`;
+  // One command can raise several choices in a row at the same stateVersion
+  // (e.g. ordering three simultaneous triggers). Keying only on the version
+  // carried the previous choice's selection into the next one, so its answer
+  // could not be built and submit silently did nothing (RIFT-1080).
+  const sceneKey = v2BoardSceneKey(projection);
   const busy = pendingCommandIds.length > 0;
 
   useEffect(() => {
