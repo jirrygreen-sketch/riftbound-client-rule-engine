@@ -94,6 +94,8 @@ heavy env SWARM_TASK=RIFT-1091-perf-final-acceptance \
 
 顶层 `structuredClone` self time 的每轮中位数从 **27,388.34 ms** 降至 **1,388.47 ms**；最终新增的 `copyValue` host copy 中位数为 **2,704.26 ms**。两者不能直接相消或重复相加：profile summary 的行是调用栈最内层 self samples，部分 host 复制通过普通 JS 函数而不是内置 clone 实现。
 
+把三次 profile 的 `analysis.phaseTime`（整局 78 条命令的 CPU sample 总量）取均值后，base → final 为：copy **26,744.18 → 1,387.48 ms**、layers **16,062.55 → 12,668.04 ms**、digest **2,802.48 → 1,640.55 ms**、projection **817.49 → 772.15 ms**、engine **1,689.12 → 4,275.22 ms**、GC **3,513.51 → 2,060.93 ms**。这些是整局总量，和上面的每命令均值分别保留了原始与可读尺度；engine 的增长主要来自 B 工单把 `structuredClone` 的内部复制换成可在 JS 中采样的 host 复制，不能解释成多执行了规则。
+
 ## 最终压测
 
 压测使用最终版真实服务端入口、真实 WebSocket、每房间两个客户端、相同 M1 预组、`--deterministic-seed=rift1091` 和 36080–36099 端口段。参数为命令上限 500、回合上限 40、命令超时 30 秒、单局超时 780 秒、启动超时 180 秒。下表是正式文件档位与独立内存对照。
