@@ -379,6 +379,7 @@ export interface RuntimeProjectionSnapshot {
   readonly winnerPlayerId: string | null;
   readonly projectedObjects: Map<string, readonly V2ProjectedObject[]>;
   readonly eventsByViewer: Map<string, readonly V2Event[]>;
+  readonly zoneObjects: Readonly<Record<string, Readonly<Record<string, readonly ObjectSnapshot[]>>>>;
 }
 
 export function projectionSnapshot(match: Match, host: EngineRuntimeHost, matchId: string,
@@ -456,6 +457,11 @@ export function projectionSnapshot(match: Match, host: EngineRuntimeHost, matchI
   const combat = combatProjection(match);
   const projectedObjects = new Map<string, readonly V2ProjectedObject[]>();
   const eventsByViewer = new Map<string, readonly V2Event[]>();
+  const zoneObjects = Object.fromEntries(playerIds.map(playerId => [playerId, Object.fromEntries(
+    zoneNames.map(zone => [zone, Object.freeze(objectSource.filter(object => object.owner === playerId &&
+      (zone === "facedown" ? hiddenObjectSource.some(hidden => objectRefKey(hidden) === objectRefKey(object)) :
+        v2Zone(object.zone) === zone)))]) as [V2Zone, readonly ObjectSnapshot[]][],
+  )]));
   return {
     matchId, stateVersion,
     viewerPlayers, events: Object.freeze(publicViewerEvents),
@@ -467,6 +473,7 @@ export function projectionSnapshot(match: Match, host: EngineRuntimeHost, matchI
     priority: { playerId: match.flow.chain.priority, focusPlayerId: match.flow.chain.focus, window: "open" },
     scoring, battlefields, combat, winnerPlayerId: match.result().winner,
     projectedObjects, eventsByViewer,
+    zoneObjects: zoneObjects as RuntimeProjectionSnapshot["zoneObjects"],
   };
 }
 
@@ -520,10 +527,8 @@ export function projectRuntimeFromSnapshot(
   const players = snapshot.playerIds.map(playerId => snapshot.viewerPlayers[playerId]!);
   const objects = snapshotObjects(snapshot, viewer);
   const zones = players.flatMap(player => zoneNames.map(zone => {
-    const sourceZone = zone === "trash" ? "trash" : zone === "rune-zone" ? "rune-zone" : zone as never;
     const visibleObjects = objects.filter(object => object.ownerPlayerId === player.playerId && object.zone === zone);
-    const count = zone === "facedown" ? snapshot.hiddenObjectSource.filter(object => object.owner === player.playerId).length
-      : host.zoneObjects(player.playerId, sourceZone).length;
+    const count = snapshot.zoneObjects[player.playerId]?.[zone]?.length ?? 0;
     const canList = zone !== "deck" && zone !== "rune-deck" && zone !== "facedown" && (zone !== "hand" || viewer === player.playerId);
     return { zone, ownerPlayerId: player.playerId, count, ...(canList ? { objects: visibleObjects } : {}) };
   }));
