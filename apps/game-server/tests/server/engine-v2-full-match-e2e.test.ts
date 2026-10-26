@@ -234,6 +234,8 @@ describe("RIFT-1074 protocol v2 real two-client beta match", () => {
     expect(result.rejectionReasons["player-1"]).toEqual([]);
     expect(result.rejectionReasons["player-2"]).toEqual([]);
     expect(result.termination, result.blockedReason ?? undefined).toBe("winner");
+    expect(result.commandCount).toBeGreaterThan(2);
+    expect(Object.values(result.rejectedCommands).reduce((sum, count) => sum + count, 0)).toBe(0);
     expect(result.winnerPlayerId).toMatch(/^player-[12]$/);
     expect(result.turnCount).toBeGreaterThan(1);
     expect(result.coverage.play).toBeGreaterThan(0);
