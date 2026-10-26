@@ -210,14 +210,17 @@ Bandwidth 以主要场景的 WS 字节为依据：profile 每命令中位 416,09
 | 验收项 | 状态 | 证据 |
 |---|---|---|
 | 基线可复现 | 完成 | `da4439a4 + 292b434c` detached worktree，无 cherry-pick 冲突 |
+| 两边依赖与 packages 构建 | 完成 | 两边 frozen/offline install 和 `heavy pnpm -r --filter './packages/*' --if-present run build` 均退出 0；另编译 profile 所需的 server dist |
 | 同轨迹前后对比 | 完成 | 六轮正式样本、命令/投影哈希和逻辑 archive 哈希全部一致 |
 | 中位数表 | 完成 | active CPU、copy/layers/digest/projection/engine、GC、回执分位、WS、archive 均已列出 |
 | 最终文件压测 N=1/5/10/20 | 部分完成 | N=1、5 已跑；N=10/20 按授权 stop rule 未跑 |
 | 最终内存 N=10 | 完成 | 4/10 winner，p95 4,169.64 ms |
+| 文件与内存同档对比 | 部分完成 | 文件在 N=5 stop；内存按脚本固定 N=10，故无可信的同 N 文件/内存差值 |
 | 单房间 p95 ≤ 300 ms | 未达成 | final 同轨迹 p95 中位 1,214 ms；压测 N=1 p95 1,074.03 ms |
 | 热点 Top 5 与建议 | 完成 | 见上表，未臆造统一 FIFO/LIFO 或卡牌语义 |
 | 推荐云配置 | 完成 | 只给当前可证明的保守配置；未把未验收 N=5 写成生产 SLO |
 | 清理进程与端口 | 完成 | 所有本任务记录的 PID 已退出，36080–36099 无监听；未使用 `pkill`/按端口杀进程 |
+| 最终 worktree 与提交 | 完成 | 任务分支 HEAD `35b6abf5`，相对 `integration@97029783` 只新增本报告，worktree clean |
 
 ## 原始产物与复核
 
