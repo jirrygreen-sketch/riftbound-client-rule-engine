@@ -234,6 +234,7 @@ Bandwidth 以主要场景的 WS 字节为依据：profile 每命令中位 416,09
 - `load/memory-formal/report.json`：独立内存 N=10 对照。
 - `load-analysis.log`：三份压测原始报告的汇总。
 - `run-profile-alternation.sh`、`run-load-file-retry.sh`、`run-load-memory.sh`：实际命令与 load 采集的可审查启动脚本；没有提交到产品树。
+- `run-profile-alternation.sh` 同时把每轮的 stdout 留为 `*-run.log`；正式六轮的 profile 顶层摘要可以据此直接溯源。
 
 关键证据 SHA-256：`profile-analysis.log` `2e8193b5e0b83b402a13c459d68d5179f0f935ea295f3a91baf5016233943a17`；`load-analysis.log` `8ea4a00e6796b388fd5d496f0d2f29eb18be81717848fb957637b50feb97b9a3`；`logical-archive-certification.json` `5448de92f3d29a70ad459ceb78f11f6fe410799be881a6307c056247679fec31`；`load/file-clean/report.json` `bf79e13c115b2906d5ae18950641a66d169ea777e10344f2283bfc9e091ac2eb`；`load/memory-formal/report.json` `9527ad35a845174defc8db800f8ffffa95d87e6f3ba4e0c12e65b56f358386f9`。
 
