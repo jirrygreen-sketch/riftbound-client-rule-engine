@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
   access,
@@ -252,6 +253,7 @@ interface ProfileRunConfig {
   readonly schema: "riftbound.server-command-cpu-profile.config.v1";
   readonly port: number;
   readonly seed: string;
+  readonly deterministicSeed: string | null;
   readonly roomId: string | null;
   readonly maxCommands: number;
   readonly commandTimeoutMs: number;
@@ -286,19 +288,28 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDirectory, "../../..");
 const packageRoot = path.resolve(scriptDirectory, "..");
 const taskName = process.env.SWARM_TASK ?? "RIFT-1083-server-command-cpu-profile";
+const scriptEntry = process.argv[1] !== undefined &&
+  pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
 const seed = option("seed") ?? "RIFT-955-v2-07";
+const deterministicSeed = option("deterministic-seed") ?? null;
 const roomId = option("room-id");
+const outputLabel = scriptEntry ? option("output-label") : undefined;
 const maxCommands = integerOption("max-commands", 500, 1, 2_000);
 const commandTimeoutMs = integerOption("command-timeout-ms", 60_000, 1_000, 300_000);
 const gameTimeoutMs = integerOption("game-timeout-ms", 900_000, 10_000, 3_600_000);
 const startupTimeoutMs = integerOption("startup-timeout-ms", 180_000, 1_000, 300_000);
 const port = Number(process.env.SWARM_PORT_BASE ?? 35_740);
+const ownPortMinimum = Number(process.env.SWARM_PORT_BASE);
+const ownPortSpan = Number(process.env.SWARM_PORT_SPAN ?? "20");
+const ownPortMaximum = ownPortMinimum + ownPortSpan - 1;
 const baseOutputDirectory = path.resolve(option("output-dir") ??
   "/root/swarm-rift/shared/RIFT-1083-server-command-cpu-profile");
-const analyzeExistingDirectory = option("analyze-existing");
+const analyzeExistingDirectory = scriptEntry ? option("analyze-existing") : undefined;
 
-if (analyzeExistingDirectory === undefined) await runParent();
-else await analyzeExistingRun(path.resolve(analyzeExistingDirectory));
+if (scriptEntry) {
+  if (analyzeExistingDirectory === undefined) await runParent();
+  else await analyzeExistingRun(path.resolve(analyzeExistingDirectory));
+}
 
 async function runParent(): Promise<void> {
   if (process.env.SWARM_TASK === undefined) {
@@ -313,8 +324,21 @@ async function runParent(): Promise<void> {
   if ((roomId ?? "").length === 0) {
     throw new Error("--room-id must be non-empty so the V2 engine seed is deterministic");
   }
-  if (port < 35_740 || port > 35_759) {
-    throw new RangeError("RIFT-1083 server profiling may use only ports 35740..35759");
+  if (deterministicSeed !== null && deterministicSeed.length === 0) {
+    throw new Error("--deterministic-seed must be non-empty when provided");
+  }
+  if (outputLabel !== undefined && !/^[A-Za-z0-9._-]+$/.test(outputLabel)) {
+    throw new RangeError("--output-label may contain only letters, digits, dot, underscore, and hyphen");
+  }
+  if (!Number.isSafeInteger(ownPortMinimum) || !Number.isSafeInteger(ownPortSpan) ||
+      ownPortMinimum < 1 || ownPortSpan < 1 || ownPortSpan > 100 ||
+      ownPortMinimum + ownPortSpan - 1 > 65_535) {
+    throw new RangeError("SWARM_PORT_BASE and SWARM_PORT_SPAN must describe an owned TCP port range");
+  }
+  if (port < ownPortMinimum || port > ownPortMaximum) {
+    throw new RangeError(
+      `Server profiling may use only the owned port range ${ownPortMinimum}..${ownPortMaximum}`
+    );
   }
   const requiredBuilds = [
     "packages/engine-core/dist/layers/engine.js",
@@ -332,7 +356,10 @@ async function runParent(): Promise<void> {
       "`heavy pnpm --recursive --if-present run build` before profiling");
   }
   const stamp = new Date().toISOString().replaceAll(/[:.]/g, "-");
-  const outputDirectory = path.join(baseOutputDirectory, `run-${stamp}`);
+  const deterministicLabel = deterministicSeed === null ? "disabled" :
+    createHash("sha256").update(deterministicSeed, "utf8").digest("hex").slice(0, 16);
+  const outputDirectory = path.join(baseOutputDirectory,
+    `${outputLabel ?? `run-${stamp}`}-${deterministicLabel}`);
   const storageRoot = path.join(outputDirectory, "storage");
   const profilePath = path.join(outputDirectory, "server.cpuprofile");
   const instrumentationPath = path.join(outputDirectory, "server-instrumentation.json");
@@ -344,9 +371,18 @@ async function runParent(): Promise<void> {
   const serverReadyPath = path.join(outputDirectory, "server-ready.json");
   const bootstrapPath = path.join(outputDirectory, "server-bootstrap.mjs");
   const configPath = path.join(outputDirectory, "profile-config.json");
-  await mkdir(storageRoot, { recursive: true, mode: 0o700 });
   await mkdir(baseOutputDirectory, { recursive: true, mode: 0o700 });
-  await mkdir(outputDirectory, { recursive: true, mode: 0o700 });
+  // A rerun must never reuse a prior room archive. REFUSING an existing run
+  // directory makes the evidence fail closed instead of silently overwriting.
+  try {
+    await mkdir(outputDirectory, { mode: 0o700 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      throw new Error(`Profile output already exists; choose a new --output-label: ${outputDirectory}`);
+    }
+    throw error;
+  }
+  await mkdir(storageRoot, { mode: 0o700 });
   await writeFile(bootstrapPath, serverBootstrapSource(), { mode: 0o600 });
   await writeFile(configPath, `${JSON.stringify(runConfig(), null, 2)}\n`, { mode: 0o600 });
 
@@ -374,7 +410,11 @@ async function runParent(): Promise<void> {
         HOST: "127.0.0.1",
         PORT: String(port),
         RIFTBOUND_STORAGE_DIRECTORY: storageRoot,
-        RIFTBOUND_DUEL_PROFILE: "p4"
+        RIFTBOUND_DUEL_PROFILE: "p4",
+        ...(deterministicSeed === null ? {} : {
+          RIFTBOUND_ALLOW_DETERMINISTIC_RANDOM: "1",
+          RIFTBOUND_DETERMINISTIC_RANDOM_SEED: deterministicSeed
+        })
       },
       detached: true,
       stdio: ["ignore", "pipe", "pipe"]
@@ -423,16 +463,23 @@ async function runParent(): Promise<void> {
   await waitForFile(generatedProfilePath, 30_000);
   await (await import("node:fs/promises")).rename(generatedProfilePath, profilePath);
   const config = JSON.parse(await readFile(configPath, "utf8")) as Partial<ProfileRunConfig>;
-  if (config.port !== undefined && (config.port < 35_740 || config.port > 35_759)) {
-    throw new RangeError(`Stored profile port must be in 35740..35759, received ${config.port}`);
+  if (config.port !== undefined &&
+      (!Number.isSafeInteger(ownPortMinimum) || !Number.isSafeInteger(ownPortSpan) ||
+        config.port < ownPortMinimum || config.port > ownPortMaximum)) {
+    throw new RangeError(
+      `Stored profile port must be in the owned range ${ownPortMinimum}..${ownPortMaximum}, received ${config.port}`
+    );
   }
   if (config.schema !== "riftbound.server-command-cpu-profile.config.v1" ||
-      config.port === undefined || config.seed === undefined || config.maxCommands === undefined ||
+      config.port === undefined || config.seed === undefined ||
+      (config.deterministicSeed !== undefined && config.deterministicSeed !== null &&
+        (typeof config.deterministicSeed !== "string" || config.deterministicSeed.length === 0)) ||
+      config.maxCommands === undefined ||
       config.commandTimeoutMs === undefined || config.gameTimeoutMs === undefined ||
       config.startupTimeoutMs === undefined) {
     throw new Error(`${configPath} is missing required run parameters`);
   }
-  const runOptions = config as ProfileRunConfig;
+  const runOptions = { ...config, deterministicSeed: config.deterministicSeed ?? null } as ProfileRunConfig;
   const instrumentation = JSON.parse(await readFile(instrumentationPath, "utf8")) as InstrumentationSnapshot;
   const profileClock = JSON.parse(await readFile(profileClockPath, "utf8")) as {
     readonly timeOrigin: number;
@@ -458,6 +505,8 @@ async function runParent(): Promise<void> {
       cpuProfileIntervalUs: 1_000,
       port: runOptions.port,
       seed: runOptions.seed,
+      deterministicSeed: runOptions.deterministicSeed,
+      deterministicRandomEnabled: runOptions.deterministicSeed !== null && runOptions.deterministicSeed.length > 0,
       roomId: runOptions.roomId,
       maxCommands: runOptions.maxCommands,
       commandTimeoutMs: runOptions.commandTimeoutMs,
@@ -499,7 +548,7 @@ async function runParent(): Promise<void> {
 
 function runConfig(): ProfileRunConfig {
   return { schema: "riftbound.server-command-cpu-profile.config.v1",
-    port, seed, roomId: roomId ?? null, maxCommands,
+    port, seed, deterministicSeed, roomId: roomId ?? null, maxCommands,
     commandTimeoutMs, gameTimeoutMs, startupTimeoutMs };
 }
 
@@ -512,16 +561,26 @@ async function analyzeExistingRun(outputDirectory: string): Promise<void> {
   const storageRoot = path.join(outputDirectory, "storage");
   const configPath = path.join(outputDirectory, "profile-config.json");
   const config = JSON.parse(await readFile(configPath, "utf8")) as Partial<ProfileRunConfig>;
-  if (config.port !== undefined && (config.port < 35_740 || config.port > 35_759)) {
-    throw new RangeError(`Stored profile port must be in 35740..35759, received ${config.port}`);
+  if (config.port !== undefined &&
+      (!Number.isSafeInteger(ownPortMinimum) || !Number.isSafeInteger(ownPortSpan) ||
+        config.port < ownPortMinimum || config.port > ownPortMaximum)) {
+    throw new RangeError(
+      `Stored profile port must be in the owned range ${ownPortMinimum}..${ownPortMaximum}, received ${config.port}`
+    );
   }
   if (config.schema !== "riftbound.server-command-cpu-profile.config.v1" ||
-      config.port === undefined || config.seed === undefined || config.maxCommands === undefined ||
+      config.port === undefined || config.seed === undefined ||
+      (config.deterministicSeed !== undefined && config.deterministicSeed !== null &&
+        (typeof config.deterministicSeed !== "string" || config.deterministicSeed.length === 0)) ||
+      config.maxCommands === undefined ||
       config.commandTimeoutMs === undefined || config.gameTimeoutMs === undefined ||
       config.startupTimeoutMs === undefined) {
     throw new Error(`${configPath} is missing required run parameters`);
   }
-  const validatedConfig = config as ProfileRunConfig;
+  const validatedConfig = {
+    ...config,
+    deterministicSeed: config.deterministicSeed ?? null
+  } as ProfileRunConfig;
   const instrumentation = JSON.parse(await readFile(instrumentationPath, "utf8")) as InstrumentationSnapshot;
   const profileClock = JSON.parse(await readFile(profileClockPath, "utf8")) as {
     readonly timeOrigin: number;
@@ -545,6 +604,9 @@ async function analyzeExistingRun(outputDirectory: string): Promise<void> {
       cpuProfileIntervalUs: 1_000,
       port: validatedConfig.port,
       seed: validatedConfig.seed,
+      deterministicSeed: validatedConfig.deterministicSeed,
+      deterministicRandomEnabled: validatedConfig.deterministicSeed !== null &&
+        validatedConfig.deterministicSeed.length > 0,
       roomId: validatedConfig.roomId,
       maxCommands: validatedConfig.maxCommands,
       commandTimeoutMs: validatedConfig.commandTimeoutMs,
@@ -678,7 +740,7 @@ async function driveProfileGame(url: string, storageRoot: string, serverPid: num
         }
       }
       const rejected = rejectedPlays.get(actor) ?? new Set<string>();
-      const commandId = `profile-${seed}-${index}-${Date.now().toString(36)}`;
+      const commandId = `profile-${seed}-${index}`;
       const actorSession = view === null || view.viewerPlayerId !== actor ?
         ([first, second].find(candidate => candidate.snapshot.projection?.viewerPlayerId === actor) ?? session) : session;
       const actorView = actorSession.snapshot.projection ?? view;
