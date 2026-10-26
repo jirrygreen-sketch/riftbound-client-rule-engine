@@ -5,9 +5,9 @@ import { projectFor, type ProjectionV2 } from "../../../engine-core/dist/project
 import { createProgramBinding } from "../../../engine-core/dist/programs/index.js";
 import { TestWorld, world } from "../../../engine-core/dist/effects/testing/test-kernel.js";
 import { cardPrograms } from "../../../card-dsl/dist/cards/registry.generated.js";
-import type { CardProgram } from "../../../card-dsl/dist/ir/types.js";
+import type { CardProgram, Instruction } from "../../../card-dsl/dist/ir/types.js";
 import { ChainContractBlockedError, type ChainDraft } from "../../../engine-core/dist/chain/engine.js";
-import type { LocationRef, ObjectRef, ObjectSnapshot, PlayerId } from "../../../engine-core/dist/effects/contract.js";
+import type { LocationRef, ObjectFilter, ObjectRef, ObjectSnapshot, PlayerId, ResolveContext } from "../../../engine-core/dist/effects/contract.js";
 import type { PipelineEvent, PipelineHost } from "../../../engine-core/dist/events/pipeline-types.js";
 import type { DuelBaseCombatPlan } from "../../../engine-core/dist/combat/base-combat-allocation.js";
 import type { M1PreconId } from "./decks.js";
@@ -16,7 +16,12 @@ import { TurnCombatBlockedError } from "../../../engine-core/dist/turn/flow.js";
 import { moveUnits } from "../../../engine-core/dist/game/commands/index.js";
 import { CostPlanError } from "../../../engine-core/dist/cost/plan-types.js";
 import { TriggerSpecValidationError } from "../../../engine-core/dist/events/trigger-spec.js";
-import { TargetSelectionError } from "../../../engine-core/dist/target/target-plan.js";
+import { queryTargetCandidates, TargetSelectionError, type TargetRequirement } from "../../../engine-core/dist/target/target-plan.js";
+import type { CostPlanInput } from "../../../engine-core/dist/cost/plan-types.js";
+import { buildCostPlan } from "../../../engine-core/dist/cost/cost-plan.js";
+import { assessCostPayment } from "../../../engine-core/dist/cost/payment.js";
+import { collectCostModifications } from "../../../engine-core/dist/cost/discounts/collect.js";
+import { locationPermissionMatches, playPermissionAllows } from "../../../engine-core/dist/programs/play-permissions.js";
 import { movement, playLocations, restrictions } from "../../../engine-core/dist/layers/rules/query.js";
 import {
   executeBasicRuneResourcePlan,
@@ -201,6 +206,8 @@ export type HeadlessBotCommandPriority =
   | "affordable-other-play"
   | "other"
   | "base-move";
+
+export type HeadlessPlayCandidateLegality = "legal" | "illegal" | "unknown";
 
 export interface HeadlessBotCommandTier {
   readonly priority: HeadlessBotCommandPriority;
@@ -700,9 +707,7 @@ function createBotDraft(
   }
   try {
     const draft = binding.describePlay({ type: "play", object: source.ref, player, ...(location ? { location } : {}) }, source);
-    // ProgramBinding's process-global sequence must not make journals depend on
-    // previous games. This is a command identity, with no rules or cost override.
-    return { ...draft, id, ...(draft.cost ? { cost: { ...draft.cost, id: `cost:${id}` } } : {}) };
+    return identifyBotDraft(draft, id);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     if (/judge|required|program|battlefield location filters|no playable|unbound|unknown-program|invalid-program/i.test(message)) {
@@ -711,6 +716,30 @@ function createBotDraft(
     }
     throw error;
   }
+}
+
+/**
+ * Optional Additional Costs are decisions made while playing the card (CR
+ * 356.2.b, 820.1). The bot declines those optional components consistently so
+ * enumeration, preflight, and execution all characterize the same legal plan.
+ * Other optional choices made while resolving an effect keep the bot policy.
+ */
+function identifyBotDraft(draft: ChainDraft, id: string): ChainDraft {
+  const optionalAdditional = draft.cost?.optionalAdditional?.map(optional => ({
+    ...optional,
+    selected: false,
+  }));
+  return {
+    ...draft,
+    id,
+    ...(draft.cost === undefined ? {} : {
+      cost: {
+        ...draft.cost,
+        id: `cost:${id}`,
+        ...(optionalAdditional === undefined ? {} : { optionalAdditional }),
+      },
+    }),
+  };
 }
 
 /** Audit all surfaces, including events/choices/chain, for hidden identities. */
@@ -1104,6 +1133,71 @@ function executeGuardedCommand(
   finally { context.state.invalidateCheckpoint(); }
 }
 
+/**
+ * A candidate is provisional. Only a provably unusable choice is removed; any
+ * branch-sensitive target or cost shape stays with Finalize and is journaled.
+ */
+function preflightHeadlessPlay(
+  context: HeadlessContext,
+  command: Extract<HeadlessCommand, { type: "play" }>,
+): HeadlessPlayCandidateLegality {
+  const source = context.state.kernel.objects.find(candidate => candidate.ref.id === command.object.id &&
+    candidate.ref.zoneEntryId === command.object.zoneEntryId) as DraftableCard | undefined;
+  if (source === undefined || source.controller !== command.player || source.zone !== "hand") return "illegal";
+  if (cardProgramStatus(source.cardId) === "judge-required") return "unknown";
+  try {
+    const draft = context.programs.describePlay({
+      type: "play", object: source.ref, player: command.player, ...(command.location ? { location: command.location } : {}),
+    }, source);
+    const identified = identifyBotDraft(draft, command.id);
+    const core = bindResolveContext(context.state.kernel, {
+      source: context.state.kernel.object(source.ref) ?? structuredClone(source),
+      controller: command.player,
+      timingPoint: "chain-item-finalize",
+      choose: () => { throw new CandidatePreflightUnknown("Candidate preflight requires a Finalize choice"); },
+      contractActions: undefined,
+    });
+    const probe = bindPreflightLayeredContext(
+      core,
+      context.match.flow.chain.layers.objectsView(),
+      context.match.flow.chain.layers.currentTimingPoint,
+    );
+    return playCandidateLegality(identified, context.match.flow.phase, context.match.flow.chain, probe);
+  } catch {
+    // Any inability to build a read-only characterization remains engine-owned.
+    return "unknown";
+  }
+}
+
+/** Read-only layer view without touching a host or ChainEngine read cursor. */
+function bindPreflightLayeredContext(
+  base: ResolveContext,
+  layered: readonly ObjectSnapshot[],
+  timingPoint: ResolveContext["timingPoint"] | undefined,
+): ResolveContext {
+  const objects = new Map(layered.map(object => [`${object.ref.id}:${object.ref.zoneEntryId}`, object]));
+  return new Proxy(base, { get(target, key) {
+    if (key === "timingPoint") return timingPoint ?? target.timingPoint;
+    if (key === "object") return (ref: ObjectRef) => {
+      const object = objects.get(`${ref.id}:${ref.zoneEntryId}`);
+      return object === undefined ? null : structuredClone(object);
+    };
+    if (key === "query") return (filter: ObjectFilter) => eachObjectMeets(filter, [...objects.values()]);
+    const value = Reflect.get(target, key);
+    return typeof value === "function" ? value.bind(target) : value;
+  } });
+}
+
+function eachObjectMeets(filter: ObjectFilter, objects: readonly ObjectSnapshot[]): ObjectSnapshot[] {
+  return objects.filter(object => Object.entries(filter).every(([key, expected]) => {
+    if (key === "type" || key === "tag") return (key === "type" ? object.types : object.tags).includes(String(expected));
+    if ((key === "types" || key === "tags") && Array.isArray(expected)) {
+      return expected.every(value => object[key].includes(String(value)));
+    }
+    return JSON.stringify((object as unknown as Record<string, unknown>)[key]) === JSON.stringify(expected);
+  }));
+}
+
 /** Candidates are timing/permission filtered; the public command still owns final legality and cost checks. */
 interface HeadlessCandidateEnumeration {
   readonly commands: readonly HeadlessCommand[];
@@ -1141,11 +1235,20 @@ function enumerateCandidates(context: HeadlessContext, sequence: number): Headle
   }
   for (const source of objects) {
     if (source.controller !== player || source.zone !== "hand" || !source.cardId) continue;
-    // Prefer the legal default Base. A permanent may also be played to an
-    // already controlled Battlefield. Entering an arbitrary enemy field is not a play permission.
-    const locations: (LocationRef | undefined)[] = source.types.some(type => type === "unit" || type === "gear")
+    // Units may use their Base or a Battlefield they can normally contest.
+    // Non-Unit Gear defaults to its controller's Base (CR 148.1.a.1, 149.2,
+    // 152.2); a Battlefield is offered only through an explicit Play-location
+    // permission such as Deploy.
+    const unitLike = source.types.some(type => type.toLowerCase() === "unit");
+    const gearLike = source.types.some(type => type.toLowerCase() === "gear");
+    const locations: (LocationRef | undefined)[] = unitLike
       ? [{ type: "base", player }, ...flow.battlefields.filter(field => field.controller === player)
-        .map(field => ({ type: "battlefield" as const, id: field.id }))] : [undefined];
+        .map(field => ({ type: "battlefield" as const, id: field.id }))]
+      : gearLike
+        ? [{ type: "base", player }, ...flow.battlefields.filter(field =>
+          gearBattlefieldDestinationIsLegal(chain, source, player, field, objects))
+          .map(field => ({ type: "battlefield" as const, id: field.id }))]
+        : [undefined];
     const locationRules = playLocations(chain.layers.registry, source.ref, source, player);
     for (const location of locations) {
       if (location && locationRules.restrictions.some(rule =>
@@ -1184,6 +1287,59 @@ function enumerateCandidates(context: HeadlessContext, sequence: number): Headle
     }
   }
   return { commands, objects };
+}
+
+/**
+ * The same public permission readers used by Chain Finalize, with the default
+ * Non-Unit Gear destination kept fail-closed at Base. This is read-only and is
+ * called only during candidate enumeration; Finalize still revalidates.
+ */
+export function gearBattlefieldDestinationIsLegal(
+  chain: Match["flow"]["chain"],
+  source: ObjectSnapshot,
+  player: PlayerId,
+  battlefield: Match["flow"]["battlefields"][number],
+  objects: readonly ObjectSnapshot[],
+): boolean {
+  const destination: LocationRef = { type: "battlefield", id: battlefield.id };
+  const units = objects.filter(object => object.zone === "board" &&
+    object.types.some(type => type.toLowerCase() === "unit") &&
+    object.location?.type === "battlefield" && object.location.id === battlefield.id).map(object => object.ref);
+  const state = {
+    ref: destination,
+    controller: battlefield.controller,
+    occupied: units.length > 0,
+    contested: battlefield.contestedBy !== null,
+    units,
+  };
+  if (playPermissionAllows(chain.layers.registry, source, destination, {
+    player, state, objects,
+  })) return true;
+
+  for (const entry of chain.layers.registry.list()) {
+    const effect = entry.effect.effect as Readonly<Record<string, unknown>>;
+    const kind = String(effect.kind ?? "").toLowerCase();
+    if (kind !== "play-location-permission" && kind !== "continuous.location" && kind !== "location") continue;
+    if (entry.effect.source !== undefined && entry.effect.source.id !== source.ref.id) continue;
+    if (entry.effect.source?.zoneEntryId !== undefined && entry.effect.source.zoneEntryId !== source.ref.zoneEntryId) continue;
+    const raw = literalPlayLocation(effect.value);
+    const candidate = literalPlayLocation(raw && typeof raw === "object" && "kind" in raw
+      ? (raw as Readonly<Record<string, unknown>>).value :
+      effect.location ?? (raw as Readonly<Record<string, unknown>> | undefined)?.location ?? effect.permission);
+    if (candidate === null || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    if (locationPermissionMatches(candidate as never, destination, { player, state, objects })) return true;
+  }
+
+  return source.keywords.some(keyword => keyword.id.toLowerCase() === "deploy") ||
+    chain.layers.registry.list().some(entry => entry.effect.source?.id === source.ref.id &&
+      (entry.effect.effect as { readonly kind?: unknown }).kind === "continuous.location" &&
+      (entry.effect.effect as { readonly play?: { readonly anyBattlefield?: unknown } }).play?.anyBattlefield === true);
+}
+
+function literalPlayLocation(value: unknown): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
+  const record = value as Readonly<Record<string, unknown>>;
+  return record.kind === "constant" || record.kind === "literal" ? record.value : value;
 }
 
 function finalState(
@@ -1288,6 +1444,135 @@ function observedActionCoverage(commands: readonly HeadlessJournalEntry[], actio
       entry.failure?.code === "cannot-pay-cost").length };
 }
 
+class CandidatePreflightUnknown extends Error {}
+
+function draftInstructionTargets(instructions: readonly Instruction[]): readonly TargetRequirement[] {
+  return instructions.flatMap(instruction => {
+    const targets = [...(instruction.targets ?? [])] as readonly TargetRequirement[];
+    const body = instruction.args.body;
+    if ((instruction.op === "sequence" || instruction.op === "choice.optional" || instruction.op === "repeat") &&
+        body !== undefined && (body.kind === "constant" || body.kind === "literal") && Array.isArray(body.value)) {
+      return [...targets, ...draftInstructionTargets(body.value as readonly Instruction[])];
+    }
+    return targets;
+  });
+}
+
+function draftHasSemanticChoices(instructions: readonly Instruction[]): boolean {
+  return instructions.some(instruction => {
+    const controlBody = instruction.args.body;
+    if (controlBody !== undefined && (controlBody.kind === "constant" || controlBody.kind === "literal") &&
+        Array.isArray(controlBody.value) && draftHasSemanticChoices(controlBody.value as readonly Instruction[])) return true;
+    return instruction.condition !== undefined || instruction.op === "choice.mode" ||
+      instruction.op === "choice.optional" || instruction.op === "repeat" || instruction.picks !== undefined ||
+      instruction.locations !== undefined;
+  });
+}
+
+function costHasRuntimeObjectChoice(input: CostPlanInput): boolean {
+  const specs = [input.cost, ...(input.optionalAdditional ?? []).flatMap(option => option.cost === undefined ? [] : [option.cost]),
+    ...(input.mandatoryAdditional ?? []).map(component => component.cost), ...(input.increases ?? []).map(component => component.cost)];
+  return specs.some(spec => (spec.payments ?? []).some(payment => payment.choice !== undefined || payment.objects !== undefined));
+}
+
+/** The nested card is selected at Resolve, so its target and plan are unknown here. */
+function draftHasNestedPlay(instructions: readonly Instruction[]): boolean {
+  return instructions.some(instruction => {
+    if (instruction.op === "effect.play" || instruction.op === "effect.play-back" ||
+        instruction.op === "effect.play-for-each-player") return true;
+    const body = instruction.args.body;
+    return body !== undefined && (body.kind === "constant" || body.kind === "literal") &&
+      Array.isArray(body.value) && draftHasNestedPlay(body.value as readonly Instruction[]);
+  });
+}
+
+/** Read-only admission using Finalize's target evaluator and cost resources. */
+function preflightPlayCandidate(
+  draft: ChainDraft,
+  context: ResolveContext,
+  chain: Match["flow"]["chain"],
+): HeadlessPlayCandidateLegality {
+  const source = context.object(draft.source.ref) ?? context.lastKnown(draft.source.ref);
+  if (!source.types.includes("spell")) return "unknown";
+  if (draft.cost === undefined) return "unknown";
+  if (draft.requirements !== undefined || draft.restrictions !== undefined ||
+      draft.conditionalReaction !== undefined || draftHasSemanticChoices(draft.body) || draftHasNestedPlay(draft.body)) {
+    return "unknown";
+  }
+  // A target set is an intrinsic requirement (CR 355.8). Probe all reachable
+  // target specs before deciding whether the engine could Finalize the card.
+  const targets = [...(draft.targets ?? []).map(target => target.requirement), ...draftInstructionTargets(draft.body)];
+  const targetCounts = targets.map(target => ({ target,
+    count: candidateTargetCount(context, target, chain) }));
+  if (targetCounts.some(({ target, count }) => count !== null && count < (target.min ??
+      (target.selection === "one" ? 1 : 0)))) return "illegal";
+  if (targetCounts.some(({ count }) => count === null)) return "unknown";
+  if (costHasRuntimeObjectChoice(draft.cost) || draft.cost.baseModifications !== undefined || draft.cost.ignoreAllCosts === true ||
+      draft.cost.costChoices !== undefined) return "unknown";
+  // Bound cost statics need ChainEngine's live condition evaluator, which
+  // updates the action adapter's active-context cursor. Conservatively leave
+  // those plans to the authoritative Finalize path.
+  if (draft.costStatics?.length || chain.layers.registry.list().some(entry => {
+    const effect = entry.effect.effect as { readonly kind?: unknown; readonly capabilityKind?: unknown };
+    return effect.kind === "static.capability" && effect.capabilityKind === "cost";
+  })) return "unknown";
+  const { id, ...withoutId } = draft.cost;
+  const planProbe = new Proxy(context, { get(target, key) {
+    if (key === "choose") return <T>(request: import("../../../engine-core/dist/effects/contract.js").ChoiceRequest<T>): T => {
+      throw new CandidatePreflightUnknown(`Cannot probe ${request.type} Finalize choice`);
+    };
+    const value = Reflect.get(target, key);
+    return typeof value === "function" ? value.bind(target) : value;
+  } });
+  try {
+    // Read-only cost/discount collection and affordability use the same active
+    // continuous sources and history as Finalize; no card moves or pays.
+    const collected = collectCostModifications(planProbe, { ...withoutId, id }, {
+      statics: [],
+      continuous: chain.layers.registry.list().filter(entry =>
+        (entry.effect.effect as { costModification?: unknown }).costModification !== true),
+      finalizedPlaysThisTurn: chain.finalizedCardPlaysThisTurn(),
+      originZone: source.zone,
+      purpose: "play",
+    });
+    const plan = buildCostPlan(planProbe, collected);
+    return assessCostPayment(planProbe, plan).payable ? "legal" : "illegal";
+  } catch (error) {
+    if (error instanceof CostPlanError && error.reason === "cannot-pay-cost") return "illegal";
+    return "unknown";
+  }
+}
+
+function candidateTargetCount(
+  context: ResolveContext,
+  requirement: TargetRequirement,
+  chain: Match["flow"]["chain"],
+): number | null {
+  // The same target evaluator is used by Finalize; pass the pre-Finalize object
+  // set, rule restrictions, and no fabricated target plan or choice answer.
+  try {
+    return queryTargetCandidates(context, requirement, {
+      ruleRegistry: chain.layers.registry,
+      rulePlayer: context.controller,
+    }).length;
+  } catch { return null; }
+}
+
+/**
+ * Read-only admission used by both the live bot and journal replay. A command
+ * remains authoritative: this only rejects a play whose present targets or
+ * cost plan definitively cannot reach Finalize.
+ */
+function playCandidateLegality(
+  draft: ChainDraft,
+  phase: Match["flow"]["phase"],
+  chain: Match["flow"]["chain"],
+  context: ResolveContext,
+): HeadlessPlayCandidateLegality {
+  if (phase !== "main") return "illegal";
+  return preflightPlayCandidate(draft, context, chain);
+}
+
 /**
  * Rank only commands already admitted by the active Player's timing and layer
  * predicates. The caller still executes the selected Command through the same
@@ -1297,6 +1582,7 @@ function observedActionCoverage(commands: readonly HeadlessJournalEntry[], actio
 export function rankHeadlessBotCommands(
   candidates: readonly HeadlessCommand[],
   trace: HeadlessCommandTrace,
+  playLegality?: (command: Extract<HeadlessCommand, { type: "play" }>) => HeadlessPlayCandidateLegality,
 ): readonly HeadlessBotCommandTier[] {
   const tracedByID = new Map(trace.candidates.flatMap(candidate =>
     candidate.id === null ? [] : [[candidate.id, candidate] as const]));
@@ -1314,21 +1600,24 @@ export function rankHeadlessBotCommands(
     }
     return true;
   };
-  const affordablePlays = candidates.filter((command): command is Extract<HeadlessCommand, { type: "play" }> =>
-    command.type === "play" && affordable(command));
+  const admittedPlays = candidates.filter((command): command is Extract<HeadlessCommand, { type: "play" }> =>
+    command.type === "play" && playLegality?.(command) !== "illegal");
+  const affordablePlays = admittedPlays.filter(affordable);
   const candidatePlays = candidates.filter((command): command is Extract<HeadlessCommand, { type: "play" }> =>
     command.type === "play");
-  const unitPlays = candidatePlays.filter(command =>
+  const admitted = new Set(admittedPlays);
+  const admittedCandidates = candidatePlays.filter(command => admitted.has(command));
+  const unitPlays = admittedCandidates.filter(command =>
     tracedByID.get(command.id)?.types.includes("unit") === true);
   const affordableUnitPlays = affordablePlays.filter(command =>
     tracedByID.get(command.id)?.types.includes("unit") === true);
   const affordableOtherPlays = affordablePlays.filter(command =>
     tracedByID.get(command.id)?.types.includes("unit") !== true);
 
-  const runeFundedUnits = unitPlays.filter(command => {
+  const runeFundedUnits = admittedCandidates.filter(command => {
     const candidate = tracedByID.get(command.id)!;
     const pool = trace.runePool[command.player]!.energy;
-    return candidate.energy !== null && candidate.energy > pool &&
+    return candidate.types.includes("unit") && candidate.energy !== null && candidate.energy > pool &&
       candidate.energy <= pool + trace.candidateCounts["rune-energy"];
   }).sort((left, right) =>
     (tracedByID.get(left.id)?.energy ?? Infinity) - (tracedByID.get(right.id)?.energy ?? Infinity));
@@ -1386,9 +1675,10 @@ export function prioritizedHeadlessCommands(
   candidates: readonly HeadlessCommand[],
   trace: HeadlessCommandTrace,
   combat: Match["flow"]["combat"],
+  playLegality?: (command: Extract<HeadlessCommand, { type: "play" }>) => HeadlessPlayCandidateLegality,
 ): readonly HeadlessCommand[] {
   const active = combat.current;
-  if (active === null) return rankHeadlessBotCommands(candidates, trace)
+  if (active === null) return rankHeadlessBotCommands(candidates, trace, playLegality)
     .flatMap(tier => tier.commands);
   if (active.step === "showdown") {
     if (trace.turnState === "neutral-open") return [{ type: "combat-damage" }];
@@ -1397,7 +1687,7 @@ export function prioritizedHeadlessCommands(
     // a timing-legal card with an unpaid Energy/Power component is not a
     // playable candidate. When no ranked command remains, the caller submits
     // the public Pass command instead of causing a rules rejection.
-    if (trace.turnState === "showdown-open") return rankHeadlessBotCommands(candidates, trace)
+    if (trace.turnState === "showdown-open") return rankHeadlessBotCommands(candidates, trace, playLegality)
       .flatMap(tier => tier.commands);
   }
   if (active.step === "cleanup" || active.step === "result" || active.step === "control" || active.step === "end") {
@@ -1409,7 +1699,10 @@ export function prioritizedHeadlessCommands(
       ? [{ type: "pass", player: trace.priority }]
       : [{ type: "advance" }];
   }
-  return candidates;
+  // CR 312.2.c: a Closed State still grants Priority and Play can happen while
+  // Chain items await Finalize/Resolve. Apply the same definitive target and
+  // payment admission as every other Play window.
+  return rankHeadlessBotCommands(candidates, trace, playLegality).flatMap(tier => tier.commands);
 }
 
 export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {}): HeadlessStats {
@@ -1452,7 +1745,8 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
     const allCandidates = enumeration.commands;
     const candidates = allCandidates.filter(command => !rejected.has(commandKey(command)));
     const trace = commandTrace(context, allCandidates, enumeration.objects ?? undefined);
-    const preferred = prioritizedHeadlessCommands(candidates, trace, match.flow.combat);
+    const preferred = prioritizedHeadlessCommands(candidates, trace, match.flow.combat,
+      command => preflightHeadlessPlay(context, command));
     const command = preferred.length ? preferred[random.next(preferred.length)]! :
       match.flow.chain.priority
         ? match.flow.phase === "main" && !match.flow.chain.items.length && !match.flow.combat.active &&
