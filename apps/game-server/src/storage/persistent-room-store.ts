@@ -17,7 +17,12 @@ export interface PersistentRoomArchiveSnapshotEvent {
   readonly [key: string]: JsonObject[string];
 }
 
-/** `operations` is a flat triple list: path, kind (set/delete/truncate), value. */
+/**
+ * `operations` is a flat triple list: path, kind (set/delete/truncate), value.
+ * Delete retains a JSON `null` placeholder so every operation has one shape.
+ * Readers also normalize the earlier two-item delete form written by this
+ * development branch before its first durable format was frozen.
+ */
 export interface PersistentRoomArchiveDeltaEvent {
   readonly type: "room-archive-delta";
   readonly roomId: string;
@@ -148,6 +153,45 @@ function decodePath(value: string): (string | number)[] {
   return parsed as (string | number)[];
 }
 
+function invalidDeltaShape(): never {
+  throw new Error("Room archive delta has an invalid shape");
+}
+
+/**
+ * Normalize durable operations to fixed triples. A historical delete pair is
+ * safe to recognize because every encoded path is itself a JSON array, while
+ * the current delete placeholder is exactly the JSON text `null`.
+ */
+function normalizeDeltaOperations(value: unknown): string[] {
+  if (!Array.isArray(value) || !value.every(operation => typeof operation === "string")) {
+    return invalidDeltaShape();
+  }
+  const normalized: string[] = [];
+  let index = 0;
+  while (index < value.length) {
+    const path = value[index]!;
+    const kind = value[index + 1];
+    if (typeof kind !== "string") return invalidDeltaShape();
+    decodePath(path);
+    if (kind === "delete") {
+      if (value[index + 2] === "null") {
+        normalized.push(path, kind, "null");
+        index += 3;
+      } else {
+        // Legacy branch output omitted the unused value slot entirely.
+        normalized.push(path, kind, "null");
+        index += 2;
+      }
+      continue;
+    }
+    if (kind !== "set" && kind !== "truncate") return invalidDeltaShape();
+    if (index + 2 >= value.length) return invalidDeltaShape();
+    normalized.push(path, kind, value[index + 2]!);
+    index += 3;
+  }
+  return normalized;
+}
+
 function sameValue(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
   if (left === null || right === null || typeof left !== "object" || typeof right !== "object") {
@@ -220,7 +264,9 @@ function createDeltaOperations(
       }
     }
     for (const key of Object.keys(previous)) {
-      if (!Object.hasOwn(next, key)) operations.push(encodePath([...path, key]), "delete");
+      if (!Object.hasOwn(next, key)) {
+        operations.push(encodePath([...path, key]), "delete", "null");
+      }
     }
     return operations;
   }
@@ -311,15 +357,13 @@ function applyArchiveDelta(base: JsonObject, event: JsonObject): JsonObject {
   const baseArchiveSeq = event.baseArchiveSeq;
   const baseArchiveDigest = event.baseArchiveDigest;
   const nextDigest = event.archiveDigest;
-  const operations = event.operations;
   if (event.type !== "room-archive-delta" || version !== 1 ||
       !Number.isSafeInteger(baseArchiveSeq) || (baseArchiveSeq as number) < 1 ||
       typeof baseArchiveDigest !== "string" || !/^[0-9a-f]{64}$/u.test(baseArchiveDigest) ||
-      typeof nextDigest !== "string" || !/^[0-9a-f]{64}$/u.test(nextDigest) ||
-      !Array.isArray(operations) || operations.length % 3 !== 0 ||
-      !operations.every(operation => typeof operation === "string")) {
+      typeof nextDigest !== "string" || !/^[0-9a-f]{64}$/u.test(nextDigest)) {
     throw new Error("Room archive delta has an invalid shape");
   }
+  const operations = normalizeDeltaOperations(event.operations);
   if (archiveDigest(base) !== baseArchiveDigest) {
     throw new Error("Room archive delta base digest mismatch");
   }

@@ -162,6 +162,107 @@ describe("RIFT-1087-E private archive delta", () => {
     await reopened.close();
   });
 
+  it("persists delete operations as complete triples across restart", async () => {
+    const root = await directory();
+    const first: JsonObject = {
+      roomId: "seed-room",
+      stable: "large-".repeat(512),
+      removable: { nested: true }
+    };
+    const expected: JsonObject = {
+      roomId: "seed-room",
+      stable: "large-".repeat(512)
+    };
+    const store = new PersistentRoomArchiveStore(root);
+    await store.save("seed-room", first);
+    await store.save("seed-room", expected);
+    await store.close();
+
+    const records = (await readFile(path.join(root, "archive.log"), "utf8"))
+      .trimEnd().split("\n").map(line => JSON.parse(line));
+    const operations = records.at(-1).record.entries[0].event.operations as string[];
+    expect(operations.length % 3).toBe(0);
+    expect(operations).toContain("delete");
+    for (let index = 0; index < operations.length; index += 3) {
+      if (operations[index + 1] === "delete") expect(operations[index + 2]).toBe("null");
+    }
+
+    const reopened = new PersistentRoomArchiveStore(root);
+    expect(await reopened.load("seed-room")).toEqual(expected);
+    await reopened.close();
+  });
+
+  it("restores an optional room field after it is added and then removed", async () => {
+    const root = await directory();
+    const room = new GameRoom("seed-room");
+    const connection = room.join("Alice", () => undefined, "optional-chat");
+    const session = {
+      roomId: room.roomId,
+      playerId: connection.playerId,
+      resumeToken: connection.resumeToken
+    };
+    const base = room.exportArchive();
+    room.sendChat(
+      session,
+      connection.connectionId,
+      "optional-chat-message",
+      "transient private history",
+      "optional-chat-request",
+      () => undefined
+    );
+    const withOptional = room.exportArchive();
+    const { roomChat: _roomChat, ...withoutOptional } = withOptional;
+    const expected = withoutOptional as typeof withOptional;
+    expect(withOptional.roomChat).toBeDefined();
+    expect(expected).toEqual(base);
+    const store = new PersistentRoomArchiveStore(root);
+    await store.save("seed-room", base);
+    await store.save("seed-room", withOptional);
+    await store.save("seed-room", expected);
+    await store.close();
+
+    const reopened = new PersistentRoomArchiveStore(root);
+    expect(await reopened.load("seed-room")).toEqual(expected);
+    expect(GameRoom.restore(expected).exportArchive()).toEqual(expected);
+    expect((await reopened.readArchives("seed-room")).archives.map(record =>
+      record.archive
+    )).toEqual([base, withOptional, expected]);
+    await reopened.close();
+  });
+
+  it("reads historical two-item delete operations without weakening digest validation", async () => {
+    const root = await directory();
+    const first: JsonObject = {
+      roomId: "seed-room",
+      stable: "legacy-".repeat(512),
+      removable: "old format"
+    };
+    const expected: JsonObject = {
+      roomId: "seed-room",
+      stable: "legacy-".repeat(512)
+    };
+    await writeLegacyLog(root, [first]);
+    const legacyDelta = {
+      type: "room-archive-delta",
+      roomId: "seed-room",
+      formatVersion: 1,
+      baseArchiveSeq: 1,
+      baseArchiveDigest: digest(first),
+      archiveDigest: digest(expected),
+      // This is the exact malformed shape emitted by the superseded branch.
+      operations: [JSON.stringify(["removable"]), "delete"]
+    } as const;
+    await appendFile(path.join(root, "archive.log"), encodeRecord({
+      formatVersion: 1,
+      kind: "events",
+      entries: [{ eventSeq: 2, event: legacyDelta }]
+    }), "utf8");
+
+    const store = new PersistentRoomArchiveStore(root);
+    expect(await store.load("seed-room")).toEqual(expected);
+    await store.close();
+  });
+
   it("rejects a digest-valid delta whose base digest is wrong", async () => {
     const root = await directory();
     const first = archive(1);
