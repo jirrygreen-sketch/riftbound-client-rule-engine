@@ -726,8 +726,14 @@ class MatchRuntime implements EngineRuntime {
 
   projectFor(playerId: PlayerId | null): V2Projection {
     this.requireStarted();
-    const projection = projectRuntime(this.match!, this.host!, this.runtimeOptions.matchId, playerId, this.stateVersion,
-      this.pendingChoiceFor(playerId));
+    const snapshot = projectionSnapshot(this.match!, this.host!, this.runtimeOptions.matchId, this.stateVersion);
+    return this.projectForSnapshot(playerId, snapshot);
+  }
+
+  private projectForSnapshot(playerId: PlayerId | null,
+    snapshot: Parameters<typeof projectRuntimeFromSnapshot>[6]): V2Projection {
+    const projection = projectRuntimeFromSnapshot(this.match!, this.host!, this.runtimeOptions.matchId,
+      playerId, this.stateVersion, this.pendingChoiceFor(playerId), snapshot);
     return withChoiceMetadata(projection, this.pending);
   }
 
@@ -801,8 +807,9 @@ class MatchRuntime implements EngineRuntime {
         const receipt = { commandId: command.commandId, status: "accepted" as const, stateVersion: this.stateVersion + 1,
           eventSeq: this.match!.events().length, result: { resumedCommandId: original.command.commandId, accepted: true } };
         this.stateVersion += 1;
-        const projection = this.projectFor(playerId);
-        this.appendJournal(playerId, command, receipt, receipt.result!, false, undefined, projection);
+        const snapshot = projectionSnapshot(this.match!, this.host!, this.runtimeOptions.matchId, this.stateVersion);
+        const projection = this.projectForSnapshot(playerId, snapshot);
+        this.appendJournal(playerId, command, receipt, receipt.result!, false, undefined, projection, snapshot);
         this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
         this.decisions = null;
         this.preparedPlay = null;
@@ -962,8 +969,9 @@ class MatchRuntime implements EngineRuntime {
     });
     const receipt: RuntimeReceipt = { commandId: command.commandId, status: "accepted", stateVersion: this.stateVersion,
       eventSeq: this.match!.events().length, result };
-    const projection = this.projectFor(playerId);
-    this.appendJournal(playerId, command, receipt, result, false, undefined, projection);
+    const snapshot = projectionSnapshot(this.match!, this.host!, this.runtimeOptions.matchId, this.stateVersion);
+    const projection = this.projectForSnapshot(playerId, snapshot);
+    this.appendJournal(playerId, command, receipt, result, false, undefined, projection, snapshot);
     this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
     if (this.preparedPlay?.playerId === playerId && this.preparedPlay.commandId === command.commandId) {
       this.preparedPlay = null;
@@ -1226,18 +1234,22 @@ class MatchRuntime implements EngineRuntime {
     duplicate: boolean,
     pendingReason: Readonly<Record<string, unknown>> | undefined,
     actorProjection: V2Projection | undefined,
+    sharedSnapshot?: Parameters<typeof projectRuntimeFromSnapshot>[6],
   ): RuntimeJournalEntry {
     const writer = this.journalWriter!;
     const viewers = Object.keys(this.host!.playerNames());
-    const snapshot = projectionSnapshot(this.match!, this.host!, this.runtimeOptions.matchId, this.stateVersion);
+    const snapshot = sharedSnapshot ??
+      projectionSnapshot(this.match!, this.host!, this.runtimeOptions.matchId, this.stateVersion);
     const projectionFor = (viewer: string | null) => projectRuntimeFromSnapshot(
       this.match!, this.host!, this.runtimeOptions.matchId, viewer, this.stateVersion,
       this.pendingChoiceFor(viewer), snapshot,
     );
     const spectator = projectionFor(null);
     const projections = [
-      withChoiceMetadata(projectionFor(viewers[0]!), this.pending),
-      withChoiceMetadata(projectionFor(viewers[1]!), this.pending),
+      actorProjection !== undefined && playerId === viewers[0]
+        ? actorProjection : withChoiceMetadata(projectionFor(viewers[0]!), this.pending),
+      actorProjection !== undefined && playerId === viewers[1]
+        ? actorProjection : withChoiceMetadata(projectionFor(viewers[1]!), this.pending),
       spectator,
     ] as const;
     const canonical = projections.map(projectionCanonicalJson);
