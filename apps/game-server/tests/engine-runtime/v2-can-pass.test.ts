@@ -175,12 +175,11 @@ describe("RIFT-1081 V2 pass action projection", () => {
     expectExtraPassToMatchRuntime(runtime, "B", "closed-showdown-pass");
   }, 120_000);
 
-  it("sets canPass=false for the attacker waiting for the defender's damage allocation", () => {
+  it("keeps canPass aligned while the defender waits for the second damage allocation", () => {
     const { runtime, aUnit } = closingShowdownSetup();
-    // This test targets the command boundary after the attacker has submitted.
-    // Drive the Showdown handoff with the authoritative Advance command; the
-    // resulting actionOptions still carries the same sessions that already
-    // ended, so Pass must agree with a fresh command receipt at that boundary.
+    // Drive the Showdown handoff with the authoritative Advance command, then
+    // compare each projected pass flag with the runtime receipt at the exact
+    // first- and second-allocation boundaries.
     const beforeAdvance = runtime.projectFor("B");
     const advanced = runtime.submit(beforeAdvance.activePlayerId,
       command("advance", "advance-to-damage", beforeAdvance.stateVersion, {}));
