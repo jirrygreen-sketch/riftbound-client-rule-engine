@@ -96,6 +96,8 @@ heavy env SWARM_TASK=RIFT-1091-perf-final-acceptance \
 
 把三次 profile 的 `analysis.phaseTime`（整局 78 条命令的 CPU sample 总量）取均值后，base → final 为：copy **26,744.18 → 1,387.48 ms**、layers **16,062.55 → 12,668.04 ms**、digest **2,802.48 → 1,640.55 ms**、projection **817.49 → 772.15 ms**、engine **1,689.12 → 4,275.22 ms**、GC **3,513.51 → 2,060.93 ms**。这些是整局总量，和上面的每命令均值分别保留了原始与可读尺度；engine 的增长主要来自 B 工单把 `structuredClone` 的内部复制换成可在 JS 中采样的 host 复制，不能解释成多执行了规则。
 
+instrumentation 调用计数在六轮严格一致，证明同一路线没有靠减少规则 pass 或跳过命令换性能：`runtimeHost.objects` **40,474 → 16,045**（wall-time 中位 2,071.89 → 1,650.51 ms），host checkpoint 均 **2,461 次**（4,481.94 → 2,555.03 ms），TurnFlow checkpoint 均 **2,478 次**（28.61 → 31.87 ms），`layer.evaluate` 均 **2,742,123 次**，`layer.evaluateAll` 均 **3,070 次**，`chain.withStableLayers` 均 **2,448 次**，journal append 均 **76 次**。最终 `withStableLayers` 的墙钟中位从 15,788.24 ms 降到 12,040.17 ms；调用次数没有下降，下降来自单次执行成本。
+
 ## 最终压测
 
 压测使用最终版真实服务端入口、真实 WebSocket、每房间两个客户端、相同 M1 预组、`--deterministic-seed=rift1091` 和 36080–36099 端口段。参数为命令上限 500、回合上限 40、命令超时 30 秒、单局超时 780 秒、启动超时 180 秒。下表是正式文件档位与独立内存对照。
