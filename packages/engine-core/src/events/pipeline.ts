@@ -20,6 +20,8 @@ function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
   return Object.freeze(value);
 }
 
+const EMPTY_EVENTS: readonly PipelineEvent[] = Object.freeze([]);
+
 function explicitBatchIdentity(emission: TimingEmission): string | undefined {
   for (const value of [emission.batchId, emission.simultaneousGroup]) {
     if (value !== undefined && (typeof value !== 'string' || value.length === 0)) {
@@ -232,6 +234,8 @@ function namedActivationRequiresRealEvent(registration: TriggerRegistration): bo
 export class EventPipeline {
   readonly clock: PipelineClock = { turn: 1, phase: 1, combat: 0, showdown: 0, chain: 0 };
   private log: PipelineEvent[] = [];
+  /** Published only after the event log's membership is frozen for this view. */
+  private eventsView: readonly PipelineEvent[] = EMPTY_EVENTS;
   private triggers = new Map<string, TriggerRegistration>();
   private replacements = new Map<string, ReplacementRegistration>();
   /** Exact entry evidence for one play action; never retained in checkpoints. */
@@ -254,7 +258,15 @@ export class EventPipeline {
   constructor(readonly host: PipelineHost, readonly turnOrder: readonly PlayerId[], public turnPlayer: PlayerId) {
     if (turnOrder.length < 2 || new Set(turnOrder).size !== turnOrder.length || !turnOrder.includes(turnPlayer)) throw new TypeError('Invalid turn order');
   }
-  get events(): readonly PipelineEvent[] { return structuredClone(this.log); }
+  /**
+   * Events are recursively frozen before publication and never mutated in
+   * place. Expose the immutable history directly so trigger evaluation and
+   * projection reads do not copy the whole growing log for every command.
+   */
+  get events(): readonly PipelineEvent[] {
+    if (this.eventsView.length !== this.log.length) this.eventsView = Object.freeze([...this.log]);
+    return this.eventsView;
+  }
   /** Stable read-only copies of all currently registered trigger candidates. */
   registeredTriggers(): readonly RegisteredTrigger[] {
     return deepFreeze(structuredClone([...this.triggers.values()]));
@@ -426,7 +438,7 @@ export class EventPipeline {
     const nextEpoch = Math.max(this.namedActivationEpoch, state.namedActivationEpoch) + 1;
     if (!Number.isSafeInteger(nextEpoch)) throw new RangeError('Named activation epoch exhausted');
     this.namedActivationEpoch = nextEpoch;
-    this.log = [...state.log]; this.triggers = new Map(state.triggers); this.replacements = new Map(state.replacements); this.rules = new Map(state.rules); this.consumed = new Map(state.consumed); this.replacementUses = new Set(state.replacementUses); this.sequence = state.sequence; this.batchSequence = state.batchSequence; this.namedActivationSequence = state.namedActivationSequence; this.namedActivations = new Map(state.namedActivations); this.scanQueue = [...state.scanQueue];
+    this.log = [...state.log]; this.eventsView = EMPTY_EVENTS; this.triggers = new Map(state.triggers); this.replacements = new Map(state.replacements); this.rules = new Map(state.rules); this.consumed = new Map(state.consumed); this.replacementUses = new Set(state.replacementUses); this.sequence = state.sequence; this.batchSequence = state.batchSequence; this.namedActivationSequence = state.namedActivationSequence; this.namedActivations = new Map(state.namedActivations); this.scanQueue = [...state.scanQueue];
     Object.assign(this.clock, state.clock); this.turnPlayer = state.turnPlayer;
   }
   /** Timings from rules modules and committed actions share exactly one scanner. */
