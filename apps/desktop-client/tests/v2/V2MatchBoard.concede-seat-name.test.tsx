@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server.node";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RoomView } from "@riftbound/protocol";
 import { AppView } from "../../src/app/AppView";
-import { readPlayerProfile } from "../../src/profile/player-profile";
+import { readPlayerProfile, type PlayerProfile } from "../../src/profile/player-profile";
 import {
   V2MatchBoard,
   type V2MatchBoardProps
@@ -149,7 +149,8 @@ const waitingRoom: RoomView = {
 };
 
 function renderV2App(setProfile: (update: unknown) => void, v2MatchOverrides: Record<string, unknown> = {},
-  preferenceStorage: Storage | null = null): string {
+  preferenceStorage: Storage | null = null,
+  profile: PlayerProfile = { name: "", avatar: "leaf", bio: "保留简介" }): string {
   captured.elements.length = 0;
   captured.handlers.length = 0;
   const v2Match = {
@@ -182,7 +183,7 @@ function renderV2App(setProfile: (update: unknown) => void, v2MatchOverrides: Re
     setActiveTab: vi.fn(),
     v2UiEnabled: true,
     setV2UiEnabled: vi.fn(),
-    profile: { name: "", avatar: "leaf", bio: "保留简介" },
+    profile,
     setProfile,
     v2Match,
     catalogServerUrl: "http://127.0.0.1:35160",
@@ -345,5 +346,24 @@ describe("RIFT-1098 V2 seat name survives a reload", () => {
     if (!board.onCreateRoom) throw new Error("room actions missing");
     await expect(board.onCreateRoom("Alice")).rejects.toThrow("create failed");
     expect(values.size).toBe(0);
+  });
+
+  it("stores an already-current name when local profile storage is empty", async () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+      removeItem: (key: string) => { values.delete(key); },
+      clear: () => values.clear(),
+      key: () => null,
+      length: 0
+    } as unknown as Storage;
+    renderV2App(vi.fn(), {}, storage, { name: "Alice", avatar: "leaf", bio: "保留简介" });
+    const board = appBoardProps();
+    if (!board.onCreateRoom) throw new Error("room actions missing");
+
+    expect(values.size).toBe(0);
+    await board.onCreateRoom("Alice");
+    expect(readPlayerProfile(storage)).toEqual({ name: "Alice", avatar: "leaf", bio: "保留简介" });
   });
 });
