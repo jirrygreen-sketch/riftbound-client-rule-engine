@@ -65,7 +65,8 @@ Battlefield location，同样要求规范化期间 object-view 读取为 0。测
 checkpoint）共 **18/18** 通过。正常改动前后 `journalBytes=1441`、`archiveBytes=5970`、
 status=`playing` 均一致。
 
-规定的完整验证也已通过：game-server `141` files / `838` tests 通过（`0 fail`，
+规定的完整验证也已通过：engine-core `5,278` tests，`5,058` pass / `0 fail` /
+`220 todo`；game-server `141` files / `838` tests 通过（`0 fail`，
 existing `6` skipped files；`37` skipped / `46` todo tests）；desktop-client `84` files /
 `982` tests 通过且 typecheck exit `0`。`m1-hundred-games.mjs --games=20
 --concurrency=1` 得到 `natural-win: 20`，`blocked/exception/timeout/command-limit/
