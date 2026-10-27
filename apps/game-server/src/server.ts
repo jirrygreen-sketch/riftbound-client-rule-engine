@@ -72,6 +72,8 @@ export interface GameServerOptions {
   duelRandomIndex?: (exclusiveUpperBound: number) => number;
   /** Beta safety gate. When true, engine-v2 Duel rooms accept only an M1 preset deck. */
   m1PresetsOnly?: boolean;
+  /** Deprecated compatibility option; startup archive validation is fail-closed. */
+  startupRoomRestoreTimeoutMs?: number;
 }
 
 export interface GameServer {
@@ -80,6 +82,8 @@ export interface GameServer {
   readonly quarantinedRooms: readonly QuarantinedRoomRecord[];
   start(): Promise<void>;
   stop(): Promise<void>;
+  /** Wait for startup mode's accepted rooms to be restored on demand. */
+  waitForRoomRestore?(): Promise<void>;
 }
 
 interface SocketContext {
@@ -169,6 +173,11 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
   }
   const duelRuntimeMode = options.duelRuntimeMode ?? "engine-v2";
   const m1PresetsOnly = options.m1PresetsOnly ?? process.env.RIFTBOUND_M1_PRESETS_ONLY === "1";
+  const startupRoomRestoreTimeoutMs = options.startupRoomRestoreTimeoutMs;
+  if (startupRoomRestoreTimeoutMs !== undefined &&
+      (!Number.isSafeInteger(startupRoomRestoreTimeoutMs) || startupRoomRestoreTimeoutMs < 0)) {
+    throw new TypeError("startupRoomRestoreTimeoutMs must be a non-negative safe integer");
+  }
   const rooms = new Map<string, GameRoom>();
   const contexts = new Set<SocketContext>();
   let roomMutationQueue: Promise<unknown> = Promise.resolve();
@@ -177,6 +186,8 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
   let startupPromise: Promise<void> | undefined;
   let stopRequested = false;
   let stopCompletion: Promise<void> | undefined;
+  let startupArchiveScanStartedAt = 0;
+  let startupArchiveScanCompletedAt: number | null = null;
 
   const runRoomMutation = <T>(operation: () => Promise<T>): Promise<T> => {
     const result = roomMutationQueue.then(operation, operation);
@@ -261,6 +272,15 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
       response.end(JSON.stringify({
         status: "ok",
         rooms: rooms.size,
+        ...(startupArchiveScanCompletedAt === null || rooms.size === 0 ? {} : {
+          archiveRecovery: {
+            completed: true,
+            elapsedMs: Math.max(0, startupArchiveScanCompletedAt - startupArchiveScanStartedAt),
+            pendingRooms: [...rooms.values()]
+              .filter(room => room.hasDeferredRuntimeRestore)
+              .map(room => room.roomId)
+          }
+        }),
         ...(quarantinedRooms.length === 0 ? {} : {
           quarantinedRooms: quarantinedRooms.map(room => ({
             roomId: room.roomId,
@@ -568,8 +588,15 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
         // down the existing WebSocket service.
         loadCatalog();
         void serverWithCatalog.ready?.catch(() => undefined);
+        startupArchiveScanStartedAt = Date.now();
         try {
-          const restoredRooms = await roomStore.list?.();
+          const listForStartup = roomStore instanceof FileRoomStore
+            ? roomStore.listForStartup()
+            : roomStore.list?.();
+          const restoredRooms = listForStartup === undefined
+            ? undefined
+            : await listForStartup;
+          startupArchiveScanCompletedAt = Date.now();
           if (stopRequested) return;
           if (restoredRooms) {
             for (const room of restoredRooms) {
@@ -621,6 +648,10 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
     stop(): Promise<void> {
       finishStop();
       return stopCompletion ?? Promise.resolve();
+    },
+    async waitForRoomRestore(): Promise<void> {
+      // On-demand recovery has no background queue to drain. Invalid rooms
+      // remain visible through the quarantine index after their first access.
     }
   };
 }
