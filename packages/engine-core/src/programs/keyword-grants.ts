@@ -289,18 +289,15 @@ export class KeywordGrantLayerEngine extends LayerEngine {
 
   private environment(source: ObjectSnapshot) {
     const base = this.options.context(source);
-    // KeywordDefs predate ObjectSnapshot.combatRole and spell it designation.
-    const alias = (object: ObjectSnapshot) => ({ ...object, designation: object.combatRole });
     const context = new Proxy(base, { get: (target, key) => {
-      if (key === 'source') return alias(source);
+      if (key === 'source') return source;
       if (key === 'controller') return source.controller;
       if (key === 'object') return (ref: ObjectRef) => {
-        const object = this.view.get(refKey(ref));
-        return object ? alias(object) : null;
+        return this.view.get(refKey(ref)) ?? null;
       };
       if (key === 'query') return (filter: Parameters<ResolveContext['query']>[0]) => {
         return [...this.view.values()].filter(object =>
-          matchesObjectFilter(filter, object, { controller: source.controller, anchor: source })).map(alias);
+          matchesObjectFilter(filter, object, { controller: source.controller, anchor: source }));
       };
       const value = Reflect.get(target, key);
       return typeof value === 'function' ? value.bind(target) : value;

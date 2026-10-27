@@ -380,6 +380,11 @@ export function V2MatchBoard({
     return object?.name ?? object?.cardId ?? objectId;
   };
   const targetCandidates = projectedTargetCandidates(projection);
+  const targetCandidateLabels = duplicateObjectLabels(projection, targetCandidates.map(target => ({
+    objectId: target.objectId,
+    label: target.name ?? target.cardId ?? target.objectId,
+    allowLocation: target.visibility === "public"
+  })));
   // Plain derivations, not hooks: this code runs only after the
   // `projection === null` early return above, so a hook here would change the
   // hook count when the match starts and crash the board (RIFT-1047).
@@ -402,6 +407,8 @@ export function V2MatchBoard({
   const selectedPlayOption = playOptions.find(option => option.requiresDestination === false) ??
     selectedPlayDestinationOption?.options[0] ?? null;
   const playTargetRequirements = selectedPlayOption?.targetRequirements ?? [];
+  const pendingSelectObjects = projection.pendingChoice.status === "pending" &&
+    projection.pendingChoice.kind === "select-objects";
   const selectedPlayTargetRefs = playTargetRequirements.flatMap(requirement => {
     const selected = selectedPlayTargets[requirement.id] ?? [];
     return selected.flatMap(refKey => {
@@ -414,6 +421,11 @@ export function V2MatchBoard({
   // a battlefield card or a unit without a legal Standard Move is not listed.
   const legalMoves = projection.actionOptions?.moves ?? [];
   const movableUnits = ownUnits.filter(unit => legalMoves.some(move => move.objectId === unit.objectId));
+  const movableUnitLabels = duplicateObjectLabels(projection, movableUnits.map(unit => ({
+    objectId: unit.objectId,
+    label: unit.name ?? unit.cardId ?? unit.objectId,
+    allowLocation: unit.visibility === "public"
+  })));
   const destinationOptions = projectedMoveDestinations(projection).filter(destination =>
     selectedUnitId !== null && legalMoves.some(move => move.objectId === selectedUnitId &&
       sameMoveDestination(move.destination, destination.value)));
@@ -455,6 +467,11 @@ export function V2MatchBoard({
     object.location?.kind === "battlefield" && object.location.battlefieldId === projection.combat?.battlefieldId &&
     projection.battlefields?.find(field => field.battlefieldId === projection.combat?.battlefieldId)
       ?.occupantObjectIds.includes(object.objectId) === true);
+  const combatDamageTargetLabels = duplicateObjectLabels(projection, combatDamageTargets.map(target => ({
+    objectId: target.objectId,
+    label: target.name ?? target.cardId ?? target.objectId,
+    allowLocation: target.visibility === "public"
+  })));
   const combatDamageCommand = combatDamage === null || projection.combat?.combatId === undefined || combatDamageBudget === null ? null :
     buildV2CombatDamageCommand(projection.combat.combatId, combatDamageBudget,
       combatDamageTargets.map(target => ({ unitObjectId: target.objectId, amount: combatDamageDrafts[target.objectId] ?? "" })));
@@ -503,9 +520,9 @@ export function V2MatchBoard({
       </section>
       <section className="v2-board-grid" aria-label="牌桌区域">
         <ZonePanel title="对手手牌" count={opponent?.handCount ?? 0} hidden />
-        <ZonePanel title="对手基地" objects={baseObjects.filter(object => baseOwnerOf(object) !== projection.viewerPlayerId)} />
-        {battlefieldPanels.map(panel => <ZonePanel key={panel.battlefieldId} title={panel.title} objects={panel.objects} />)}
-        <ZonePanel title="我的基地" objects={baseObjects.filter(object => baseOwnerOf(object) === projection.viewerPlayerId)} />
+        <ZonePanel projection={projection} title="对手基地" objects={baseObjects.filter(object => baseOwnerOf(object) !== projection.viewerPlayerId)} />
+        {battlefieldPanels.map(panel => <ZonePanel key={panel.battlefieldId} projection={projection} title={panel.title} objects={panel.objects} />)}
+        <ZonePanel projection={projection} title="我的基地" objects={baseObjects.filter(object => baseOwnerOf(object) === projection.viewerPlayerId)} />
         <ZonePanel title="对手公开符文" objects={opponentRunes} />
         <ZonePanel title="我的符文" objects={ownRunes} count={viewer?.zoneCounts["rune-zone"] ?? ownRunes.length} />
       </section>
@@ -553,10 +570,14 @@ export function V2MatchBoard({
             {playDestinationOptions.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
           </select>
         </label>}
-        {playTargetRequirements.length > 0 ? <div aria-label="服务端投影出牌目标要求">{playTargetRequirements.map(requirement =>
-          <fieldset key={requirement.id} disabled={!canPlay}><legend>{requirement.label}（{requirement.min === requirement.max ? requirement.min : `${requirement.min}-${requirement.max}`}）</legend>
+        {playTargetRequirements.length > 0 ? <div aria-label="服务端投影出牌目标要求">{playTargetRequirements.map(requirement => {
+          const optionLabels = duplicateObjectLabels(projection, requirement.options.flatMap(option =>
+            option.objectRef === undefined ? [] : [{ objectId: option.objectRef.objectId, label: option.label,
+              allowLocation: projection.objects.find(object => object.objectId === option.objectRef!.objectId)?.visibility === "public" }]));
+          return <fieldset key={requirement.id} disabled={!canPlay}><legend>{requirement.label}（{requirement.min === requirement.max ? requirement.min : `${requirement.min}-${requirement.max}`}）</legend>
             <div className="v2-choice-options">{requirement.options.map(option => <button key={option.id} type="button"
-              aria-label={`选择${requirement.label}：${option.label}`}
+              aria-label={`选择${requirement.label}：${option.objectRef === undefined ? option.label :
+                optionLabels.get(option.objectRef.objectId) ?? option.label}`}
               aria-pressed={(selectedPlayTargets[requirement.id] ?? []).includes(
                 `${option.objectRef?.objectId}:${String(option.objectRef?.zoneEntryId)}`)}
               onClick={() => setSelectedPlayTargets(current => {
@@ -568,9 +589,15 @@ export function V2MatchBoard({
                     ? [...selectedForGroup.slice(-(requirement.max - 1)), refKey]
                     : [...selectedForGroup, refKey];
                 return { ...current, [requirement.id]: next };
-              })}>{option.label}</button>)}</div>
-          </fieldset>)}
-        </div> : targetCandidates.length > 0 ? <div className="v2-choice-options" aria-label="服务端投影候选目标">{targetCandidates.map(target => <button key={target.objectId} type="button" aria-pressed={selectedTargetId === target.objectId} onClick={() => setSelectedTargetId(target.objectId)}>{target.name ?? target.cardId ?? target.objectId}</button>)}</div> : <p className="v2-muted">服务端未公布该次出牌的目标要求。</p>}
+              })}>{option.objectRef === undefined ? option.label : optionLabels.get(option.objectRef.objectId) ?? option.label}</button>)}</div>
+          </fieldset>;
+        })}
+        </div> : targetCandidates.length > 0 ? <div className="v2-choice-options" aria-label="服务端投影候选目标">{
+          targetCandidates.map(target => <button key={target.objectId} type="button" aria-pressed={selectedTargetId === target.objectId}
+            onClick={() => setSelectedTargetId(target.objectId)}>{
+              targetCandidateLabels.get(target.objectId) ?? target.name ?? target.cardId ?? target.objectId}</button>)
+        }</div> : pendingSelectObjects ? <p className="v2-muted">服务端未公布该次出牌的目标候选。</p> :
+          selectedPlayOption === null ? null : <p className="v2-muted">此牌不需要目标。</p>}
         <button type="button" className="v2-primary-action" disabled={!canPlay || selectedCard === null || selectedPlayOption === null ||
           playTargetRequirements.some(requirement => {
             const count = (selectedPlayTargets[requirement.id] ?? []).length;
@@ -579,7 +606,7 @@ export function V2MatchBoard({
           if (!selectedCard) return;
           const option = selectedPlayOption;
           if (!option) return;
-          const targets: V2Target[] = playTargetRequirements.length > 0
+          const targets: V2Target[] = option.targetRequirements !== undefined
             ? selectedPlayTargetRefs.map(ref => ({ kind: "object", objectId: ref.objectId, zoneEntryId: ref.zoneEntryId }))
             : selectedTarget ? [{ kind: "object", objectId: selectedTarget.objectId,
               ...(selectedTarget.zoneEntryId === undefined ? {} : { zoneEntryId: selectedTarget.zoneEntryId }) }] : [];
@@ -598,9 +625,12 @@ export function V2MatchBoard({
         {combatDamage === null ? null : <div aria-label="战斗伤害分配">
           <p>需分配 {combatDamageBudget} 点伤害；各目标金额合计必须相等。</p>
           {combatDamageTargets.length === 0 ? <p className="v2-muted">服务端未投影本场战斗的公开目标。</p> :
-            <div className="v2-choice-options">{combatDamageTargets.map(target => <label key={target.objectId}>
-              {target.name ?? target.cardId ?? target.objectId}
-              <input aria-label={`${target.name ?? target.cardId ?? target.objectId} 伤害`} type="number" min="0" step="1"
+            <div className="v2-choice-options">{(() => {
+              return combatDamageTargets.map(target => {
+                const label = combatDamageTargetLabels.get(target.objectId) ?? target.name ?? target.cardId ?? target.objectId;
+                return <label key={target.objectId}>
+              {label}
+              <input aria-label={`${label} 伤害`} type="number" min="0" step="1"
                 value={combatDamageDrafts[target.objectId] ?? ""}
                 onChange={event => {
                   // Read the value now: React clears currentTarget before it runs
@@ -608,7 +638,9 @@ export function V2MatchBoard({
                   const amount = event.currentTarget.value;
                   setCombatDamageDrafts(current => ({ ...current, [target.objectId]: amount }));
                 }} />
-            </label>)}</div>}
+            </label>;
+              });
+            })()}</div>}
           <button type="button" className="v2-primary-action" disabled={!canSubmitCombatDamage} onClick={() => {
             if (combatDamageCommand === null) return;
             submit(combatDamageCommand);
@@ -618,8 +650,10 @@ export function V2MatchBoard({
         {waitingForOpponentDamage ? <p className="v2-waiting" role="status">等待对方分配伤害</p> : null}
       </section> : null}
       {!setup ? <section className="v2-action-panel" aria-label="移动操作">
-        <div className="v2-section-heading"><h3>移动</h3><span>{selectedUnitId === null ? "选择单位与目的地" : objectName(selectedUnitId)}</span></div>
-        <div className="v2-choice-options">{movableUnits.length === 0 ? <p className="v2-muted">当前没有可移动的单位</p> : null}{movableUnits.map(unit => <button key={unit.objectId} type="button" aria-pressed={selectedUnitId === unit.objectId} disabled={setup} onClick={() => setSelectedUnitId(unit.objectId)}>{unit.name ?? unit.cardId ?? unit.objectId}</button>)}</div>
+        <div className="v2-section-heading"><h3>移动</h3><span>{selectedUnitId === null ? "选择单位与目的地" :
+          movableUnitLabels.get(selectedUnitId) ?? objectName(selectedUnitId)}</span></div>
+        <div className="v2-choice-options">{movableUnits.length === 0 ? <p className="v2-muted">当前没有可移动的单位</p> : null}{movableUnits.map(unit => <button key={unit.objectId} type="button" aria-pressed={selectedUnitId === unit.objectId} disabled={setup} onClick={() => setSelectedUnitId(unit.objectId)}>{
+          movableUnitLabels.get(unit.objectId) ?? unit.name ?? unit.cardId ?? unit.objectId}</button>)}</div>
         <label>目的地 <select value={selectedDestination} onChange={event => setSelectedDestination(event.currentTarget.value)}><option value="">选择</option>{destinationOptions.map(destination => <option key={destination.id} value={destination.id}>{destination.label}</option>)}</select></label>
         <button type="button" disabled={setup || !canAct || selectedUnitId === null || selectedDestination === ""} onClick={() => {
           const destination = destinationOptions.find(value => value.id === selectedDestination);
@@ -643,7 +677,7 @@ export function V2MatchBoard({
         )}
         {busy ? <span role="status">等待命令确认…</span> : null}
       </section> : null}
-      {!setup ? <ChoicePanel choice={state.choice} selectedIds={selectedChoiceIds} numberAnswer={numberAnswer} optionalAnswer={optionalChoiceAnswer} disabled={!canAct}
+      {!setup ? <ChoicePanel projection={projection} choice={state.choice} selectedIds={selectedChoiceIds} numberAnswer={numberAnswer} optionalAnswer={optionalChoiceAnswer} disabled={!canAct}
         onNumberChange={setNumberAnswer}
         onOptionalAnswerChange={setOptionalChoiceAnswer}
         onToggle={id => setSelectedChoiceIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id])}
@@ -697,6 +731,53 @@ function locationLabel(projection: V2Projection, location: V2PlayOption["destina
     `${projection.players.find(player => player.playerId === location.playerId)?.name ?? "对手"} 的基地`;
 }
 
+interface ObjectLabelCandidate {
+  readonly objectId: string;
+  readonly label: string;
+  /** Private/owner-only cards may reveal their name but never their board identity. */
+  readonly allowLocation: boolean;
+}
+
+function objectLocationLabel(projection: V2Projection, location: V2PlayOption["destination"]): string {
+  if (location.kind === "battlefield") return battlefieldName(projection, location.battlefieldId);
+  return location.playerId === projection.viewerPlayerId ? "我的基地" :
+    `${projection.players.find(player => player.playerId === location.playerId)?.name ?? "对手"} 的基地`;
+}
+
+/** Disambiguate repeated names using only the objects' public projected location. */
+function duplicateObjectLabels(projection: V2Projection, candidates: readonly ObjectLabelCandidate[]): ReadonlyMap<string, string> {
+  const duplicates = new Set<string>();
+  const byLabel = new Map<string, ObjectLabelCandidate[]>();
+  for (const candidate of candidates) {
+    if (byLabel.has(candidate.label)) duplicates.add(candidate.label);
+    byLabel.set(candidate.label, [...(byLabel.get(candidate.label) ?? []), candidate]);
+  }
+  const labels = new Map<string, string>();
+  for (const [label, group] of byLabel) {
+    if (!duplicates.has(label)) continue;
+    const locationGroups = new Map<string, ObjectLabelCandidate[]>();
+    for (const candidate of group) {
+      const object = projection.objects.find(value => value.objectId === candidate.objectId);
+      const locationKey = candidate.allowLocation !== true || object?.location === undefined ? "unknown" :
+        object.location.kind === "base" ? `base:${object.location.playerId}` : `battlefield:${object.location.battlefieldId}`;
+      locationGroups.set(locationKey, [...(locationGroups.get(locationKey) ?? []), candidate]);
+    }
+    const locations = [...locationGroups.values()];
+    const needsNumber = locationGroups.has("unknown") || locations.some(values => values.length > 1);
+    let occurrenceOffset = 0;
+    for (const sameLocation of locations) {
+      const object = projection.objects.find(value => value.objectId === sameLocation[0]!.objectId);
+      const location = sameLocation[0]!.allowLocation !== true || object?.location === undefined ? "位置未明" :
+        objectLocationLabel(projection, object.location);
+      for (const [index, candidate] of sameLocation.entries()) {
+        labels.set(candidate.objectId, `${label} · ${location}${needsNumber ? ` #${String(occurrenceOffset + index + 1)}` : ""}`);
+      }
+      occurrenceOffset += sameLocation.length;
+    }
+  }
+  return labels;
+}
+
 /** One panel per battlefield: the battlefield card's name, its controller, and the units there. */
 function projectedBattlefieldPanels(projection: V2Projection, boardObjects: readonly V2ProjectedObject[]): readonly {
   readonly battlefieldId: string;
@@ -737,11 +818,17 @@ function PlayerSummary({ player, active, priority, score }: { readonly player: V
   </article>;
 }
 
-function ZonePanel({ title, objects = [], count = objects.length, hidden = false }: { readonly title: string; readonly objects?: readonly V2ProjectedObject[]; readonly count?: number; readonly hidden?: boolean }) {
-  return <article className="v2-zone" aria-label={title}><div className="v2-section-heading"><h3>{title}</h3><span>{count}</span></div>{hidden ? <p className="v2-muted">仅显示数量</p> : objects.length === 0 ? <p className="v2-muted">暂无公开牌</p> : <ul>{objects.map(object => <li key={object.objectId}>{object.name ?? object.cardId ?? object.objectId}{object.exhausted ? " · 横置" : ""}</li>)}</ul>}</article>;
+function ZonePanel({ projection, title, objects = [], count = objects.length, hidden = false }: { readonly projection?: V2Projection; readonly title: string; readonly objects?: readonly V2ProjectedObject[]; readonly count?: number; readonly hidden?: boolean }) {
+  const labels = projection === undefined ? new Map<string, string>() : duplicateObjectLabels(projection, objects.map(object => ({
+    objectId: object.objectId,
+    label: object.name ?? object.cardId ?? object.objectId,
+    allowLocation: object.visibility === "public"
+  })));
+  return <article className="v2-zone" aria-label={title}><div className="v2-section-heading"><h3>{title}</h3><span>{count}</span></div>{hidden ? <p className="v2-muted">仅显示数量</p> : objects.length === 0 ? <p className="v2-muted">暂无公开牌</p> : <ul>{objects.map(object => <li key={object.objectId}>{
+    labels.get(object.objectId) ?? object.name ?? object.cardId ?? object.objectId}{object.exhausted ? " · 横置" : ""}</li>)}</ul>}</article>;
 }
 
-function ChoicePanel({ choice, selectedIds, numberAnswer, optionalAnswer, disabled, onNumberChange, onOptionalAnswerChange, onToggle, onSubmit }: { readonly choice: V2ChoiceUiState; readonly selectedIds: readonly string[]; readonly numberAnswer: string; readonly optionalAnswer: boolean; readonly disabled: boolean; readonly onNumberChange: (value: string) => void; readonly onOptionalAnswerChange: (value: boolean) => void; readonly onToggle: (id: string) => void; readonly onSubmit: () => void }) {
+function ChoicePanel({ projection: choiceProjection, choice, selectedIds, numberAnswer, optionalAnswer, disabled, onNumberChange, onOptionalAnswerChange, onToggle, onSubmit }: { readonly projection: V2Projection; readonly choice: V2ChoiceUiState; readonly selectedIds: readonly string[]; readonly numberAnswer: string; readonly optionalAnswer: boolean; readonly disabled: boolean; readonly onNumberChange: (value: string) => void; readonly onOptionalAnswerChange: (value: boolean) => void; readonly onToggle: (id: string) => void; readonly onSubmit: () => void }) {
   if (choice.choice.status === "none") return null;
   const pending = choice.choice;
   const options = pending.options ?? [];
@@ -759,7 +846,13 @@ function ChoicePanel({ choice, selectedIds, numberAnswer, optionalAnswer, disabl
     {pending.source?.name === undefined ? null : <p className="v2-choice-source">来源：{pending.source.name}</p>}
     {pending.prompt === undefined ? null : <p className="v2-choice-prompt">{pending.prompt}</p>}
     {pending.kind === "number" ? <input aria-label="选择数值" type="number" min={pending.min} max={pending.max} value={numberAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onChange={event => onNumberChange(event.currentTarget.value)} /> :
-      <div className="v2-choice-options">{options.length === 0 && pending.kind === "optional" ? <><button type="button" aria-pressed={optionalAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onOptionalAnswerChange(true)}>接受</button><button type="button" aria-pressed={!optionalAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onOptionalAnswerChange(false)}>拒绝</button></> : emptySelectionOnly ? <p className="v2-muted" role="status">没有可选对象，直接提交即可继续。</p> : missingCandidates ? <p className="v2-waiting" role="status">等待服务端投影选择候选；客户端不会从手牌或其他对象自行推导。</p> : options.map(option => <button key={`${option.id}:${String(option.objectRef?.zoneEntryId ?? option.value ?? option.id)}`} type="button" aria-pressed={selectedIds.includes(option.id)} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onToggle(option.id)}>{option.label}{pending.kind === "order" && selectedIds.includes(option.id) ? ` · 第 ${selectedIds.indexOf(option.id) + 1} 位` : ""}</button>)}</div>}
+      <div className="v2-choice-options">{options.length === 0 && pending.kind === "optional" ? <><button type="button" aria-pressed={optionalAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onOptionalAnswerChange(true)}>接受</button><button type="button" aria-pressed={!optionalAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onOptionalAnswerChange(false)}>拒绝</button></> : emptySelectionOnly ? <p className="v2-muted" role="status">没有可选对象，直接提交即可继续。</p> : missingCandidates ? <p className="v2-waiting" role="status">等待服务端投影选择候选；客户端不会从手牌或其他对象自行推导。</p> : (() => {
+        const labels = duplicateObjectLabels(choiceProjection, options.flatMap(option => option.objectRef === undefined ? [] :
+          [{ objectId: option.objectRef.objectId, label: option.label,
+            allowLocation: choiceProjection.objects.find(object => object.objectId === option.objectRef!.objectId)?.visibility === "public" }]));
+        return options.map(option => <button key={`${option.id}:${String(option.objectRef?.zoneEntryId ?? option.value ?? option.id)}`} type="button" aria-pressed={selectedIds.includes(option.id)} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onToggle(option.id)}>{
+          option.objectRef === undefined ? option.label : labels.get(option.objectRef.objectId) ?? option.label}{pending.kind === "order" && selectedIds.includes(option.id) ? ` · 第 ${selectedIds.indexOf(option.id) + 1} 位` : ""}</button>);
+      })()}</div>}
     {pending.min !== undefined || pending.max !== undefined ? <p className="v2-muted">可选数量：{pending.min ?? 0}–{pending.max ?? "不限"}{multiple ? "（可多选）" : ""}</p> : null}
     {pending.kind === "order" && !missingCandidates && !selectionComplete ? <p className="v2-muted" role="status">请按期望顺序继续点击：第 {selectedIds.length + 1} 张</p> : null}
     <button type="button" className="v2-primary-action" disabled={disabled || !choice.answerable || choice.status === "expired" || missingCandidates || !selectionComplete} onClick={onSubmit}>提交选择</button>

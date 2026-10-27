@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -13,6 +14,7 @@ import { exitDesktopClient } from "../navigation/native-exit";
 import { RoomLobby } from "../components/RoomLobby";
 import { RoomChatPanel } from "../chat/RoomChatPanel";
 import { ProfilePage } from "../profile/ProfilePage";
+import { writePlayerProfile } from "../profile/player-profile";
 import { DeckImportPanel } from "../decks/DeckImportPanel";
 import { SettingsPage } from "../settings/SettingsPage";
 import { MatchControls } from "../settings/MatchControls";
@@ -152,6 +154,10 @@ export function AppView({
   toggleReady,
   submitPlayableSelection
 }: AppState & AppActions) {
+  const profileRef = useRef(profile);
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
   const v2Connected = v2Match.connectionStatus === "connected";
   const inMatch = duelProjection !== null || roomView?.status === "playing" || v2Match.room?.status === "playing";
   const chat = <RoomChatPanel key={roomId ?? "no-room"} messages={chatMessages ?? []}
@@ -182,7 +188,13 @@ export function AppView({
   const rememberV2PlayerName = (name: string): void => {
     const normalized = name.trim();
     if (!normalized) return;
+    const nextProfile = { ...profileRef.current, name: normalized };
+    profileRef.current = nextProfile;
     setProfile(current => current.name === normalized ? current : { ...current, name: normalized });
+    // Persist it like the profile page does, so the lobby still offers the
+    // name after a reload or restart (RIFT-1098); an invalid or unwritable
+    // name only keeps the in-memory update.
+    writePlayerProfile(preferenceStorage, nextProfile);
   };
   const createV2Room = async (name: string): Promise<RoomView> => {
     const nextRoom = await v2Match.createRoom(name);
