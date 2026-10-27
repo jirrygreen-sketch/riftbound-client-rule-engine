@@ -157,7 +157,7 @@ wait_for_url() {
       fi
       if [[ -f ${log} ]]; then
         local progress
-        progress=$(log_since "${log}" "${offset}" | rg -o '\[room-restore\][^\n]*' | tail -1 || true)
+        progress=$(log_since "${log}" "${offset}" | grep '\[room-restore\]' | tail -1 || true)
         [[ -z ${progress} ]] || printf '  %s\n' "${progress}"
       fi
     fi
