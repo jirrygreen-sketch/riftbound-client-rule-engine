@@ -76,6 +76,11 @@ export function commandErrorAfterReceipt(current: string | null, receipt: V2Comm
   return receipt.accepted ? null : current;
 }
 
+/** Keep the server's rejection reason visible after the transport reports it as an error. */
+export function commandRejectionReason(receipt: V2CommandReceipt | null | undefined): string | null {
+  return receipt !== null && receipt !== undefined && !receipt.accepted ? receipt.rejection : null;
+}
+
 export function buildV2MulliganCommand(selectedObjectIds: readonly string[]): V2CommandRequest {
   return { type: "mulligan", selectedObjectIds: [...selectedObjectIds] };
 }
@@ -495,6 +500,11 @@ export function V2MatchBoard({
         <div><p className="v2-kicker">协议 v2 · {projection.rulesetVersion}</p><h2>{phaseLabel(projection.phase)} · 第 {projection.turnNumber} 回合</h2></div>
         <div className="v2-match-meta"><ConnectionState state={state.connectionStatus} /><span>状态 {projection.stateVersion}</span><span>事件 {projection.eventSeq}</span></div>
       </header>
+      {busy ? (
+        <p className="v2-waiting" role="status" aria-live="polite" aria-label="命令处理中">
+          正在处理…请等待服务端回执；命令完成前，重复操作已停用。
+        </p>
+      ) : null}
       {matchEnded ? (
         <section className="v2-lobby" role="status" aria-label="对局结果">
           <h3>{winner === null ? "对局结束" : projection.winnerPlayerId === projection.viewerPlayerId ? "你获胜" : "你落败"}</h3>
@@ -504,12 +514,17 @@ export function V2MatchBoard({
         </section>
       ) : null}
       {lastReceipt ? (
-        <p className="v2-receipt" role="status" aria-label="最近的命令确认">
-          命令 {lastReceipt.commandId} {lastReceipt.accepted ? "已接受" : "已拒绝"}
-          {lastReceipt.duplicate ? "（幂等重复）" : ""} · 状态 {lastReceipt.stateVersion}
+        <p className={lastReceipt.accepted ? "v2-receipt" : "v2-error"} role="status" aria-label="最近的命令确认">
+          {lastReceipt.accepted
+            ? `命令 ${lastReceipt.commandId} 已接受${lastReceipt.duplicate ? "（幂等重复）" : ""}`
+            : `命令 ${lastReceipt.commandId} 未执行：${commandRejectionReason(lastReceipt) ?? "服务端未提供拒绝原因。"}`}
+          {` · 状态 ${lastReceipt.stateVersion}`}
         </p>
       ) : null}
-      {transportError || state.lastError || commandError ? <p className="v2-error" role="alert">{transportError ?? state.lastError ?? commandError}</p> : null}
+      {transportError ? <p className="v2-error" role="alert">{transportError}</p> : null}
+      {state.lastError && state.lastError !== transportError ? <p className="v2-error" role="alert">{state.lastError}</p> : null}
+      {commandError && commandError !== transportError && commandError !== state.lastError ?
+        <p className="v2-error" role="alert">{commandError}</p> : null}
       {choiceExpired ? (
         <p className="v2-waiting" role="status">
           本地选择提示已到期；等待服务端提供新的 choice 状态，当前动作已停用。
@@ -675,7 +690,6 @@ export function V2MatchBoard({
         ) : (
           <button type="button" disabled={setup || !canAct} onClick={() => setConcedeConfirmationOpen(true)}>认输</button>
         )}
-        {busy ? <span role="status">等待命令确认…</span> : null}
       </section> : null}
       {!setup ? <ChoicePanel projection={projection} choice={state.choice} selectedIds={selectedChoiceIds} numberAnswer={numberAnswer} optionalAnswer={optionalChoiceAnswer} disabled={!canAct}
         onNumberChange={setNumberAnswer}
