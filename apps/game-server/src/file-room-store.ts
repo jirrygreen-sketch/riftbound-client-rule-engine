@@ -59,6 +59,14 @@ class SharedRestoreDependencyError extends Error {
   }
 }
 
+interface RestoreFailure {
+  readonly roomId: RoomId;
+  readonly roomPath: string;
+  readonly archive: RoomArchive | null;
+  readonly error: unknown;
+  readonly quarantineError?: unknown;
+}
+
 /**
  * File-backed RoomStore. Room archives remain server-private. Each room is
  * stored under the SHA-256 of its roomId so client room ids cannot escape the
@@ -67,6 +75,12 @@ class SharedRestoreDependencyError extends Error {
 export class FileRoomStore {
   private readonly rooms = new Map<RoomId, GameRoom>();
   private readonly stores = new Map<RoomId, PersistentRoomArchiveStore>();
+  private readonly restoring = new Map<RoomId, Promise<GameRoom | null>>();
+  private readonly deferredArchives = new Map<RoomId, RoomArchive>();
+  private readonly validationResults = new Map<RoomId, {
+    readonly archive: RoomArchive;
+    readonly checksum: string;
+  }>();
   private closed = false;
   private unavailableReason: string | null = null;
 
@@ -96,8 +110,58 @@ export class FileRoomStore {
 
   async get(roomId: RoomId): Promise<GameRoom | null> {
     this.assertUsable();
+    const inFlight = this.restoring.get(roomId);
+    if (inFlight !== undefined) return inFlight;
+    const restoration = this.restoreForAccess(roomId);
+    this.restoring.set(roomId, restoration);
+    try {
+      return await restoration;
+    } finally {
+      if (this.restoring.get(roomId) === restoration) this.restoring.delete(roomId);
+    }
+  }
+
+  private async restoreForAccess(roomId: RoomId): Promise<GameRoom | null> {
     const inProcess = this.rooms.get(roomId);
-    if (inProcess) return inProcess;
+    if (inProcess) {
+      try {
+        await this.revalidateAccessArchive(roomId);
+        // The durable legacy runtime may have confirmed a protected CAS head
+        // after its metadata checkpoint failed. Refresh that authoritative
+        // legacy journal before replaying it.
+        if (inProcess.runtimeMode === "legacy-p4") {
+          const store = this.storeFor(roomId);
+          const latest = await store.load(roomId);
+          if (latest !== null && isPlainRecord(latest)) {
+            inProcess.replaceArchiveForAccess(this.parseArchive(latest));
+          }
+        }
+        await restoreDeferredRuntime(inProcess);
+        this.deferredArchives.delete(roomId);
+        this.validationResults.delete(roomId);
+      } catch (error) {
+        this.rooms.delete(roomId);
+        const store = this.stores.get(roomId);
+        if (store) {
+          await store.close().catch(() => undefined);
+          this.stores.delete(roomId);
+        }
+        await this.quarantineRoom(
+          roomId,
+          this.roomPath(roomId),
+          this.deferredArchives.get(roomId) ?? null,
+          error
+        );
+        this.deferredArchives.delete(roomId);
+        this.validationResults.delete(roomId);
+        const quarantined = await this.readQuarantine(roomId);
+        throw new QuarantinedRoomError(
+          `Room ${roomId} could not be restored and is quarantined at ` +
+            `${quarantined?.quarantinePath ?? this.roomPath(roomId)}: ${errorMessage(error)}`
+        );
+      }
+      return inProcess;
+    }
 
     const quarantined = await this.readQuarantine(roomId);
     if (quarantined !== null) {
@@ -115,20 +179,40 @@ export class FileRoomStore {
       throw error;
     }
 
+    let archiveForDiagnostics: RoomArchive | null = null;
     const store = this.storeFor(roomId);
-    const archive = await store.load(roomId);
-    if (archive === null) return null;
-    if (!isPlainRecord(archive)) {
-      throw new Error(`Room ${roomId} does not contain a JSON archive`);
+    try {
+      const archive = await store.load(roomId);
+      if (archive === null) return null;
+      if (!isPlainRecord(archive)) {
+        throw new Error(`Room ${roomId} does not contain a JSON archive`);
+      }
+      archiveForDiagnostics = parsedArchiveForDiagnostics(archive);
+      this.validationResults.delete(roomId);
+      const parsed = this.parseArchive(archive);
+      if (parsed.roomId !== roomId) {
+        throw new Error("Room archive does not match its storage directory");
+      }
+      const restored = await this.restoreRoom(parsed);
+      await restoreDeferredRuntime(restored);
+      this.rooms.set(roomId, restored);
+      return restored;
+    } catch (error) {
+      if (error instanceof SharedRestoreDependencyError) throw error;
+      await store.close();
+      this.stores.delete(roomId);
+      await this.quarantineRoom(
+        roomId,
+        this.roomPath(roomId),
+        archiveForDiagnostics,
+        error
+      );
+      const quarantined = await this.readQuarantine(roomId);
+      throw new QuarantinedRoomError(
+        `Room ${roomId} could not be restored and is quarantined at ` +
+          `${quarantined?.quarantinePath ?? this.roomPath(roomId)}: ${errorMessage(error)}`
+      );
     }
-
-    const parsed = this.parseArchive(archive);
-    if (parsed.roomId !== roomId) {
-      throw new Error("Room archive does not match its storage directory");
-    }
-    const restored = await this.restoreRoom(parsed);
-    this.rooms.set(roomId, restored);
-    return restored;
   }
 
   async save(room: GameRoom): Promise<void> {
@@ -145,6 +229,7 @@ export class FileRoomStore {
     const store = this.storeFor(room.roomId);
     try {
       await store.save(room.roomId, roundTripped as JsonObject);
+      this.validationResults.delete(room.roomId);
       if (!this.rooms.has(room.roomId)) {
         this.rooms.set(room.roomId, room);
       }
@@ -174,6 +259,8 @@ export class FileRoomStore {
       this.stores.delete(room.roomId);
     }
     this.rooms.delete(room.roomId);
+    this.deferredArchives.delete(room.roomId);
+    this.validationResults.delete(room.roomId);
 
     if (this.unavailableReason !== null) return;
 
@@ -231,6 +318,56 @@ export class FileRoomStore {
   }
 
   async list(): Promise<readonly GameRoom[]> {
+    return this.scanRooms(false);
+  }
+
+  /**
+   * Startup validation path. Every archive event and digest chain is checked,
+   * but engine journals are replayed only when `get()` is first called for a
+   * room. Existing in-process rooms retain their current eager semantics.
+   */
+  async listForStartup(): Promise<readonly GameRoom[]> {
+    this.assertUsable();
+    await mkdir(this.directory, { recursive: true });
+    await this.assertRootWritable();
+
+    const entries = await readdir(this.directory, { withFileTypes: true });
+    let quarantined = await this.listQuarantined();
+    const retainedQuarantine = new Set(quarantined.map(record =>
+      hashRoomId(record.roomId)
+    ));
+    for (const roomId of [...this.rooms.keys()]) {
+      if (retainedQuarantine.has(hashRoomId(roomId))) this.rooms.delete(roomId);
+    }
+    // Startup always validates the on-disk log, then reuses a healthy eager
+    // in-memory room (notably a protected legacy CAS head) after that proof.
+    const existingRooms = new Map(this.rooms);
+    const roomsById = new Map<RoomId, GameRoom>();
+
+    let catalog: CardCatalogRuntime | null = null;
+    const failures: RestoreFailure[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !isHashDirectoryName(entry.name)) continue;
+      const roomPath = path.join(this.directory, entry.name);
+      const provisionalRoomId = await this.identifyRoom(roomPath, entry.name);
+      if (provisionalRoomId === null) continue;
+      await this.restoreRoomPath(provisionalRoomId, roomPath, roomsById, failures,
+        () => catalog, loaded => { catalog = loaded; }, true, existingRooms);
+    }
+    this.assertNoQuarantineFailures(failures);
+
+    // Some malformed bindings only reveal themselves after the room's archive
+    // has been decoded and verified. Surface those quarantine records to the
+    // startup health snapshot without replaying any journal commands.
+    quarantined = await this.listQuarantined();
+    for (const record of quarantined) roomsById.delete(record.roomId);
+
+    this.rooms.clear();
+    for (const [roomId, room] of roomsById) this.rooms.set(roomId, room);
+    return [...roomsById.values()];
+  }
+
+  private async scanRooms(deferRuntime: boolean): Promise<readonly GameRoom[]> {
     this.assertUsable();
     await mkdir(this.directory, { recursive: true });
     await this.assertRootWritable();
@@ -246,45 +383,17 @@ export class FileRoomStore {
     const roomsById = new Map(this.rooms);
 
     let catalog: CardCatalogRuntime | null = null;
-    const failures: {
-      readonly roomId: RoomId;
-      readonly roomPath: string;
-      readonly archive: RoomArchive | null;
-      readonly error: unknown;
-      readonly quarantineError?: unknown;
-    }[] = [];
+    const failures: RestoreFailure[] = [];
     for (const entry of entries) {
       if (!entry.isDirectory() || !isHashDirectoryName(entry.name)) continue;
 
       const roomPath = path.join(this.directory, entry.name);
-      let provisionalRoomId: string | null;
-      try {
-        provisionalRoomId = await this.readArchiveRoomId(path.join(roomPath, "archive.log"));
-      } catch (error) {
-        // The first record is needed to prove room identity. A malformed
-        // archive cannot be diagnosed or retried by room id and therefore is
-        // not mislabeled as a room-specific quarantine. Fail startup closed.
-        throw new Error(
-          `Cannot identify room archive ${roomPath}: ${errorMessage(error)}`,
-          { cause: error }
-        );
-      }
+      const provisionalRoomId = await this.identifyRoom(roomPath, entry.name);
       if (provisionalRoomId === null) continue;
-      if (hashRoomId(provisionalRoomId) !== entry.name) {
-        throw new Error("Room archive directory does not match its roomId");
-      }
       await this.restoreRoomPath(provisionalRoomId, roomPath, roomsById, failures,
-        () => catalog, loaded => { catalog = loaded; });
+        () => catalog, loaded => { catalog = loaded; }, deferRuntime);
     }
-
-    const quarantineFailures = failures.filter(failure => failure.quarantineError !== undefined);
-    if (quarantineFailures.length > 0) {
-      const details = quarantineFailures.map(failure =>
-        `${failure.roomId}: restore failed (${errorMessage(failure.error)}); ` +
-          `quarantine failed (${errorMessage(failure.quarantineError)})`
-      );
-      throw new Error(`Failed to quarantine ${quarantineFailures.length} unrestorable room(s):\n${details.join("\n")}`);
-    }
+    this.assertNoQuarantineFailures(failures);
 
     this.rooms.clear();
     for (const [roomId, room] of roomsById) this.rooms.set(roomId, room);
@@ -318,27 +427,45 @@ ${messages.join("\n")}`);
 
   private async restoreRoom(
     archive: RoomArchive,
-    catalog?: CardCatalogRuntime
+    catalog?: CardCatalogRuntime,
+    deferRuntime = false
   ): Promise<GameRoom> {
     if (needsCardCatalog(archive)) {
-      return GameRoom.restore(archive, catalog ?? await this.loadCatalog());
+      let trustedCatalog = catalog;
+      if (trustedCatalog === undefined) {
+        try {
+          trustedCatalog = await this.loadCatalog();
+        } catch (error) {
+          throw new SharedRestoreDependencyError(
+            `Could not load the shared card catalog required to restore room ${archive.roomId}: ${errorMessage(error)}`,
+            error
+          );
+        }
+      }
+      const room = GameRoom.restore(archive, trustedCatalog, {
+        deferRuntime,
+        verifyArchive: !deferRuntime
+      });
+      if (room.hasDeferredRuntimeRestore) this.deferredArchives.set(room.roomId, archive);
+      return room;
     }
-    return GameRoom.restore(archive);
+    const room = GameRoom.restore(archive, undefined, {
+      deferRuntime,
+      verifyArchive: !deferRuntime
+    });
+    if (room.hasDeferredRuntimeRestore) this.deferredArchives.set(room.roomId, archive);
+    return room;
   }
 
   private async restoreRoomPath(
     roomId: RoomId,
     roomPath: string,
     roomsById: Map<RoomId, GameRoom>,
-    failures: {
-      readonly roomId: RoomId;
-      readonly roomPath: string;
-      readonly archive: RoomArchive | null;
-      readonly error: unknown;
-      readonly quarantineError?: unknown;
-    }[],
+    failures: RestoreFailure[],
     getCatalog: () => CardCatalogRuntime | null,
-    setCatalog: (catalog: CardCatalogRuntime) => void
+    setCatalog: (catalog: CardCatalogRuntime) => void,
+    deferRuntime = false,
+    existingRooms?: ReadonlyMap<RoomId, GameRoom>
   ): Promise<void> {
     let archiveForDiagnostics: RoomArchive | null = null;
     const store = new PersistentRoomArchiveStore(roomPath);
@@ -349,7 +476,29 @@ ${messages.join("\n")}`);
       archiveForDiagnostics = parsedArchiveForDiagnostics(archive);
       const parsed = this.parseArchive(archive);
       if (parsed.roomId !== roomId) throw new Error("Room archive does not match its log event");
-      if (roomsById.has(parsed.roomId)) return;
+      if (deferRuntime) {
+        this.validationResults.set(roomId, {
+          archive: parsed,
+          checksum: await this.archiveFileChecksum(roomPath)
+        });
+      }
+      if (roomsById.has(parsed.roomId) && !deferRuntime) return;
+
+      const existing = existingRooms?.get(parsed.roomId) ?? roomsById.get(parsed.roomId);
+      if (deferRuntime && existing && isNonDuelArchive(parsed)) {
+        // Synthetic/foundation rooms do not own an engine journal to defer and
+        // can be reused after the durable archive itself has been revalidated.
+        return;
+      }
+
+      if (deferRuntime && existing && !existing.hasDeferredRuntimeRestore) {
+        roomsById.set(parsed.roomId, existing);
+        return;
+      }
+
+      // Startup revalidates every archive even when an older scan cached the
+      // room. Do not let a stale process-local GameRoom hide a changed log.
+      if (deferRuntime) roomsById.delete(parsed.roomId);
 
       let catalog = getCatalog();
       if (needsCardCatalog(parsed) && catalog === null) {
@@ -363,8 +512,13 @@ ${messages.join("\n")}`);
           );
         }
       }
-      roomsById.set(parsed.roomId, await this.restoreRoom(parsed, catalog ?? undefined));
+      roomsById.set(parsed.roomId, await this.restoreRoom(
+        parsed,
+        catalog ?? undefined,
+        deferRuntime
+      ));
     } catch (error) {
+      if (deferRuntime) this.validationResults.delete(roomId);
       if (error instanceof SharedRestoreDependencyError) throw error;
       let quarantineError: unknown;
       try {
@@ -435,6 +589,54 @@ ${messages.join("\n")}`);
         `rules=${marker.rulesetVersion}, engine=${marker.engineVersion}, ` +
         `protocol=${marker.protocolVersion}) ` +
         `to ${destination}: ${reason}`
+    );
+  }
+
+  private async identifyRoom(roomPath: string, directoryName: string): Promise<string | null> {
+    let provisionalRoomId: string | null;
+    try {
+      provisionalRoomId = await this.readArchiveRoomId(path.join(roomPath, "archive.log"));
+    } catch (error) {
+      // The first record proves room identity. A malformed archive cannot be
+      // diagnosed by room id and therefore fails startup instead of becoming a
+      // room-specific quarantine record.
+      throw new Error(
+        `Cannot identify room archive ${roomPath}: ${errorMessage(error)}`,
+        { cause: error }
+      );
+    }
+    if (provisionalRoomId !== null && hashRoomId(provisionalRoomId) !== directoryName) {
+      throw new Error("Room archive directory does not match its roomId");
+    }
+    return provisionalRoomId;
+  }
+
+  private async archiveFileChecksum(roomPath: string): Promise<string> {
+    return createHash("sha256").update(await readFile(path.join(roomPath, "archive.log"))).digest("hex");
+  }
+
+  private async revalidateAccessArchive(roomId: RoomId): Promise<void> {
+    const prior = this.validationResults.get(roomId);
+    if (prior === undefined) return;
+    const checksum = await this.archiveFileChecksum(this.roomPath(roomId));
+    if (checksum !== prior.checksum) {
+      this.validationResults.delete(roomId);
+      this.deferredArchives.delete(roomId);
+      throw new QuarantinedRoomError(
+        `Room ${roomId} archive changed after startup validation; review required before access`
+      );
+    }
+  }
+
+  private assertNoQuarantineFailures(failures: readonly RestoreFailure[]): void {
+    const quarantineFailures = failures.filter(failure => failure.quarantineError !== undefined);
+    if (quarantineFailures.length === 0) return;
+    const details = quarantineFailures.map(failure =>
+      `${failure.roomId}: restore failed (${errorMessage(failure.error)}); ` +
+        `quarantine failed (${errorMessage(failure.quarantineError)})`
+    );
+    throw new Error(
+      `Failed to quarantine ${quarantineFailures.length} unrestorable room(s):\n${details.join("\n")}`
     );
   }
 
@@ -585,6 +787,11 @@ function normalizeQuarantineReason(error: unknown): string {
   return errorMessage(error).replace(/\s+/g, " ").trim().slice(0, 2000).trimEnd();
 }
 
+async function restoreDeferredRuntime(room: GameRoom): Promise<void> {
+  if (!room.hasDeferredRuntimeRestore) return;
+  await room.ensureRestored();
+}
+
 function parsedArchiveForDiagnostics(archive: Record<string, unknown>): RoomArchive {
   return JSON.parse(JSON.stringify(archive)) as RoomArchive;
 }
@@ -609,6 +816,10 @@ function runtimeEngineVersion(archive: RoomArchive): string {
 function needsCardCatalog(archive: RoomArchive): boolean {
   return archive.rulesetId === FOUNDATION_RULESET_ID ||
     archive.rulesetId === DUEL_RULESET_ID;
+}
+
+function isNonDuelArchive(archive: RoomArchive): boolean {
+  return archive.rulesetId !== DUEL_RULESET_ID;
 }
 
 function runtimeRulesetVersion(archive: RoomArchive): string {

@@ -59,7 +59,12 @@ import { DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT, DUEL_RUNTIME_PROFILE_P4_OPTIONAL
   DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN,
   DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY,
   type DuelAuthoritativeRuntimeP4Ack } from "./duel/authoritative-runtime-p4.js";
-import { createEngineRuntime, type EngineRuntime, type EngineRuntimeDeck } from "./engine-runtime/index.js";
+import {
+  assertRuntimeJournal,
+  createEngineRuntime,
+  type EngineRuntime,
+  type EngineRuntimeDeck
+} from "./engine-runtime/index.js";
 import type { RuntimeJournal } from "./engine-runtime/journal.js";
 import type { Domain } from "../../../packages/engine-core/dist/effects/contract.js";
 import type { CardProgram } from "../../../packages/card-dsl/dist/ir/index.js";
@@ -99,6 +104,11 @@ interface EngineMulliganSetup {
   readonly battlefieldChoice: readonly [number, number];
   /** Canonical card ids are the createMatch input; null means the seat has not chosen yet. */
   readonly choices: readonly [readonly string[] | null, readonly string[] | null];
+}
+
+interface DeferredRuntimeRestore {
+  readonly runtimeMode: DuelRuntimeMode;
+  readonly journal: Journal | RuntimeJournal;
 }
 
 export interface ProcessedCommand {
@@ -184,6 +194,8 @@ export class GameRoom {
   private state: GameState | null = null;
   private duelRuntime: CurrentDuelRuntime | null = null;
   private engineRuntime: EngineRuntime | null = null;
+  private deferredRuntimeRestore: DeferredRuntimeRestore | null = null;
+  private replayCount = 0;
   private engineMulligan: EngineMulliganSetup | null = null;
   /**
    * Public event remaps are append-only. Templates own the recursively
@@ -200,6 +212,13 @@ export class GameRoom {
     readonly events: readonly V2Projection["events"][number][];
   }>();
   private readonly engineMulliganReceipts = new Map<string, PersistedEngineMulliganReceipt>();
+  private readonly deferredRecordedCommands = new Map<string, {
+    readonly playerId: PlayerId;
+    readonly command: V2Command;
+    readonly receipt: V2CommandReceipt;
+  }>();
+  private deferredTerminalProjection: V2Projection | null = null;
+  private deferredTerminalJournal: RuntimeJournal | null = null;
   private storageDirectory?: string;
   private roomVersion = 1;
   private roomEventSeq = 0;
@@ -243,7 +262,10 @@ export class GameRoom {
     return this.seats.size >= 2;
   }
 
-  private get hasGame(): boolean { return Boolean(this.state || this.duelRuntime || this.engineRuntime || this.engineMulligan); }
+  private get hasGame(): boolean {
+    return Boolean(this.state || this.duelRuntime || this.engineRuntime ||
+      this.engineMulligan || this.deferredRuntimeRestore);
+  }
   private get duelMatch() { return this.duelRuntime?.project(null).match ?? null; }
   private get engineProjection() {
     return this.engineMulligan ? this.engineRuntime?.projectFor("A") ?? null : this.engineRuntime?.projectFor(null) ?? null;
@@ -790,11 +812,18 @@ export class GameRoom {
       seats: [...this.seats.values()],
       state: this.state,
       ...(this.rulesetId === DUEL_RULESET_ID && this.runtimeMode === "legacy-p4"
-        ? { journal: this.duelRuntime?.exportJournal() ?? null }
+        ? { journal: this.duelRuntime?.exportJournal() ??
+            (this.deferredRuntimeRestore?.runtimeMode === "legacy-p4"
+              ? this.deferredRuntimeRestore.journal as Journal
+              : null) }
         : {}),
       ...(this.rulesetId === DUEL_RULESET_ID && this.runtimeMode === "engine-v2"
         ? { runtimeMode: this.runtimeMode,
-            engineRuntimeJournal: this.engineMulligan ? null : this.engineRuntime?.journal() ?? null,
+            engineRuntimeJournal: this.engineMulligan ? null :
+              this.engineRuntime?.journal() ??
+              (this.deferredRuntimeRestore?.runtimeMode === "engine-v2"
+                ? this.deferredRuntimeRestore.journal as RuntimeJournal
+                : this.deferredTerminalJournal),
             engineMulligan: this.engineMulligan,
             ...(this.engineMulliganReceipts.size > 0
               ? { engineMulliganReceipts: [...this.engineMulliganReceipts.values()] }
@@ -814,7 +843,11 @@ export class GameRoom {
     });
   }
 
-  static restore(archive: unknown, catalog?: CardCatalogRuntime): GameRoom {
+  static restore(
+    archive: unknown,
+    catalog?: CardCatalogRuntime,
+    options: { readonly deferRuntime?: boolean; readonly verifyArchive?: boolean } = {}
+  ): GameRoom {
     if (!isRecord(archive)) {
       throw new Error("Invalid server room archive");
     }
@@ -979,12 +1012,19 @@ export class GameRoom {
     }
     const room = new GameRoom(roomArchive.roomId, roomArchive.rulesetId, catalog, undefined,
       undefined, roomArchive.constructedRegion, undefined, roomArchive.runtimeMode ?? "legacy-p4");
-    room.restoreArchive(roomArchive);
+    room.restoreArchive(roomArchive, options);
     return room;
   }
 
-  /** Roll back a failed durable transaction while retaining socket bindings. */
-  restoreArchive(archive: RoomArchive): void {
+  /**
+   * Roll back a failed durable transaction while retaining socket bindings, or
+   * install a startup snapshot. Startup may defer semantic journal replay; the
+   * archive and journal digest chains are still validated before this returns.
+   */
+  restoreArchive(
+    archive: RoomArchive,
+    options: { readonly deferRuntime?: boolean; readonly verifyArchive?: boolean } = {}
+  ): void {
     if (archive.roomId !== this.roomId || archive.rulesetId !== this.rulesetId ||
         JSON.stringify(archive.constructedRegion) !== JSON.stringify(this.constructedRegion)) {
       throw new Error("Cannot restore a different room");
@@ -1026,20 +1066,54 @@ export class GameRoom {
     }
     // An acknowledged CAS head is authoritative even if the room metadata save failed.
     // Reopening the server loads that protected head; it must never be rolled back here.
-    const validatedRuntime = this.runtimeMode === "legacy-p4" && duel
-      ? CurrentDuelRuntime.restore(this.runtimeOptions(copy.seats), duel) : null;
+    const existingDuelRuntime = this.runtimeMode === "legacy-p4" && this.duelRuntime?.isDurable
+      ? this.duelRuntime : null;
+    let validatedRuntime: CurrentDuelRuntime | null = existingDuelRuntime;
+    let validatedEngineRuntime: EngineRuntime | null = null;
+    let deferredRuntimeRestore: DeferredRuntimeRestore | null = null;
     const restoredBattlefieldChoice = engineJournal?.header.setup?.battlefieldChoice ?? null;
     const restoredMulligans = engineJournal?.header.setup?.mulligans ?? null;
-    const validatedEngineRuntime = this.runtimeMode === "engine-v2" && engineJournal
-      ? createEngineRuntime(this.engineRuntimeOptions(copy.seats, restoredBattlefieldChoice,
-        restoredMulligans ?? undefined)).restore(engineJournal) : null;
-    const restoredRuntime = this.duelRuntime?.isDurable ? this.duelRuntime : validatedRuntime;
+    if (this.runtimeMode === "legacy-p4" && duel && existingDuelRuntime === null) {
+      // The beta startup incident is the protocol-v2 engine runtime. Legacy P4
+      // keeps eager restore because its protected CAS head is read through the
+      // runtime during recovery.
+      validatedRuntime = CurrentDuelRuntime.restore(this.runtimeOptions(copy.seats), duel);
+    }
+    if (this.runtimeMode === "engine-v2" && engineJournal) {
+      if (options.verifyArchive !== false) assertRuntimeJournal(engineJournal);
+      if (options.deferRuntime) {
+        validateRuntimeJournalEnvelope(engineJournal, true);
+        deferredRuntimeRestore = {
+          runtimeMode: this.runtimeMode,
+          journal: structuredClone(engineJournal),
+        };
+      } else validatedEngineRuntime = createEngineRuntime(this.engineRuntimeOptions(
+        copy.seats,
+        restoredBattlefieldChoice,
+        restoredMulligans ?? undefined
+      )).restore(engineJournal);
+    }
+    const restoredRuntime = validatedRuntime;
     this.seats.clear();
     for (const seat of copy.seats) this.seats.set(seat.id, seat);
     this.state = copy.state;
     this.duelRuntime = restoredRuntime;
     this.publicEngineEventCaches.clear();
     this.engineRuntime = validatedEngineRuntime;
+    this.deferredRuntimeRestore = deferredRuntimeRestore;
+    this.deferredRecordedCommands.clear();
+    this.deferredTerminalProjection = null;
+    this.deferredTerminalJournal = null;
+    if (engineJournal) {
+      for (const entry of engineJournal.entries) {
+        this.deferredRecordedCommands.set(entry.commandId, {
+          playerId: this.publicEnginePlayerId(entry.playerId)!,
+          command: structuredClone(entry.command),
+          receipt: deferredCommandReceipt(entry)
+        });
+      }
+    }
+    this.replayCount = options.deferRuntime ? 0 : deferredJournalEntryCount(duel, engineJournal);
     this.engineMulligan = copy.engineMulligan ?? null;
     if (this.engineMulligan) this.mulliganProbe("A");
     this.roomVersion = copy.roomVersion;
@@ -1067,6 +1141,98 @@ export class GameRoom {
 
   get playerCount(): number {
     return this.seats.size;
+  }
+
+  get hasDeferredRuntimeRestore(): boolean {
+    return this.deferredRuntimeRestore !== null && this.deferredTerminalProjection === null;
+  }
+
+  /** Journal entries that the startup path deliberately did not execute. */
+  get pendingJournalEntryCount(): number {
+    return deferredJournalEntryCount(
+      this.deferredRuntimeRestore?.runtimeMode === "legacy-p4"
+        ? this.deferredRuntimeRestore.journal as Journal
+        : undefined,
+      this.deferredRuntimeRestore?.runtimeMode === "engine-v2"
+        ? this.deferredRuntimeRestore.journal as RuntimeJournal
+        : undefined
+    );
+  }
+
+  /** Journal entries replayed by this room instance across restore attempts. */
+  get replayedJournalEntryCount(): number {
+    return this.replayCount;
+  }
+
+  /**
+   * Reconstruct the sole semantic runtime owner after a lazy startup restore.
+   * Undo operations and direct `GameRoom.restore()` callers remain eager.
+   */
+  async ensureRestored(): Promise<void> {
+    const deferred = this.deferredRuntimeRestore;
+    if (deferred === null) return;
+    try {
+      if (deferred.runtimeMode === "legacy-p4") {
+        const journal = deferred.journal as Journal;
+        this.duelRuntime = CurrentDuelRuntime.restore(this.runtimeOptions(), journal);
+        this.engineRuntime = null;
+        this.replayCount = journal.entries.length;
+      } else {
+        const journal = deferred.journal as RuntimeJournal;
+        assertRuntimeJournal(journal);
+        const setup = journal.header.setup;
+        this.engineRuntime = createEngineRuntime(this.engineRuntimeOptions(
+          [...this.seats.values()],
+          setup?.battlefieldChoice ?? null,
+          setup?.mulligans
+        )).restore(journal);
+        this.duelRuntime = null;
+        this.replayCount = journal.entries.length;
+        // Once an ended game has been reconstructed for a result/projection,
+        // keep the archive and duplicate ledger but release the large live
+        // engine graph. A later access reconstructs it again on demand.
+        const terminal = this.engineRuntime.projectFor(null);
+        if (terminal.phase === "ended") {
+          this.deferredTerminalProjection = terminal;
+          this.deferredTerminalJournal = journal;
+          this.deferredRuntimeRestore = null;
+          this.engineRuntime = null;
+        } else {
+          this.deferredRuntimeRestore = null;
+        }
+      }
+      if (deferred.runtimeMode === "legacy-p4") this.deferredRuntimeRestore = null;
+      this.deferredRecordedCommands.clear();
+    } catch (error) {
+      throw new Error(
+        `Journal replay failed while restoring room ${this.roomId}: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error }
+      );
+    }
+  }
+
+  private terminalProjectionFor(viewer: "A" | "B" | null): V2Projection {
+    const source = this.deferredTerminalProjection;
+    if (source === null) throw new Error("No terminal projection is available");
+    const hidden = new Set(source.objects
+      .filter(object => object.faceDown && object.ownerPlayerId !== viewer)
+      .map(object => object.objectId));
+    return {
+      ...source,
+      viewerPlayerId: viewer,
+      zones: source.zones.map(zone => zone.objects === undefined || zone.ownerPlayerId === viewer
+        ? zone
+        : { ...zone, objects: zone.objects.filter(object => !hidden.has(object.objectId)) }),
+      objects: source.objects.filter(object => !hidden.has(object.objectId)),
+      events: source.events.filter(event => event.audience.visibility !== "owner-only" ||
+        event.audience.ownerPlayerId === viewer).map(event => ({ ...event, payload: Object.fromEntries(
+          Object.entries(event.payload).map(([key, value]) => [key,
+            value.visibility === "owner-only" && value.ownerPlayerId !== viewer
+              ? { visibility: "hidden" as const }
+              : value])
+        ) })),
+      pendingChoice: { status: "none" }
+    };
   }
 
   get connectedPlayerCount(): number {
@@ -1261,6 +1427,18 @@ export class GameRoom {
       } as unknown as ServerToClientMessage);
       return;
     }
+    if (this.deferredTerminalProjection !== null) {
+      const viewer = this.enginePlayerId(playerId);
+      const projection = this.deferredTerminalProjection.viewerPlayerId === viewer
+        ? this.deferredTerminalProjection
+        : this.terminalProjectionFor(viewer);
+      transport({
+        type: "projection",
+        protocolVersion: "2.0.0",
+        projection: this.publicEngineProjection(projection)
+      } as unknown as ServerToClientMessage);
+      return;
+    }
     if (this.engineRuntime) {
       const message = {
         type: "projection",
@@ -1268,6 +1446,9 @@ export class GameRoom {
         projection: this.publicEngineProjection(this.engineRuntime.projectFor(this.enginePlayerId(playerId))),
       } as unknown as ServerToClientMessage;
       transport(message);
+      return;
+    }
+    if (this.deferredRuntimeRestore) {
       return;
     }
     const projection = this.projectionFor(playerId);
@@ -1284,11 +1465,13 @@ export class GameRoom {
   }
 
   roomView(): RoomView {
+    const deferredClock = deferredRuntimeClock(this.deferredRuntimeRestore);
     return {
       roomId: this.roomId,
       status: this.status,
       rulesetId: this.rulesetId,
-      version: this.duelMatch?.stateVersion ?? this.engineProjection?.stateVersion ?? this.state?.version ?? 0,
+      version: this.duelMatch?.stateVersion ?? this.engineProjection?.stateVersion ??
+        deferredClock?.stateVersion ?? this.state?.version ?? 0,
       roomVersion: this.roomVersion,
       roomEventSeq: this.roomEventSeq,
       ...(this.constructedRegion ? {constructedRegion:this.constructedRegion} : {}),
@@ -1907,6 +2090,19 @@ export class GameRoom {
       // empty selection when the player keeps all four cards.
       throw new RoomError("Waiting for both players to finish their Mulligan", "command-rejected");
     }
+    const deferredPrior = this.deferredRecordedCommands.get(command.commandId);
+    if (deferredPrior) {
+      const duplicate = deferredPrior.playerId === playerId &&
+        stableStringify(this.engineCommand(deferredPrior.command)) ===
+          stableStringify(this.engineCommand(command));
+      transport({
+        ...deferredPrior.receipt,
+        accepted: duplicate,
+        duplicate,
+        rejection: duplicate ? null : "commandId was already used for a different command"
+      });
+      return;
+    }
     if (!this.engineRuntime) {
       throw new RoomError("Game has not started", "command-rejected");
     }
@@ -1935,12 +2131,35 @@ export class GameRoom {
   async close(): Promise<void> { await this.duelRuntime?.close(); }
 
   get runtimeClock(): { stateVersion: number; eventSeq: number } {
-    return { stateVersion: this.duelRuntime?.stateVersion ?? this.engineProjection?.stateVersion ?? this.state?.version ?? 0,
-      eventSeq: this.duelRuntime?.eventSeq ?? this.engineProjection?.eventSeq ?? this.state?.eventSeq ?? 0 };
+    const deferredClock = deferredRuntimeClock(this.deferredRuntimeRestore);
+    return {
+      stateVersion: this.duelRuntime?.stateVersion ?? this.engineProjection?.stateVersion ??
+        deferredClock?.stateVersion ?? this.state?.version ?? 0,
+      eventSeq: this.duelRuntime?.eventSeq ?? this.engineProjection?.eventSeq ??
+        deferredClock?.eventSeq ?? this.state?.eventSeq ?? 0
+    };
   }
 
   get currentJournalRevision(): number {
-    return this.duelRuntime?.exportJournal().integrity.revision ?? this.engineRuntime?.journal().integrity.revision ?? 0;
+    return this.duelRuntime?.exportJournal().integrity.revision ??
+      this.engineRuntime?.journal().integrity.revision ??
+      this.deferredRuntimeRestore?.journal.integrity.revision ?? 0;
+  }
+
+  /** Reload the newest durable archive without replaying an engine journal. */
+  replaceArchiveForAccess(archive: unknown): void {
+    const candidate = isRecord(archive) ? archive as unknown as RoomArchive : null;
+    if (candidate === null) throw new TypeError("Invalid server room archive");
+    const shouldDefer = this.deferredRuntimeRestore !== null ||
+      (candidate.runtimeMode === "engine-v2" && candidate.engineRuntimeJournal !== null) ||
+      (candidate.runtimeMode === "legacy-p4" && candidate.journal !== null);
+    this.restoreArchive(candidate, { deferRuntime: shouldDefer });
+  }
+
+  /** True when the persisted journal's terminal projection proves a winner. */
+  get hasArchivedWinner(): boolean {
+    const deferred = this.deferredRuntimeRestore;
+    return deferred?.runtimeMode === "engine-v2" && archivedWinner(deferred.journal as RuntimeJournal) !== null;
   }
 
   private canStart(): boolean {
@@ -2066,6 +2285,107 @@ function isRestorableMulliganChoices(
     value.every(cardId => typeof cardId === "string" && cardId.length > 0) &&
     new Set(value).size === value.length;
   return isFirstChoice(firstChoice) && otherChoice === null;
+}
+
+function deferredJournalEntryCount(
+  legacyJournal: Journal | null | undefined,
+  runtimeJournal: RuntimeJournal | null | undefined
+): number {
+  return legacyJournal?.entries.length ?? runtimeJournal?.entries.length ?? 0;
+}
+
+function deferredRuntimeClock(
+  deferred: DeferredRuntimeRestore | null
+): { readonly stateVersion: number; readonly eventSeq: number } | null {
+  if (deferred === null) return null;
+  if (deferred.runtimeMode === "engine-v2") {
+    return (deferred.journal as RuntimeJournal).head;
+  }
+  const last = (deferred.journal as Journal).entries.at(-1);
+  if (last === undefined) return null;
+  return last.kind === "entry"
+    ? { stateVersion: last.appliedStateVersion, eventSeq: last.eventSeq }
+    : { stateVersion: last.stateVersion, eventSeq: last.eventSeq };
+}
+
+function archivedWinner(journal: RuntimeJournal): string | null {
+  const winner = journal.entries.at(-1)?.result.winnerPlayerId;
+  return typeof winner === "string" && winner.length > 0 ? winner : null;
+}
+
+function deferredCommandReceipt(entry: RuntimeJournal["entries"][number]): V2CommandReceipt {
+  return {
+    type: "command-receipt",
+    protocolVersion: "2.0.0",
+    commandId: entry.commandId,
+    stateVersion: entry.appliedStateVersion,
+    eventSeq: entry.eventSeq,
+    accepted: true,
+    duplicate: true,
+    rejection: null
+  };
+}
+
+/**
+ * A digest-valid sequence can still be structurally impossible to execute.
+ * Catch deterministic version/duplicate contradictions before the semantic
+ * replay is deferred, while preserving the bound journal unchanged.
+ */
+function validateRuntimeJournalEnvelope(
+  journal: RuntimeJournal,
+  startupLazy: boolean
+): void {
+    if (journal.header.matchId.startsWith("duel:") &&
+        journal.header.matchId !== `duel:${journal.header.roomId}` &&
+        !journal.header.roomId.startsWith("duel:")) {
+    throw new TypeError("Engine runtime journal roomId does not match its matchId");
+  }
+  let appliedVersion = 0;
+  const seen = new Set<string>();
+  for (const [index, entry] of journal.entries.entries()) {
+    if (entry.seq !== index + 1) {
+      throw new TypeError(`Engine runtime journal entry ${index + 1} sequence mismatch`);
+    }
+    // Runtime journals intentionally store the pre-command state version, and
+    // an owner may preserve that value across a pending continuation. Semantic
+    // replay remains authoritative for command legality; the startup check is
+    // limited to monotonic applied versions and pending/duplicate invariants.
+    if (entry.pendingReason) {
+      if (entry.duplicate || entry.appliedStateVersion !== appliedVersion) {
+        throw new TypeError(
+          `Engine runtime journal entry ${index + 1} pending command changes state`
+        );
+      }
+    } else if (!entry.duplicate) {
+      if (seen.has(entry.commandId)) {
+        throw new TypeError(`Engine runtime journal entry ${index + 1} repeats a command id`);
+      }
+      seen.add(entry.commandId);
+      if (entry.appliedStateVersion !== appliedVersion + 1) {
+        throw new TypeError(`Engine runtime journal entry ${index + 1} does not advance exactly once`);
+      }
+      appliedVersion = entry.appliedStateVersion;
+    } else if (entry.appliedStateVersion !== appliedVersion) {
+      throw new TypeError(`Engine runtime journal entry ${index + 1} duplicate changes state`);
+    }
+    if (entry.appliedStateVersion < appliedVersion) {
+      throw new Error(
+        `${startupLazy ? "Journal replay failed while restoring room " + journal.header.roomId : "Engine runtime journal verification failed"}: ` +
+          `entry ${index + 1} moves the applied state version backwards`
+      );
+    }
+    if (!entry.duplicate && !entry.pendingReason &&
+        entry.command.stateVersion > entry.expectedStateVersion) {
+      throw new Error(
+        `${startupLazy ? "Journal replay failed while restoring room " + journal.header.roomId : "Engine runtime journal verification failed"}: ` +
+          `entry ${index + 1} command version exceeds its expectation`
+      );
+    }
+    appliedVersion = entry.appliedStateVersion;
+  }
+  if (journal.head.stateVersion !== appliedVersion) {
+    throw new TypeError("Engine runtime journal head state version does not match its entries");
+  }
 }
 
 function commandWithActor(command: PlayerCommand, playerId: PlayerId): Command {

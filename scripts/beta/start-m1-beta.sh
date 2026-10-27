@@ -13,6 +13,11 @@ CLIENT_A_PORT=${RIFTBOUND_BETA_CLIENT_A_PORT:-5173}
 CLIENT_B_PORT=${RIFTBOUND_BETA_CLIENT_B_PORT:-5174}
 PID_FILE="${STATE_DIR}/processes.pids"
 VITE_CONFIG=${RIFTBOUND_BETA_VITE_CONFIG:-${ROOT}/apps/desktop-client/vite.config.ts}
+READY_TIMEOUT_SECONDS=${RIFTBOUND_BETA_READY_TIMEOUT_SECONDS:-180}
+[[ ${READY_TIMEOUT_SECONDS} =~ ^[1-9][0-9]*$ ]] || {
+  printf '错误：RIFTBOUND_BETA_READY_TIMEOUT_SECONDS 必须是正整数。\n' >&2
+  exit 1
+}
 
 usage() {
   cat <<'EOF'
@@ -33,6 +38,7 @@ usage() {
   RIFTBOUND_BETA_LOG_DIR       默认 <state>/logs
   RIFTBOUND_STORAGE_DIRECTORY  默认 <state>/rooms（启动器会创建并交给自检）
   RIFTBOUND_BETA_VITE_CONFIG   默认 apps/desktop-client/vite.config.ts
+  RIFTBOUND_BETA_READY_TIMEOUT_SECONDS 默认 180（服务端与客户端就绪等待秒数）
 
 可选客户端：macOS 安装 Rust 1.90 后，用
   pnpm desktop:dev
@@ -140,8 +146,21 @@ wait_for_url() {
   local log=$3
   local offset=$4
   local recent
-  for _ in $(seq 1 120); do
+  local attempts=$((READY_TIMEOUT_SECONDS * 2))
+  local attempt=0
+  for ((attempt = 1; attempt <= attempts; attempt += 1)); do
     if curl -fsS --max-time 2 "${url}" >/dev/null 2>&1; then return 0; fi
+    if [[ ${name} == game-server ]]; then
+      if ((attempt == 1 || attempt % 10 == 0)); then
+        printf '正在恢复房间并等待 game-server 就绪（%s/%s 秒）……\n' \
+          "$(((attempt + 1) / 2))" "${READY_TIMEOUT_SECONDS}"
+      fi
+      if [[ -f ${log} ]]; then
+        local progress
+        progress=$(log_since "${log}" "${offset}" | rg -o '\[room-restore\][^\n]*' | tail -1 || true)
+        [[ -z ${progress} ]] || printf '  %s\n' "${progress}"
+      fi
+    fi
     if [[ -f ${log} ]]; then
       recent=$(log_since "${log}" "${offset}")
       if grep -Eq 'EADDRINUSE|strictPort|Error:|Failed to start|failed to load' <<<"${recent}"; then
@@ -151,7 +170,8 @@ wait_for_url() {
     fi
     sleep 0.5
   done
-  printf '%s 未在 60 秒内就绪；日志：%s\n' "${name}" "${log}" >&2
+  printf '%s 未在 %s 秒内就绪；日志：%s\n' \
+    "${name}" "${READY_TIMEOUT_SECONDS}" "${log}" >&2
   tail -80 "${log}" >&2 || true
   return 1
 }
