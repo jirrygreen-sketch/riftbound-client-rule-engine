@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, type Hash } from "node:crypto";
 import type { V2Command } from "../../../../packages/protocol/dist/v2/commands.js";
 
 export const ENGINE_RUNTIME_JOURNAL_FORMAT = "riftbound-journal" as const;
@@ -95,16 +95,16 @@ export interface RuntimeJournalAppendInput extends Omit<RuntimeJournalEntry, "ki
 }
 
 export function canonicalJson(value: unknown): string {
-  return canonicalJsonInto(value);
+  return canonicalJsonInto(value, new Map());
 }
 
-function canonicalJsonInto(value: unknown): string {
+function canonicalJsonInto(value: unknown, encodedKeys: Map<string, string>): string {
   const chunks: string[] = [];
-  writeCanonical(value, chunks);
+  writeCanonical(value, chunks, encodedKeys);
   return chunks.join("");
 }
 
-function writeCanonical(value: unknown, chunks: string[]): void {
+function writeCanonical(value: unknown, chunks: string[], encodedKeys?: Map<string, string>): void {
   if (value === null) { chunks.push("null"); return; }
   if (typeof value === "string" || typeof value === "boolean" || typeof value === "number") {
     chunks.push(JSON.stringify(value));
@@ -115,7 +115,7 @@ function writeCanonical(value: unknown, chunks: string[]): void {
     chunks.push("[");
     for (let index = 0; index < value.length; index += 1) {
       if (index > 0) chunks.push(",");
-      writeCanonical(value[index], chunks);
+      writeCanonical(value[index], chunks, encodedKeys);
     }
     chunks.push("]");
     return;
@@ -126,10 +126,44 @@ function writeCanonical(value: unknown, chunks: string[]): void {
   for (let index = 0; index < keys.length; index += 1) {
     if (index > 0) chunks.push(",");
     const key = keys[index]!;
-    chunks.push(`${JSON.stringify(key)}:`);
-    writeCanonical(record[key], chunks);
+    let encodedKey = encodedKeys?.get(key);
+    if (encodedKey === undefined) {
+      encodedKey = `${JSON.stringify(key)}:`;
+    }
+    encodedKeys?.set(key, encodedKey);
+    chunks.push(encodedKey);
+    writeCanonical(record[key], chunks, encodedKeys);
   }
   chunks.push("}");
+}
+
+function journalEntriesHash(entries: readonly RuntimeJournalEntry[]): Hash {
+  const hash = createHash("sha256");
+  hash.update("{\"entries\":[");
+  for (let index = 0; index < entries.length; index += 1) {
+    if (index > 0) hash.update(",");
+    hash.update(canonicalJson(entries[index]));
+  }
+  return hash;
+}
+
+function digestJournal(
+  entriesHash: Hash,
+  entryCount: number,
+  appendedEntry: string | null,
+  head: RuntimeJournalHead,
+  header: RuntimeJournalHeader,
+  integrity: RuntimeJournal["integrity"],
+): string {
+  const hash = entriesHash.copy();
+  if (appendedEntry !== null) hash.update(entryCount > 0 ? `,${appendedEntry}` : appendedEntry);
+  // The canonical root is "entries", "head", "header", "integrity". Keep the
+  // entries prefix incremental because committed journal entries are immutable.
+  const tail = canonicalJson({ head, header, integrity });
+  hash.update("]");
+  hash.update(",");
+  hash.update(tail.slice(1));
+  return hash.digest("hex");
 }
 
 export function digest(value: unknown): string {
@@ -142,11 +176,13 @@ export function digestCanonicalJson(canonical: string): string {
 
 export class RuntimeJournalWriter {
   private value: RuntimeJournal;
+  private entriesHash: Hash;
 
   constructor(input: RuntimeJournalInput | RuntimeJournal) {
     if (isRuntimeJournal(input)) {
       assertRuntimeJournal(input);
       this.value = structuredClone(input);
+      this.entriesHash = journalEntriesHash(this.value.entries);
     }
     else {
       const header = {
@@ -161,7 +197,9 @@ export class RuntimeJournalWriter {
         journalDigest: "0".repeat(64), stateDigest: input.stateDigest, privateStateDigest: input.privateStateDigest,
       } as RuntimeJournalHead;
       const integrity = { parentDigest: null, currentDigest: "0".repeat(64), revision: 0, nonce, protectedHeadReference: { revision: 0, nonce } };
-      const currentDigest = digest({ header, head, entries: [], integrity: { ...integrity, currentDigest: "0".repeat(64) } });
+      this.entriesHash = journalEntriesHash([]);
+      const currentDigest = digestJournal(this.entriesHash, 0, null, head, header,
+        { ...integrity, currentDigest: "0".repeat(64) });
       this.value = { header, head: { ...head, journalDigest: currentDigest }, entries: [], integrity: { ...integrity, currentDigest } };
     }
   }
@@ -192,8 +230,13 @@ export class RuntimeJournalWriter {
       revision: this.value.integrity.revision + 1,
       protectedHeadReference: { revision: this.value.integrity.revision + 1, nonce: this.value.integrity.nonce },
     };
-    const journalDigest = digest({ header: this.value.header, head, entries: [...this.value.entries, entry], integrity });
+    const encodedEntry = canonicalJson(entry);
+    const journalDigest = digestJournal(this.entriesHash, seq - 1, encodedEntry, head,
+      this.value.header, integrity);
+    const nextEntriesHash = this.entriesHash.copy();
+    nextEntriesHash.update(seq > 1 ? `,${encodedEntry}` : encodedEntry);
     this.value = { header: this.value.header, head: { ...head, journalDigest }, entries: [...this.value.entries, entry], integrity: { ...integrity, currentDigest: journalDigest } };
+    this.entriesHash = nextEntriesHash;
     return structuredClone(entry);
   }
 }
