@@ -203,31 +203,30 @@ interface RuntimeMetadataCheckpoint {
  */
 class RuntimeBoardHost extends EngineRuntimeHost {
   override perform(action: GameAction): ReturnType<EngineRuntimeHost["perform"]> {
-    this.invalidateObjectCache();
+    const matches = action.type === "move-zone" && (action.to === "base" || action.to === "battlefield");
+    const staged = matches && "object" in action ? this.stagedObject(action.object) : null;
     const outcome = super.perform(action);
     try {
-      return this.normalizeBoardObject(outcome);
+      this.normalizeBoardObject(action, staged);
+      return outcome;
     } finally {
       this.invalidateObjectCache();
     }
   }
 
-  private normalizeBoardObject(outcome: ReturnType<EngineRuntimeHost["perform"]>): ReturnType<EngineRuntimeHost["perform"]> {
+  private normalizeBoardObject(action: GameAction, staged: ReturnType<EngineRuntimeHost["objects"]>[number] | null): void {
     // EngineRuntimeHost's concrete-location zone spelling is adapted at this
     // single runtime seam so chain, Awaken, Move and projection all observe the
     // same `board + location` authority expected by engine-core.
-    for (const object of this.objects()) {
-      if (String(object.zone) !== "base" && String(object.zone) !== "battlefield") continue;
-      if (!object.types.some(type => ["unit", "gear"].includes(type.toLowerCase()))) continue;
-      const players = (this as unknown as { players: Map<string, { zones: Record<string, string[]> }> }).players;
-      for (const player of players.values()) for (const ids of Object.values(player.zones)) {
-        const index = ids.indexOf(object.ref.id);
-        if (index >= 0) ids.splice(index, 1);
-      }
-      players.get(object.owner)!.zones.board!.unshift(object.ref.id);
-      (this as unknown as { objectMap: Map<string, { zone: string }> }).objectMap.get(object.ref.id)!.zone = "board";
+    if (action.type !== "move-zone" || (action.to !== "base" && action.to !== "battlefield") || staged === null ||
+        !staged.types.some(type => ["unit", "gear"].includes(type.toLowerCase()))) return;
+    const players = (this as unknown as { players: Map<string, { zones: Record<string, string[]> }> }).players;
+    for (const player of players.values()) for (const ids of Object.values(player.zones)) {
+      const index = ids.indexOf(staged.ref.id);
+      if (index >= 0) ids.splice(index, 1);
     }
-    return outcome;
+    players.get(staged.owner)!.zones.board!.unshift(staged.ref.id);
+    (this as unknown as { objectMap: Map<string, { zone: string }> }).objectMap.get(staged.ref.id)!.zone = "board";
   }
 }
 
