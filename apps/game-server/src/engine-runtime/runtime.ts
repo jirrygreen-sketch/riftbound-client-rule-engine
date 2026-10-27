@@ -41,6 +41,11 @@ interface ChoiceMetadata {
   readonly prompt?: string;
 }
 
+/** Player-facing text only for keyword-defined choices whose mechanics map exactly. */
+const KEYWORD_CHOICE_PROMPTS: Readonly<Record<string, string>> = Object.freeze({
+  vision: "Vision: Look at the top card of your Main Deck. Select it to recycle it; leave it unselected to keep it on top.",
+});
+
 interface ResolvedTriggerOption {
   readonly source?: ReturnType<EngineRuntimeHost["objects"]>[number];
   readonly controller?: PlayerId;
@@ -392,13 +397,13 @@ function keywordRegistrationLabel(id: string): { readonly objectId: string; read
 
 /** Resolve metadata from an exact existing request path without widening visibility. */
 function choiceMetadataRequest(request: ChoiceRequest<unknown>, host: EngineRuntimeHost, viewer: string | null,
-  grants: readonly RuntimeVisibilityGrant[], triggerRegistrations: readonly TriggerRegistrationSource[],
+  grants: readonly RuntimeVisibilityGrant[], registeredTriggers: readonly TriggerRegistrationSource[],
   chainItems: readonly ChainChoiceItem[], binding: ProgramBinding | null): ChoiceMetadata {
   if (viewer === null || viewer !== request.chooser) return {};
   if (request.type !== "optional" && request.type !== "select-objects" && request.type !== "mode") return {};
   let source: ReturnType<EngineRuntimeHost["objects"]>[number] | undefined;
   let triggerItem: ChainChoiceItem | undefined;
-  for (const registration of triggerRegistrations) {
+  for (const registration of registeredTriggers) {
     const escaped = registration.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     if (!new RegExp(`^trigger:\\d+:${escaped}:(?:\\d+):optional$`).test(request.id)) continue;
     source = host.objects().find(object => object.ref.id === registration.source.ref.id &&
@@ -411,7 +416,7 @@ function choiceMetadataRequest(request: ChoiceRequest<unknown>, host: EngineRunt
   if (request.type === "mode" && /^trigger:\d+:[^:]+:order:\d+$/.test(request.id)) {
     const sources = new Map<string, ReturnType<EngineRuntimeHost["objects"]>[number]>();
     for (const option of request.options) {
-      const registration = triggerOrderRegistration(String(option), triggerRegistrations);
+      const registration = triggerOrderRegistration(String(option), registeredTriggers);
       // Any unresolved or invisible option makes the whole order's source
       // ambiguous. Omitting the metadata is safer than claiming one source.
       if (registration === undefined || registration.controller !== viewer ||
@@ -441,7 +446,9 @@ function choiceMetadataRequest(request: ChoiceRequest<unknown>, host: EngineRunt
       object.ref.zoneEntryId === captured.ref.zoneEntryId);
     if (current !== undefined) source = current;
   }
-  const prompt = wireChoicePrompt(request.prompt ??
+  const keywordPrompt = triggerItem === undefined ? undefined
+    : keywordChoicePrompt(request, triggerItem, registeredTriggers);
+  const prompt = wireChoicePrompt(request.prompt ?? keywordPrompt ??
     (triggerItem === undefined ? undefined : optionalPrompt(triggerItem, binding)), viewer, request.chooser);
   if (source === undefined) return prompt === undefined ? {} : { prompt };
   const projected = projectObjectForChoice(source, viewer, grants);
@@ -511,6 +518,25 @@ function optionalPrompt(item: ChainChoiceItem, binding: ProgramBinding | null): 
   return authored?.kind === "triggered" ? instructionPrompt(authored.body) : undefined;
 }
 
+/**
+ * Keyword choices are registered as program-keyword-ability triggers. Use the
+ * exact live registration and the choice path's inspect instruction as two
+ * independent guards, so an authored choice is never mislabeled merely because
+ * its source happens to have a keyword.
+ */
+function keywordChoicePrompt(request: ChoiceRequest<unknown>, item: ChainChoiceItem,
+  registeredTriggers: readonly TriggerRegistrationSource[]): string | undefined {
+  if (request.type !== "select-objects") return undefined;
+  const registration = item.trigger?.registration;
+  if (registration === undefined || !registeredTriggers.some(live => live.id === registration.id &&
+    live.source.ref.id === registration.source.ref.id &&
+    live.source.ref.zoneEntryId === registration.source.ref.zoneEntryId &&
+    live.controller === request.chooser)) return undefined;
+  const label = keywordRegistrationLabel(registration.id);
+  if (label === undefined || !choicePathNamesInstruction(request.id, item.body, "effect.inspect")) return undefined;
+  return KEYWORD_CHOICE_PROMPTS[label.keyword.toLowerCase()];
+}
+
 function instructionPrompt(body: readonly Instruction[]): string | undefined {
   for (const instruction of body) {
     if (instruction.op !== "choice.optional") continue;
@@ -523,11 +549,15 @@ function instructionPrompt(body: readonly Instruction[]): string | undefined {
 
 /** The request path is evidence only when it names this item's instruction/target. */
 function choicePathNamesItem(requestId: string, body: readonly Instruction[]): boolean {
+  return choicePathNamesInstruction(requestId, body);
+}
+
+function choicePathNamesInstruction(requestId: string, body: readonly Instruction[], op?: Instruction["op"]): boolean {
   const segments = requestId.split("/").flatMap(segment => {
     try { return [decodeURIComponent(segment)]; } catch { return []; }
   });
   const namesInstruction = (instruction: Instruction): boolean => {
-    if (segments.includes(instruction.id)) return true;
+    if (segments.includes(instruction.id) && (op === undefined || instruction.op === op)) return true;
     if (instruction.targets?.some(target => requestId === `target:${target.id}` || segments.includes(`target:${target.id}`))) return true;
     const bodies: unknown[] = [];
     const bodyExpression = instruction.args.body;
@@ -543,7 +573,7 @@ function choicePathNamesItem(requestId: string, body: readonly Instruction[]): b
     }
     return bodies.some(value => Array.isArray(value) &&
       value.every(entry => entry !== null && typeof entry === "object") &&
-      choicePathNamesItem(requestId, value as readonly Instruction[]));
+      choicePathNamesInstruction(requestId, value as readonly Instruction[], op));
   };
   return body.some(namesInstruction);
 }
