@@ -2,7 +2,7 @@
 
 ## 结论
 
-Mac beta 中的现象已在当前 `integration@c83d8b47` 的**真实 `createEngineRuntime` 生产装配路径**复现：攻方提交伤害分配后，投影仍把攻方列为 `priority.playerId`，`pendingChoice.status` 为 `none`；Pass 第一次和第二、第三次都被接受，回执中的 `stateVersion` 每次递增，但同一战斗仍等待守方分配，`eventSeq` 不变。服务端没有仅凭版本变化而误报成功；它先执行了真实的 `TurnFlow.pass()`，后者再把并没有发生规则推进的结果包装成 accepted 回执。
+Mac beta 中的现象已在当前 `integration@4f6a61ba` 的**真实 `createEngineRuntime` 生产装配路径**复现：攻方提交伤害分配后，投影仍把攻方列为 `priority.playerId`，`pendingChoice.status` 为 `none`；Pass 第一次和第二、第三次都被接受，回执中的 `stateVersion` 每次递增，但同一战斗仍等待守方分配，`eventSeq` 不变。服务端没有仅凭版本变化而误报成功；它先执行了真实的 `TurnFlow.pass()`，后者再把并没有发生规则推进的结果包装成 accepted 回执。
 
 根因不是一个输入校验分支，而是同一规则事实在三层出现了不一致：
 
@@ -188,7 +188,7 @@ pnpm --filter @riftbound/game-server exec vitest run \
 | `pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/engine-runtime/__rift1104-before.test.ts --reporter=verbose` | 1 passed；同一 head 上攻方 `canPass=true`，两次 Pass accepted/no-progress | `/tmp/RIFT-1104-pass-during-damage-wait/repro-before.log`（SHA-256 `8d2bc9c8…e268930`） |
 | `pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/engine-runtime/v2-can-pass.test.ts --reporter=verbose` | 3 passed；等待态 bug 被现有断言固化 | `/tmp/RIFT-1104-pass-during-damage-wait/v2-can-pass-baseline.log`（SHA-256 `f1d3f6bd…5d321`） |
 | `git diff --check` | exit 0 | 报告变更 |
-| `heavy pnpm --filter @riftbound/desktop-client test` | 84 files / 982 tests passed，0 fail | `/tmp/RIFT-1104-pass-during-damage-wait/desktop-client-test.log`（SHA-256 `3d27b8dc…6e0efe`） |
-| `pnpm --filter @riftbound/desktop-client typecheck` | exit 0（`tsc --noEmit`） | `/tmp/RIFT-1104-pass-during-damage-wait/desktop-client-typecheck.log`（SHA-256 `83662072…6cc92`） |
+| `heavy pnpm --filter @riftbound/desktop-client test`（最终 `integration@4f6a61ba` 合并后） | 84 files / 982 tests passed，0 fail | `/tmp/RIFT-1104-pass-during-damage-wait/desktop-client-test-post-merge.log`（SHA-256 `3aad0c93…a4f24f`） |
+| `pnpm --filter @riftbound/desktop-client typecheck`（最终 `integration@4f6a61ba` 合并后） | exit 0（`tsc --noEmit`） | `/tmp/RIFT-1104-pass-during-damage-wait/desktop-client-typecheck-post-merge.log`（SHA-256 `83662072…6cc92`） |
 
 证据目录仅包含临时测试、配置和日志，位于 `/tmp/RIFT-1104-pass-during-damage-wait/`；没有把脚本、截图、构建产物或日志提交到仓库。最终 HEAD、测试终态和任何未完成项由调度者从任务分支确认。
