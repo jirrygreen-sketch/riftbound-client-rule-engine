@@ -71,6 +71,48 @@ const EMPTY_SNAPSHOT_FIELDS = Object.freeze({
   movement: EMPTY_MOVEMENT,
 });
 
+/** Coarse observable counters for profiling layer semantics without changing them. */
+export interface LayerDiagnostics {
+  readonly evaluateCalls: number;
+  readonly evaluateAllCalls: number;
+  readonly attachmentSignatureCalls: number;
+  readonly attachmentSignatureReuses: number;
+  readonly dependencyCalls: number;
+  readonly dependencyCacheHits: number;
+  readonly dependencyRestarts: number;
+  readonly groupEvaluations: number;
+  readonly dependencyGroups: number;
+  readonly dependencyCycleGroups: number;
+  readonly singletonGroups: number;
+  readonly multiObjectGroups: number;
+  readonly passes: number;
+  readonly effectApplications: number;
+  readonly effectDisqualifications: number;
+  readonly effectReevaluations: number;
+  readonly snapshotCopies: number;
+  readonly publicSnapshotCopies: number;
+}
+
+const ZERO_LAYER_DIAGNOSTICS: LayerDiagnostics = Object.freeze({
+  evaluateCalls: 0,
+  evaluateAllCalls: 0,
+  attachmentSignatureCalls: 0,
+  attachmentSignatureReuses: 0,
+  dependencyCalls: 0,
+  dependencyCacheHits: 0,
+  dependencyRestarts: 0,
+  groupEvaluations: 0,
+  dependencyGroups: 0,
+  dependencyCycleGroups: 0,
+  singletonGroups: 0,
+  multiObjectGroups: 0,
+  passes: 0,
+  effectApplications: 0,
+  effectDisqualifications: 0,
+  effectReevaluations: 0,
+  snapshotCopies: 0,
+  publicSnapshotCopies: 0,
+});
 function record(value: unknown): AnyRecord {
   return typeof value === "object" && value !== null ? value as AnyRecord : {};
 }
@@ -442,9 +484,24 @@ export class LayerEngine {
   private attachmentRevision?: string;
   private attachmentObjects: readonly ObjectSnapshot[] = [];
   private immutableAttachmentObjects = false;
+  private readonly diagnosticsState = { ...ZERO_LAYER_DIAGNOSTICS };
+  private diagnosticsEnabled = false;
+  /** Normalized raw snapshots remain reusable until the explicit object boundary. */
+  private baseSnapshots = new WeakMap<ObjectSnapshot, FrozenSnapshot>();
   private depth = 0;
   /** True while this engine is inside evaluate/evaluateAll (reentrant reads). */
   get inEvaluation(): boolean { return this.depth > 0; }
+  get diagnostics(): LayerDiagnostics { return Object.freeze({ ...this.diagnosticsState }); }
+  /** Reset counters without changing cached semantic state. */
+  resetDiagnostics(): void {
+    this.diagnosticsEnabled = true;
+    Object.assign(this.diagnosticsState, ZERO_LAYER_DIAGNOSTICS);
+  }
+  enableDiagnostics(): void { this.diagnosticsEnabled = true; }
+  private count(field: keyof LayerDiagnostics): void {
+    if (!this.diagnosticsEnabled) return;
+    this.diagnosticsState[field]++;
+  }
   private frames: string[][] = [];
   private groups = new Map<string, Set<string>>();
   private groupView = new Map<string, LayeredObjectSnapshot>();
@@ -479,15 +536,13 @@ export class LayerEngine {
     registry = new ContinuousEffectRegistry(),
     options: LayerEngineOptions = {},
   ) {
-    if (objects instanceof Map) {
-      for (const [key, object] of objects) this.objects.set(key, object);
-    } else {
-      for (const object of objects as readonly ObjectSnapshot[]) this.objects.set(refKey(object.ref), object);
-    }
+    this.replaceObjects(objects);
     this.registry = registry;
     this.derivedMight = options.derivedMight;
     this.timingPoint = options.timingPoint;
     this.rebuildAttachmentBonuses();
+    this.refreshAttachmentSignature();
+    this.registryRevision = registry.revision;
   }
 
   addContinuous(effect: ContinuousEffectSpec, duration: Duration, timestamp?: number): RegisteredContinuousEffect {
@@ -507,13 +562,11 @@ export class LayerEngine {
   }
 
   setObjects(objects: readonly ObjectSnapshot[] | ReadonlyMap<string, ObjectSnapshot>): void {
-    this.objects.clear();
-    if (objects instanceof Map) for (const [key, object] of objects) this.objects.set(key, object);
-    else for (const object of objects as readonly ObjectSnapshot[]) this.objects.set(refKey(object.ref), object);
+    this.replaceObjects(objects);
     this.objectBoundary++;
     this.rebuildAttachmentBonuses();
     this.invalidate();
-    this.attachmentRevision = this.attachmentSignature();
+    this.refreshAttachmentSignature();
   }
 
   private rebuildAttachmentBonuses(): void {
@@ -547,10 +600,19 @@ export class LayerEngine {
     }
   }
 
+  private refreshAttachmentSignature(): void {
+    this.attachmentRevision = this.attachmentSignature();
+    this.attachmentObjects = [...this.objects.values()];
+    this.immutableAttachmentObjects = this.attachmentObjects.every(object =>
+      Object.isFrozen(object) && Object.isFrozen(object.ref) && Object.isFrozen(object.types) &&
+      Object.isFrozen(object.tags) && (object.attachedTo === null || Object.isFrozen(object.attachedTo)));
+  }
+
   private invalidate(): void {
     this.cache.clear();
     this.copyCache.clear();
     this.activeEffectsCache = undefined;
+    this.baseSnapshots = new WeakMap();
     if (this.depth === 0) {
       this.partial.clear();
       this.copyPartial.clear();
@@ -559,8 +621,36 @@ export class LayerEngine {
     }
   }
 
+  /** Direct registry writes between reads use the same invalidation as public mutations. */
+  private syncRegistry(): void {
+    const revision = this.registry.revision;
+    if (this.registryRevision === revision) return;
+    this.registryRevision = revision;
+    this.invalidate();
+  }
+
   private raw(ref: ObjectRef): ObjectSnapshot | null {
     return this.objects.get(refKey(ref)) ?? null;
+  }
+
+  private copySnapshot(source: ObjectSnapshot): FrozenSnapshot {
+    this.count("snapshotCopies");
+    return cloneSnapshot(source);
+  }
+
+  private replaceObjects(objects: readonly ObjectSnapshot[] | ReadonlyMap<string, ObjectSnapshot>): void {
+    this.objects.clear();
+    if (objects instanceof Map) for (const [key, object] of objects) this.objects.set(key, object);
+    else for (const object of objects as readonly ObjectSnapshot[]) this.objects.set(refKey(object.ref), object);
+  }
+
+  /** Reuse the normalized immutable input for this explicit object boundary. */
+  private baseSnapshot(source: ObjectSnapshot): FrozenSnapshot {
+    const cached = this.baseSnapshots.get(source);
+    if (cached !== undefined) return cached;
+    const normalized = this.copySnapshot(source);
+    this.baseSnapshots.set(source, normalized);
+    return normalized;
   }
 
   /**
@@ -729,7 +819,7 @@ export class LayerEngine {
     const keys = [...(this.copyGroups.get(key) ?? [key])];
     for (const member of keys) {
       this.copyEvaluating.add(member);
-      this.copyPartial.set(member, cloneSnapshot(this.objects.get(member)!));
+      this.copyPartial.set(member, this.copySnapshot(this.objects.get(member)!));
     }
     this.copyFrames.push(keys);
     try {
@@ -742,7 +832,7 @@ export class LayerEngine {
           this.apply(mutable, "copy", this.materialize(entry, mutable));
           done.add(entry.effect.id);
         }
-        this.copyCache.set(member, cloneSnapshot(mutable));
+        this.copyCache.set(member, this.copySnapshot(mutable));
       }
       return this.copyCache.get(key) ?? null;
     } finally {
@@ -824,7 +914,7 @@ export class LayerEngine {
       // from outside the loop still receives the completed copyable traits.
       if (!this.copyFrames.length && this.copyGroups.get(refKey(target.ref))?.has(refKey(ref))) {
         const raw = this.raw(ref);
-        return raw === null ? null : cloneSnapshot(raw);
+        return raw === null ? null : this.copySnapshot(raw);
       }
       return this.resolveCopy(ref);
     });
@@ -914,14 +1004,14 @@ export class LayerEngine {
   }
 
   private beforeEffect(key: string, applied: ReadonlyMap<string, AppliedEffect>, excluded: string): LayeredObjectSnapshot {
-    const target = { ...cloneSnapshot(this.objects.get(key)!) } as MutableSnapshot;
+    const target = { ...this.baseSnapshot(this.objects.get(key)!) } as MutableSnapshot;
     this.withSnapshot(target, () => {
       for (const layer of LAYER_ORDER) for (const [id, item] of applied) {
         if (id === excluded || id.startsWith(excluded + ":value:") || item.entry.effect.layer !== layer) continue;
         this.apply(target, layer, item.effect);
       }
     });
-    return cloneSnapshot(target);
+    return this.copySnapshot(target);
   }
 
   private publishGroupView(keys: readonly string[], current: ReadonlyMap<string, MutableSnapshot>): void {
@@ -929,16 +1019,16 @@ export class LayerEngine {
     // object is current. Copying it into groupView at every layer/pass is
     // therefore redundant; multi-object SCCs still need the start-of-layer view.
     if (keys.length === 1) return;
-    for (const key of keys) this.groupView.set(key, cloneSnapshot(current.get(key)!));
+    for (const key of keys) this.groupView.set(key, this.copySnapshot(current.get(key)!));
   }
 
   private finishGroup(key: string, source: MutableSnapshot): void {
-    let result = cloneSnapshot(source);
-    if (result.might !== null && result.might < 0) result = cloneSnapshot({ ...result, might: 0 });
+    let result = this.copySnapshot(source);
+    if (result.might !== null && result.might < 0) result = this.copySnapshot({ ...result, might: 0 });
     if (this.derivedMight !== undefined) {
       const derived = this.derivedMight(result);
       if (derived !== undefined && derived !== null && Number.isFinite(derived)) {
-        result = cloneSnapshot({ ...result, might: Math.max(0, derived) });
+        result = this.copySnapshot({ ...result, might: Math.max(0, derived) });
       }
     }
     this.cache.set(key, result);
@@ -946,10 +1036,18 @@ export class LayerEngine {
 
   /** Keep cached layer state internal and detach every public read from it. */
   private publicSnapshot(snapshot: LayeredObjectSnapshot): LayeredObjectSnapshot {
-    return cloneSnapshot(snapshot);
+    this.count("publicSnapshotCopies");
+    return this.copySnapshot(snapshot);
   }
 
   private evaluateGroup(keys: readonly string[]): void {
+    this.count("groupEvaluations");
+    if (this.depth > 1) this.count("dependencyGroups");
+    if (keys.length === 1) this.count("singletonGroups");
+    else {
+      this.count("multiObjectGroups");
+      this.count("dependencyCycleGroups");
+    }
     const effects = this.arithmeticEffects();
     const candidatesByLayer = new Map<string, RegisteredContinuousEffect[]>();
     for (const layer of LAYER_ORDER) {
@@ -960,7 +1058,7 @@ export class LayerEngine {
     const removed = new Map<string, Set<string>>();
     for (const key of keys) {
       const raw = this.objects.get(key)!;
-      current.set(key, { ...cloneSnapshot(raw) } as MutableSnapshot);
+      current.set(key, { ...this.baseSnapshot(raw) } as MutableSnapshot);
       applied.set(key, new Map());
       removed.set(key, new Set());
       this.evaluating.add(key);
@@ -974,6 +1072,7 @@ export class LayerEngine {
         let passes = 0;
         const seen = new Set<string>();
         while (changed) {
+        this.count("passes");
         if (++passes > effects.length * 2 + 2) throw new MissingInformation("Continuous numeric dependencies require an explicit cycle ruling");
         changed = false;
         for (const layer of LAYER_ORDER) {
@@ -993,6 +1092,7 @@ export class LayerEngine {
               const appliedEntry = entry.effect.layer === "arithmetic" ? this.appliedArithmetic(entry, target) : { effect: this.materialize(entry, target) };
               const { effect } = appliedEntry;
               this.apply(target, layer, effect);
+              this.count("effectApplications");
               done.set(entry.effect.id, { entry, effect });
               changed = true;
             }
@@ -1015,6 +1115,7 @@ export class LayerEngine {
             if (!this.withSnapshot(before, () => this.layerMatches(item.entry, before))) {
               done.delete(id);
               removed.get(key)!.add(id);
+              this.count("effectDisqualifications");
               rebuild = true;
               continue;
             }
@@ -1025,11 +1126,12 @@ export class LayerEngine {
               // Replacing an evaluated scalar is not a second application.
               // Replay the accumulated modifications from base characteristics.
               done.set(id, { entry: item.entry, effect });
+              this.count("effectReevaluations");
               rebuild = true;
             }
           }
           if (rebuild) {
-            const target = { ...cloneSnapshot(this.objects.get(key)!) } as MutableSnapshot;
+            const target = { ...this.baseSnapshot(this.objects.get(key)!) } as MutableSnapshot;
             current.set(key, target);
             this.partial.set(key, target);
             for (const layer of LAYER_ORDER) for (const item of done.values()) {
@@ -1064,7 +1166,9 @@ export class LayerEngine {
   }
 
   private evaluateDependency(ref: ObjectRef): LayeredObjectSnapshot | null {
+    this.count("dependencyCalls");
     const key = refKey(ref);
+    if (this.raw(ref) === null) return null;
     if (this.evaluating.has(key)) {
       const index = this.frames.findIndex(frame => frame.includes(key));
       if (index === this.frames.length - 1) return (key === this.currentObject ? this.partial.get(key) : this.groupView.get(key)) ?? null;
@@ -1072,18 +1176,23 @@ export class LayerEngine {
       for (const member of cycle) for (const existing of this.groups.get(member) ?? []) cycle.add(existing);
       for (const member of cycle) this.groups.set(member, cycle);
       this.restartRequested = true;
+      this.count("dependencyRestarts");
       throw new LayerDependencyRestart();
     }
     const cached = this.cache.get(key);
-    if (cached !== undefined) return this.depth === 0 ? this.publicSnapshot(cached) : cached;
-    if (this.raw(ref) === null) return null;
+    if (cached !== undefined) {
+      this.count("dependencyCacheHits");
+      return this.depth === 0 ? this.publicSnapshot(cached) : cached;
+    }
     this.evaluateGroup([...(this.groups.get(key) ?? [key])]);
     const result = this.cache.get(key) ?? null;
     return result === null || this.depth > 0 ? result : this.publicSnapshot(result);
   }
 
   evaluate(ref: ObjectRef): LayeredObjectSnapshot | null {
+    this.count("evaluateCalls");
     if (this.depth > 0) return this.evaluateDependency(ref);
+    this.syncRegistry();
     const current = this.currentAttachmentSignature();
     const attachmentRevision = current;
     if (this.attachmentRevision !== attachmentRevision) {
@@ -1091,12 +1200,10 @@ export class LayerEngine {
       this.copyCache.clear();
       this.groups.clear();
       this.copyGroups.clear();
+      this.baseSnapshots = new WeakMap();
+      this.derivedEffectsCache = undefined;
       this.rebuildAttachmentBonuses();
       this.attachmentRevision = attachmentRevision;
-    }
-    if (this.registryRevision !== this.registry.revision) {
-      this.invalidate();
-      this.registryRevision = this.registry.revision;
     }
     this.depth++;
     try {
@@ -1128,6 +1235,7 @@ export class LayerEngine {
    * Map order is already canonical here and needs no sort (RIFT-1015).
    */
   private attachmentSignature(): string {
+    this.count("attachmentSignatureCalls");
     return JSON.stringify([...this.objects.values()].map(object => [refKey(object.ref), object.types,
       object.tags, object.zone, object.might, object.buffs, object.attachedTo]));
   }
@@ -1141,8 +1249,12 @@ export class LayerEngine {
   private currentAttachmentSignature(): string {
     const objects = [...this.objects.values()];
     const previous = this.attachmentObjects;
+    // A production host installed through setObjects has already paid for the
+    // canonical signature exactly once at this boundary. Only a direct Map
+    // mutation made after an immutable boundary needs another serialization.
     if (this.immutableAttachmentObjects && objects.length === previous.length &&
         objects.every((object, index) => object === previous[index])) {
+      this.count("attachmentSignatureReuses");
       return this.attachmentRevision!;
     }
     const signature = this.attachmentSignature();
@@ -1158,6 +1270,8 @@ export class LayerEngine {
   }
 
   evaluateAll(): readonly LayeredObjectSnapshot[] {
+    this.count("evaluateAllCalls");
+    this.syncRegistry();
     const snapshots: LayeredObjectSnapshot[] = [];
     // Evaluation is reentrant: a condition or derived callback may refresh the
     // host and call setObjects through the public engine. Freeze this batch's
