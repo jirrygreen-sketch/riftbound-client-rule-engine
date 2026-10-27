@@ -45,7 +45,7 @@ CR 没有规定 V2 投影必须新增一种 `damage-assignment` pending choice�
 
 复现使用 `createEngineRuntime(...).start()`：它走真实 `createMatch`、`TurnFlow`、`ChainEngine`、`createProgramBinding` 与 `attachLifecycle`，再用正常的 play/pass/end-turn/move/advance/combat-damage 命令进入 Combat Damage Step。没有改写 frame、zone、health、damage、Priority 或事件。
 
-临时 Vitest 文件放在 `apps/game-server/tests/engine-runtime/__rift1104-repro.test.ts` 执行一次后立即删除，没有进入提交。核心装配与执行内容如下；日志保留在 `/tmp/RIFT-1104-pass-during-damage-wait/repro-temp.log`：
+临时 Vitest 文件放在 `apps/game-server/tests/engine-runtime/__rift1104-repro.test.ts` 执行后立即删除，没有进入提交。为同时记录攻守双方视角，第二个临时变体 `__rift1104-before.test.ts` 也只用于采样并在运行后删除。核心装配与执行内容如下；日志保留在 `/tmp/RIFT-1104-pass-during-damage-wait/repro-before.log`：
 
 ```ts
 const runtime = createEngineRuntime({
@@ -66,7 +66,8 @@ runtime.submit("B", command("combat-damage", "attacker-assignment", damage.state
 }));
 
 // 以下为观察，不修改任何投影或命令。
-const waiting = runtime.projectFor("A");
+const waitingDefender = runtime.projectFor("A");
+const waiting = runtime.projectFor("B"); // 攻方视角，Pass 前
 const pass1 = runtime.submit("B",
   command("pass", "attacker-pass-waiting-1", waiting.stateVersion, {}));
 const pass2 = runtime.submit("B",
@@ -77,20 +78,22 @@ const pass2 = runtime.submit("B",
 
 ```sh
 pnpm --filter @riftbound/game-server exec vitest run \
-  --config vitest.config.ts tests/engine-runtime/__rift1104-repro.test.ts --reporter=verbose
+  --config vitest.config.ts tests/engine-runtime/__rift1104-before.test.ts --reporter=verbose
 ```
 
 关键原始回执与投影：
 
 ```json
-{"stateVersion":13,"priority":{"playerId":"B","focusPlayerId":null,"window":"open"},"pendingChoice":{"status":"none"},"actionOptions":{"canEndTurn":false,"canAdvance":false,"canPass":false,"moves":[],"plays":[]},"combat":{"status":"active","battlefieldId":"token:5","step":"damage","combatId":"combat:token:5:1","attackerPlayerId":"B","defenderPlayerId":"A","damage":{"attackerMight":3,"defenderMight":3,"attackerSubmitted":true,"expectedPlayerId":"A"}},"eventSeq":295}
+{"stateVersion":13,"priority":{"playerId":"B","focusPlayerId":null,"window":"open"},"pendingChoice":{"status":"none"},"actionOptions":{"canEndTurn":false,"canAdvance":false,"canPass":false,"moves":[],"plays":[]},"combat":{"status":"active","battlefieldId":"token:5","step":"damage","combatId":"combat:token:5:1","attackerPlayerId":"B","defenderPlayerId":"A","damage":{"attackerMight":3,"defenderMight":3,"attackerSubmitted":true,"expectedPlayerId":"A"}}}
+
+{"stateVersion":13,"priority":{"playerId":"B","focusPlayerId":null,"window":"open"},"pendingChoice":{"status":"none"},"actionOptions":{"canEndTurn":false,"canAdvance":false,"canPass":true,"moves":[],"plays":[]},"combat":{"status":"active","battlefieldId":"token:5","step":"damage","combatId":"combat:token:5:1","attackerPlayerId":"B","defenderPlayerId":"A","damage":{"attackerMight":3,"defenderMight":3,"attackerSubmitted":true,"expectedPlayerId":"A"}},"eventSeq":295}
 
 {"before":{"stateVersion":13,"eventSeq":295},"receipt":{"commandId":"attacker-pass-waiting-1","status":"accepted","stateVersion":14,"eventSeq":295,"result":{"accepted":true}},"after":{"stateVersion":14,"priority":{"playerId":"B","focusPlayerId":null,"window":"open"},"pendingChoice":{"status":"none"},"actionOptions":{"canEndTurn":false,"canAdvance":false,"canPass":true,"moves":[],"plays":[]},"combat":{"status":"active","battlefieldId":"token:5","step":"damage","combatId":"combat:token:5:1","attackerPlayerId":"B","defenderPlayerId":"A","damage":{"attackerMight":3,"defenderMight":3,"attackerSubmitted":true,"expectedPlayerId":"A"}}}}
 
 {"before":{"stateVersion":14},"receipt":{"commandId":"attacker-pass-waiting-2","status":"accepted","stateVersion":15,"eventSeq":295,"result":{"accepted":true}},"after":{"stateVersion":15,"combat":{"status":"active","battlefieldId":"token:5","step":"damage","combatId":"combat:token:5:1","attackerPlayerId":"B","defenderPlayerId":"A","damage":{"attackerMight":3,"defenderMight":3,"attackerSubmitted":true,"expectedPlayerId":"A"}},"priority":{"playerId":"B","focusPlayerId":null,"window":"open"},"actionOptions":{"canEndTurn":false,"canAdvance":false,"canPass":true,"moves":[],"plays":[]}}
 ```
 
-注意第一行是第一次 Pass 之前从 `A`（守方）视角取得的投影；因为 `canPassForViewer` 对攻守双方都只检查 Chain，故 `A` 视角也显示 `canPass:false` 并不能说明攻方 UI 安全。攻方视角的第一次 Pass 回执后，`B` 的直接投影确认 `canPass:true`。第二次 Pass 再次 accepted，`stateVersion 14→15`，战斗与 `eventSeq 295` 完全不变。
+第一个 JSON 是第一次 Pass 之前从 `A`（守方）视角取得的投影；第二个是同一 head 上从 `B`（攻方）视角取得的投影。两者冻结的 Combat 与 `expectedPlayerId=A` 相同，但攻方视角错误显示 `canPass:true`，这直接对应 Mac UI 中可点的 Pass。第二次 Pass 再次 accepted，`stateVersion 14→15`，战斗与 `eventSeq 295` 完全不变。
 
 真实物理伤害会被随机对局中的牌或 Unit 数量等因素夸大，但本例只使用双方各一个 3 Might Unit，进入 Damage 后攻方先分配 3，随后 `expectedPlayerId=A`。等待窗口不包含临时 fixture 结算，复现最强的判据是“同一 expectedPlayerId、同一 `eventSeq`、stateVersion 可无限增长”。
 
@@ -182,10 +185,10 @@ pnpm --filter @riftbound/game-server exec vitest run \
 
 | 命令 | 结果 | 证据 |
 | --- | --- | --- |
-| `pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/engine-runtime/__rift1104-repro.test.ts --reporter=verbose` | 1 passed；精确复现 accepted/no-progress | `/tmp/RIFT-1104-pass-during-damage-wait/repro-temp.log` |
-| `pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/engine-runtime/v2-can-pass.test.ts --reporter=verbose` | 3 passed；等待态 bug 被现有断言固化 | `/tmp/RIFT-1104-pass-during-damage-wait/v2-can-pass-baseline.log` |
+| `pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/engine-runtime/__rift1104-before.test.ts --reporter=verbose` | 1 passed；同一 head 上攻方 `canPass=true`，两次 Pass accepted/no-progress | `/tmp/RIFT-1104-pass-during-damage-wait/repro-before.log`（SHA-256 `8d2bc9c8…e268930`） |
+| `pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/engine-runtime/v2-can-pass.test.ts --reporter=verbose` | 3 passed；等待态 bug 被现有断言固化 | `/tmp/RIFT-1104-pass-during-damage-wait/v2-can-pass-baseline.log`（SHA-256 `f1d3f6bd…5d321`） |
 | `git diff --check` | exit 0 | 报告变更 |
-| `heavy pnpm --filter @riftbound/desktop-client test` | 84 files / 982 tests passed，0 fail | `/tmp/RIFT-1104-pass-during-damage-wait/desktop-client-test.log` |
-| `pnpm --filter @riftbound/desktop-client typecheck` | exit 0（`tsc --noEmit`） | `/tmp/RIFT-1104-pass-during-damage-wait/desktop-client-typecheck.log` |
+| `heavy pnpm --filter @riftbound/desktop-client test` | 84 files / 982 tests passed，0 fail | `/tmp/RIFT-1104-pass-during-damage-wait/desktop-client-test.log`（SHA-256 `3d27b8dc…6e0efe`） |
+| `pnpm --filter @riftbound/desktop-client typecheck` | exit 0（`tsc --noEmit`） | `/tmp/RIFT-1104-pass-during-damage-wait/desktop-client-typecheck.log`（SHA-256 `83662072…6cc92`） |
 
 证据目录仅包含临时测试、配置和日志，位于 `/tmp/RIFT-1104-pass-during-damage-wait/`；没有把脚本、截图、构建产物或日志提交到仓库。最终 HEAD、测试终态和任何未完成项由调度者从任务分支确认。
