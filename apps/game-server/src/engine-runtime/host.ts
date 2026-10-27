@@ -130,8 +130,8 @@ const clone = <T>(value: T): T => {
       return copy;
     }
     if (Array.isArray(entry)) {
-      const copy: unknown[] = []; seen.set(entry, copy);
-      for (const item of entry) copy.push(copyValue(item));
+      const copy: unknown[] = new Array(entry.length); seen.set(entry, copy);
+      for (let index = 0; index < entry.length; index += 1) copy[index] = copyValue(entry[index]);
       return copy;
     }
     const copy: Record<string, unknown> = {}; seen.set(entry, copy);
@@ -145,6 +145,37 @@ const deepFreeze = <T>(value: T): T => {
   for (const child of Object.values(value as Readonly<Record<string, unknown>>)) deepFreeze(child);
   return Object.freeze(value);
 };
+const CHECKPOINT_VERSION = Symbol("RIFT-1093 runtime checkpoint version");
+const CHECKPOINT_PUBLIC = Symbol("RIFT-1093 runtime checkpoint public state");
+interface CheckpointPublicState { materialized: boolean; }
+interface RuntimeAuthorityVersion {
+  readonly objects: readonly MutableObject[];
+  readonly players: readonly MutablePlayer[];
+  readonly lastKnown: readonly [string, ObjectSnapshot][];
+  readonly visibility: readonly RuntimeVisibilityGrant[];
+  readonly runeDomains: readonly [string, readonly Domain[]][];
+  readonly hidden: HiddenRuntimeCheckpoint;
+  readonly championLegends: readonly string[];
+  readonly nextToken: number;
+  readonly burnOutWinner: PlayerId | null;
+}
+/**
+ * Checkpoints are snapshots of authority, not a second mutable state owner.
+ * Reuse the deeply frozen generation until a write rotates it. This keeps
+ * nested rollback checkpoints proportional to the number of mutations rather
+ * than repeatedly copying the complete room graph.
+ */
+const authorityVersion = (version: RuntimeAuthorityVersion): RuntimeAuthorityVersion => Object.freeze(version);
+const checkpointVersionOf = (checkpoint: unknown): RuntimeAuthorityVersion | undefined =>
+  checkpoint !== null && typeof checkpoint === "object"
+    ? (() => {
+      const state = (checkpoint as Record<symbol, CheckpointPublicState | undefined>)[CHECKPOINT_PUBLIC];
+      const shared = (checkpoint as Record<symbol, RuntimeAuthorityVersion | undefined>)[CHECKPOINT_VERSION];
+      if (shared === undefined) return undefined;
+      if (state?.materialized === true) return undefined;
+      return shared;
+    })()
+    : undefined;
 const refKey = (ref: ObjectRef): string => `${ref.id}:${ref.zoneEntryId ?? 0}`;
 const KNOWN_DOMAINS = new Set<Domain>(["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]);
 
@@ -198,6 +229,8 @@ export class EngineRuntimeHost {
   private hidden: HiddenRuntimeState = { turn: 1, zones: new Map(), played: new Map() };
   /** One immutable public view per host write generation. */
   private objectsSnapshot: readonly ObjectSnapshot[] | null = null;
+  private authority: RuntimeAuthorityVersion | null = null;
+  private previousAuthority: RuntimeAuthorityVersion | null = null;
 
   constructor(
     readonly seatNames: Readonly<Record<PlayerId, string>> = { A: "Player A", B: "Player B" },
@@ -249,27 +282,42 @@ export class EngineRuntimeHost {
   }
 
   checkpoint(): RuntimeHostCheckpoint {
-    return {
-      objects: clone([...this.objectMap.values()]), players: clone([...this.players.values()]),
-      lastKnown: clone([...this.lastKnown.entries()]), nextToken: this.nextToken, visibility: clone(this.grants),
-      runeDomains: clone([...this.runeDomainsByObject.entries()]),
-      hidden: clone({ turn: this.hidden.turn, zones: [...this.hidden.zones.entries()], played: [...this.hidden.played.entries()] }),
-      championLegends: [...this.championLegends],
-      burnOutWinner: this.publicWinner,
+    const version = this.authority ?? this.captureAuthority();
+    const state: CheckpointPublicState = { materialized: false };
+    const values = new Map<PropertyKey, unknown>();
+    const get = <T>(key: keyof RuntimeAuthorityVersion): T => {
+      state.materialized = true;
+      if (!values.has(key)) values.set(key, clone(version[key]));
+      return values.get(key) as T;
     };
+    const saved = {};
+    for (const key of ["objects", "players", "lastKnown", "nextToken", "visibility", "runeDomains",
+      "hidden", "championLegends", "burnOutWinner"] as const) {
+      Object.defineProperty(saved, key, { enumerable: true, get: () => get<RuntimeAuthorityVersion[typeof key]>(key) });
+    }
+    Object.defineProperty(saved, CHECKPOINT_VERSION, { value: version });
+    Object.defineProperty(saved, CHECKPOINT_PUBLIC, { value: state });
+    return saved as RuntimeHostCheckpoint;
   }
 
   restore(checkpoint: unknown): void {
     const saved = checkpoint as RuntimeHostCheckpoint;
+    const shared = checkpointVersionOf(checkpoint);
     this.objectMap.clear(); this.players.clear(); this.lastKnown.clear(); this.grants.splice(0); this.runeDomainsByObject.clear(); this.championLegends.clear();
-    for (const object of clone(saved.objects)) this.objectMap.set(object.ref.id, object);
-    for (const player of clone(saved.players)) this.players.set(player.id, player);
-    for (const [key, object] of clone(saved.lastKnown)) this.lastKnown.set(key, object);
+    if (shared !== undefined) {
+      for (const object of shared.objects) this.objectMap.set(object.ref.id, clone(object));
+      for (const player of shared.players) this.players.set(player.id, clone(player));
+      for (const entry of shared.lastKnown) this.lastKnown.set(entry[0], clone(entry[1]));
+    } else {
+      for (const object of clone(saved.objects)) this.objectMap.set(object.ref.id, object);
+      for (const player of clone(saved.players)) this.players.set(player.id, player);
+      for (const [key, object] of clone(saved.lastKnown)) this.lastKnown.set(key, object);
+    }
     this.nextToken = saved.nextToken;
-    this.grants.push(...clone(saved.visibility));
-    const savedDomains = clone(saved.runeDomains ?? []);
-    for (const [key, value] of savedDomains) this.runeDomainsByObject.set(key, value);
-    for (const key of saved.championLegends ?? []) this.championLegends.add(key);
+    this.grants.push(...clone(shared?.visibility ?? saved.visibility));
+    const savedDomains = shared?.runeDomains ?? saved.runeDomains;
+    for (const entry of savedDomains ?? []) this.runeDomainsByObject.set(entry[0], clone(entry[1]));
+    for (const key of shared?.championLegends ?? saved.championLegends ?? []) this.championLegends.add(key);
     this.publicWinner = saved.burnOutWinner ?? null;
     if (saved.runeDomains === undefined) {
       for (const object of this.objectMap.values()) {
@@ -277,20 +325,86 @@ export class EngineRuntimeHost {
         if (value !== undefined) this.runeDomainsByObject.set(object.ref.id, value);
       }
     }
-    this.hidden = saved.hidden === undefined
+    const hidden = shared?.hidden ?? saved.hidden;
+    this.hidden = hidden === undefined
       ? { turn: 1, zones: new Map(), played: new Map() }
-      : { turn: saved.hidden.turn, zones: new Map(clone(saved.hidden.zones)), played: new Map(clone(saved.hidden.played)) };
+      : { turn: hidden.turn, zones: new Map(clone(hidden.zones)), played: new Map(clone(hidden.played)) };
+    this.authority = shared ?? this.captureAuthority();
     this.invalidateObjectCache();
   }
 
   objects(): readonly ObjectSnapshot[] {
     if (this.objectsSnapshot !== null) return this.objectsSnapshot;
-    this.objectsSnapshot = deepFreeze(clone([...this.objectMap.values()]));
+    const authority = this.authority ?? this.captureAuthority();
+    this.objectsSnapshot = Object.freeze([...authority.objects]);
     return this.objectsSnapshot;
   }
 
   /** Subclasses that adapt authoritative zones must retire the public view. */
-  protected invalidateObjectCache(): void { this.objectsSnapshot = null; }
+  protected invalidateObjectCache(): void {
+    this.objectsSnapshot = null;
+    if (this.authority !== null) this.previousAuthority = this.authority;
+    this.authority = null;
+  }
+
+  /** Capture an immutable generation; active containers remain private maps. */
+  private captureAuthority(): RuntimeAuthorityVersion {
+    const previous = this.previousAuthority;
+    const previousObjects = new Map(previous?.objects.map(object => [object.ref.id, object]));
+    const previousPlayers = new Map(previous?.players.map(player => [player.id, player]));
+    const previousDomains = new Map<string, readonly Domain[]>();
+    for (const entry of previous?.runeDomains ?? []) previousDomains.set(entry[0], entry[1]);
+    const objectChanged = (value: MutableObject, prior: ObjectSnapshot): boolean => {
+      const next = value as unknown as Record<string, unknown>;
+      const old = prior as unknown as Record<string, unknown>;
+      for (const key of Object.keys(next)) {
+        if (key === "counters") continue;
+        if (!Object.is(next[key], old[key])) return true;
+      }
+      const counters = value.counters;
+      const priorCounters = prior as MutableObject;
+      if (Object.keys(counters).length !== Object.keys(priorCounters.counters).length) return true;
+      return Object.entries(counters).some(([key, count]) => priorCounters.counters[key] !== count);
+    };
+    const playerChanged = (value: MutablePlayer, prior: MutablePlayer): boolean => {
+      if (value.id !== prior.id || value.name !== prior.name || value.energy !== prior.energy ||
+          value.xp !== prior.xp || value.score !== prior.score || value.power.length !== prior.power.length) return true;
+      return value.power.some((source, index) => prior.power[index] !== source) ||
+        (Object.keys(value.zones) as RuntimeZone[]).some(zone =>
+          value.zones[zone].length !== prior.zones[zone].length ||
+          value.zones[zone].some((id, index) => prior.zones[zone][index] !== id));
+    };
+    const objects = [...this.objectMap.values()].map(object => {
+      const prior = previousObjects.get(object.ref.id);
+      return prior !== undefined && object.ref.zoneEntryId === prior.ref.zoneEntryId && !objectChanged(object, prior)
+        ? prior
+        : deepFreeze(clone(object));
+    });
+    const players = [...this.players.values()].map(player => {
+      const prior = previousPlayers.get(player.id);
+      return prior !== undefined && !playerChanged(player, prior) ? prior : deepFreeze(clone(player));
+    });
+    const lastKnown = [...this.lastKnown.entries()].map(([key, object]) => {
+      const prior = previous?.lastKnown.find(entry => entry[0] === key)?.[1];
+      const current = deepFreeze(clone(object));
+      return [key, prior !== undefined && Object.is(object, prior) ? prior : current] as [string, ObjectSnapshot];
+    });
+    const version = authorityVersion({
+      objects: deepFreeze(objects),
+      players: deepFreeze(players),
+      lastKnown: deepFreeze(lastKnown),
+      visibility: deepFreeze(this.grants.map(grant => clone(grant))),
+      runeDomains: deepFreeze([...this.runeDomainsByObject.entries()].map(([key, domains]) =>
+        [key, previousDomains.get(key) ?? deepFreeze(clone(domains))] as [string, readonly Domain[]])),
+      hidden: deepFreeze(clone({ turn: this.hidden.turn, zones: [...this.hidden.zones.entries()], played: [...this.hidden.played.entries()] })),
+      championLegends: deepFreeze([...this.championLegends]),
+      nextToken: this.nextToken,
+      burnOutWinner: this.publicWinner,
+    });
+    this.authority = version;
+    this.previousAuthority = version;
+    return version;
+  }
 
   object(ref: ObjectRef): ObjectSnapshot | null {
     const object = this.objectMap.get(ref.id);
