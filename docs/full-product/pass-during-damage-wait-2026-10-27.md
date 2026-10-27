@@ -45,7 +45,7 @@ CR 没有规定 V2 投影必须新增一种 `damage-assignment` pending choice�
 
 复现使用 `createEngineRuntime(...).start()`：它走真实 `createMatch`、`TurnFlow`、`ChainEngine`、`createProgramBinding` 与 `attachLifecycle`，再用正常的 play/pass/end-turn/move/advance/combat-damage 命令进入 Combat Damage Step。没有改写 frame、zone、health、damage、Priority 或事件。
 
-临时 Vitest 文件放在 `apps/game-server/tests/engine-runtime/__rift1104-repro.test.ts` 执行后立即删除，没有进入提交。为同时记录攻守双方视角，第二个临时变体 `__rift1104-before.test.ts` 也只用于采样并在运行后删除。核心装配与执行内容如下；日志保留在 `/tmp/RIFT-1104-pass-during-damage-wait/repro-before.log`：
+临时 Vitest 文件放在 `apps/game-server/tests/engine-runtime/` 执行后立即删除，没有进入提交：先运行 `__rift1104-repro.test.ts`，再运行记录攻守双方视角的 `__rift1104-before.test.ts`，最终集成合并后将同一内容以 `__rift1104-postmerge.test.ts` 再跑一次。完整临时脚本已复制到 `/tmp/RIFT-1104-pass-during-damage-wait/v2-can-pass-before.test.ts`，最终日志在 `/tmp/RIFT-1104-pass-during-damage-wait/repro-post-merge.log`。核心装配与执行内容如下：
 
 ```ts
 const runtime = createEngineRuntime({
@@ -78,7 +78,7 @@ const pass2 = runtime.submit("B",
 
 ```sh
 pnpm --filter @riftbound/game-server exec vitest run \
-  --config vitest.config.ts tests/engine-runtime/__rift1104-before.test.ts --reporter=verbose
+  --config vitest.config.ts tests/engine-runtime/__rift1104-postmerge.test.ts --reporter=verbose
 ```
 
 关键原始回执与投影：
@@ -104,13 +104,13 @@ pnpm --filter @riftbound/game-server exec vitest run \
   --config vitest.config.ts tests/engine-runtime/v2-can-pass.test.ts --reporter=verbose
 ```
 
-结果：3/3 passed。其中 `v2-can-pass.test.ts:208-209` 明确断言 waiting 视图 `canPass=true`，并断言攻方额外 Pass 为 accepted。日志在 `/tmp/RIFT-1104-pass-during-damage-wait/v2-can-pass-baseline.log`。
+结果：3/3 passed。其中 `v2-can-pass.test.ts:208-209` 明确断言 waiting 视图 `canPass=true`，并断言攻方额外 Pass 为 accepted。最终 `integration@4f6a61ba` 合并后同样 3/3 passed；日志在 `/tmp/RIFT-1104-pass-during-damage-wait/v2-can-pass-post-merge.log`。
 
 ## 根因定位
 
 ### 1. 投影错误放行
 
-`apps/game-server/src/engine-runtime/projection.ts:131-145` 的 `canPassForViewer`：
+`apps/game-server/src/engine-runtime/projection.ts:131-145` 的 `canPassForViewer`（最终集成未改动此段）：
 
 - `:134` 对任意 Pending Chain item 直接返回 `true`；
 - `:135-140` 只在 Chain 空且战斗不活动时特殊处理 Neutral Main；
@@ -122,7 +122,7 @@ pnpm --filter @riftbound/game-server exec vitest run \
 
 ### 2. 命令入口把语义 no-op 当作成功
 
-`apps/game-server/src/engine-runtime/runtime.ts:847-858` 的 `executeValidatedCommand` 对非 Pending Chain 的 `pass` 无条件调用 `match.flow.pass(playerId)`，随后 `:963-974` 令 `stateVersion += 1` 并写 accepted 回执/journal。这里虽然抓住了错误命令，但缺少“该 pass 是否实际消耗了可用 Priority/Focus 并产生合法转移”的后置标准，违反了同文件 `packages/engine-core/src/game/commands/index.ts:81-85` 的既有约定：blocked/errors 不得变为 accepted/no-op receipt。
+`apps/game-server/src/engine-runtime/runtime.ts:877-889` 的 `executeValidatedCommand` 对非 Pending Chain 的 `pass` 无条件调用 `match.flow.pass(playerId)`，随后 `:993-1009` 令 `stateVersion += 1` 并写 accepted 回执/journal。这里虽然抓住了错误命令，但缺少“该 pass 是否实际消耗了可用 Priority/Focus 并产生合法转移”的后置标准，违反了同文件 `packages/engine-core/src/game/commands/index.ts:81-85` 的既有约定：blocked/errors 不得变为 accepted/no-op receipt。
 
 `packages/engine-core/src/turn/flow.ts:307-312`：
 
@@ -170,7 +170,7 @@ pnpm --filter @riftbound/game-server exec vitest run \
 
 当前 `packages/integration-tests/src/v2-duel/bot.ts:167-203` 在 `combat.status=active` 且 `step=damage` 时有独立 allocation 生成分支；若 expected actor 不匹配，`botCommand` 返回 null 而不是 Pass。其非 damage Combat Showdown 才在 `:202-203` 产生 Pass。因此修复不会改变正常 bot 已进入的两侧合法 `combat-damage` 命令，但会让任何残留“伤害窗口 Pass”从 accepted/no-progress 变成 rejected/fail-closed。
 
-`loadBotCommand` 在 `apps/game-server/scripts/load-test.ts:1068-1073` 先尝试 generated allocation，然后回退 `botCommand`；真实 Load 报告中的 `RIFT-1092` 早期 blocked 样本是在 `main/turn-1/state-4`，其最后命令是攻方 Pass、守方 Pass，并非本报告的 `combat.damage.expectedPlayerId` 等待态（见同仓报告的 seed `RIFT-1082-1`）。因此本修复不是那枚 turn-1 headless 覆盖缺口的完整解释，不能承诺百局自然胜场数提升。
+`loadBotCommand` 在 `apps/game-server/scripts/load-test.ts:1068-1073` 先尝试 generated allocation，然后回退 `botCommand`；真实 Load 报告中的早期 blocked 样本（seed `RIFT-1082-1`）是在 `main/turn-1/state-4`，其最后命令是攻方 Pass、守方 Pass，并非本报告的 `combat.damage.expectedPlayerId` 等待态。因此本修复不是那枚 turn-1 headless 覆盖缺口的完整解释，不能承诺百局自然胜场数提升。
 
 预期影响面：合法 100 局轨迹不应改变；若已有 bot/测试曾把抢占伤害步骤的 Pass 当成合法推进，会从“状态版本涨、无规则进展”变为明确的 rejected/blocked，这是期望的 fail-closed 差异。旧 replay/profile/schema 不应重写：旧日志中的 accepted Pass 必须按原规则版本严格重放；新规则拒绝只作用于新的运行命令，不修改历史日志。
 
@@ -185,8 +185,8 @@ pnpm --filter @riftbound/game-server exec vitest run \
 
 | 命令 | 结果 | 证据 |
 | --- | --- | --- |
-| `pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/engine-runtime/__rift1104-before.test.ts --reporter=verbose` | 1 passed；同一 head 上攻方 `canPass=true`，两次 Pass accepted/no-progress | `/tmp/RIFT-1104-pass-during-damage-wait/repro-before.log`（SHA-256 `8d2bc9c8…e268930`） |
-| `pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/engine-runtime/v2-can-pass.test.ts --reporter=verbose` | 3 passed；等待态 bug 被现有断言固化 | `/tmp/RIFT-1104-pass-during-damage-wait/v2-can-pass-baseline.log`（SHA-256 `f1d3f6bd…5d321`） |
+| `pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/engine-runtime/__rift1104-postmerge.test.ts --reporter=verbose`（最终集成） | 1 passed；同一 head 上攻方 `canPass=true`，两次 Pass accepted/no-progress | `/tmp/RIFT-1104-pass-during-damage-wait/repro-post-merge.log`（SHA-256 `dc0e583a…ce33f`） |
+| `pnpm --filter @riftbound/game-server exec vitest run --config vitest.config.ts tests/engine-runtime/v2-can-pass.test.ts --reporter=verbose`（最终集成） | 3 passed；等待态 bug 被现有断言固化 | `/tmp/RIFT-1104-pass-during-damage-wait/v2-can-pass-post-merge.log`（SHA-256 `129b374c…ec6d8`） |
 | `git diff --check` | exit 0 | 报告变更 |
 | `heavy pnpm --filter @riftbound/desktop-client test`（最终 `integration@4f6a61ba` 合并后） | 84 files / 982 tests passed，0 fail | `/tmp/RIFT-1104-pass-during-damage-wait/desktop-client-test-post-merge.log`（SHA-256 `3aad0c93…a4f24f`） |
 | `pnpm --filter @riftbound/desktop-client typecheck`（最终 `integration@4f6a61ba` 合并后） | exit 0（`tsc --noEmit`） | `/tmp/RIFT-1104-pass-during-damage-wait/desktop-client-typecheck-post-merge.log`（SHA-256 `83662072…6cc92`） |
