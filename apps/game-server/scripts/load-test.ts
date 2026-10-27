@@ -1,4 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
   access,
@@ -17,6 +19,7 @@ import { WebSocket } from "ws";
 
 import type { RoomDeckSubmission } from "../../../packages/protocol/src/index.js";
 import type {
+  V2ChooseCommand,
   V2Command,
   V2CommandReceipt,
   V2Projection
@@ -66,6 +69,13 @@ interface ClientSnapshot {
   };
   readonly roomVersion: number;
   readonly projection: V2Projection | null;
+}
+
+interface CardFact {
+  readonly energy: number | null;
+  readonly power: number | null;
+  readonly status: string;
+  readonly kind: "unit" | "gear" | "spell";
 }
 
 interface RequestReceipt {
@@ -131,6 +141,8 @@ interface GameResult {
   readonly failures: readonly GameFailure[];
   readonly checkedProjections: number;
   readonly commandResults?: readonly CommandResult[];
+  /** Retained only for blocked-game diagnosis; both sides remain private projections. */
+  readonly diagnosticProjections?: readonly V2Projection[];
 }
 
 interface ProcessSample {
@@ -243,6 +255,9 @@ interface LoadTestReport {
   readonly results: readonly LevelResult[];
   readonly stoppedAfter: number | null;
   readonly stopReason: string | null;
+  /** Why the final level ended; null only when no level completed. */
+  readonly terminalOutcome: "natural-win" | "coverage-blocked" | "product-blocked" |
+    "timeout-blocked" | "transport-blocked" | null;
   readonly cleanup: {
     readonly serverExited: boolean;
     readonly socketsClosed: boolean;
@@ -344,7 +359,8 @@ function parseOptions(): CliOptions {
   if (portBase + portSpan - 1 > 65_535) throw new RangeError("The selected port range exceeds 65535");
   const outputDirectory = path.resolve(option("output-dir") ??
     "/root/swarm-rift/shared/RIFT-1082-server-load-test");
-  const storageRoot = path.resolve("/root/swarm-rift/shared/RIFT-1082-server-load-test");
+  const storageRoot = path.resolve(option("storage-dir") ??
+    "/root/swarm-rift/shared/RIFT-1082-server-load-test");
   const deterministicSeed = option("deterministic-seed") ?? null;
   if (deterministicSeed !== null && deterministicSeed.length === 0) {
     throw new Error("--deterministic-seed must be non-empty when provided");
@@ -399,16 +415,6 @@ function projectionMessage(value: unknown): V2Projection | null {
   if (!record(value) || value.type !== "projection" || value.protocolVersion !== PROTOCOL_V2_VERSION ||
       !isV2Projection(value.projection)) return null;
   return value.projection;
-}
-
-function sameObservation(left: ProjectionObservation, right: ProjectionObservation): boolean {
-  if (left.stateVersion !== right.stateVersion || left.eventSeq !== right.eventSeq) return false;
-  if (left.pendingChoice.status !== right.pendingChoice.status) return false;
-  if (left.pendingChoice.status === "pending" && right.pendingChoice.status === "pending") {
-    return left.pendingChoice.choiceId === right.pendingChoice.choiceId &&
-      left.pendingChoice.kind === right.pendingChoice.kind;
-  }
-  return true;
 }
 
 function observation(projection: V2Projection): ProjectionObservation {
@@ -635,14 +641,22 @@ class WebSocketClient {
 
   async waitForProjectionAfter(
     commandId: string,
-    before: ProjectionObservation,
+    before: V2Projection,
     receipt: V2CommandReceipt,
     timeoutMs: number
   ): Promise<V2Projection> {
+    const previousSemantic = semanticObservation(before);
+    let consumed = false;
     const accepts = (projection: V2Projection): boolean => {
       if (projection.stateVersion < receipt.stateVersion || projection.eventSeq < receipt.eventSeq) return false;
-      const changed = projection.stateVersion > before.stateVersion || projection.eventSeq > before.eventSeq;
-      return changed || !sameObservation(before, observation(projection));
+      // Pending choices deliberately keep the state and event clocks unchanged.
+      // Compare against this client's own prior semantic projection so each
+      // viewer must consume the broadcast caused by the accepted command. A
+      // comparison against the actor's private view can pass immediately for the
+      // other viewer and leave the owner looking at its stale pre-choice state.
+      if (consumed || semanticObservation(projection) === previousSemantic) return false;
+      consumed = true;
+      return true;
     };
     const current = this.snapshotState?.projection;
     if (current !== undefined && current !== null && accepts(current)) return current;
@@ -831,6 +845,67 @@ function projectedActor(projection: V2Projection): string | null {
   return null;
 }
 
+function projectedCombatDamageCommand(
+  projection: V2Projection,
+  viewerPlayerId: string,
+  commandId: string,
+  rejectedAssignments: ReadonlySet<string> = new Set()
+): Extract<V2Command, { type: "combat-damage" }> | null {
+  const damage = projection.combat.status === "active" ? projection.combat.damage : undefined;
+  if (damage === undefined || projection.combat.combatId === undefined ||
+      projectedCombatDamagePlayer(projection) !== viewerPlayerId ||
+      projection.viewerPlayerId !== viewerPlayerId) return null;
+  const battlefield = projection.battlefields.find(field =>
+    field.battlefieldId === projection.combat.battlefieldId);
+  const opponent = projection.players.find(player => player.playerId !== viewerPlayerId)?.playerId;
+  if (battlefield === undefined || opponent === undefined) return null;
+  const targets = battlefield.occupantObjectIds.flatMap(objectId => {
+    const object = projection.objects.find(candidate => candidate.objectId === objectId);
+    const controller = object?.controllerPlayerId ?? object?.ownerPlayerId;
+    return object === undefined || controller !== opponent || object.zone !== "board" &&
+      object.zone !== "battlefield" || object.might === undefined ? [] : [object];
+  });
+  const budget = damage.attackerSubmitted ? damage.defenderMight : damage.attackerMight;
+  const orders = targetOrders(targets);
+  for (const order of orders) {
+    const assignments: { readonly unitObjectId: string; readonly amount: number }[] = [];
+    let remainingBudget = budget;
+    for (const target of order) {
+      if (remainingBudget <= 0) break;
+      const remainingDamage = target.damage ?? 0;
+      const lethal = Math.max(1, (target.might ?? 0) - remainingDamage);
+      const amount = Math.min(remainingBudget, lethal);
+      if (amount > 0) assignments.push({ unitObjectId: target.objectId, amount });
+      remainingBudget -= amount;
+    }
+    if (assignments.length === 0 || remainingBudget > 0) continue;
+    const key = combatAssignmentKey(projection, assignments);
+    if (rejectedAssignments.has(key)) continue;
+    return { type: "combat-damage", commandId, stateVersion: projection.stateVersion,
+      combatId: projection.combat.combatId, assignments };
+  }
+  return null;
+}
+
+function targetOrders<T>(values: readonly T[]): readonly (readonly T[])[] {
+  if (values.length <= 1) return [values];
+  // Exhaustive ordering is bounded because the visible wire surface does not
+  // disclose assignment-priority metadata. Beyond six targets, retain one
+  // deterministic order and fail closed when the server rejects it.
+  if (values.length > 6) return [values];
+  return values.flatMap((value, index) => targetOrders([
+    ...values.slice(0, index), ...values.slice(index + 1),
+  ]).map(rest => [value, ...rest]));
+}
+
+function combatAssignmentKey(
+  projection: V2Projection,
+  assignments: Extract<V2Command, { type: "combat-damage" }>["assignments"]
+): string {
+  return `${projection.stateVersion}:${projection.combat.status === "active"
+    ? projection.combat.combatId ?? "" : ""}:${JSON.stringify(assignments)}`;
+}
+
 function projectedActorFromViews(
   views: readonly [V2Projection, V2Projection]
 ): string | null {
@@ -842,6 +917,21 @@ function projectedActorFromViews(
   }
   if (uniquePendingOwners.length === 1) return uniquePendingOwners[0]!;
   return projectedActor(views[0]);
+}
+
+function pendingChoiceFromViews(
+  views: readonly [V2Projection, V2Projection]
+): Extract<V2Projection["pendingChoice"], { status: "pending" }> | null {
+  const pending = views.flatMap(view => view.pendingChoice.status === "pending"
+    ? [view.pendingChoice] : []);
+  if (pending.length === 0) return null;
+  const choice = pending[0]!;
+  if (pending.some(candidate => candidate.choiceId !== choice.choiceId ||
+      candidate.ownerPlayerId !== choice.ownerPlayerId || candidate.kind !== choice.kind ||
+      candidate.stateVersion !== choice.stateVersion)) {
+    throw new Error("Projections disagree about the current pending choice");
+  }
+  return choice;
 }
 
 function commandCardName(view: V2Projection): string | null {
@@ -862,6 +952,30 @@ function chooseSession(pair: RuntimePair, playerId: string): {
     throw new Error(`${client.label}: selected view belongs to ${String(projection.viewerPlayerId)} instead of ${playerId}`);
   }
   return { client, projection };
+}
+
+async function chooseCurrentSession(
+  pair: RuntimePair,
+  playerId: string,
+  expected: Extract<V2Projection["pendingChoice"], { status: "pending" }> | null,
+  timeoutMs: number
+): Promise<{
+  readonly client: WebSocketClient;
+  readonly projection: V2Projection;
+}> {
+  const selected = chooseSession(pair, playerId);
+  if (expected === null) return selected;
+  const current = selected.projection.pendingChoice;
+  if (current.status === "pending" && current.choiceId === expected.choiceId &&
+      current.ownerPlayerId === playerId && current.stateVersion === expected.stateVersion) {
+    return selected;
+  }
+  const projection = await selected.client.waitForProjection(candidate => {
+    const pending = candidate.pendingChoice;
+    return pending.status === "pending" && pending.choiceId === expected.choiceId &&
+      pending.ownerPlayerId === playerId && pending.stateVersion === expected.stateVersion;
+  }, `${playerId} owner projection for ${expected.choiceId}`, timeoutMs);
+  return { client: selected.client, projection };
 }
 
 function nextCommandId(seed: string, side: Side, action: number): string {
@@ -924,12 +1038,7 @@ async function startPair(
   }
 }
 
-const cardFacts = new Map(Object.values(V2_M1_PRECONS).flatMap<readonly [string, {
-  readonly energy: number | null;
-  readonly power: number | null;
-  readonly status: string;
-  readonly kind: "unit" | "gear" | "spell";
-}]>(precon =>
+const cardFacts = new Map(Object.values(V2_M1_PRECONS).flatMap<readonly [string, CardFact]>(precon =>
   precon.cards.map(card => {
     const program = cardProgramsById.get(card.canonicalCardId) as unknown as CardProgram | undefined;
     const kind: "unit" | "gear" | "spell" = card.cardType.toLowerCase() === "unit" ? "unit" :
@@ -942,6 +1051,192 @@ const cardFacts = new Map(Object.values(V2_M1_PRECONS).flatMap<readonly [string,
     }] as const;
   })));
 
+/**
+ * Answer the exact choice projected to its owner. The authoritative runtime
+ * omits `options` for empty select-objects candidates and for optional/number
+ * choices, so the load driver derives only the choice-shaped minimum answer
+ * and leaves every legality decision to the server.
+ */
+export function loadBotCommand(
+  projection: V2Projection,
+  viewerPlayerId: string,
+  commandId: string,
+  rejectedPlayIds: ReadonlySet<string> = new Set(),
+  cardFacts: ReadonlyMap<string, CardFact> = new Map(),
+  rejectedCombatAssignments: ReadonlySet<string> = new Set()
+): V2Command | null {
+  const pending = projection.pendingChoice;
+  if (pending.status !== "pending" || projection.phase === "setup") {
+    const combatDamage = projectedCombatDamageCommand(projection, viewerPlayerId, commandId,
+      rejectedCombatAssignments);
+    if (combatDamage !== null) return combatDamage;
+    return botCommand(projection, viewerPlayerId, commandId, rejectedPlayIds, cardFacts);
+  }
+  if (projection.viewerPlayerId !== viewerPlayerId || pending.ownerPlayerId !== viewerPlayerId) return null;
+  const options = pending.options ?? [];
+  let answer: V2ChooseCommand["answer"] | null;
+  switch (pending.kind) {
+    case "optional":
+      answer = false;
+      break;
+    case "mode": {
+      const option = options[0];
+      answer = option === undefined ? null : option.value ?? option.id;
+      break;
+    }
+    case "select-objects": {
+      const min = pending.min ?? 1;
+      const max = pending.max ?? options.length;
+      if (!Number.isSafeInteger(min) || !Number.isSafeInteger(max) || min < 0 || max < min ||
+          options.length < min) {
+        answer = null;
+        break;
+      }
+      const selected = options.slice(0, min);
+      answer = selected.every(option => option.objectRef !== undefined)
+        ? selected.map(option => option.objectRef!) : null;
+      break;
+    }
+    case "order": {
+      answer = options.length > 0 && options.every(option => option.objectRef !== undefined)
+        ? options.map(option => option.objectRef!) : null;
+      break;
+    }
+    case "number": {
+      answer = typeof pending.min === "number" && Number.isSafeInteger(pending.min) &&
+        typeof pending.max === "number" && Number.isSafeInteger(pending.max) &&
+        pending.min >= 0 && pending.max >= pending.min ? pending.min : null;
+      break;
+    }
+  }
+  if (answer === null) return null;
+  return { type: "choose", commandId, stateVersion: projection.stateVersion,
+    choiceId: pending.choiceId, answer };
+}
+
+function loadBotSelfTest(): void {
+  const base = {
+    projectionContract: "riftbound.protocol.v2.projection",
+    protocolVersion: "2.0.0",
+    rulesetVersion: "core-1.5",
+    matchId: "load-test-self-test",
+    viewerPlayerId: "player-1",
+    stateVersion: 4,
+    eventSeq: 88,
+    phase: "main",
+    turnNumber: 1,
+    activePlayerId: "player-1",
+    players: ["player-1", "player-2"].map(playerId => ({ playerId, name: playerId,
+      score: 0, energy: 0, power: {}, xp: 0, handCount: 0, deckCount: 0,
+      runeDeckCount: 0, zoneCounts: {} })),
+    zones: [],
+    objects: [],
+    chain: { status: "closed", phase: "open", priorityPlayerId: null,
+      focusPlayerId: null, items: [] },
+    priority: { playerId: null, focusPlayerId: null, window: "choice" },
+    scoring: { victoryScore: 8, battlefieldLocationIds: [], players: [] },
+    battlefields: [],
+    combat: { status: "none" },
+    actionOptions: { canEndTurn: false, canAdvance: false, moves: [], plays: [] },
+    winnerPlayerId: null,
+    events: [],
+  } as const;
+  const withChoice = (pendingChoice: V2Projection["pendingChoice"]): V2Projection =>
+    ({ ...base, pendingChoice }) as V2Projection;
+  const choice = { status: "pending", choiceId: "choice", ownerPlayerId: "player-1",
+    stateVersion: 4 } as const;
+  const answerFor = (pendingChoice: V2Projection["pendingChoice"]) => {
+    const command = loadBotCommand(withChoice(pendingChoice), "player-1", "self-test");
+    return command?.type === "choose" ? command.answer : command;
+  };
+
+  // RIFT-1082 reproduced this exact empty-owner projection. It is a complete
+  // select-objects prompt because min=0 even though the server correctly omits
+  // an empty options array from the wire projection.
+  assert.deepEqual(answerFor({ ...choice, kind: "select-objects", min: 0, max: 1 }), []);
+  assert.equal(answerFor({ ...choice, kind: "select-objects", min: 1, max: 1 }), null);
+  assert.equal(answerFor({ ...choice, kind: "optional" }), false);
+  assert.equal(answerFor({ ...choice, kind: "mode", options: [{ id: "yes", label: "Yes", value: true }] }), true);
+  assert.equal(answerFor({ ...choice, kind: "number", min: 0, max: 2 }), 0);
+  assert.deepEqual(answerFor({ ...choice, kind: "order", options: [
+    { id: "first", label: "First", objectRef: { objectId: "unit:1", zoneEntryId: 1 } },
+    { id: "second", label: "Second", objectRef: { objectId: "unit:2", zoneEntryId: 1 } },
+  ] }), [{ objectId: "unit:1", zoneEntryId: 1 }, { objectId: "unit:2", zoneEntryId: 1 }]);
+  assert.equal(loadBotCommand(withChoice({ ...choice, kind: "optional" }), "player-2", "wrong-view"), null);
+
+  const combat = {
+    ...base,
+    pendingChoice: { status: "none" },
+    battlefields: [{ battlefieldId: "field", controllerPlayerId: null,
+      contestedByPlayerId: null, staged: "combat", occupantObjectIds: ["unit:1", "unit:2"] }],
+    objects: [
+      { objectId: "unit:1", zoneEntryId: 1, zone: "battlefield", ownerPlayerId: "player-2",
+        faceDown: false, visibility: "public", might: 4, damage: 0 },
+      { objectId: "unit:2", zoneEntryId: 1, zone: "battlefield", ownerPlayerId: "player-2",
+        faceDown: false, visibility: "public", might: 2, damage: 0 },
+    ],
+    combat: { status: "active", battlefieldId: "field", step: "damage", combatId: "combat:1",
+      attackerPlayerId: "player-1", defenderPlayerId: "player-2",
+      damage: { attackerMight: 5, defenderMight: 6, attackerSubmitted: false,
+        expectedPlayerId: "player-1" } },
+  } as V2Projection;
+  assert.deepEqual(loadBotCommand(combat, "player-1", "self-combat"), {
+    type: "combat-damage", commandId: "self-combat", stateVersion: 4,
+    combatId: "combat:1", assignments: [
+      { unitObjectId: "unit:1", amount: 4 }, { unitObjectId: "unit:2", amount: 1 },
+    ],
+  });
+  const firstCombatAssignment = [
+    { unitObjectId: "unit:1", amount: 4 }, { unitObjectId: "unit:2", amount: 1 },
+  ];
+  assert.deepEqual(loadBotCommand(combat, "player-1", "self-combat-next-order", new Set(),
+    new Map(), new Set([combatAssignmentKey(combat, firstCombatAssignment)])), {
+    type: "combat-damage", commandId: "self-combat-next-order", stateVersion: 4,
+    combatId: "combat:1", assignments: [
+      { unitObjectId: "unit:2", amount: 2 }, { unitObjectId: "unit:1", amount: 3 },
+    ],
+  });
+}
+
+function levelTraceHash(games: readonly GameResult[]): string {
+  return createHash("sha256").update(JSON.stringify(games.map(game => ({
+    room: game.room,
+    seed: game.seed,
+    roomId: game.roomId,
+    termination: game.termination,
+    winnerPlayerId: game.winnerPlayerId,
+    turns: game.turns,
+    commands: game.commands,
+    commandResults: game.commandResults?.map(command => ({
+      type: command.type, accepted: command.accepted, commandId: command.commandId,
+      stateVersion: command.stateVersion, phase: command.phase,
+      turnNumber: command.turnNumber, cardObjectId: command.cardObjectId,
+      actorPlayerId: command.actorPlayerId,
+    })),
+    failures: game.failures,
+  })))).digest("hex");
+}
+
+function terminalOutcome(games: readonly GameResult[],
+  summary: LevelResult["aggregate"]): LoadTestReport["terminalOutcome"] {
+  if (summary.completedGames === games.length && games.every(game =>
+      game.termination === "winner" && game.failures.length === 0)) return "natural-win";
+  const failures = games.flatMap(game => game.failures);
+  if (failures.some(failure => failure.kind === "disconnect" ||
+      failure.message.includes("websocket") || failure.message.includes("receipt convergence") ||
+      failure.message.includes("projection after"))) return "transport-blocked";
+  if (failures.some(failure =>
+      failure.message.startsWith("no projected actor") ||
+      failure.message.startsWith("no projected legal command") ||
+      failure.message.startsWith("no projected answer"))) {
+    return "coverage-blocked";
+  }
+  if (summary.timedOutGames > 0 || failures.some(failure => failure.kind === "timeout")) {
+    return "timeout-blocked";
+  }
+  return "product-blocked";
+}
+
 async function driveGame(
   roomIndex: number,
   pair: RuntimePair,
@@ -951,6 +1246,7 @@ async function driveGame(
   const timings: CommandTiming[] = [];
   const failures: GameFailure[] = [];
   const rejectedPlays = new Map<string, Set<string>>();
+  const rejectedCombatAssignments = new Map<string, Set<string>>();
   let terminal: V2Projection | null = null;
   let actionCount = 0;
   let termination: GameTermination = "blocked";
@@ -1024,18 +1320,22 @@ async function driveGame(
         termination = "blocked";
         break;
       }
-      const selected = chooseSession(pair, actor);
+      const expectedPending = live[0].phase === "setup" ? null : pendingChoiceFromViews(live);
+      const selected = await chooseCurrentSession(pair, actor, expectedPending, options.commandTimeoutMs);
       const side: Side = actor === playerIds[0] ? "first" : "second";
       const commandId = nextCommandId(seed, side, actionCount);
       const rejectedForActor = rejectedPlays.get(actor) ?? new Set<string>();
-      const command = botCommand(selected.projection, actor, commandId, rejectedForActor, cardFacts);
+      const rejectedCombatForActor = rejectedCombatAssignments.get(actor) ?? new Set<string>();
+      const command = loadBotCommand(selected.projection, actor, commandId, rejectedForActor, cardFacts,
+        rejectedCombatForActor);
       if (command === null) {
         const pending = selected.projection.pendingChoice.status === "pending"
           ? selected.projection.pendingChoice : null;
         failures.push({
           kind: pending === null ? "error" : "rejection",
           message: pending === null
-            ? `no projected legal command at ${phaseLabel(selected.projection)}`
+            ? `no projected legal command at ${phaseLabel(selected.projection)}; actor ${actor}, ` +
+              `actor pending ${selected.projection.pendingChoice.status}, peer pending ${live[0].viewerPlayerId === actor ? live[1].pendingChoice.status : live[0].pendingChoice.status}`
             : `no projected answer for ${pending.kind} choice ${pending.choiceId}; ` +
               `owner ${pending.ownerPlayerId}, options ${pending.options?.length ?? 0}, ` +
               `min ${pending.min ?? "n/a"}, max ${pending.max ?? "n/a"}`,
@@ -1046,7 +1346,8 @@ async function driveGame(
         termination = "blocked";
         break;
       }
-      const before = observation(selected.projection);
+      const beforeFirst = currentClientProjection(pair.first);
+      const beforeSecond = currentClientProjection(pair.second);
       try {
         const { receipt, latencyMs } = await selected.client.sendCommand(command, options.commandTimeoutMs);
         timings.push({ latencyMs, accepted: receipt.accepted, type: command.type,
@@ -1066,34 +1367,20 @@ async function driveGame(
             const blocked = rejectedPlays.get(actor) ?? new Set<string>();
             blocked.add(command.cardObjectId);
             rejectedPlays.set(actor, blocked);
+          } else if (command.type === "combat-damage") {
+            const blocked = rejectedCombatAssignments.get(actor) ?? new Set<string>();
+            blocked.add(combatAssignmentKey(selected.projection, command.assignments));
+            rejectedCombatAssignments.set(actor, blocked);
           }
           continue;
         }
         await Promise.all([
-          pair.first.waitForProjection(candidate =>
-            candidate.stateVersion >= receipt.stateVersion && candidate.eventSeq >= receipt.eventSeq,
-            `${seed} first receipt convergence`, options.commandTimeoutMs),
-          pair.second.waitForProjection(candidate =>
-            candidate.stateVersion >= receipt.stateVersion && candidate.eventSeq >= receipt.eventSeq,
-            `${seed} second receipt convergence`, options.commandTimeoutMs)
+          pair.first.waitForProjectionAfter(commandId, beforeFirst, receipt,
+            options.commandTimeoutMs),
+          pair.second.waitForProjectionAfter(commandId, beforeSecond, receipt,
+            options.commandTimeoutMs)
         ]);
-        if (command.type === "mulligan") {
-          setupOwnerAfterCommand = actor;
-        } else {
-          const previousSemantic = semanticObservation(selected.projection);
-          await Promise.all([
-            pair.first.waitForProjection(candidate =>
-              candidate.stateVersion >= receipt.stateVersion &&
-              candidate.eventSeq >= receipt.eventSeq &&
-              semanticObservation(candidate) !== previousSemantic,
-              `${seed} first projection after ${commandId}`, options.commandTimeoutMs),
-            pair.second.waitForProjection(candidate =>
-              candidate.stateVersion >= receipt.stateVersion &&
-              candidate.eventSeq >= receipt.eventSeq &&
-              semanticObservation(candidate) !== previousSemantic,
-              `${seed} second projection after ${commandId}`, options.commandTimeoutMs)
-          ]);
-        }
+        if (command.type === "mulligan") setupOwnerAfterCommand = actor;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const disconnected = pair.first.isClosed || pair.second.isClosed;
@@ -1156,7 +1443,10 @@ async function driveGame(
     disconnects: disconnectKinds,
     timeouts: timeoutKinds,
     failures,
-    checkedProjections: pair.checkedProjections.count
+    checkedProjections: pair.checkedProjections.count,
+    ...(termination === "blocked" || termination === "timeout" ? { diagnosticProjections: [
+      currentClientProjection(pair.first), currentClientProjection(pair.second),
+    ] } : {})
   };
 }
 
@@ -1673,6 +1963,7 @@ async function main(): Promise<void> {
   const excludedPorts = new Set<number>();
   let stoppedAfter: number | null = null;
   let stopReason: string | null = null;
+  let finalOutcome: LoadTestReport["terminalOutcome"] = null;
   let cleanupError: unknown;
   const cleanupProblems: string[] = [];
   const start = performance.now();
@@ -1689,13 +1980,22 @@ async function main(): Promise<void> {
       const result = await runLevel(options, run.mode, run.rooms, excludedPorts,
         options.storageRoot);
       results.push(result);
+      finalOutcome = terminalOutcome(result.games, result.aggregate);
       await writeRawLevel(options.outputDirectory, result);
       process.stdout.write(`${result.mode} N=${result.rooms}: ${result.aggregate.completedGames}/${result.rooms} complete, ` +
         `${result.aggregate.totalCommands} commands, p95 ${result.aggregate.latencyP95Ms}ms, ` +
-        `RSS peak ${result.server.rssPeakBytes}, CPU average ${result.server.cpuAveragePercent}%\n`);
-      if (run.mode === "file" && result.limitBreached) {
+        `RSS peak ${result.server.rssPeakBytes}, CPU average ${result.server.cpuAveragePercent}%, ` +
+        `trace ${levelTraceHash(result.games)}\n`);
+      const coverageBlocked = result.games.some(game => game.termination !== "winner" &&
+        game.failures.some(failure =>
+          failure.message.startsWith("no projected actor") ||
+          failure.message.startsWith("no projected legal command") ||
+          failure.message.startsWith("no projected answer")));
+      if (run.mode === "file" && (result.limitBreached || coverageBlocked)) {
         stoppedAfter = run.rooms;
-        stopReason = result.possiblePortConflict
+        stopReason = coverageBlocked
+          ? "projected command coverage stopped the file level"
+          : result.possiblePortConflict
           ? "port conflict or child server startup failure"
           : `p95 ${result.aggregate.latencyP95Ms}ms; rejected ${result.aggregate.rejectedCommands}; ` +
             `errors ${result.aggregate.errors}; disconnected ${result.aggregate.disconnects}; timeouts ${result.aggregate.timeouts}`;
@@ -1748,6 +2048,7 @@ async function main(): Promise<void> {
     results,
     stoppedAfter,
     stopReason,
+    terminalOutcome: finalOutcome,
     cleanup: {
       serverExited: results.every(result => result.server.exitedUnexpectedly === false),
       socketsClosed: true,
@@ -1762,5 +2063,6 @@ async function main(): Promise<void> {
 }
 
 if (scriptEntry) {
-  await main();
+  if (process.argv.includes("--self-test")) loadBotSelfTest();
+  else await main();
 }
