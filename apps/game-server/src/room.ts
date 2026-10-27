@@ -912,10 +912,13 @@ export class GameRoom {
       if (runtimeMode !== "legacy-p4" && runtimeMode !== "engine-v2") throw new TypeError("Invalid duel runtime mode");
       const duel = roomArchive.journal;
       const engineJournal = roomArchive.engineRuntimeJournal;
+      const everySeatReady = roomArchive.seats.length === 2 &&
+        roomArchive.seats.every(seat => seat.ready && seat.deck !== null);
+      const gameStartedEvents = roomArchive.roomEventLog.filter(event => event.type === "game-started").length;
       if (runtimeMode === "legacy-p4" && engineJournal !== undefined ||
           runtimeMode === "engine-v2" && roomArchive.journal !== undefined ||
           runtimeMode === "engine-v2" && roomArchive.duelCommandAttempts !== undefined ||
-          roomArchive.seats.length < 1 ||
+          runtimeMode === "legacy-p4" && roomArchive.seats.length < 1 ||
           roomArchive.state !== null || !catalog ||
           roomArchive.roomEventLog[0]?.type !== "room-created" ||
           roomArchive.roomEventLog.filter(event => event.type === "player-joined").length !==
@@ -925,7 +928,7 @@ export class GameRoom {
           (runtimeMode === "legacy-p4" && (duel === undefined || (duel !== null && !isJournal(duel)))) ||
           (runtimeMode === "engine-v2" && engineJournal === undefined) ||
           roomArchive.processedCommands.length !== 0 ||
-          roomArchive.roomEventLog.filter(event => event.type === "game-started").length !==
+          gameStartedEvents !==
             ((runtimeMode === "legacy-p4" ? duel : engineJournal) === null ? 0 : 1) ||
           (roomArchive.engineMulligan != null && (
             runtimeMode !== "engine-v2" || roomArchive.seats.length !== 2 ||
@@ -935,11 +938,20 @@ export class GameRoom {
             !Array.isArray(roomArchive.engineMulligan.battlefieldChoice) ||
             roomArchive.engineMulligan.battlefieldChoice.length !== 2 ||
             roomArchive.engineMulligan.battlefieldChoice.some(value => !Number.isInteger(value) || value < 0 || value > 2) ||
-            !Array.isArray(roomArchive.engineMulligan.choices) || roomArchive.engineMulligan.choices.length !== 2 ||
-            roomArchive.engineMulligan.choices.every(choice => choice === null))) ||
-          (runtimeMode === "engine-v2" && roomArchive.engineMulligan == null &&
-            (roomArchive.seats.length !== 2 ||
-            roomArchive.seats.some(seat => !seat.ready || !seat.deck))) ||
+            !isRestorableMulliganChoices(
+              roomArchive.engineMulligan.choices,
+              roomArchive.engineMulligan.firstPlayer
+            ))) ||
+          // A null engine journal has two valid phases: a pregame waiting room
+          // with at most two seats, or the mulligan handoff guarded above.
+          // Once both seats are ready the production room enters that handoff,
+          // so ready seats without mulligan data are a damaged archive. A
+          // non-null journal is a started match and requires the full two-seat
+          // roster that its runtime will authenticate again during restore.
+          (runtimeMode === "engine-v2" && engineJournal === null && roomArchive.engineMulligan == null &&
+            everySeatReady) ||
+          (runtimeMode === "engine-v2" && engineJournal !== null &&
+            (roomArchive.engineMulligan != null || !everySeatReady)) ||
           roomArchive.seats.some(seat => seat.ready && seat.deck === null) ||
           roomArchive.seats.some(seat => seat.deck !== null && (
             !normalizeDeckRequest({ deck: seat.deck }) ||
@@ -2037,6 +2049,23 @@ export class RoomError extends Error {
     super(message);
     this.name = "RoomError";
   }
+}
+
+function isRestorableMulliganChoices(
+  choices: unknown,
+  firstPlayer: "A" | "B"
+): boolean {
+  if (!Array.isArray(choices) || choices.length !== 2) return false;
+  const firstIndex = firstPlayer === "A" ? 0 : 1;
+  const otherIndex = firstIndex === 0 ? 1 : 0;
+  const firstChoice = choices[firstIndex];
+  const otherChoice = choices[otherIndex];
+  if (firstChoice === null) return otherChoice === null;
+  const isFirstChoice = (value: unknown): value is readonly string[] =>
+    Array.isArray(value) && value.length <= 2 &&
+    value.every(cardId => typeof cardId === "string" && cardId.length > 0) &&
+    new Set(value).size === value.length;
+  return isFirstChoice(firstChoice) && otherChoice === null;
 }
 
 function commandWithActor(command: PlayerCommand, playerId: PlayerId): Command {

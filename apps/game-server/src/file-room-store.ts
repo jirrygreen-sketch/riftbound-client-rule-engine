@@ -600,6 +600,9 @@ function runtimeEngineVersion(archive: RoomArchive): string {
     return (archive.journal as { readonly header: { readonly engineVersion: string } })
       .header.engineVersion;
   }
+  if (archive.rulesetId === DUEL_RULESET_ID && archive.runtimeMode === "engine-v2") {
+    return "@riftbound/engine-core/current";
+  }
   return "unknown";
 }
 
@@ -618,6 +621,9 @@ function runtimeRulesetVersion(archive: RoomArchive): string {
         .header?.rulesetVersion === "string") {
     return (archive.journal as { readonly header: { readonly rulesetVersion: string } })
       .header.rulesetVersion;
+  }
+  if (archive.rulesetId === DUEL_RULESET_ID && archive.runtimeMode === "engine-v2") {
+    return "core-1.5";
   }
   // Pre-journal Duel archives do not carry an explicit rules version. Mark
   // that as unknown instead of applying any current-version assumption.
