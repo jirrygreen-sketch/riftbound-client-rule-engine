@@ -13,6 +13,7 @@ import { exitDesktopClient } from "../navigation/native-exit";
 import { RoomLobby } from "../components/RoomLobby";
 import { RoomChatPanel } from "../chat/RoomChatPanel";
 import { ProfilePage } from "../profile/ProfilePage";
+import { writePlayerProfile } from "../profile/player-profile";
 import { DeckImportPanel } from "../decks/DeckImportPanel";
 import { SettingsPage } from "../settings/SettingsPage";
 import { MatchControls } from "../settings/MatchControls";
@@ -183,6 +184,10 @@ export function AppView({
     const normalized = name.trim();
     if (!normalized) return;
     setProfile(current => current.name === normalized ? current : { ...current, name: normalized });
+    // Persist it like the profile page does, so the lobby still offers the
+    // name after a reload or restart (RIFT-1098); an invalid or unwritable
+    // name only keeps the in-memory update.
+    if (profile.name !== normalized) writePlayerProfile(preferenceStorage, { ...profile, name: normalized });
   };
   const createV2Room = async (name: string): Promise<RoomView> => {
     const nextRoom = await v2Match.createRoom(name);
