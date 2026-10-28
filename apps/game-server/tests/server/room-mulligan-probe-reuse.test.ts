@@ -109,6 +109,7 @@ describe("RIFT-1108 mulligan preview reuse", () => {
     const firstB = projectionFor(setup.room, "player-2");
     const preview = Reflect.get(setup.room, "engineMulliganPreview") as object;
     const previewBeforeFirstChoice = preview;
+    const previewRuntime = Reflect.get(preview, "runtime");
     expect(firstA.phase).toBe("setup");
     expect(firstB.phase).toBe("setup");
     expect(hand(firstA)).toHaveLength(4);
@@ -141,6 +142,7 @@ describe("RIFT-1108 mulligan preview reuse", () => {
     expect(Reflect.get(setup.room, "engineMulliganPreview")).toBeNull();
     expect(setup.room.exportArchive()).toMatchObject({ engineMulligan: null });
     expect(setup.room.exportArchive().engineRuntimeJournal).not.toBeNull();
+    expect(Reflect.get(setup.room, "engineRuntime")).not.toBe(previewRuntime);
   }, 120_000);
 
   it("keeps the first opening when the first seat mulligans a real hand card", async () => {
