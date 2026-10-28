@@ -53,6 +53,7 @@ import { useCardCatalog, type DeckByZone } from "../hooks/useCardCatalog";
 import { useDuelCardCatalog, type DuelCatalogStamp } from "../hooks/useDuelCardCatalog";
 import { useGameClient } from "../hooks/useGameClient";
 import { cardImageServerUrl, DEFAULT_CARD_SERVER_URL, type DeckZone } from "../net/CardCatalogClient";
+import { preferLocalCardImage } from "../net/local-card-images";
 import {
   OFFICIAL_RULESET_ID,
   DUEL_RULESET_ID,
@@ -64,6 +65,7 @@ import { createUiBootstrap, type UiBootstrap } from "./ui-bootstrap";
 import { DECK_ZONE_LABELS, DECK_ZONE_ORDER, DEFAULT_DRAFT_NAME, allowedZonesFor, isCardAbilityImplemented, buildCardLimits } from "./deck-policy";
 import { mergeEvents } from "./events";
 import { useV2Match } from "../hooks/useV2Match";
+import { useLocalCardImages } from "../hooks/useLocalCardImages";
 import { readV2UiEnabled, writeV2UiEnabled } from "../full-product/v2-ui-switch";
 import { readV2Session, writeV2Session } from "../full-product/v2/session-storage";
 
@@ -233,6 +235,8 @@ export function useAppState() {
     retryCatalog
   } = useCardCatalog({ serverUrl: catalogServerUrl, retryToken,
     constructedRegion: roomView?.constructedRegion ? {regionCode:roomView.constructedRegion.regionCode,eventDate:roomView.constructedRegion.eventDate} : null });
+  // RIFT-1129: the desktop shell keeps the official card art on disk.
+  const localCardImages = useLocalCardImages(catalog?.cards ?? null);
 
   const [storedV2Session, setStoredV2Session] = useState<ClientSession | null>(
     () => readV2Session(bootstrap.storage)
@@ -359,7 +363,7 @@ export function useAppState() {
         subtitle: card.subtitle ?? "",
         localizedName: card.localizedName ?? card.name,
         localizedSubtitle: card.localizedSubtitle ?? card.subtitle ?? "",
-        imageUrl: cardImageServerUrl(catalogServerUrl, card.id)
+        imageUrl: preferLocalCardImage(card.id, cardImageServerUrl(catalogServerUrl, card.id))
       }));
   }, [activeDeckZone, catalog, catalogServerUrl]);
 
@@ -400,7 +404,7 @@ export function useAppState() {
         title: [card.localizedName ?? card.name, card.localizedSubtitle ?? card.subtitle]
           .filter(Boolean)
           .join(" · "),
-        imageUrl: card.imageUrl ?? cardImageServerUrl(catalogServerUrl, card.id),
+        imageUrl: preferLocalCardImage(card.id, card.imageUrl ?? cardImageServerUrl(catalogServerUrl, card.id)),
         typeLabel: [card.cardType, ...card.domains].join(" · "),
         implemented: isCardAbilityImplemented(card)
       };
@@ -675,6 +679,7 @@ export function useAppState() {
     setProfile,
     displaySettings,
     settingsError,
+    localCardImages,
     replayLibrary,
     setReplayLibrary,
     replaySelection,

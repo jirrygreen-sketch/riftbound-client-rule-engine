@@ -6,6 +6,7 @@ import {
   type CardCatalog,
   type CatalogCard
 } from "../net/CardCatalogClient";
+import { preferLocalCardImage } from "../net/local-card-images";
 
 /**
  * Read-only display catalog for the authoritative 1v1 duel projection.
@@ -377,7 +378,7 @@ export function useDuelCardCatalog(
         : cardImageServerUrl(imageBase, card.id) || null;
       return {
         title,
-        imageUrl: localImageUrl ?? card.imageUrl ?? null,
+        imageUrl: preferLocalCardImage(card.id, localImageUrl ?? card.imageUrl ?? null),
         domains: card.domains
       };
     },

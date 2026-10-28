@@ -1,5 +1,6 @@
 import "./SettingsPage.css";
 import { CARD_SCALE_OPTIONS, type DisplaySettings } from "./display-settings";
+import type { LocalCardImagesState } from "../hooks/useLocalCardImages";
 
 /**
  * Display-settings page.
@@ -15,9 +16,11 @@ export interface SettingsPageProps {
   readonly settings: DisplaySettings;
   readonly onChange: (next: DisplaySettings) => void;
   readonly saveError?: string | null;
+  /** Desktop-only local card-art cache (RIFT-1129); hidden in the browser. */
+  readonly localCardImages?: LocalCardImagesState;
 }
 
-export function SettingsPage({ settings, onChange, saveError = null }: SettingsPageProps) {
+export function SettingsPage({ settings, onChange, saveError = null, localCardImages }: SettingsPageProps) {
   const update = (patch: Partial<DisplaySettings>) => onChange({ ...settings, ...patch });
 
   return (
@@ -97,7 +100,46 @@ export function SettingsPage({ settings, onChange, saveError = null }: SettingsP
             </span>
           </label>
         </fieldset>
+
+        {localCardImages?.supported ? <LocalCardImagesCard state={localCardImages} /> : null}
       </div>
     </section>
+  );
+}
+
+function LocalCardImagesCard({ state }: { readonly state: LocalCardImagesState }) {
+  const { progress, error } = state;
+  const running = progress?.running ?? false;
+  const complete = progress !== null && progress.total > 0 && progress.cached >= progress.total;
+  const summary = progress === null
+    ? "等待卡牌目录加载后开始下载。"
+    : `已下载 ${progress.cached} / ${progress.total} 张${progress.failed > 0 ? `，失败 ${progress.failed} 张` : ""}`;
+  const status = complete
+    ? "全部卡图已保存在本机，之后直接读取本地文件。"
+    : running
+      ? "正在后台下载官方原图……"
+      : progress?.cancelled
+        ? "已暂停。"
+        : progress !== null && progress.failed > 0
+          ? "部分卡图下载失败，可点击“继续下载”重试。"
+          : null;
+
+  return (
+    <fieldset className="stg-card" aria-label="本地卡图">
+      <legend className="stg-card-title">本地卡图</legend>
+      <p className="stg-hint">把官方卡图原图下载到本机；已下载的卡图不再从网络读取，未下载的先临时在线显示。</p>
+      <p className="stg-local-images-summary" role="status">{summary}</p>
+      {progress !== null && progress.total > 0 ? (
+        <progress className="stg-local-images-progress" max={progress.total} value={progress.cached}
+          aria-label="本地卡图下载进度" />
+      ) : null}
+      {status ? <p className="stg-hint">{status}</p> : null}
+      {error ? <p className="stg-save-error" role="alert">{error}</p> : null}
+      {complete ? null : running ? (
+        <button type="button" className="stg-button" onClick={state.pause}>暂停下载</button>
+      ) : (
+        <button type="button" className="stg-button" onClick={state.resume}>继续下载</button>
+      )}
+    </fieldset>
   );
 }

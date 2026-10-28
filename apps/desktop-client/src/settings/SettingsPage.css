@@ -372,3 +372,17 @@
     transition: none;
   }
 }
+
+/* ---------- Local card-image cache (RIFT-1129) ---------- */
+
+.stg-local-images-summary {
+  margin: 0;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.stg-local-images-progress {
+  width: 100%;
+  height: 8px;
+  accent-color: var(--stg-primary);
+}

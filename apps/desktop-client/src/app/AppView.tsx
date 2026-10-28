@@ -74,6 +74,7 @@ export function AppView({
   setProfile,
   displaySettings,
   settingsError,
+  localCardImages,
   replayLibrary,
   setReplayLibrary,
   replaySelection,
@@ -222,7 +223,8 @@ export function AppView({
       ) : activeTab === "profile" ? (
         <ProfilePage profile={profile} onSave={saveProfile} inRoom={roomId !== null} />
       ) : activeTab === "settings" ? (
-        <SettingsPage settings={displaySettings} onChange={changeDisplaySettings} saveError={settingsError} />
+        <SettingsPage settings={displaySettings} onChange={changeDisplaySettings} saveError={settingsError}
+          localCardImages={localCardImages} />
       ) : activeTab === "replays" ? (
         <ReplayPage library={replayLibrary} selectedId={replaySelection?.id ?? null}
           selectedFrameIndex={replaySelection?.index ?? 0}
