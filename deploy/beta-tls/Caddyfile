@@ -1,0 +1,43 @@
+# Riftbound beta 反向代理（自签证书方案）
+#
+# 浏览器 / 桌面 App ──https/wss:443──> Caddy ──http/ws──> game-server 127.0.0.1:8787
+#
+# 需要的环境变量：
+#   RIFT_BETA_HOST      服务器公网 IP 或域名，必须与 server.crt 的 SAN 一致
+#   RIFT_BETA_TLS_DIR   server.crt / server.key 所在目录
+#   RIFT_BETA_WEB_ROOT  客户端网页构建产物（apps/desktop-client/dist）
+#   RIFT_BETA_UPSTREAM  可选，game-server 地址，默认 127.0.0.1:8787
+#   RIFT_BETA_HTTPS_PORT / RIFT_BETA_HTTP_PORT  可选，默认 443 / 80（本机测试时改成高端口）
+{
+	https_port {$RIFT_BETA_HTTPS_PORT:443}
+	http_port {$RIFT_BETA_HTTP_PORT:80}
+	# 证书由私有 CA 签发，不让 Caddy 申请或自签证书。
+	auto_https disable_certs
+	# 客户端按 IP 连接时不发送 SNI，用它为这类连接选证书。
+	default_sni {$RIFT_BETA_HOST}
+}
+
+https://{$RIFT_BETA_HOST} {
+	tls {$RIFT_BETA_TLS_DIR}/server.crt {$RIFT_BETA_TLS_DIR}/server.key
+
+	# 对局 WebSocket：原样转发升级请求，不压缩、不缓冲。
+	@ws path /ws
+	handle @ws {
+		reverse_proxy {$RIFT_BETA_UPSTREAM:127.0.0.1:8787}
+	}
+
+	# 卡牌目录、卡图、牌组校验与健康检查。
+	@api path /api/* /health
+	handle @api {
+		encode zstd gzip
+		reverse_proxy {$RIFT_BETA_UPSTREAM:127.0.0.1:8787}
+	}
+
+	# 客户端网页（单页应用，未知路径回退到 index.html）。
+	handle {
+		root * {$RIFT_BETA_WEB_ROOT}
+		encode zstd gzip
+		try_files {path} /index.html
+		file_server
+	}
+}
