@@ -33,7 +33,7 @@ Caddy :443（私有 CA 签发的证书）
 ## 1. 生成证书（在管理员自己的电脑上做，不要在服务器上做）
 
 ```sh
-cd ~/project/xxself/riftbound-beta
+cd <本仓库根目录>          # riftbound-full-product 的克隆
 deploy/beta-tls/gen-certs.sh --ip <服务器公网IP> --out ~/riftbound-beta-tls
 # 有域名可以一起写上：--dns beta.example.com
 ```
@@ -58,11 +58,15 @@ deploy/beta-tls/gen-certs.sh --ip <服务器公网IP> --out ~/riftbound-beta-tls
 
 要求：Node `^22.12.0 || ^24.0.0 || >=26.0.0`，pnpm 11.9.0。
 
+官方卡牌数据被 gitignore 了，新克隆的仓库里没有。启动前，从一份已有完整数据的环境（例如本地开发用的克隆）把下面四个文件复制到服务器上同一路径 `packages/card-data/data/`：`catalog.json`、`deck-catalog.json`、`effect-coverage.json`、`images-manifest.json`。
+
 ```sh
 git clone <仓库地址> /srv/riftbound && cd /srv/riftbound
 git checkout <要测的版本>
 pnpm install --frozen-lockfile
-pnpm --filter @riftbound/desktop-client build      # 生成 apps/desktop-client/dist（网页客户端）
+# 先放好 packages/card-data/data/ 下的四个数据文件，再构建
+pnpm -r --filter "./packages/*" --if-present run build   # game-server 通过各 package 的 dist 引用引擎，必须先构建
+pnpm --filter @riftbound/desktop-client build             # 生成 apps/desktop-client/dist（网页客户端）
 
 # 启动服务端：只监听本机，由 Caddy 对外
 PORT=8787 HOST=127.0.0.1 \
@@ -71,7 +75,9 @@ RIFTBOUND_M1_PRESETS_ONLY=1 \
 pnpm --filter @riftbound/game-server start
 ```
 
-官方卡牌目录和卡图文件被 gitignore 了，新克隆的仓库里没有。需要按 `scripts/beta/start-m1-beta.sh` 开头的检查准备好 M1 牌表和 catalog，也可以直接在服务器上跑一次这个脚本做自检。
+启动后在服务器上检查：`curl http://127.0.0.1:8787/health` 返回 `{"status":"ok",...}`，`curl http://127.0.0.1:8787/api/presets` 能列出两套 M1 预组。
+
+`scripts/beta/start-m1-beta.sh` 是本机双客户端 beta 用的启动器：它会自己构建，再启动 game-server 和两个 Vite 客户端，并占用 8787、5173、5174 端口。不要在已经按上面方式启动 game-server 的服务器上再运行它。
 
 长期运行建议用 systemd 管理，示例：
 
@@ -168,7 +174,7 @@ wss://<服务器公网IP>
 https://<服务器公网IP>
 ```
 
-默认值 `ws://127.0.0.1:8787/ws` 只适用于本机 beta。后面的建房、加入、开局流程和本机 beta 一样，见 `BETA-上手说明.md` 第 3 节。
+默认值 `ws://127.0.0.1:8787/ws` 只适用于本机 beta。后面的建房、加入、开局流程和本机 beta 一样，见 `docs/full-product/m1-beta-quickstart.md` 第 3–5 节。
 
 卡图直接从官方 CDN `cmsassets.rgpub.io` 加载，不经过我们的服务器，所以测试机要能访问这个域名。
 
