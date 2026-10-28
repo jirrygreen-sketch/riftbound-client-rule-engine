@@ -114,13 +114,6 @@ interface EngineMulliganPreview {
   readonly views: Readonly<Record<"A" | "B", V2Projection>>;
 }
 
-function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
-  if (value === null || typeof value !== "object" || seen.has(value)) return value;
-  seen.add(value);
-  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child, seen);
-  return Object.freeze(value);
-}
-
 interface DeferredRuntimeRestore {
   readonly runtimeMode: DuelRuntimeMode;
   readonly journal: Journal | RuntimeJournal;
@@ -438,8 +431,8 @@ export class GameRoom {
         firstPlayer: setup.firstPlayer,
         battlefieldChoice: setup.battlefieldChoice,
         views: Object.freeze({
-          A: deepFreeze(openingRuntime.projectFor("A")),
-          B: deepFreeze(openingRuntime.projectFor("B")),
+          A: openingRuntime.projectFor("A"),
+          B: openingRuntime.projectFor("B"),
         }) as Readonly<Record<"A" | "B", V2Projection>>,
       });
       this.engineMulligan = setup;
@@ -459,8 +452,8 @@ export class GameRoom {
         firstPlayer: setup.firstPlayer,
         battlefieldChoice: setup.battlefieldChoice,
         views: Object.freeze({
-          A: deepFreeze(openingRuntime.projectFor("A")),
-          B: deepFreeze(openingRuntime.projectFor("B")),
+          A: openingRuntime.projectFor("A"),
+          B: openingRuntime.projectFor("B"),
         }) as Readonly<Record<"A" | "B", V2Projection>>,
       });
       this.publicEngineEventCaches.clear();
