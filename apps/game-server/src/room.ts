@@ -106,6 +106,21 @@ interface EngineMulliganSetup {
   readonly choices: readonly [readonly string[] | null, readonly string[] | null];
 }
 
+/** In-memory-only opening preview shared by both mulligan seats. */
+interface EngineMulliganPreview {
+  readonly runtime: EngineRuntime;
+  readonly firstPlayer: "A" | "B";
+  readonly battlefieldChoice: readonly [number, number];
+  readonly views: Readonly<Record<"A" | "B", V2Projection>>;
+}
+
+function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
+  if (value === null || typeof value !== "object" || seen.has(value)) return value;
+  seen.add(value);
+  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child, seen);
+  return Object.freeze(value);
+}
+
 interface DeferredRuntimeRestore {
   readonly runtimeMode: DuelRuntimeMode;
   readonly journal: Journal | RuntimeJournal;
@@ -197,6 +212,7 @@ export class GameRoom {
   private deferredRuntimeRestore: DeferredRuntimeRestore | null = null;
   private replayCount = 0;
   private engineMulligan: EngineMulliganSetup | null = null;
+  private engineMulliganPreview: EngineMulliganPreview | null = null;
   /**
    * Public event remaps are append-only. Templates own the recursively
    * remapped payload while the event list still stamps each projection's
@@ -380,23 +396,22 @@ export class GameRoom {
   }
 
   /**
-   * Create only the trusted setup projection for the mulligan ceremony. The
-   * final authoritative runtime is created again with both complete choices;
-   * this instance is never exposed as a command owner or persisted as a journal.
+   * Build the immutable opening preview once and serve both seats from it. The
+   * formal authoritative runtime is still created only after both mulligan
+   * choices, with the same fixed first-player and Battlefield facts.
    */
   private mulliganProbe(playerId: "A" | "B"): V2Projection {
     if (!this.seats.size || this.seats.size !== 2) {
       throw new RoomError("Room needs two players", "command-rejected");
     }
     if (!this.catalog) throw new RoomError("The card catalog is unavailable", "command-rejected");
-    if (!this.engineMulligan) {
+    let setup = this.engineMulligan;
+    const preview = this.engineMulliganPreview;
+    if (!setup) {
       const trustedSeats = [...this.seats.values()];
       if (trustedSeats.some(seat => !seat.ready || !seat.deck || !this.players.has(seat.id))) {
         throw new RoomError("Every player must submit a deck and be ready", "invalid-deck");
       }
-      // The automatic first player consumes the same deterministic setup RNG
-      // as the final runtime. Pinning these facts keeps the approved four-card
-      // hands stable when the setup is rebuilt after both choices arrive.
       const automaticProbe = createEngineRuntime(this.engineRuntimeOptions()).start();
       const publicView = automaticProbe.projectFor(null);
       if (publicView.activePlayerId !== "A" && publicView.activePlayerId !== "B") {
@@ -407,25 +422,60 @@ export class GameRoom {
           battlefieldChoice.some(value => value === null || value === undefined)) {
         throw new Error("Engine runtime omitted deterministic battlefield choices");
       }
-      this.engineMulligan = {
+      setup = {
         firstPlayer: publicView.activePlayerId,
         battlefieldChoice: [battlefieldChoice[0]!, battlefieldChoice[1]!],
         choices: [null, null],
       };
+      const openingRuntime = createEngineRuntime(this.engineRuntimeOptions(
+        [...this.seats.values()],
+        setup.battlefieldChoice,
+        [[], []],
+        setup.firstPlayer === "A" ? 0 : 1
+      )).start();
+      const openingPreview: EngineMulliganPreview = Object.freeze({
+        runtime: openingRuntime,
+        firstPlayer: setup.firstPlayer,
+        battlefieldChoice: setup.battlefieldChoice,
+        views: Object.freeze({
+          A: deepFreeze(openingRuntime.projectFor("A")),
+          B: deepFreeze(openingRuntime.projectFor("B")),
+        }) as Readonly<Record<"A" | "B", V2Projection>>,
+      });
+      this.engineMulligan = setup;
+      this.engineMulliganPreview = openingPreview;
+      this.publicEngineEventCaches.clear();
+    } else if (preview === null) {
+      // Restore keeps only the private setup facts. Recreate the same opening
+      // lazily from the pinned first-player, Battlefield, and empty mulligans.
+      const openingRuntime = createEngineRuntime(this.engineRuntimeOptions(
+        [...this.seats.values()],
+        setup.battlefieldChoice,
+        [[], []],
+        setup.firstPlayer === "A" ? 0 : 1
+      )).start();
+      this.engineMulliganPreview = Object.freeze({
+        runtime: openingRuntime,
+        firstPlayer: setup.firstPlayer,
+        battlefieldChoice: setup.battlefieldChoice,
+        views: Object.freeze({
+          A: deepFreeze(openingRuntime.projectFor("A")),
+          B: deepFreeze(openingRuntime.projectFor("B")),
+        }) as Readonly<Record<"A" | "B", V2Projection>>,
+      });
+      this.publicEngineEventCaches.clear();
     }
-    const setup = this.engineMulligan;
-    // Keep the trusted preview runtime in the existing private `engineRuntime`
-    // slot for staff diagnostics and setup tests, but never expose its command
-    // surface: submitEngineV2's setup queue below intercepts every client
-    // command and projection publication prefers setupMulliganProjection.
-    this.publicEngineEventCaches.clear();
-    this.engineRuntime = createEngineRuntime(this.engineRuntimeOptions(
-      [...this.seats.values()],
-      setup.battlefieldChoice,
-      [[], []],
-      setup.firstPlayer === "A" ? 0 : 1
-    )).start();
-    return this.engineRuntime.projectFor(playerId);
+    const cached = this.engineMulliganPreview;
+    const journalSetup = cached?.runtime.journal().header.setup;
+    if (cached === null || journalSetup === undefined ||
+        (journalSetup.firstPlayer !== undefined &&
+          journalSetup.firstPlayer !== (setup.firstPlayer === "A" ? 0 : 1)) ||
+        journalSetup.battlefieldChoice?.[0] !== setup.battlefieldChoice[0] ||
+        journalSetup.battlefieldChoice?.[1] !== setup.battlefieldChoice[1]) {
+      throw new Error("Mulligan preview does not match its setup facts");
+    }
+    this.engineRuntime = cached.runtime;
+    return cached.views[playerId];
   }
 
   private setupMulliganProjection(playerId: PlayerId): V2Projection {
@@ -585,6 +635,7 @@ export class GameRoom {
       [setup.choices[0], setup.choices[1]], setup.firstPlayer === "A" ? 0 : 1
     )).start();
     this.engineMulligan = null;
+    this.engineMulliganPreview = null;
     this.appendRoomEvent({ type: "game-started" });
     // Crossing setup can update several locked top cards without presenting a
     // gameplay action. Advance the room clock so the completed projection is
@@ -1115,7 +1166,9 @@ export class GameRoom {
     }
     this.replayCount = options.deferRuntime ? 0 : deferredJournalEntryCount(duel, engineJournal);
     this.engineMulligan = copy.engineMulligan ?? null;
-    if (this.engineMulligan) this.mulliganProbe("A");
+    // The opening preview is an in-memory optimization and never part of the
+    // archive. Rebuild it lazily on the first setup projection after restore.
+    this.engineMulliganPreview = null;
     this.roomVersion = copy.roomVersion;
     this.roomEventSeq = copy.roomEventSeq;
     this.roomEventLog.splice(0, this.roomEventLog.length, ...copy.roomEventLog);
