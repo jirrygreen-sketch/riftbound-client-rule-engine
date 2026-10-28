@@ -306,6 +306,10 @@ export class TurnFlow {
   }
   pass(player: PlayerId): void {
     if (this.winnerValue) throw new Error('Game is over');
+    if (this.combat.current?.step === 'damage') {
+      throw new TurnCombatBlockedError('pass-not-allowed-during-damage-assignment',
+        'Pass is not allowed while Combat damage is being assigned (CR v1.5 467.2.c-d)');
+    }
     if (!this.chain.items.length && !this.combat.active) { this.endTurn(player); return; }
     this.chain.pass(player);
     this.advance();

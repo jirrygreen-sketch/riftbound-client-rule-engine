@@ -30,7 +30,7 @@ import {
 import { assertRuntimeJournal, ENGINE_RUNTIME_RULESET_VERSION, RuntimeJournalWriter, canonicalJson,
   digestCanonicalJson, type RuntimeJournal, type RuntimeJournalEntry, digest } from "./journal.js";
 import { EngineRuntimeHost, type RuntimeCard, type RuntimeVisibilityGrant } from "./host.js";
-import { advanceResponsiblePlayer, projectObjectForChoice, projectRuntime,
+import { advanceResponsiblePlayer, isCombatDamageAssignment, projectObjectForChoice, projectRuntime,
   projectRuntimeFromSnapshot, projectionCanonicalJson, projectionDigest, projectionSnapshot } from "./projection.js";
 
 type PendingChoice = Extract<V2PendingChoice, { readonly status: "pending" }>;
@@ -625,6 +625,9 @@ class MatchRuntime implements EngineRuntime {
   private choiceVisibilityGrants: readonly RuntimeVisibilityGrant[] = [];
   private readonly seen = new Map<string, SeenCommand>();
   private runtimeOptions: EngineRuntimeOptions;
+  private replayingJournal = false;
+  /** Accepted non-duplicate Pass entries are immutable evidence from older journals. */
+  private readonly replayAcceptedPasses = new Set<string>();
 
   constructor(options: EngineRuntimeOptions) { this.runtimeOptions = options; }
 
@@ -777,12 +780,14 @@ class MatchRuntime implements EngineRuntime {
     if (journal.header.matchId !== this.runtimeOptions.matchId) throw new Error("Journal matchId does not match runtime");
     const options = this.runtimeOptions;
     this.match = null; this.host = null; this.binding = null; this.journalWriter = null; this.stateVersion = 0;
-    this.pending = null; this.decisions = null; this.preparedPlay = null; this.choiceVisibilityGrants = []; this.seen.clear();
+    this.pending = null; this.decisions = null; this.preparedPlay = null; this.choiceVisibilityGrants = [];
+    this.seen.clear(); this.replayAcceptedPasses.clear();
     const setup = journal.header.setup;
     this.runtimeOptions = {
       ...options,
       seed: journal.header.seed,
       createdAt: journal.header.createdAt,
+      engineVersion: journal.header.engineVersion,
       ...(setup ? {
         mulligans: [
           [...setup.mulligans[0]],
@@ -797,17 +802,29 @@ class MatchRuntime implements EngineRuntime {
         }),
       } : {}),
     };
-    this.start();
-    for (const entry of journal.entries) {
-      if (entry.duplicate) continue;
-      const result = this.submit(entry.playerId, entry.command);
-      if (entry.pendingReason) {
-        if (result.receipt.status !== "pending") throw new Error(`Journal replay failed for pending ${entry.commandId}: ${result.receipt.error ?? result.receipt.status}`);
-      } else if (result.receipt.status !== "accepted") {
-        throw new Error(`Journal replay failed for ${entry.commandId}: ${result.receipt.error ?? result.receipt.status}`);
+    const resumedWriter = new RuntimeJournalWriter(journal);
+    this.replayingJournal = true;
+    try {
+      this.start();
+      for (const entry of journal.entries) {
+        if (entry.duplicate) continue;
+        if (entry.command.type === "pass" && entry.publicReceipt.status === "accepted") {
+          this.replayAcceptedPasses.add(entry.commandId);
+        }
+        const result = this.submit(entry.playerId, entry.command);
+        if (entry.pendingReason) {
+          if (result.receipt.status !== "pending") throw new Error(`Journal replay failed for pending ${entry.commandId}: ${result.receipt.error ?? result.receipt.status}`);
+        } else if (result.receipt.status !== "accepted") {
+          throw new Error(`Journal replay failed for ${entry.commandId}: ${result.receipt.error ?? result.receipt.status}`);
+        }
       }
+      // Replay verifies semantics; the original protected journal remains the
+      // resume point so current projection fixes never rewrite historical bytes.
+      this.journalWriter = resumedWriter;
+      return this;
+    } finally {
+      this.replayingJournal = false;
     }
-    return this;
   }
 
   private choose(playerId: string, command: Extract<V2Command, { type: "choose" }>): RuntimeSubmitResult {
@@ -881,6 +898,15 @@ class MatchRuntime implements EngineRuntime {
         // priority holder can pass. Resume Finalize here; resolve passes through
         // the normal chain priority after the item is finalized.
         match.flow.chain.advance();
+        match.flow.advance();
+        return { accepted: true };
+      }
+      // RIFT-1081 accepted these entries before damage-assignment Passes were
+      // rejected. Their accepted, digest-protected presence is the historical
+      // version gate; new commands never enter this branch.
+      if (this.replayingJournal && this.replayAcceptedPasses.has(command.commandId) &&
+          isCombatDamageAssignment(match)) {
+        match.flow.chain.pass(playerId);
         match.flow.advance();
         return { accepted: true };
       }
