@@ -412,6 +412,14 @@ export class EngineRuntimeHost {
     return clone(this.choiceObjects.get(refKey(ref)) ?? null);
   }
 
+  /** Resolve one staged object without cloning the complete authority view. */
+  protected stagedObject(ref: ObjectRef): ObjectSnapshot | null {
+    const object = this.objectMap.get(ref.id);
+    if (object && object.ref.zoneEntryId === ref.zoneEntryId) return object;
+    const choice = this.choiceObjects.get(refKey(ref));
+    return choice === undefined ? null : choice;
+  }
+
   /** Ask for exactly one decision. Object options retain the transaction's
    * precise snapshots across the rollback that suspends the decision. */
   choose<T>(request: ChoiceRequest<T>): T {
