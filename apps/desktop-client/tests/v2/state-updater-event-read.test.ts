@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server.node";
 import ts from "typescript";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   V2MatchBoard,
   type V2MatchBoardProps
@@ -76,6 +76,45 @@ function sources(dir: string): string[] {
   });
 }
 
+const clientRoot = fileURLToPath(new URL("../..", import.meta.url));
+const sourceRoot = join(clientRoot, "src");
+const syntheticFileName = fileURLToPath(new URL("./__state-updater-sample.tsx", import.meta.url));
+const sourceUpdaterSample = [
+  "interface SyntheticEventLike {",
+  "  readonly currentTarget: { readonly value: string };",
+  "  readonly target: { readonly value: string };",
+  "}",
+  "declare function setDrafts(update: (current: Record<string, string>) => Record<string, string>): void;",
+  "declare function setEvents(update: (current: SyntheticEventLike[]) => SyntheticEventLike[]): void;",
+  "declare function setOpen(update: (current: boolean) => boolean): void;",
+  "const row = { target: \"ok\" };",
+  "const bracket = (event: SyntheticEventLike) => setDrafts(current => ({",
+  "  ...current,",
+  "  first: event[\"currentTarget\"].value,",
+  "  second: event[\"target\"].value",
+  "}));",
+  "const shadowed = (event: SyntheticEventLike) => setEvents(current => {",
+  "  current.map(event => event.target);",
+  "  return [...current, event.currentTarget];",
+  "});",
+  "const plainObject = () => setDrafts(current => ({",
+  "  ...current,",
+  "  target: row.target",
+  "}));",
+  "const nested = (event: SyntheticEventLike) => setEvents(current => {",
+  "  setDrafts(inner => ({ ...inner, x: event.target.value }));",
+  "  return current;",
+  "});",
+  "// setDrafts(current => ({ ...current, x: event.currentTarget.value })),",
+  "const direct = (event: SyntheticEventLike) => setDrafts(current => ({",
+  "  ...current,",
+  "  x: event.currentTarget.value",
+  "}));",
+  "const before = (event: SyntheticEventLike) => { const value = event.currentTarget.value; setDrafts(current => ({ ...current, x: value })); };",
+  "const functionUpdater = (event: SyntheticEventLike) => setOpen(function (open) { return event.target.value ? !open : open; });",
+  "export {};"
+].join("\n");
+
 function isWithin(node: ts.Node, container: ts.Node): boolean {
   let current: ts.Node | undefined = node;
   while (current !== undefined) {
@@ -111,14 +150,49 @@ function isCapturedEvent(
   return hasEventShape(checker.getTypeAtLocation(node.expression), checker);
 }
 
-function scannerProgram(inputs: readonly SourceText[]): { readonly checker: ts.TypeChecker;
+interface ParsedSource {
+  readonly input: SourceText;
+  readonly file: ts.SourceFile;
+}
+
+function parseSource(input: SourceText): ParsedSource {
+  return {
+    input,
+    file: ts.createSourceFile(input.fileName, input.text, ts.ScriptTarget.Latest, true,
+      /\.[cm]?tsx$/u.test(input.fileName) ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
+  };
+}
+
+function hasUpdaterEventCandidate(parsed: ParsedSource): boolean {
+  let candidate = false;
+  const visit = (node: ts.Node): void => {
+    if (candidate) return;
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && /^set[A-Z]/u.test(node.expression.text)) {
+      const updater = node.arguments[0];
+      if (updater !== undefined && (ts.isArrowFunction(updater) || ts.isFunctionExpression(updater))) {
+        const scan = (child: ts.Node): void => {
+          if (ts.isPropertyAccessExpression(child) || ts.isElementAccessExpression(child)) {
+            const property = eventPropertyName(child);
+            if (property === "currentTarget" || property === "target") candidate = true;
+          }
+          if (!candidate) ts.forEachChild(child, scan);
+        };
+        scan(updater);
+      }
+    }
+    if (!candidate) ts.forEachChild(node, visit);
+  };
+  visit(parsed.file);
+  return candidate;
+}
+
+function scannerProgram(inputs: readonly ParsedSource[]): { readonly checker: ts.TypeChecker;
   readonly virtual: ReadonlyMap<string, ts.SourceFile> } {
-  const clientRoot = fileURLToPath(new URL("../..", import.meta.url));
   const configPath = join(clientRoot, "tsconfig.json");
   const config = ts.readConfigFile(configPath, ts.sys.readFile);
   if (config.error !== undefined) throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, "\n"));
   const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, clientRoot, undefined, configPath);
-  const sourceByPath = new Map(inputs.map(input => [input.fileName, input.text] as const));
+  const sourceByPath = new Map(inputs.map(({ input, file }) => [input.fileName, file] as const));
   const host = ts.createCompilerHost(parsed.options);
   const getSourceFile = host.getSourceFile.bind(host);
   const readFile = host.readFile.bind(host);
@@ -126,26 +200,27 @@ function scannerProgram(inputs: readonly SourceText[]): { readonly checker: ts.T
   host.fileExists = fileName => sourceByPath.has(fileName) || fileExists(fileName);
   host.readFile = fileName => sourceByPath.get(fileName) ?? readFile(fileName);
   host.getSourceFile = (fileName, languageVersion, onError, shouldCreateNewSourceFile) => {
-    const text = sourceByPath.get(fileName);
-    if (text !== undefined) {
-      return ts.createSourceFile(fileName, text, languageVersion, true,
-        /\.[cm]?tsx$/u.test(fileName) ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
-    }
+    const source = sourceByPath.get(fileName);
+    if (source !== undefined) return source;
     return getSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile);
   };
-  const program = ts.createProgram({ rootNames: inputs.map(input => input.fileName), options: parsed.options, host });
-  const virtual = new Map(inputs.flatMap(input => {
-    const source = program.getSourceFile(input.fileName);
-    return source === undefined ? [] : [[input.fileName, source] as const];
+  const program = ts.createProgram({ rootNames: inputs.map(parsedSource => parsedSource.input.fileName),
+    options: parsed.options, host });
+  const virtual = new Map(inputs.flatMap(parsedSource => {
+    const source = program.getSourceFile(parsedSource.input.fileName);
+    return source === undefined ? [] : [[parsedSource.input.fileName, source] as const];
   }));
   return { checker: program.getTypeChecker(), virtual };
 }
 
 /** Source positions where a functional state update reads a captured event value. */
 export function eventReadsInUpdaters(inputs: readonly SourceText[]): EventRead[] {
-  const { checker, virtual } = scannerProgram(inputs);
+  const parsed = inputs.map(parseSource);
+  const candidates = parsed.filter(hasUpdaterEventCandidate);
+  if (candidates.length === 0) return [];
+  const { checker, virtual } = scannerProgram(candidates);
   const positions = new Map<string, EventRead>();
-  for (const input of inputs) {
+  for (const { input } of candidates) {
     const file = virtual.get(input.fileName);
     if (file === undefined) continue;
     const visit = (node: ts.Node): void => {
@@ -246,52 +321,34 @@ beforeEach(() => {
   interaction.includeDrafts = false;
 });
 
+let staticScan: {
+  readonly syntheticLines: readonly number[];
+  readonly productionReads: readonly string[];
+};
+
+beforeAll(() => {
+  // Share one file walk and AST pre-screen between both assertions. Only files
+  // containing a possible event read enter the TypeScript semantic Program.
+  const inputs = [
+    ...sources(sourceRoot).map(fileName => ({ fileName, text: readFileSync(fileName, "utf8") })),
+    { fileName: syntheticFileName, text: sourceUpdaterSample }
+  ];
+  const reads = eventReadsInUpdaters(inputs);
+  staticScan = {
+    syntheticLines: reads.filter(read => read.fileName === syntheticFileName).map(read => read.line),
+    productionReads: reads
+      .filter(read => read.fileName !== syntheticFileName)
+      .map(read => `${read.fileName.slice(sourceRoot.length)}:${read.line}`)
+  };
+}, 30_000);
+
 describe("RIFT-1062 state updaters never read the event", () => {
   it("uses lexical bindings and event types across supported update syntaxes", () => {
-    const fileName = fileURLToPath(new URL("./__state-updater-sample.tsx", import.meta.url));
-    const sample = [
-      "interface SyntheticEventLike {",
-      "  readonly currentTarget: { readonly value: string };",
-      "  readonly target: { readonly value: string };",
-      "}",
-      "declare function setDrafts(update: (current: Record<string, string>) => Record<string, string>): void;",
-      "declare function setEvents(update: (current: SyntheticEventLike[]) => SyntheticEventLike[]): void;",
-      "declare function setOpen(update: (current: boolean) => boolean): void;",
-      "const row = { target: \"ok\" };",
-      "const bracket = (event: SyntheticEventLike) => setDrafts(current => ({",
-      "  ...current,",
-      "  first: event[\"currentTarget\"].value,",
-      "  second: event[\"target\"].value",
-      "}));",
-      "const shadowed = (event: SyntheticEventLike) => setEvents(current => {",
-      "  current.map(event => event.target);",
-      "  return [...current, event.currentTarget];",
-      "});",
-      "const plainObject = () => setDrafts(current => ({",
-      "  ...current,",
-      "  target: row.target",
-      "}));",
-      "const nested = (event: SyntheticEventLike) => setEvents(current => {",
-      "  setDrafts(inner => ({ ...inner, x: event.target.value }));",
-      "  return current;",
-      "});",
-      "// setDrafts(current => ({ ...current, x: event.currentTarget.value })),",
-      "const direct = (event: SyntheticEventLike) => setDrafts(current => ({",
-      "  ...current,",
-      "  x: event.currentTarget.value",
-      "}));",
-      "const before = (event: SyntheticEventLike) => { const value = event.currentTarget.value; setDrafts(current => ({ ...current, x: value })); };",
-      "const functionUpdater = (event: SyntheticEventLike) => setOpen(function (open) { return event.target.value ? !open : open; });"
-    ].join("\n");
-    expect(eventReadsInUpdaters([{ fileName, text: sample }]).map(read => read.line))
-      .toEqual([11, 12, 16, 23, 29, 32]);
+    expect(staticScan.syntheticLines).toEqual([11, 12, 16, 23, 29, 32]);
   });
 
   it("finds no functional state update in desktop-client src that reads a captured event", () => {
-    const root = fileURLToPath(new URL("../../src", import.meta.url));
-    const inputs = sources(root).map(fileName => ({ fileName, text: readFileSync(fileName, "utf8") }));
-    expect(eventReadsInUpdaters(inputs).map(read =>
-      `${read.fileName.slice(root.length)}:${read.line}`)).toEqual([]);
+    expect(staticScan.productionReads).toEqual([]);
   });
 
   it("updates only the changed target's draft after React has cleared currentTarget", () => {
