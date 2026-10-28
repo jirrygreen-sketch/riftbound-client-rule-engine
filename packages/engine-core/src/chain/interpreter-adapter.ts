@@ -245,13 +245,19 @@ const LITERAL_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'effect.play': ['target', 'pick', 'choice', 'linkKey'],
   'effect.recycle': ['target', 'from'],
   'effect.reveal': ['target', 'pick', 'choiceId'],
+  // Inspect's arguments stay Exprs for its scoped resolver; its ordered pick
+  // source is declared in `picks`, so there is nothing to unwrap here.
+  'effect.inspect': [],
   // effect.shield-value's schema intentionally accepts both fields as Exprs:
   // `object` carries the symbolic selector and `linkKey` is evaluated by the
   // primitive. There are no literal fields to unwrap for this opcode.
   'effect.shield-value': [],
   'effect.stun': ['target', 'pick', 'choose'],
   'effect.zone': ['target', 'pick', 'choice'],
-  'effect.repeat': ['actions', 'action', 'effect', 'choices', 'choice', 'linkKey', 'resultKey'],
+  // Repeat argument containers and metadata are literals, while each action
+  // template and choice spec remains structural and is unwrapped only by the
+  // dedicated block below. Dynamic action fields stay Expr values.
+  'effect.repeat': ['linkKey', 'resultKey'],
   'cost.modify': [
     'id', 'source', 'cost', 'printed', 'domains', 'baseChoices', 'baseChoice',
     'baseModifications', 'optionalAdditional', 'mandatoryAdditional',
@@ -278,6 +284,19 @@ function primitiveArgs(op: string, value: unknown, definition: InstructionDef<un
   for (const key of LITERAL_FIELDS[op] ?? []) {
     const candidate = raw[key];
     if (candidate && typeof candidate === 'object' && 'kind' in candidate && (candidate.kind === 'constant' || candidate.kind === 'literal') && 'value' in candidate) raw[key] = candidate.value;
+  }
+  // `effect.repeat` action templates are structural data, not argument Exprs.
+  // The interpreter evaluates the outer arg map before dispatch. Unwrap only
+  // the structural template containers; each action's value fields must remain
+  // Exprs for the primitive's own delayed evaluation.
+  if (op === 'effect.repeat') {
+    for (const key of ['actions', 'action', 'effect', 'choices', 'choice']) {
+      const expression = raw[key];
+      if (expression && typeof expression === 'object' && 'kind' in expression &&
+          (expression.kind === 'constant' || expression.kind === 'literal') && 'value' in expression) {
+        raw[key] = expression.value;
+      }
+    }
   }
   return definition.argsSchema.parse(raw);
 }
