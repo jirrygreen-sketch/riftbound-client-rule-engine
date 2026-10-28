@@ -41,6 +41,25 @@ export interface CatalogCard {
   readonly banned?: boolean;
   readonly available?: boolean;
   readonly availabilityReason?: string;
+  readonly localizedAbilityRulesText?: string;
+  readonly localizedAbilityEffectText?: string;
+  readonly localizedAbilityLanguage?: "zh-CN" | "en-US";
+  readonly localizedAbilityStatus?: LocalizedAbilityStatus;
+  readonly localizedAbilitySource?: LocalizedAbilitySource;
+}
+
+export type LocalizedAbilityStatus =
+  | "official-structured"
+  | "official-accessibility-supplemented"
+  | "english-fallback"
+  | "no-effect"
+  | "missing";
+
+export interface LocalizedAbilitySource {
+  readonly url: string;
+  readonly locale: "zh-CN";
+  readonly updatedAt: string;
+  readonly syncedAt: string;
 }
 
 export interface CardCatalog {
@@ -311,7 +330,7 @@ function parseCardCatalog(value: unknown): CardCatalog {
   for (const item of value.cards) {
     if (!isCatalogCard(item) || ids.has(item.id)) throwInvalidCatalog();
     ids.add(item.id);
-    cards.push(item);
+    cards.push(withValidLocalizedAbilityFields(item));
   }
 
   return {
@@ -319,6 +338,51 @@ function parseCardCatalog(value: unknown): CardCatalog {
     dataVersion: value.dataVersion,
     digest: value.digest,
     cards
+  };
+}
+
+function withValidLocalizedAbilityFields(
+  card: CatalogCard
+): CatalogCard {
+  const {
+    localizedAbilityRulesText: _rulesText,
+    localizedAbilityEffectText: _effectText,
+    localizedAbilityLanguage: _language,
+    localizedAbilityStatus: _status,
+    localizedAbilitySource: _source,
+    ...catalogFields
+  } = card;
+  const source = isLocalizedAbilitySource(card.localizedAbilitySource)
+    ? card.localizedAbilitySource
+    : undefined;
+  const localizedAbilityRulesText = isOptionalNonEmptyString(
+    card.localizedAbilityRulesText
+  ) ? card.localizedAbilityRulesText : undefined;
+  const localizedAbilityEffectText = isOptionalNonEmptyString(
+    card.localizedAbilityEffectText
+  ) ? card.localizedAbilityEffectText : undefined;
+  const localizedAbilityLanguage = isLocalizedAbilityLanguage(
+    card.localizedAbilityLanguage
+  ) ? card.localizedAbilityLanguage : undefined;
+  const localizedAbilityStatus = isLocalizedAbilityStatus(
+    card.localizedAbilityStatus
+  ) ? card.localizedAbilityStatus : undefined;
+
+  return {
+    ...catalogFields,
+    ...(localizedAbilityRulesText === undefined
+      ? {}
+      : { localizedAbilityRulesText }),
+    ...(localizedAbilityEffectText === undefined
+      ? {}
+      : { localizedAbilityEffectText }),
+    ...(localizedAbilityLanguage === undefined
+      ? {}
+      : { localizedAbilityLanguage }),
+    ...(localizedAbilityStatus === undefined
+      ? {}
+      : { localizedAbilityStatus }),
+    ...(source === undefined ? {} : { localizedAbilitySource: source })
   };
 }
 
@@ -439,6 +503,44 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
+}
+
+function isOptionalNonEmptyString(value: unknown): value is string | undefined {
+  return value === undefined || isNonEmptyString(value);
+}
+
+function isLocalizedAbilityLanguage(
+  value: unknown
+): value is CatalogCard["localizedAbilityLanguage"] {
+  return value === "zh-CN" || value === "en-US";
+}
+
+function isLocalizedAbilityStatus(
+  value: unknown
+): value is LocalizedAbilityStatus {
+  return value === "official-structured" ||
+    value === "official-accessibility-supplemented" ||
+    value === "english-fallback" ||
+    value === "no-effect" ||
+    value === "missing";
+}
+
+function isLocalizedAbilitySource(value: unknown): value is LocalizedAbilitySource {
+  return isRecord(value) &&
+    isHttpUrl(value.url) &&
+    value.locale === "zh-CN" &&
+    isNonEmptyString(value.updatedAt) &&
+    isNonEmptyString(value.syncedAt);
+}
+
+function isHttpUrl(value: unknown): value is string {
+  if (!isNonEmptyString(value)) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
 }
 
 function isDeckZone(value: unknown): value is DeckZone {
