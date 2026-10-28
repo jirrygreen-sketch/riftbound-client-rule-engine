@@ -123,13 +123,18 @@ export function advanceResponsiblePlayer(match: Match, pendingChoice: boolean,
   return viewer;
 }
 
+/** CR 467.2.c-d makes each player's damage allocation mandatory in sequence. */
+export function isCombatDamageAssignment(match: Match): boolean {
+  return match.flow.combat.current?.step === "damage";
+}
+
 /**
  * Mirror the public runtime's `pass` routing without mutating the Match.
  * Pending Finalize is resumed by the runtime; an idle neutral Main Phase is
  * an end-turn request; every other pass is owned by ChainEngine.canPass.
  */
 export function canPassForViewer(match: Match, pendingChoice: boolean, viewer: PlayerId | null): boolean {
-  if (viewer === null || pendingChoice || match.result().winner !== null) return false;
+  if (viewer === null || pendingChoice || match.result().winner !== null || isCombatDamageAssignment(match)) return false;
   const chain = match.flow.chain;
   if (chain.items.some(item => item.status === "pending")) return true;
   if (!chain.items.length && !match.flow.combat.active) {
