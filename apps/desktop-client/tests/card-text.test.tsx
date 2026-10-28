@@ -14,6 +14,7 @@ import {
 } from "../src/full-product/duel/card-text";
 import { CardArtPreviewContent } from "../src/components/CardArtPreview";
 import { CardPreviewOverlay } from "../src/full-product/duel/DuelOverlays";
+import { DUEL_DOMAIN_LABELS } from "../src/full-product/duel/duel-board-model";
 
 const source = {
   url: "https://content.example/riftbound_gallery_cards?locale=zh_CN",
@@ -36,6 +37,10 @@ function card(overrides: Partial<CardTextData> = {}): CardTextData {
 
 function render(node: Parameters<typeof renderToStaticMarkup>[0]): string {
   return renderToStaticMarkup(node);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 describe("CardText", () => {
@@ -62,10 +67,64 @@ describe("CardText", () => {
 
     for (const token of tokens) {
       expect(html).toContain(`data-token="${token}"`);
-      expect(html).toContain(CARD_TEXT_TOKEN_MAP[token].text);
+      expect(html).toContain(CARD_TEXT_TOKEN_MAP[token].glyph);
     }
-    const body = html.replace(/ data-token="[^"]*"/g, "");
-    expect(body).not.toMatch(/:rb_[a-z0-9_]+:/);
+    for (const token of tokens) {
+      expect(html.match(new RegExp(`>${escapeRegExp(token)}<`, "g")) ?? [])
+        .toHaveLength(0);
+    }
+  });
+
+  it("uses the official Chinese domain labels for all six domain tokens", () => {
+    const html = render(createElement(CardText, {
+      card: card({
+        localizedAbilityRulesText: [
+          ":rb_rune_fury:",
+          ":rb_rune_calm:",
+          ":rb_rune_mind:",
+          ":rb_rune_body:",
+          ":rb_rune_chaos:",
+          ":rb_rune_order:"
+        ].join(" "),
+        localizedAbilityEffectText: undefined
+      })
+    }));
+
+    expect(DUEL_DOMAIN_LABELS).toEqual({
+      Fury: "炽烈",
+      Calm: "翠意",
+      Mind: "灵光",
+      Body: "摧破",
+      Chaos: "混沌",
+      Order: "序理"
+    });
+    for (const label of ["炽烈", "翠意", "灵光", "摧破", "混沌", "序理"]) {
+      expect(html).toContain(label);
+    }
+    for (const invented of ["狂怒", "平静", "心灵", "躯体", "混乱", "秩序", "休眠"]) {
+      expect(html).not.toContain(invented);
+    }
+  });
+
+  it("keeps unsupported token titles neutral and shows energy as circular badges", () => {
+    const html = render(createElement(CardText, {
+      card: card({
+        localizedAbilityRulesText:
+          ":rb_energy_0::rb_energy_1::rb_energy_8::rb_rune_rainbow:",
+        localizedAbilityEffectText: undefined
+      })
+    }));
+
+    for (const token of [
+      ":rb_energy_0:",
+      ":rb_energy_1:",
+      ":rb_energy_8:",
+      ":rb_rune_rainbow:"
+    ]) {
+      expect(html).toContain(`title="${token}"`);
+    }
+    expect(html).toContain('data-token-shape="circle"');
+    expect(html).not.toMatch(/能量|符能|任意/);
   });
 
   it("renders approved structural tags and escapes attributed variants", () => {

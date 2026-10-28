@@ -1,5 +1,6 @@
 import { createElement, Fragment, type CSSProperties, type ReactNode } from "react";
 import type { CatalogCard } from "../../net/CardCatalogClient";
+import { DUEL_DOMAIN_LABELS } from "./duel-board-model";
 
 export const CARD_TEXT_TOKEN_MAP_VERSION = "riftbound.card-text-tokens.v1";
 
@@ -36,31 +37,74 @@ export type CardTextToken =
   | ":rb_rune_rainbow:";
 
 export interface CardTextTokenPresentation {
-  readonly text: string;
-  readonly label: string;
+  /** The only accessible/tooltip text. A token without official Chinese prose
+   * uses the literal API token rather than an invented Chinese label. */
+  readonly title: string;
+  /** A neutral, non-language glyph; it never stands for a rules command. */
+  readonly glyph: string;
+  readonly shape: "circle" | "square";
 }
 
 export const CARD_TEXT_TOKEN_MAP: Readonly<
   Record<CardTextToken, CardTextTokenPresentation>
 > = Object.freeze({
-  ":rb_energy_0:": { text: "0", label: "0 点能量" },
-  ":rb_energy_1:": { text: "1", label: "1 点能量" },
-  ":rb_energy_2:": { text: "2", label: "2 点能量" },
-  ":rb_energy_3:": { text: "3", label: "3 点能量" },
-  ":rb_energy_4:": { text: "4", label: "4 点能量" },
-  ":rb_energy_5:": { text: "5", label: "5 点能量" },
-  ":rb_energy_6:": { text: "6", label: "6 点能量" },
-  ":rb_energy_7:": { text: "7", label: "7 点能量" },
-  ":rb_energy_8:": { text: "8", label: "8 点能量" },
-  ":rb_might:": { text: "战力", label: "战力符号" },
-  ":rb_exhaust:": { text: "休眠", label: "休眠符号" },
-  ":rb_rune_fury:": { text: "狂怒", label: "狂怒域符能" },
-  ":rb_rune_calm:": { text: "平静", label: "平静域符能" },
-  ":rb_rune_mind:": { text: "心灵", label: "心灵域符能" },
-  ":rb_rune_body:": { text: "躯体", label: "躯体域符能" },
-  ":rb_rune_chaos:": { text: "混乱", label: "混乱域符能" },
-  ":rb_rune_order:": { text: "秩序", label: "秩序域符能" },
-  ":rb_rune_rainbow:": { text: "任意", label: "任意域符能" }
+  // Official evidence checked 2026-10-28:
+  // - Six domain labels: official zh_CN card gallery
+  //   https://content.publishing.riotgames.com/publishing-content/v2.0/public/channel/riftbound_website/list/riftbound_gallery_cards?locale=zh_CN
+  //   (`DUEL_DOMAIN_LABELS` mirrors the official faction names; e.g.
+  //   `ogn-001-298`, `sfd-001-221`, `rad-004-167`, `ven-040-166`).
+  // - `:rb_might:`: official zh_CN text on `rad-004-167` and `sfd-026-221`
+  //   says “每点强攻便提供:rb_might:+1”; “战力” is its text counterpart.
+  // - `:rb_exhaust:`: official zh_CN text on `ven-075-166` and `unl-136-219`
+  //   says “此牌以休眠状态进场”; “休眠” is the official prose counterpart.
+  // - Energy and rainbow tokens have no observed official prose name: use a
+  //   neutral glyph whose accessible title is the unaltered API token.
+  ":rb_energy_0:": { glyph: "0", title: ":rb_energy_0:", shape: "circle" },
+  ":rb_energy_1:": { glyph: "1", title: ":rb_energy_1:", shape: "circle" },
+  ":rb_energy_2:": { glyph: "2", title: ":rb_energy_2:", shape: "circle" },
+  ":rb_energy_3:": { glyph: "3", title: ":rb_energy_3:", shape: "circle" },
+  ":rb_energy_4:": { glyph: "4", title: ":rb_energy_4:", shape: "circle" },
+  ":rb_energy_5:": { glyph: "5", title: ":rb_energy_5:", shape: "circle" },
+  ":rb_energy_6:": { glyph: "6", title: ":rb_energy_6:", shape: "circle" },
+  ":rb_energy_7:": { glyph: "7", title: ":rb_energy_7:", shape: "circle" },
+  ":rb_energy_8:": { glyph: "8", title: ":rb_energy_8:", shape: "circle" },
+  ":rb_might:": { glyph: "⚔", title: "战力（:rb_might:）", shape: "square" },
+  ":rb_exhaust:": { glyph: "↶", title: "休眠（:rb_exhaust:）", shape: "square" },
+  ":rb_rune_fury:": {
+    glyph: DUEL_DOMAIN_LABELS.Fury,
+    title: DUEL_DOMAIN_LABELS.Fury,
+    shape: "square"
+  },
+  ":rb_rune_calm:": {
+    glyph: DUEL_DOMAIN_LABELS.Calm,
+    title: DUEL_DOMAIN_LABELS.Calm,
+    shape: "square"
+  },
+  ":rb_rune_mind:": {
+    glyph: DUEL_DOMAIN_LABELS.Mind,
+    title: DUEL_DOMAIN_LABELS.Mind,
+    shape: "square"
+  },
+  ":rb_rune_body:": {
+    glyph: DUEL_DOMAIN_LABELS.Body,
+    title: DUEL_DOMAIN_LABELS.Body,
+    shape: "square"
+  },
+  ":rb_rune_chaos:": {
+    glyph: DUEL_DOMAIN_LABELS.Chaos,
+    title: DUEL_DOMAIN_LABELS.Chaos,
+    shape: "square"
+  },
+  ":rb_rune_order:": {
+    glyph: DUEL_DOMAIN_LABELS.Order,
+    title: DUEL_DOMAIN_LABELS.Order,
+    shape: "square"
+  },
+  ":rb_rune_rainbow:": {
+    glyph: "◆",
+    title: ":rb_rune_rainbow:",
+    shape: "square"
+  }
 });
 
 export type CardTextData = Pick<
@@ -86,7 +130,7 @@ const keywordStyle: CSSProperties = {
   fontWeight: 700
 };
 
-const tokenStyle: CSSProperties = {
+const tokenBaseStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
@@ -95,12 +139,21 @@ const tokenStyle: CSSProperties = {
   marginInline: "0.08em",
   paddingInline: "0.2em",
   border: "1px solid currentColor",
-  borderRadius: "0.28em",
   color: "#efc862",
   fontSize: "0.82em",
   fontWeight: 700,
   lineHeight: 1,
   verticalAlign: "0.08em"
+};
+
+const circleTokenStyle: CSSProperties = {
+  ...tokenBaseStyle,
+  borderRadius: "50%"
+};
+
+const squareTokenStyle: CSSProperties = {
+  ...tokenBaseStyle,
+  borderRadius: "0.28em"
 };
 
 const cardTextStyle: CSSProperties = {
@@ -255,11 +308,14 @@ function renderInlineText(raw: string): ReactNode {
           key={`token:${match.index}:${token}`}
           className="card-text-token"
           data-token={token}
-          aria-label={presentation.label}
-          title={presentation.label}
-          style={tokenStyle}
+          data-token-shape={presentation.shape}
+          aria-label={presentation.title}
+          title={presentation.title}
+          style={presentation.shape === "circle"
+            ? circleTokenStyle
+            : squareTokenStyle}
         >
-          {presentation.text}
+          {presentation.glyph}
         </span>
       );
     } else if (token.startsWith("[")) {
