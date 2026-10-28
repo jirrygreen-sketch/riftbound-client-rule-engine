@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { buildLocalizedTexts } from "../scripts/build-deck-catalog.mjs";
 import {
+  run,
   fetchOfficialGalleries,
   extractOfficialPage,
   fetchOfficialGallery,
@@ -47,6 +49,11 @@ function response(payload) {
     status: 200,
     text: async () => JSON.stringify(payload)
   };
+}
+
+function localizedCard(id, overrides = {}) {
+  const card = officialCard({ id, ...overrides });
+  return card;
 }
 
 test("extracts and validates a Publishing API page", () => {
@@ -420,5 +427,211 @@ test("rejects duplicate official IDs and exact CLI options", () => {
       path.dirname(fileURLToPath(import.meta.url)),
       "../data/catalog.json"
     )
+  );
+});
+
+test("sync run stores strict per-printing Chinese text alongside raw galleries", async () => {
+  const english = [
+    localizedCard("fix-201-100", {
+      text: { richText: { body: "<p>Draw 1.</p>" } }
+    }),
+    localizedCard("fix-202-100", {
+      text: { richText: { body: "<p>English only.</p>" } }
+    }),
+    localizedCard("fix-203-100", {
+      text: { richText: { body: "<p>Draw 3.</p>" } }
+    }),
+    localizedCard("fix-204-100", { text: undefined })
+  ];
+  const chinese = [
+    localizedCard("fix-201-100", {
+      name: "抽牌",
+      text: { richText: { body: "<p>抽一张牌。</p>" } }
+    }),
+    localizedCard("fix-202-100", {
+      name: "英文回退",
+      text: { richText: { body: "<p>English only.</p>" } }
+    }),
+    localizedCard("fix-203-100", {
+      name: "缺正文",
+      text: undefined
+    }),
+    localizedCard("fix-204-100", {
+      name: "无效果",
+      text: undefined
+    })
+  ];
+  const fetchImpl = async (url) => {
+    url = new URL(url);
+    const locale = url.searchParams.get("locale");
+    if (url.href === "https://example.test/community.json") {
+      const community = english.map((card) => ({
+        ...normalizeOfficialCard(card, "2026-10-28T14:00:00.000Z"),
+        abilityEffective: card.text?.richText?.body ?? ""
+      }));
+      return {
+        ...response(community),
+        arrayBuffer: async () => {
+          const bytes = Buffer.from(JSON.stringify(community));
+          return bytes.buffer.slice(
+            bytes.byteOffset,
+            bytes.byteOffset + bytes.byteLength
+          );
+        }
+      };
+    }
+    const data = locale === "en_US" ? english : chinese;
+    if (url.searchParams.get("limit") === "1") {
+      return response({ data });
+    }
+    return response({
+      data,
+      metadata: {
+        locale: locale === "en_US" ? "en-us" : "zh-cn",
+        resultsUpdatedAt: locale === "en_US"
+          ? "2026-10-28T14:52:59.000Z"
+          : "2026-10-28T14:50:03.000Z"
+      }
+    });
+  };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = fetchImpl;
+  try {
+    const result = await run({
+      communitySource: "https://example.test/community.json",
+      galleryUrl: "https://example.test/cards?locale=en_US",
+      localizedGalleryUrl: "https://example.test/cards?locale=zh_CN",
+      timeoutMs: 1000,
+      dryRun: true
+    }, {
+      log: () => {}
+    });
+    assert.equal(result.localizedTexts["zh-CN"].cards.length, 4);
+    assert.deepEqual(
+      Object.fromEntries(
+        result.localizedTexts["zh-CN"].cards.map((card) => [
+          card.cardId,
+          card.status
+        ])
+      ),
+      {
+        "fix-201-100": "official-structured",
+        "fix-202-100": "english-fallback",
+        "fix-203-100": "missing",
+        "fix-204-100": "no-effect"
+      }
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("sync run honors the injected elapsed-time clock", async () => {
+  const english = [localizedCard("fix-301-100")];
+  const chinese = [{ ...english[0], name: "中文卡" }];
+  const community = english.map((card) => ({
+    ...normalizeOfficialCard(card, "2026-10-28T14:00:00.000Z"),
+    abilityEffective: card.text?.richText?.body ?? ""
+  }));
+  const bytes = Buffer.from(JSON.stringify(community));
+  const fixedNow = Date.parse("2026-10-28T16:00:00.000Z");
+  const fetchImpl = async (url) => {
+    url = new URL(url);
+    return response({
+      data: url.searchParams.get("locale") === "en_US" ? english : chinese,
+      metadata: {
+        resultsUpdatedAt: url.searchParams.get("locale") === "en_US"
+          ? "2026-10-28T15:52:59.000Z"
+          : "2026-10-28T15:50:03.000Z"
+      }
+    });
+  };
+  const result = await run({
+    communitySource: "https://example.test/community.json",
+    galleryUrl: "https://example.test/cards?locale=en_US",
+    localizedGalleryUrl: "https://example.test/cards?locale=zh_CN",
+    timeoutMs: 1000,
+    dryRun: true
+  }, {
+    log: () => {},
+    fetchImpl,
+    clock: () => fixedNow,
+    resolveSourceImpl: async () => ({
+      url: "https://example.test/community.json",
+      expectedDigest: null,
+      metadata: {}
+    }),
+    fetchBufferImpl: async () => bytes
+  });
+
+  assert.equal(
+    result.localizedTexts["zh-CN"].syncedAt,
+    "2026-10-28T16:00:00.000Z"
+  );
+  assert.equal(
+    result.localizedTexts["zh-CN"].cards[0].syncedAt,
+    "2026-10-28T16:00:00.000Z"
+  );
+});
+
+test("sync run fails closed before writing on gallery ID or text drift", async () => {
+  const english = [
+    localizedCard("fix-401-100"),
+    localizedCard("fix-402-100")
+  ];
+  const chinese = english.map((card) => ({ ...card, name: `中文 ${card.id}` }));
+  const community = english.map((card) => ({
+    ...normalizeOfficialCard(card, "2026-10-28T14:00:00.000Z"),
+    abilityEffective: card.text?.richText?.body ?? ""
+  }));
+  const payload = Buffer.from(JSON.stringify(community));
+  const baseGallery = (cards, locale = "en_US") => ({
+    url: `https://example.test/cards?locale=${locale}`,
+    cards,
+    resultsUpdatedAt: "2026-10-28T15:52:59.000Z"
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    url = new URL(url);
+    const isEnglish = url.searchParams.get("locale") === "en_US";
+    const data = isEnglish ? english : chinese;
+    return response({ data, metadata: { resultsUpdatedAt: "2026-10-28T15:52:59.000Z" } });
+  };
+  let runResult;
+  try {
+    runResult = await run({
+      communitySource: "https://example.test/community.json",
+      galleryUrl: "https://example.test/cards?locale=en_US",
+      localizedGalleryUrl: "https://example.test/cards?locale=zh_CN",
+      timeoutMs: 1000,
+      dryRun: true
+    }, {
+      log: () => {},
+      resolveSourceImpl: async () => ({ url: "https://example.test/community.json", expectedDigest: null, metadata: {} }),
+      fetchBufferImpl: async () => payload
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(runResult.localizedTexts["zh-CN"].cards.length, 2);
+
+  assert.throws(
+    () => buildLocalizedTexts(
+      baseGallery(english),
+      baseGallery([...chinese, localizedCard("fix-403-100")], "zh_CN"),
+      "2026-10-28T16:00:00.000Z"
+    ),
+    /different printing ids/
+  );
+  assert.throws(
+    () => buildLocalizedTexts(
+      baseGallery(english),
+      baseGallery([
+        { ...chinese[0], text: { richText: { body: "<p>抽:rb_unknown:</p>" } } },
+        chinese[1]
+      ], "zh_CN"),
+      "2026-10-28T16:00:00.000Z"
+    ),
+    /unknown gallery token/
   );
 });

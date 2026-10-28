@@ -3,7 +3,11 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 
 import { buildEffectCoverageReport } from "../dist/index.js";
-import { buildDeckCatalog } from "../scripts/build-deck-catalog.mjs";
+import {
+  buildDeckCatalog,
+  buildLocalizedTexts,
+  localizedTextCoverage
+} from "../scripts/build-deck-catalog.mjs";
 
 // Fixture-driven regression for the public deck catalog.
 //
@@ -127,6 +131,50 @@ function fixtureCatalog() {
       "en-US": { cards: FIXTURE_OFFICIAL_CARDS },
       "zh-CN": { cards: [] }
     }
+  });
+}
+
+function localizedFixtureCatalog() {
+  const chineseCards = FIXTURE_OFFICIAL_CARDS.map((card) => ({
+    ...card,
+    name: `中文 ${card.id}`,
+    text: card.text === undefined
+      ? undefined
+      : {
+          richText: {
+            body: card.id === "fix-003-100"
+              ? "<p>[无文本]</p>"
+              : `<p>中文正文 ${card.id}</p>`
+          }
+        }
+  }));
+  const galleries = {
+    "en-US": {
+      url: "https://example.test/cards?locale=en_US",
+      resultsUpdatedAt: "2026-10-28T14:52:59.000Z",
+      cards: FIXTURE_OFFICIAL_CARDS
+    },
+    "zh-CN": {
+      url: "https://example.test/cards?locale=zh_CN",
+      resultsUpdatedAt: "2026-10-28T14:50:03.000Z",
+      cards: chineseCards
+    }
+  };
+  return buildDeckCatalog({
+    schemaVersion: 1,
+    source: { releaseTag: "fixture-2026-10-28-localized" },
+    cards: FIXTURE_OFFICIAL_CARDS.map((card) => ({
+      cardCode: card.id,
+      ...card
+    })),
+    localizedTexts: {
+      "zh-CN": buildLocalizedTexts(
+        galleries["en-US"],
+        galleries["zh-CN"],
+        "2026-10-28T15:00:00.000Z"
+      )
+    },
+    localizedGalleries: galleries
   });
 }
 
@@ -342,4 +390,63 @@ test("radiance showcase rune placeholders are judge-required, not no-ability", (
 
   // The blank-text standard Radiance rune remains no-ability.
   assert.equal(statusByPrinting.get("rad-r01"), "no-ability");
+});
+
+test("localized audit keeps Rules and Effect provenance separate from the English ability", () => {
+  const catalog = localizedFixtureCatalog();
+  const effectCard = catalog.cards.find((card) => card.id === "ogn-014-100");
+  assert.notEqual(effectCard, undefined);
+  assert.equal(effectCard.ability, "When this card arrives, draw 1 card.");
+  assert.equal(
+    effectCard.localizedAbilityRulesText,
+    "<p>中文正文 ogn-014-100</p>"
+  );
+  assert.equal(effectCard.localizedAbilityStatus, "official-structured");
+
+  const noEffect = catalog.cards.find((card) => card.id === "fix-003-100");
+  assert.equal(noEffect.ability, "");
+  assert.equal("localizedAbilityRulesText" in noEffect, false);
+  assert.equal(noEffect.localizedAbilityStatus, "no-effect");
+
+  const coverage = localizedTextCoverage(
+    {
+      url: "https://example.test/cards?locale=en_US",
+      resultsUpdatedAt: "2026-10-28T14:52:59.000Z",
+      cards: FIXTURE_OFFICIAL_CARDS
+    },
+    {
+      url: "https://example.test/cards?locale=zh_CN",
+      resultsUpdatedAt: "2026-10-28T14:50:03.000Z",
+      cards: FIXTURE_OFFICIAL_CARDS.map((card) => ({
+        ...card,
+        name: `中文 ${card.id}`,
+        text: card.text === undefined
+          ? undefined
+          : {
+              richText: {
+                body: card.id === "fix-003-100"
+                  ? "<p>[无文本]</p>"
+                  : `<p>中文正文 ${card.id}</p>`
+              }
+            }
+      }))
+    }
+  );
+  assert.equal(coverage.catalogPrintings, FIXTURE_OFFICIAL_CARDS.length);
+  assert.equal(
+    coverage.officialStructured +
+      coverage.officialAccessibilitySupplemented +
+      coverage.englishFallback +
+      coverage.missing +
+      coverage.noEffect,
+    FIXTURE_OFFICIAL_CARDS.length
+  );
+  assert.equal(
+    coverage.displayableChinese,
+    coverage.officialStructured + coverage.officialAccessibilitySupplemented
+  );
+  assert.equal(coverage.officialStructured + coverage.noEffect,
+    FIXTURE_OFFICIAL_CARDS.length);
+  assert.equal(coverage.englishFallback, 0);
+  assert.equal(coverage.missing, 0);
 });

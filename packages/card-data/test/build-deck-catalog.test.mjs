@@ -8,6 +8,9 @@ import { fileURLToPath } from "node:url";
 const {
   BuildDeckCatalogError,
   buildDeckCatalog,
+  buildLocalizedTexts,
+  classifyLocalizedText,
+  localizedTextCoverage,
   main,
   parseArguments,
   resolveOutputPath,
@@ -65,6 +68,54 @@ const PUBLIC_CARD_FIELDS = [
   "tags",
   "variant"
 ];
+
+const LOCALIZED_CARD_FIELDS = [
+  "localizedAbilityLanguage",
+  "localizedAbilitySource",
+  "localizedAbilityStatus"
+];
+
+const ENGLISH_GALLERY_URL =
+  "https://example.test/cards?locale=en_US";
+const CHINESE_GALLERY_URL =
+  "https://example.test/cards?locale=zh_CN";
+const ENGLISH_UPDATED_AT = "2026-10-28T14:52:59.390159224Z";
+const CHINESE_UPDATED_AT = "2026-10-28T14:50:03.063541516Z";
+const SYNCED_AT = "2026-10-28T15:00:00.000Z";
+
+function localizedGalleries(english, chinese) {
+  return {
+    "en-US": {
+      url: ENGLISH_GALLERY_URL,
+      resultsUpdatedAt: ENGLISH_UPDATED_AT,
+      cards: english
+    },
+    "zh-CN": {
+      url: CHINESE_GALLERY_URL,
+      resultsUpdatedAt: CHINESE_UPDATED_AT,
+      cards: chinese
+    }
+  };
+}
+
+function localizedSnapshot(english, chinese, cards = english.map((card) =>
+  printingCard(card)
+)) {
+  const galleries = localizedGalleries(english, chinese);
+  return {
+    schemaVersion: 1,
+    dataVersion: "2026-10-28-localized-fixture",
+    cards,
+    localizedTexts: {
+      "zh-CN": buildLocalizedTexts(
+        galleries["en-US"],
+        galleries["zh-CN"],
+        SYNCED_AT
+      )
+    },
+    localizedGalleries: galleries
+  };
+}
 
 function officialCard(overrides = {}) {
   return {
@@ -352,6 +403,299 @@ test("emits only public fields and computes a deterministic digest", () => {
       "variant"
     ]
   );
+});
+
+test("classifies localized rules and effect text independently with strict fallbacks", () => {
+  const structured = officialCard({
+    id: "fix-101-100",
+    publicCode: "FIX-101/100",
+    text: { richText: { body: "<p>Draw 1.</p>" } },
+    effect: { richText: { body: "<p>At end of turn, discard 1.</p>" } }
+  });
+  const structuredZh = {
+    ...structured,
+    name: "结构中文",
+    text: { richText: { body: "<p>抽一张牌。</p>" } },
+    effect: { richText: { body: "<p>在你回合结束时，弃置一张牌。</p>" } }
+  };
+  const identical = officialCard({
+    id: "fix-102-100",
+    publicCode: "FIX-102/100",
+    text: { richText: { body: "<p>English only.</p>" } }
+  });
+  const identicalZh = {
+    ...identical,
+    name: "英文相同",
+    text: { richText: { body: "<p>English only.</p>" } }
+  };
+  const missing = officialCard({
+    id: "fix-103-100",
+    publicCode: "FIX-103/100",
+    text: { richText: { body: "<p>Draw 2.</p>" } }
+  });
+  const missingZh = { ...missing, name: "缺正文" };
+  delete missingZh.text;
+  const noEffect = officialCard({
+    id: "fix-104-100",
+    publicCode: "FIX-104/100",
+    text: undefined
+  });
+  const noEffectZh = { ...noEffect, name: "无效果" };
+  delete noEffectZh.text;
+  const catalog = buildDeckCatalog(localizedSnapshot(
+    [structured, identical, missing, noEffect],
+    [structuredZh, identicalZh, missingZh, noEffectZh]
+  ));
+
+  const structuredCard = findCard(catalog, structured.id);
+  assert.equal(structuredCard.localizedAbilityRulesText, "<p>抽一张牌。</p>");
+  assert.equal(
+    structuredCard.localizedAbilityEffectText,
+    "<p>在你回合结束时，弃置一张牌。</p>"
+  );
+  assert.equal(structuredCard.localizedAbilityLanguage, "zh-CN");
+  assert.equal(structuredCard.localizedAbilityStatus, "official-structured");
+  assert.deepEqual(structuredCard.localizedAbilitySource, {
+    url: CHINESE_GALLERY_URL,
+    locale: "zh-CN",
+    updatedAt: CHINESE_UPDATED_AT,
+    syncedAt: SYNCED_AT
+  });
+
+  const fallback = findCard(catalog, identical.id);
+  assert.equal(fallback.localizedAbilityRulesText, "<p>English only.</p>");
+  assert.equal("localizedAbilityEffectText" in fallback, false);
+  assert.equal(fallback.localizedAbilityLanguage, "en-US");
+  assert.equal(fallback.localizedAbilityStatus, "english-fallback");
+
+  const missingCard = findCard(catalog, missing.id);
+  assert.equal("localizedAbilityRulesText" in missingCard, false);
+  assert.equal("localizedAbilityEffectText" in missingCard, false);
+  assert.equal("localizedAbilityLanguage" in missingCard, false);
+  assert.equal(missingCard.localizedAbilityStatus, "missing");
+
+  const noEffectCard = findCard(catalog, noEffect.id);
+  assert.equal("localizedAbilityRulesText" in noEffectCard, false);
+  assert.equal("localizedAbilityEffectText" in noEffectCard, false);
+  assert.equal(noEffectCard.localizedAbilityStatus, "no-effect");
+
+  assert.equal(
+    classifyLocalizedText(structured, structuredZh, structured.id),
+    "official-structured"
+  );
+  assert.equal(
+    classifyLocalizedText(identical, identicalZh, identical.id),
+    "english-fallback"
+  );
+  assert.equal(
+    classifyLocalizedText(missing, missingZh, missing.id),
+    "missing"
+  );
+  assert.equal(
+    classifyLocalizedText(noEffect, noEffectZh, noEffect.id),
+    "no-effect"
+  );
+});
+
+test("supplements only a strictly matching official Equip accessibility fragment", () => {
+  const card = officialCard({
+    id: "sfd-095-221",
+    name: "Doran's Blade",
+    publicCode: "SFD-095/221",
+    cardType: { type: [{ id: "gear", label: "Gear" }] },
+    domain: { values: [{ id: "body", label: "Body" }] },
+    text: {
+      richText: {
+        body: "<p>[Equip] :rb_rune_body: (:rb_rune_body:: Attach this to a unit you control.)</p>"
+      }
+    },
+    cardImage: {
+      url: "https://example.test/dorans-blade.png",
+      accessibilityText:
+        "Riftbound Gear: 多兰之刃. [装配][C]（支付[C]：将此牌贴附到你控制的一名单位上。）"
+    }
+  });
+  const chinese = {
+    ...card,
+    name: "多兰之刃",
+    text: undefined
+  };
+  const catalog = buildDeckCatalog(localizedSnapshot([card], [chinese]));
+  const publicCard = findCard(catalog, card.id);
+
+  assert.equal(
+    publicCard.localizedAbilityRulesText,
+    "[装配]:rb_rune_body:（支付:rb_rune_body:：将此牌贴附到你控制的一名单位上。）"
+  );
+  assert.equal(
+    publicCard.localizedAbilityStatus,
+    "official-accessibility-supplemented"
+  );
+
+  const multipleRunes = {
+    ...card,
+    id: "sfd-096-221",
+    publicCode: "SFD-096/221",
+    text: {
+      richText: {
+        body: "<p>[Equip] :rb_energy_1::rb_rune_body: (:rb_energy_1::rb_rune_body:: Attach this to a unit you control.)</p>"
+      }
+    }
+  };
+  const multipleZh = {
+    ...chinese,
+    id: multipleRunes.id,
+    publicCode: multipleRunes.publicCode
+  };
+  assert.equal(
+    classifyLocalizedText(multipleRunes, multipleZh, multipleRunes.id),
+    "missing"
+  );
+});
+
+test("keeps the localized fields optional for legacy snapshots", () => {
+  const card = officialCard();
+  const catalog = buildDeckCatalog(snapshot([card]));
+  const legacy = findCard(catalog, card.id);
+
+  assert.equal(legacy.localizedAbilityRulesText, undefined);
+  assert.equal(legacy.localizedAbilityEffectText, undefined);
+  assert.equal(legacy.localizedAbilityLanguage, undefined);
+  assert.equal(legacy.localizedAbilityStatus, undefined);
+  assert.equal(legacy.localizedAbilitySource, undefined);
+});
+
+test("fails closed on tampered, incomplete, unknown, and drifted localization data", () => {
+  const english = officialCard();
+  const chinese = {
+    ...english,
+    name: "烈焰守卫",
+    text: { richText: { body: "<p>抽一张牌。</p>" } }
+  };
+  const valid = localizedSnapshot([english], [chinese]);
+
+  const tampered = structuredClone(valid);
+  tampered.localizedTexts["zh-CN"].cards[0].rulesTextHtml =
+    "<p>篡改正文</p>";
+  assert.throws(
+    () => buildDeckCatalog(tampered),
+    /does not match the official galleries/
+  );
+
+  const missingAuditRecord = structuredClone(valid);
+  missingAuditRecord.localizedTexts["zh-CN"].cards = [];
+  assert.throws(
+    () => buildDeckCatalog(missingAuditRecord),
+    /does not match the official galleries/
+  );
+
+  const tamperedStatus = structuredClone(valid);
+  tamperedStatus.localizedTexts["zh-CN"].cards[0].status =
+    "official-accessibility-supplemented";
+  assert.throws(
+    () => buildDeckCatalog(tamperedStatus),
+    /does not match the official galleries/
+  );
+
+  const unknownToken = officialCard({
+    id: "fix-105-100",
+    publicCode: "FIX-105/100",
+    text: { richText: { body: "<p>Draw :rb_energy_1:.</p>" } }
+  });
+  const unknownTokenZh = {
+    ...unknownToken,
+    name: "未知符号",
+    text: { richText: { body: "<p>抽:rb_not_a_token:。</p>" } }
+  };
+  assert.throws(
+    () => localizedSnapshot([unknownToken], [unknownTokenZh]),
+    /unknown gallery token :rb_not_a_token:/
+  );
+
+  const malformedBody = {
+    ...chinese,
+    text: { richText: {} }
+  };
+  assert.throws(
+    () => localizedSnapshot([english], [malformedBody]),
+    /malformed richText body/
+  );
+
+  assert.throws(
+    () => localizedSnapshot(
+      [english],
+      [{ ...chinese, id: "fix-999-100" }]
+    ),
+    /different printing ids/
+  );
+});
+
+test("reports localized coverage at the printing and set level", () => {
+  const structured = officialCard({
+    id: "fix-111-100",
+    publicCode: "FIX-111/100",
+    text: { richText: { body: "<p>Draw 1.</p>" } }
+  });
+  const fallback = officialCard({
+    id: "fix-112-100",
+    publicCode: "FIX-112/100",
+    text: { richText: { body: "<p>English only.</p>" } }
+  });
+  const missing = officialCard({
+    id: "fix-113-100",
+    publicCode: "FIX-113/100",
+    text: { richText: { body: "<p>Draw 3.</p>" } }
+  });
+  const noEffect = officialCard({
+    id: "fix-114-100",
+    publicCode: "FIX-114/100",
+    text: undefined
+  });
+  const chinese = [
+    { ...structured, name: "中文一", text: { richText: { body: "<p>抽一张牌。</p>" } } },
+    { ...fallback, name: "中文二" },
+    { ...missing, name: "中文三", text: undefined },
+    { ...noEffect, name: "中文四", text: undefined }
+  ];
+  const galleries = localizedGalleries(
+    [structured, fallback, missing, noEffect],
+    chinese
+  );
+  const coverage = localizedTextCoverage(
+    galleries["en-US"],
+    galleries["zh-CN"]
+  );
+
+  assert.deepEqual({
+    catalogPrintings: coverage.catalogPrintings,
+    effectPrintings: coverage.effectPrintings,
+    officialStructured: coverage.officialStructured,
+    officialAccessibilitySupplemented:
+      coverage.officialAccessibilitySupplemented,
+    displayableChinese: coverage.displayableChinese,
+    englishFallback: coverage.englishFallback,
+    missing: coverage.missing,
+    noEffect: coverage.noEffect
+  }, {
+    catalogPrintings: 4,
+    effectPrintings: 3,
+    officialStructured: 1,
+    officialAccessibilitySupplemented: 0,
+    displayableChinese: 1,
+    englishFallback: 1,
+    missing: 1,
+    noEffect: 1
+  });
+  assert.deepEqual(coverage.sets.fix, {
+    catalog: 4,
+    effect: 3,
+    officialStructured: 1,
+    officialAccessibilitySupplemented: 0,
+    displayableChinese: 1,
+    englishFallback: 1,
+    missing: 1,
+    noEffect: 1
+  });
 });
 
 test("parses CLI options and writes the catalog atomically", async () => {
