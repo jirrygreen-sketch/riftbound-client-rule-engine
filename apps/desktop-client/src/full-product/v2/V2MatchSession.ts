@@ -23,9 +23,10 @@ import type {
   V2Socket,
   V2SocketFactory
 } from "../../transport/v2";
+import { DEFAULT_WS_SERVER_URL } from "../../net/server-defaults";
 
 const DUEL_RULESET_ID = "riftbound-duel";
-const DEFAULT_SERVER_URL = "ws://127.0.0.1:8787";
+const DEFAULT_SERVER_URL = DEFAULT_WS_SERVER_URL;
 
 export interface V2MatchSessionOptions {
   readonly serverUrl: string;

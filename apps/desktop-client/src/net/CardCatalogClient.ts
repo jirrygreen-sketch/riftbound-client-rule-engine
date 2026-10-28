@@ -2,6 +2,7 @@ import {
   isConstructedRegionSelection,
   type ConstructedRegionSelection
 } from "@riftbound/protocol";
+import { DEFAULT_HTTP_SERVER_URL } from "./server-defaults";
 
 export type CardVariant = "standard" | "alternate" | "unknown";
 
@@ -277,7 +278,7 @@ export function normalizeCardServerUrl(input: string): string | null {
   return url.toString().replace(/\/$/, "");
 }
 
-export const DEFAULT_CARD_SERVER_URL = "http://127.0.0.1:8787";
+export const DEFAULT_CARD_SERVER_URL = DEFAULT_HTTP_SERVER_URL;
 
 export function cardImageServerUrl(serverUrl: string, printingId: string): string {
   const base = normalizeCardServerUrl(serverUrl);

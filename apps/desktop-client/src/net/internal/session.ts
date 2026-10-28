@@ -1,8 +1,9 @@
 import { isRecord } from "./utils";
 import type { StoredSession } from "./types";
+import { DEFAULT_WS_SERVER_URL } from "../server-defaults";
 
 const STORAGE_KEY = "riftbound.desktop-client.session";
-const DEFAULT_SERVER_URL = "ws://127.0.0.1:8787/ws";
+const DEFAULT_SERVER_URL = `${DEFAULT_WS_SERVER_URL}/ws`;
 
 export function readStoredSession(): StoredSession | null {
   if (typeof window === "undefined") return null;
