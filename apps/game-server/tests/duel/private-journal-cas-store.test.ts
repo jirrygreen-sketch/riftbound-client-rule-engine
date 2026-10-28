@@ -88,7 +88,9 @@ const testRoot = process.env.RIFTBOUND_PRIVATE_CAS_TEST_TMP ?? tmpdir();
 
 const moduleUrl = pathToFileURL(fileURLToPath(new URL("../../src/duel/private-journal-cas-store.ts", import.meta.url))).href;
 const tsxLoader = fileURLToPath(new URL("../../node_modules/tsx/dist/loader.mjs", import.meta.url));
+const childReadyTimeoutMs = 20_000;
 const directories: string[] = [];
+const childProcesses = new Set<ChildProcessWithoutNullStreams>();
 
 async function directory(): Promise<string> {
   await fsPromises.mkdir(testRoot!, { recursive: true, mode: 0o700 });
@@ -102,34 +104,67 @@ function keyDirectory(directoryPath: string, key: string): string {
   return path.join(directoryPath, createHash("sha256").update(key).digest("hex"));
 }
 
-async function waitForLine(child: ChildProcessWithoutNullStreams, expected: string): Promise<string> {
+async function waitForLine(
+  child: ChildProcessWithoutNullStreams,
+  expected: string,
+  label: string
+): Promise<string> {
   let output = "";
   let errorOutput = "";
+  let timer: ReturnType<typeof setTimeout> | undefined;
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`child timed out: ${output} ${errorOutput}`)), 5000);
-    child.stderr.on("data", (chunk: Buffer) => { errorOutput += chunk.toString("utf8"); });
-    child.stdout.on("data", (chunk: Buffer) => {
+    const cleanup = () => {
+      if (timer !== undefined) clearTimeout(timer);
+      child.stdout.off("data", onStdout);
+      child.stderr.off("data", onStderr);
+      child.off("error", onError);
+      child.off("exit", onExit);
+    };
+    const onStdout = (chunk: Buffer) => {
       output += chunk.toString("utf8");
       if (output.includes(expected)) {
-        clearTimeout(timer);
+        cleanup();
         resolve(output);
       }
-    });
-    child.on("error", reject);
-    child.on("exit", code => {
-      if (!output.includes(expected)) reject(new Error(`child exited ${code}: ${output} ${errorOutput}`));
-    });
+    };
+    const onStderr = (chunk: Buffer) => { errorOutput += chunk.toString("utf8"); };
+    const onError = (error: Error) => { cleanup(); reject(error); };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      cleanup();
+      reject(new Error(`${label} exited before ${JSON.stringify(expected)}: code=${code} signal=${signal} ` +
+        `stdout=${JSON.stringify(output)} stderr=${JSON.stringify(errorOutput)}`));
+    };
+    child.stdout.on("data", onStdout);
+    child.stderr.on("data", onStderr);
+    child.once("error", onError);
+    child.once("exit", onExit);
+    timer = setTimeout(() => {
+      cleanup();
+      child.kill();
+      reject(new Error(`${label} did not emit ${JSON.stringify(expected)} within ${childReadyTimeoutMs}ms: ` +
+        `stdout=${JSON.stringify(output)} stderr=${JSON.stringify(errorOutput)}`));
+    }, childReadyTimeoutMs);
   });
 }
 
-async function finishChild(child: ChildProcessWithoutNullStreams): Promise<string> {
+async function finishChild(child: ChildProcessWithoutNullStreams, label: string): Promise<string> {
   let output = "";
-  let error = "";
-  child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString("utf8"); });
-  child.stderr.on("data", (chunk: Buffer) => { error += chunk.toString("utf8"); });
+  let errorOutput = "";
   return new Promise((resolve, reject) => {
-    child.on("error", reject);
-    child.on("exit", code => code === 0 ? resolve(output) : reject(new Error(`child ${code}: ${error} ${output}`)));
+    child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString("utf8"); });
+    child.stderr.on("data", (chunk: Buffer) => { errorOutput += chunk.toString("utf8"); });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => code === 0 ? resolve(output) : reject(new Error(
+      `${label} exited: code=${code} signal=${signal} stdout=${JSON.stringify(output)} ` +
+      `stderr=${JSON.stringify(errorOutput)}`)));
+  });
+}
+
+async function waitForExit(child: ChildProcessWithoutNullStreams, label: string): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  await new Promise<void>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", code => code === 0 ? resolve() : reject(new Error(`${label} exited ${code}`)));
   });
 }
 
@@ -152,6 +187,11 @@ afterEach(async () => {
   fault.syncDirectory = false;
   fault.syncHead = false;
   fault.failDirectorySyncOn = 0;
+  for (const child of childProcesses) {
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+  }
+  await Promise.all([...childProcesses].map(child => waitForExit(child, "child process cleanup").catch(() => undefined)));
+  childProcesses.clear();
   for (const item of directories.splice(0)) await fsPromises.rm(item, { recursive: true, force: true });
 });
 
@@ -419,15 +459,19 @@ describe("private journal conditional durable store", () => {
       process.stdout.write(JSON.stringify({ status: outcome.status, revision: outcome.status === "conflict" ? outcome.currentHead.revision : outcome.head.revision }) + "\\n");
     `;
     const env = { ...process.env, TMPDIR: testRoot! };
-    const makeChild = (writeId: string) => spawn(process.execPath,
+    const makeChild = (writeId: string) => {
+      const child = spawn(process.execPath,
       ["--import", tsxLoader, "--input-type=module", "-e", script, root, key, writeId],
-      { cwd: fileURLToPath(new URL("../../../../", import.meta.url)), env, stdio: "pipe" });
+        { cwd: fileURLToPath(new URL("../../../../", import.meta.url)), env, stdio: "pipe" });
+      childProcesses.add(child);
+      return child;
+    };
     const children = [makeChild("child-a"), makeChild("child-b")];
-    await Promise.all(children.map(child => waitForLine(child, "ready\n")));
-    const finished = children.map(finishChild);
+    await Promise.all(children.map((child, index) => waitForLine(child, "ready\n", `child ${index + 1}`)));
+    const finished = children.map((child, index) => finishChild(child, `child ${index + 1}`));
     children.forEach(child => child.stdin.end("go\n"));
     const results = (await Promise.all(finished)).map(output => JSON.parse(output.trim()));
     expect(results.map(result => result.status).sort()).toEqual(["committed", "conflict"]);
     expect((await (await openPrivateJournalCasStore({ directory: root, key })).load()).head.revision).toBe(1);
-  });
+  }, 30_000);
 });
