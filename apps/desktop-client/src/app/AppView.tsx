@@ -489,7 +489,6 @@ export function AppView({
         </main>
       ) : v2UiEnabled ? (
         <main className="table-shell">
-          {controls}
           <V2MatchBoard
             state={v2Match.state}
             lastReceipt={v2Match.lastReceipt}
@@ -507,9 +506,10 @@ export function AppView({
             onSubmitDeck={v2Match.submitDeck}
             onSetReady={v2Match.setReady}
             onLeaveRoom={leaveV2Room}
+            controls={controls}
+            chat={roomId ? chat : null}
             onCommand={v2Match.sendCommand}
           />
-          {roomId ? chat : null}
         </main>
       ) : duelProjection !== null ? (
         <main className="table-shell">

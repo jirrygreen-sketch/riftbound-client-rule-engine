@@ -8,12 +8,13 @@ class MemoryStorage {
 }
 
 describe("protocol v2 UI switch", () => {
-  it("keeps the legacy route by default and persists an explicit opt-in", () => {
+  it("defaults to the v2 route (RIFT-1125) and persists an explicit opt-out and opt-in", () => {
     const storage = new MemoryStorage();
+    expect(readV2UiEnabled(storage)).toBe(true);
+    expect(readV2UiEnabled(null)).toBe(true);
+    expect(writeV2UiEnabled(storage, false)).toBe(true);
     expect(readV2UiEnabled(storage)).toBe(false);
     expect(writeV2UiEnabled(storage, true)).toBe(true);
     expect(readV2UiEnabled(storage)).toBe(true);
-    expect(writeV2UiEnabled(storage, false)).toBe(true);
-    expect(readV2UiEnabled(storage)).toBe(false);
   });
 });

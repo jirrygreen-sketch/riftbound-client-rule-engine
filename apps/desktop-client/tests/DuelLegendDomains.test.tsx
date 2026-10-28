@@ -7,6 +7,13 @@ import {
   type DuelProjectionV3Actions1
 } from "@riftbound/protocol";
 import type { CardCatalog } from "../src/net/CardCatalogClient";
+// These tests cover the legacy Duel route. RIFT-1125 made the V2 room UI the
+// default, so pin the switch to the legacy route here.
+vi.mock("../src/full-product/v2-ui-switch", async importOriginal => ({
+  ...(await importOriginal<typeof import("../src/full-product/v2-ui-switch")>()),
+  readV2UiEnabled: () => false
+}));
+
 
 /*
  * App-level wiring for the per-Legend resource counters.

@@ -34,3 +34,87 @@
 .v2-player.has-priority { box-shadow: inset 0 3px 0 #0f766e; }
 .v2-waiting { margin: 0; border-radius: .5rem; padding: .65rem; background: #fef3c7; color: #92400e; }
 .v2-receipt { margin: 0; border-radius: .5rem; padding: .5rem .65rem; background: #dcfce7; color: #166534; }
+
+/* ---- RIFT-1125 playmat ----
+   The in-match V2 board renders inside the shared Duel table shell
+   (DuelTableLayout + DuelMatchBoard.css). These rules only adapt the V2
+   regions that keep their own markup (zones, hand, action panels) to the
+   dark-teal tabletop; the lobby above keeps the plain V2 style. */
+.v2-match-board.v2-playmat { display: flex; flex-direction: column; gap: 0; padding: 0; min-height: 0; height: 100%; }
+.v2-playmat .v2-zone { border: 0; border-radius: 0; padding: 0; background: transparent; min-width: 0; }
+.v2-playmat .full-product-duel-mat-runes .v2-zone { flex: 1 1 0; display: flex; align-items: center; overflow-x: auto; }
+.v2-playmat .full-product-duel-mat-base .v2-zone { height: 100%; }
+.v2-playmat .full-product-duel-baserune-list { display: flex; gap: .3rem; margin: 0; padding: 0; list-style: none; }
+.v2-playmat .full-product-duel-baserune { display: flex; align-items: center; gap: .2rem; }
+.v2-playmat .full-product-duel-baserune[data-readied="false"] { opacity: .55; }
+.v2-playmat .full-product-duel-baserune-caption { display: flex; flex-direction: column; font-size: .55rem; line-height: 1.15; }
+.v2-playmat .full-product-duel-unit[data-readied="false"] .full-product-duel-unit-thumb { transform: rotate(90deg) scale(.82); }
+.v2-playmat .full-product-duel-unit-might { color: #f2c86b; font-weight: 700; }
+.v2-battlefield-in-combat { box-shadow: inset 0 0 0 2px #e8a33d; }
+
+.v2-playmat-header { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.v2-playmat-meta { margin-left: auto; display: inline-flex; align-items: center; gap: .5rem; font-size: .72rem; color: #9fb1ad; }
+
+/* Own hand: card faces in one scrolling strip. */
+.v2-playmat-hand { display: flex; flex-direction: column; gap: .3rem; height: 100%; min-height: 0; padding: .3rem .5rem;
+  border: 0; border-radius: 0; background: transparent; }
+.v2-playmat-hand .v2-section-heading { font-size: .75rem; color: #9fb1ad; }
+.v2-playmat-hand .v2-section-heading h3 { font-size: .8rem; color: #f3f0ea; }
+.v2-playmat-hand .v2-card-row { flex: 1 1 auto; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; margin: 0; padding-bottom: .2rem; align-items: stretch; }
+.v2-playmat-hand .v2-card { flex: 0 0 auto; min-width: 0; width: calc(var(--duel-hand-face-height, 12rem) * 744 / 1039 + .7rem);
+  display: flex; flex-direction: column; align-items: center; gap: .15rem; padding: .3rem; text-align: center;
+  color: #f3f0ea; background: rgba(28, 34, 34, .62); border-color: #42534f; }
+.v2-playmat-hand .v2-card strong { font-size: .72rem; line-height: 1.2; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v2-playmat-hand .v2-card small { font-size: .62rem; color: #9fb1ad; }
+.v2-hand-face { width: 100%; height: var(--duel-hand-face-height, 12rem); max-height: var(--duel-hand-face-height, 12rem); object-fit: contain; border-radius: 6px; }
+.v2-hand-face.is-missing { display: block; background: repeating-linear-gradient(45deg, #263a34, #263a34 4px, #192a25 4px, #192a25 8px); border: 1px solid #687f76; }
+.v2-playmat .v2-card:not(:disabled):hover { border-color: #37c8bb; transform: translateY(-3px); }
+.v2-playmat .v2-card.is-selected { border-color: #37c8bb; background: rgba(26, 167, 155, .25); color: #f3f0ea; box-shadow: 0 0 0 2px rgba(55, 200, 187, .5); transform: translateY(-6px); }
+.v2-playmat .v2-card { transition: transform .12s ease, border-color .12s ease; }
+
+/* Sidebar: the unchanged V2 action panels, compacted for the narrow column. */
+.v2-playmat-actions { display: grid; gap: .5rem; font-size: .8rem; }
+.v2-playmat-actions .v2-action-panel, .v2-playmat-actions .v2-choice, .v2-playmat-actions .v2-chain, .v2-playmat-actions .v2-lobby {
+  gap: .4rem; padding: .5rem; border-radius: .5rem; border-color: #343b3b; background: rgba(28, 34, 34, .62); }
+.v2-playmat-actions .v2-section-heading { flex-wrap: wrap; gap: .25rem; }
+.v2-playmat-actions .v2-section-heading h3 { font-size: .85rem; }
+.v2-playmat-actions .v2-section-heading span, .v2-playmat-actions .v2-muted, .v2-playmat-actions .v2-chain p { color: #9fb1ad; font-size: .72rem; }
+.v2-playmat-actions .v2-choice-options { gap: .35rem; margin-top: .2rem; }
+.v2-playmat-actions .v2-action-row { flex-wrap: wrap; justify-content: flex-start; gap: .35rem; }
+.v2-playmat .v2-choice-options button, .v2-playmat .v2-action-row button, .v2-playmat-actions button {
+  padding: .35rem .55rem; border-radius: .4rem; color: #f3f0ea; background: rgba(11, 15, 15, .6); border: 1px solid #42534f; }
+.v2-playmat .v2-choice-options button[aria-pressed="true"] { border-color: #37c8bb; background: rgba(26, 167, 155, .28); color: #f3f0ea; }
+.v2-playmat .v2-primary-action { background: #1aa79b; border-color: #1aa79b; color: #071413; font-weight: 700; }
+.v2-playmat button:disabled { opacity: .45; cursor: not-allowed; }
+.v2-playmat .v2-error { font-size: .75rem; padding: .45rem; }
+.v2-playmat .v2-waiting, .v2-playmat .v2-receipt { font-size: .72rem; margin: 0; color: #9fb1ad; }
+.v2-playmat .v2-log { border: 0; padding: .3rem; background: transparent; font-size: .72rem; }
+.v2-playmat .v2-log ol { padding-left: 1rem; }
+.v2-playmat .v2-chain ol { padding-left: 1rem; margin: .3rem 0 0; }
+.v2-playmat-actions label { display: grid; gap: .2rem; }
+
+/* Battlefield permanents: the field column has room, so show real card faces
+   (portrait, height-bounded) instead of the legacy short-screen mini chips. */
+.v2-playmat .full-product-duel-battlefield .v2-zone { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-groups { display: flex; flex-wrap: nowrap; gap: .4rem; align-items: flex-start; }
+.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-list { display: flex; flex-wrap: wrap; gap: .3rem; margin: 0; padding: 0; list-style: none; }
+.v2-playmat .full-product-duel-battlefield .full-product-duel-unit { flex-direction: column; align-items: center; min-width: 0; width: auto; max-width: 7rem; padding: .2rem; }
+.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-thumb,
+.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-thumb.is-missing { width: auto; height: min(5.6rem, 11vh); max-height: min(5.6rem, 11vh); }
+.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-details { align-items: center; text-align: center; }
+.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-state { display: flex; flex-wrap: wrap; justify-content: center; gap: .2rem; font-size: .6rem; }
+.v2-playmat .full-product-duel-mat-base .full-product-duel-unit-groups { display: flex; gap: .3rem; }
+.v2-playmat .full-product-duel-mat-base .full-product-duel-unit-list { display: flex; gap: .25rem; margin: 0; padding: 0; list-style: none; }
+.v2-playmat .full-product-duel-identity-title { font-size: .55rem; }
+
+/* The V2 match also renders inside the room page (not only the table shell),
+   so give the playmat a viewport-bound height there; inside the table shell
+   the grid row already sizes it. */
+.v2-match-board.v2-playmat { height: calc(100dvh - 10.75rem); min-height: 32rem; --v2-hand-face: clamp(4.5rem, 11vh, 9rem); }
+.table-shell > .v2-match-board.v2-playmat { height: 100%; min-height: 0; }
+.v2-playmat .v2-hand-face { height: var(--v2-hand-face); max-height: var(--v2-hand-face); }
+.v2-playmat-hand .v2-card { width: calc(var(--v2-hand-face) * 744 / 1039 + .7rem); }
+.v2-hand-slot { position: relative; flex: 0 0 auto; display: flex; }
+.v2-hand-zoom { position: absolute; top: .25rem; right: .25rem; width: 1.4rem; height: 1.4rem; padding: 0; border-radius: 50%;
+  font-size: .8rem; line-height: 1; color: #f3f0ea; background: rgba(11, 15, 15, .75); border: 1px solid #42534f; cursor: zoom-in; }
+.v2-hand-zoom:hover { border-color: #37c8bb; }
