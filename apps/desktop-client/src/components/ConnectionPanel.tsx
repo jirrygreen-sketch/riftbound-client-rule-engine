@@ -3,6 +3,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Cable, LogIn, Plus, RefreshCw, Users } from "lucide-react";
 import { OFFICIAL_RULESET_ID, DUEL_RULESET_ID, RULESET_ID } from "@riftbound/protocol";
 import type { GameClientStatus, StoredSession } from "../net/GameClient";
+import { DEFAULT_WS_SERVER_URL } from "../net/server-defaults";
 import "./ConnectionPanel.css";
 
 export type RoomRulesetChoice =
@@ -62,7 +63,7 @@ export function resolveInitialRuleset(
   return isRoomRulesetChoice(defaultRuleset) ? defaultRuleset : DEFAULT_ROOM_RULESET;
 }
 
-export const DEFAULT_CONNECTION_SERVER_URL = "ws://127.0.0.1:8787";
+export const DEFAULT_CONNECTION_SERVER_URL = DEFAULT_WS_SERVER_URL;
 
 /**
  * One concise reminder that this client is not a finished official rules

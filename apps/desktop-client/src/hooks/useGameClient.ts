@@ -29,8 +29,9 @@ import type {
 import { DECK_ZONES } from "../net/CardCatalogClient";
 import { acceptConfirmedProjection } from "../full-product/transport";
 import type { DeckByZone } from "./useCardCatalog";
+import { DEFAULT_WS_SERVER_URL } from "../net/server-defaults";
 
-const DEFAULT_SERVER_URL = "ws://127.0.0.1:8787";
+const DEFAULT_SERVER_URL = DEFAULT_WS_SERVER_URL;
 
 interface UseGameClientResult {
   status: GameClientStatus;

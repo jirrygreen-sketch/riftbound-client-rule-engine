@@ -30,6 +30,7 @@ import {
   V2_M1_PRECON_IDS,
   type V2M1PreconId
 } from "./m1-precons";
+import { DEFAULT_HTTP_SERVER_URL, DEFAULT_WS_SERVER_URL } from "../../net/server-defaults";
 import "./V2MatchBoard.css";
 
 export interface V2MatchBoardProps {
@@ -202,8 +203,8 @@ export function V2MatchBoard({
   playerName = "玩家",
   pendingCommandIds = [],
   transportError = null,
-  catalogServerUrl = "http://127.0.0.1:8787",
-  serverUrl = "ws://127.0.0.1:8787",
+  catalogServerUrl = DEFAULT_HTTP_SERVER_URL,
+  serverUrl = DEFAULT_WS_SERVER_URL,
   onServerUrlChange,
   onConnect,
   onCreateRoom,
