@@ -124,6 +124,70 @@ describe("CardCatalogClient", () => {
     expect(result.cards[1].banned).toBe(true);
   });
 
+  it("preserves valid optional Chinese ability display fields", async () => {
+    const source = {
+      url: "https://content.example/riftbound_gallery_cards?locale=zh_CN",
+      locale: "zh-CN",
+      updatedAt: "2026-10-28T14:49:37Z",
+      syncedAt: "2026-10-28T15:00:00Z"
+    };
+    const localizedCatalog = {
+      ...catalog,
+      cards: [{
+        ...catalog.cards[0],
+        localizedAbilityRulesText: "<p>[反应] 支付:rb_energy_1:。</p>",
+        localizedAbilityEffectText: "<p>获得2点战力。</p>",
+        localizedAbilityLanguage: "zh-CN",
+        localizedAbilityStatus: "official-structured",
+        localizedAbilitySource: source
+      }]
+    };
+    const client = new CardCatalogClient({
+      fetchImpl: vi.fn().mockResolvedValue(jsonResponse(localizedCatalog))
+    });
+
+    const result = await client.loadCatalog(DEFAULT_CARD_SERVER_URL);
+
+    expect(result.cards[0]).toMatchObject({
+      localizedAbilityRulesText: "<p>[反应] 支付:rb_energy_1:。</p>",
+      localizedAbilityEffectText: "<p>获得2点战力。</p>",
+      localizedAbilityLanguage: "zh-CN",
+      localizedAbilityStatus: "official-structured",
+      localizedAbilitySource: source
+    });
+  });
+
+  it("drops malformed optional Chinese fields without rejecting the catalog", async () => {
+    const localizedCatalog = {
+      ...catalog,
+      cards: [{
+        ...catalog.cards[0],
+        localizedAbilityRulesText: 42,
+        localizedAbilityEffectText: null,
+        localizedAbilityLanguage: "fr-FR",
+        localizedAbilityStatus: "machine-translated",
+        localizedAbilitySource: {
+          url: "javascript:alert(1)",
+          locale: "zh-CN",
+          updatedAt: "2026-10-28T14:49:37Z",
+          syncedAt: "2026-10-28T15:00:00Z"
+        }
+      }]
+    };
+    const client = new CardCatalogClient({
+      fetchImpl: vi.fn().mockResolvedValue(jsonResponse(localizedCatalog))
+    });
+
+    const result = await client.loadCatalog(DEFAULT_CARD_SERVER_URL);
+
+    expect(result.cards[0]).not.toHaveProperty("localizedAbilityRulesText");
+    expect(result.cards[0]).not.toHaveProperty("localizedAbilityEffectText");
+    expect(result.cards[0]).not.toHaveProperty("localizedAbilityLanguage");
+    expect(result.cards[0]).not.toHaveProperty("localizedAbilityStatus");
+    expect(result.cards[0]).not.toHaveProperty("localizedAbilitySource");
+    expect(result.cards[0].ability).toBe("Guard.");
+  });
+
   it("accepts the zero-copy policy returned for unavailable cards", async () => {
     const unavailableCatalog = {
       ...catalog,

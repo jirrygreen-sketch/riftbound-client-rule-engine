@@ -1,17 +1,20 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { ImageOff, X } from "lucide-react";
+import { CardText, type CardTextData } from "../full-product/duel/card-text";
 import "./CardArtPreview.css";
 
 interface CardArtPreviewProps {
   readonly imageUrl: string | null;
   readonly title: string;
   readonly printingLabel: string;
+  readonly cardText?: CardTextData;
 }
 
 export function CardArtPreview({
   imageUrl,
   title,
-  printingLabel
+  printingLabel,
+  cardText
 }: CardArtPreviewProps) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -78,14 +81,32 @@ export function CardArtPreview({
               </button>
             </header>
 
-            <div className="card-art-frame">
-              <CardArtImage imageUrl={imageUrl} title={title} printingLabel={printingLabel} />
-            </div>
-
-            <p className="card-art-printing">{printingLabel}</p>
+            <CardArtPreviewContent
+              imageUrl={imageUrl}
+              title={title}
+              printingLabel={printingLabel}
+              cardText={cardText}
+            />
           </section>
         </div>
       ) : null}
+    </>
+  );
+}
+
+export function CardArtPreviewContent({
+  imageUrl,
+  title,
+  printingLabel,
+  cardText
+}: CardArtPreviewProps) {
+  return (
+    <>
+      <div className="card-art-frame">
+        <CardArtImage imageUrl={imageUrl} title={title} printingLabel={printingLabel} />
+      </div>
+      <p className="card-art-printing">{printingLabel}</p>
+      {cardText ? <CardText card={cardText} /> : null}
     </>
   );
 }

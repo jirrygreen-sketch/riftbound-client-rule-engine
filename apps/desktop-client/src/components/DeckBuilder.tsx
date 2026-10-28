@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { CardArtPreview, CardArtThumbnail } from "./CardArtPreview";
 import type { CatalogCard } from "../net/CardCatalogClient";
+import { cardTextSearchValues } from "../full-product/duel/card-text";
 
 export type DeckCardVariant = CatalogCard["variant"];
 
@@ -208,6 +209,7 @@ function DeckVariant({
         imageUrl={card.imageUrl}
         title={label}
         printingLabel={variantLabel}
+        cardText={card}
       />
 
       <div className="deck-variant-info">
@@ -388,6 +390,7 @@ function matchesQuery(card: DeckBuilderCard, query: string): boolean {
     card.cardType,
     ...card.domains,
     ...card.tags,
+    ...cardTextSearchValues(card),
     card.setCode,
     card.cardNumber
   ].some(value => value.toLocaleLowerCase().includes(query));
