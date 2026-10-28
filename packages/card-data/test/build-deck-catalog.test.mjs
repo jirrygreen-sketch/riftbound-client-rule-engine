@@ -495,6 +495,26 @@ test("classifies localized rules and effect text independently with strict fallb
     classifyLocalizedText(noEffect, noEffectZh, noEffect.id),
     "no-effect"
   );
+
+  const markupOnlyDifference = {
+    ...identical,
+    id: "fix-106-100",
+    publicCode: "FIX-106/100",
+    text: { richText: { body: "<p>English only.</p>" } }
+  };
+  const markupOnlyDifferenceZh = {
+    ...markupOnlyDifference,
+    name: "标记不同",
+    text: { richText: { body: "English only." } }
+  };
+  assert.equal(
+    classifyLocalizedText(
+      markupOnlyDifference,
+      markupOnlyDifferenceZh,
+      markupOnlyDifference.id
+    ),
+    "missing"
+  );
 });
 
 test("supplements only a strictly matching official Equip accessibility fragment", () => {

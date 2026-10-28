@@ -493,12 +493,12 @@ export function classifyLocalizedText(englishCard, chineseCard, cardId) {
     (blankBody(englishRules) && blankBody(chineseRules)) ||
     (!blankBody(englishRules) &&
       !blankBody(chineseRules) &&
-      containHtmlText(chineseRules) === containHtmlText(englishRules));
+      chineseRules === englishRules);
   const effectMatches =
     (blankBody(englishEffect) && blankBody(chineseEffect)) ||
     (!blankBody(englishEffect) &&
       !blankBody(chineseEffect) &&
-      containHtmlText(chineseEffect) === containHtmlText(englishEffect));
+      chineseEffect === englishEffect);
   return rulesMatches && effectMatches ? "english-fallback" : "missing";
 }
 
@@ -1020,13 +1020,11 @@ function localizedAbilityFields(record, englishCard) {
       /^\[(?:NO TEXT|无文本)\]$/u.test(htmlText(value));
     return {
       ...(!blankBody(rules) &&
-        (containHtmlText(rules) === containHtmlText(printedEnglishRules) ||
-          noTextSentinel(rules))
+        (rules === printedEnglishRules || noTextSentinel(rules))
         ? { localizedAbilityRulesText: rules }
         : {}),
       ...(!blankBody(effect) &&
-        (containHtmlText(effect) === containHtmlText(englishEffect) ||
-          noTextSentinel(effect))
+        (effect === englishEffect || noTextSentinel(effect))
         ? { localizedAbilityEffectText: effect }
         : {}),
       ...(blankBody(rules) && !blankBody(printedEnglishRules)
