@@ -100,7 +100,7 @@
 .v2-playmat .full-product-duel-battlefield .full-product-duel-unit-list { display: flex; flex-wrap: wrap; gap: .3rem; margin: 0; padding: 0; list-style: none; }
 .v2-playmat .full-product-duel-battlefield .full-product-duel-unit { flex-direction: column; align-items: center; min-width: 0; width: auto; max-width: 7rem; padding: .2rem; }
 .v2-playmat .full-product-duel-battlefield .full-product-duel-unit-thumb,
-.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-thumb.is-missing { width: auto; height: min(5.6rem, 11vh); max-height: min(5.6rem, 11vh); }
+.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-thumb.is-missing { width: auto; height: clamp(3rem, calc(20dvh - 4.5rem), 5.6rem); max-height: clamp(3rem, calc(20dvh - 4.5rem), 5.6rem); }
 .v2-playmat .full-product-duel-battlefield .full-product-duel-unit-details { align-items: center; text-align: center; }
 .v2-playmat .full-product-duel-battlefield .full-product-duel-unit-state { display: flex; flex-wrap: wrap; justify-content: center; gap: .2rem; font-size: .6rem; }
 .v2-playmat .full-product-duel-mat-base .full-product-duel-unit-groups { display: flex; gap: .3rem; }

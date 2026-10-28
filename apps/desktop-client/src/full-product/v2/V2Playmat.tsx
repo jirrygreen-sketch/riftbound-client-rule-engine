@@ -10,10 +10,10 @@ import {
   DUEL_CARD_ROLE_LANDSCAPE,
   DUEL_CONTESTED_LABEL,
   DUEL_DOMAIN_LABELS,
-  DUEL_READY_LABEL,
-  DUEL_TAPPED_LABEL
+  DUEL_READY_LABEL
 } from "../duel/duel-board-model";
 import { CardArt, CardPreviewOverlay, DuelScoreRail, HiddenHand, PlaymatPile } from "../duel/DuelBoardComponents";
+import type { CardTextData } from "../duel/card-text";
 import { projectedObjectCardName, type CardNameIndex } from "./card-names";
 import "../DuelMatchBoard.css";
 
@@ -25,23 +25,32 @@ import "../DuelMatchBoard.css";
  * projection. Everything here is display: commands stay in V2MatchBoard.
  */
 
-/** Catalog facts the playmat needs: card art and a legend's two domains. */
+/**
+ * Official Chinese state word for an exhausted permanent: the zh_CN card
+ * gallery writes it as 休眠 (e.g. ven-075-166 / unl-136-219 “此牌以休眠状态进场”).
+ */
+export const V2_EXHAUSTED_LABEL = "休眠";
+
+/** Catalog facts the playmat needs: card art, a legend's two domains and card text. */
 export interface V2CardLookup {
   readonly imageById: ReadonlyMap<string, string>;
   readonly domainsById: ReadonlyMap<string, readonly string[]>;
+  readonly cardById: ReadonlyMap<string, CatalogCard>;
 }
 
 export function buildV2CardLookup(cards: readonly CatalogCard[]): V2CardLookup {
   const imageById = new Map<string, string>();
   const domainsById = new Map<string, readonly string[]>();
+  const cardById = new Map<string, CatalogCard>();
   for (const card of cards) {
     for (const id of [card.id, card.canonicalCardId]) {
       if (!id) continue;
+      if (!cardById.has(id)) cardById.set(id, card);
       if (card.imageUrl) imageById.set(id, card.imageUrl);
       if (card.domains.length > 0) domainsById.set(id, card.domains);
     }
   }
-  return { imageById, domainsById };
+  return { imageById, domainsById, cardById };
 }
 
 /** Card faces shown by the playmat, resolved from the projection plus the catalog. */
@@ -49,6 +58,7 @@ export interface V2PlaymatCards {
   readonly title: (cardId: string) => string;
   readonly image: (cardId: string) => string | null;
   readonly domains: (cardId: string) => readonly string[];
+  readonly text: (cardId: string) => CardTextData | undefined;
   readonly objectName: (object: V2ProjectedObject) => string;
 }
 
@@ -63,6 +73,7 @@ export function v2PlaymatCards(projection: V2Projection, names: CardNameIndex, l
     title: cardId => titles.get(cardId) ?? names.localizedById.get(cardId) ?? cardId,
     image: cardId => lookup.imageById.get(cardId) ?? null,
     domains: cardId => lookup.domainsById.get(cardId) ?? [],
+    text: cardId => lookup.cardById.get(cardId),
     objectName: object => projectedObjectCardName(names, object)
   };
 }
@@ -103,7 +114,7 @@ export function V2PermanentChip({ object, cards, onInspect }: {
       <span className="full-product-duel-unit-details">
         <span className="full-product-duel-unit-name">{object.faceDown ? "牌面朝下" : name}</span>
         <span className="full-product-duel-unit-state">
-          <span className="full-product-duel-unit-readied">{object.exhausted === true ? DUEL_TAPPED_LABEL : DUEL_READY_LABEL}</span>
+          <span className="full-product-duel-unit-readied">{object.exhausted === true ? V2_EXHAUSTED_LABEL : DUEL_READY_LABEL}</span>
           {object.might !== undefined ? <span className="full-product-duel-unit-might">战力 {object.might}</span> : null}
           {object.damage !== undefined && object.damage > 0 ? (
             <span className="full-product-duel-unit-damage">伤害 {object.damage}</span>
@@ -182,8 +193,10 @@ export function V2PlaymatSide({ projection, player, position, baseObjects, runes
   const domains = legend?.cardId === undefined ? [] : cards.domains(legend.cardId);
   const points = projection.scoring.players.find(value => value.playerId === player.playerId)?.points ?? player.score;
   const shownDomains = new Set(domains.map(domain => domain.toLowerCase()));
+  // Universal power has its own fixed row; any other non-zero pool entry that
+  // is not one of the Legend's two domains is still shown, never hidden.
   const otherPower = Object.entries(player.power).filter(([domain, amount]) =>
-    amount > 0 && !shownDomains.has(domain.toLowerCase()));
+    domain.toLowerCase() !== "any" && amount > 0 && !shownDomains.has(domain.toLowerCase()));
   return (
     <section className="full-product-duel-base full-product-duel-playmat-side" data-position={position}
       data-owner-player-id={player.playerId} aria-label={`${name} 卡垫区域`}>
@@ -218,7 +231,7 @@ export function V2PlaymatSide({ projection, player, position, baseObjects, runes
                   ) : null}
                   <span className="full-product-duel-baserune-caption">
                     <span className="full-product-duel-baserune-domain">{cards.objectName(rune)}</span>
-                    <span className="full-product-duel-baserune-state">{rune.exhausted === true ? DUEL_TAPPED_LABEL : DUEL_READY_LABEL}</span>
+                    <span className="full-product-duel-baserune-state">{rune.exhausted === true ? V2_EXHAUSTED_LABEL : DUEL_READY_LABEL}</span>
                   </span>
                 </li>
               ))}
@@ -233,6 +246,7 @@ export function V2PlaymatSide({ projection, player, position, baseObjects, runes
           {otherPower.map(([domain, amount]) => (
             <div key={domain}><dt>{domainLabel(domain)}符能：</dt><dd>{amount}</dd></div>
           ))}
+          <div><dt>通用符能：</dt><dd>{powerAmount(player.power, "any")}</dd></div>
           <div><dt>经验：</dt><dd>{player.xp}</dd></div>
         </dl>
       </div>
@@ -300,5 +314,7 @@ export function V2CardPreview({ cardId, cards, onClose }: {
   readonly onClose: () => void;
 }): ReactNode {
   if (cardId === null) return null;
-  return <CardPreviewOverlay cardId={cardId} title={cards.title(cardId)} imageUrl={cards.image(cardId)} onClose={onClose} />;
+  const text = cards.text(cardId);
+  return <CardPreviewOverlay cardId={cardId} title={cards.title(cardId)} imageUrl={cards.image(cardId)}
+    {...(text === undefined ? {} : { cardText: text })} onClose={onClose} />;
 }

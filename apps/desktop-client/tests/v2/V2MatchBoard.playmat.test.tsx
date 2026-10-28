@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server.node";
 import { V2MatchBoard } from "../../src/full-product/v2/V2MatchBoard";
-import { buildV2CardLookup } from "../../src/full-product/v2/V2Playmat";
+import { buildV2CardLookup, V2CardPreview, v2PlaymatCards } from "../../src/full-product/v2/V2Playmat";
+import { buildCardNameIndex } from "../../src/full-product/v2/card-names";
 import type { CatalogCard } from "../../src/net/CardCatalogClient";
 import { createV2ChoiceUiState, createV2ClientState, type V2ClientState } from "../../src/state/v2";
 import type { V2ProjectedObject, V2Projection } from "../../../../../packages/protocol/src/v2/index.js";
@@ -88,8 +89,8 @@ function state(value: V2Projection): V2ClientState {
   };
 }
 
-function render(cards: readonly CatalogCard[] = catalog): string {
-  return renderToStaticMarkup(<V2MatchBoard state={state(projection())} initialCatalogCards={cards} onCommand={vi.fn()} />);
+function render(cards: readonly CatalogCard[] = catalog, value: V2Projection = projection()): string {
+  return renderToStaticMarkup(<V2MatchBoard state={state(value)} initialCatalogCards={cards} onCommand={vi.fn()} />);
 }
 
 function region(html: string, ariaLabel: string): string {
@@ -131,7 +132,9 @@ describe("RIFT-1125 V2 playmat board", () => {
   it("places permanents by location with their state, in Chinese names", () => {
     const field = region(html, "中央战场 珍宝堆");
     expect(field).toContain("菲奥娜");
-    expect(field).toContain("横置");
+    // Official zh_CN gallery wording for exhausted (ven-075-166 / unl-136-219).
+    expect(field).toContain("休眠");
+    expect(field).not.toContain("横置");
     expect(field).toContain("战力 4");
     expect(field).toContain("伤害 1");
     expect(field).toContain("控制者：Bob");
@@ -150,6 +153,43 @@ describe("RIFT-1125 V2 playmat board", () => {
     expect(alice).toContain("炽烈符能：</dt><dd>1<");
     expect(alice).toContain("灵光符能：</dt><dd>0<");
     expect(html).toContain("比分 Alice 2 : Bob 1");
+  });
+
+  it("always shows universal power, including when it is zero, without mislabeling it as a domain", () => {
+    expect(region(html, "Alice 卡垫区域")).toContain("通用符能：</dt><dd>0<");
+    expect(region(html, "Bob 卡垫区域")).toContain("通用符能：</dt><dd>0<");
+    const base = projection();
+    const charged: V2Projection = {
+      ...base,
+      players: base.players.map(player => player.playerId === "alice"
+        ? { ...player, power: { fury: 1, any: 2, chaos: 1 } } : player)
+    };
+    const alice = region(render(catalog, charged), "Alice 卡垫区域");
+    expect(alice).toContain("通用符能：</dt><dd>2<");
+    expect(alice).toContain("混沌符能：</dt><dd>1<");
+    expect(alice.match(/通用符能/g)).toHaveLength(1);
+    expect(alice.toLowerCase()).not.toContain("any符能");
+  });
+
+  it("shows the catalog's official Chinese effect text in the large-card preview", () => {
+    const official: CatalogCard = {
+      ...card("sfd-026", "Rumble", "兰博", "Unit"),
+      ability: "English rules",
+      localizedAbilityStatus: "official-structured",
+      localizedAbilityLanguage: "zh-CN",
+      localizedAbilityEffectText: "<p>此牌以休眠状态进场。</p>",
+      localizedAbilitySource: { url: "https://example.test/zh_CN", locale: "zh-CN",
+        updatedAt: "2026-10-28T00:00:00Z", syncedAt: "2026-10-28T00:00:00Z" }
+    };
+    const cards = [official, ...catalog.filter(entry => entry.id !== "sfd-026")];
+    const playmat = v2PlaymatCards(projection(), buildCardNameIndex(cards), buildV2CardLookup(cards));
+    const preview = renderToStaticMarkup(<V2CardPreview cardId="sfd-026" cards={playmat} onClose={vi.fn()} />);
+    expect(preview).toContain("兰博");
+    expect(preview).toContain('aria-label="官方中文卡牌文本"');
+    expect(preview).toContain("此牌以休眠状态进场。");
+    expect(preview).not.toContain("English rules");
+    expect(playmat.text("canonical-sfd-026")).toBe(official);
+    expect(playmat.text("unknown-card")).toBeUndefined();
   });
 
   it("keeps every V2 command control in the sidebar and offers a read-only preview for hand cards", () => {
