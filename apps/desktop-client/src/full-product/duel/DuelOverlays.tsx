@@ -12,6 +12,7 @@ import {
 } from "./duel-board-model";
 import { duelScoreMarkerLabel, scoreTrackValues } from "./DuelBoardViewModel";
 import { CardArt } from "./DuelCardComponents";
+import { CardText, type CardTextData } from "./card-text";
 
 export function PublicChainPanel({
   cards,
@@ -105,11 +106,13 @@ export function CardPreviewOverlay({
   cardId,
   title,
   imageUrl,
+  cardText,
   onClose
 }: {
   readonly cardId: string;
   readonly title: string;
   readonly imageUrl: string | null;
+  readonly cardText?: CardTextData;
   readonly onClose: () => void;
 }) {
   useEffect(() => {
@@ -128,6 +131,7 @@ export function CardPreviewOverlay({
         ) : (
           <p className="full-product-duel-preview-missing">{DUEL_PREVIEW_NO_IMAGE_NOTICE}</p>
         )}
+        {cardText ? <CardText card={cardText} /> : null}
         <button
           type="button"
           className="full-product-duel-preview-close"
