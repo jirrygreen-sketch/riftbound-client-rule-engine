@@ -91,6 +91,17 @@ export interface LayerDiagnostics {
   readonly effectReevaluations: number;
   readonly snapshotCopies: number;
   readonly publicSnapshotCopies: number;
+  /** RIFT-1109 command-scoped full-plan cache activity. */
+  readonly planCacheHits: number;
+  readonly planCacheReferenceHits: number;
+  readonly planCacheMisses: number;
+  readonly planCacheBypasses: number;
+  readonly planCacheGenerationInvalidations: number;
+  readonly planCacheRegistryInvalidations: number;
+  readonly planCacheDerivedInvalidations: number;
+  readonly planCacheTimingInvalidations: number;
+  readonly planCacheAttachmentInvalidations: number;
+  readonly planCacheNestedInvalidations: number;
 }
 
 const ZERO_LAYER_DIAGNOSTICS: LayerDiagnostics = Object.freeze({
@@ -112,6 +123,16 @@ const ZERO_LAYER_DIAGNOSTICS: LayerDiagnostics = Object.freeze({
   effectReevaluations: 0,
   snapshotCopies: 0,
   publicSnapshotCopies: 0,
+  planCacheHits: 0,
+  planCacheReferenceHits: 0,
+  planCacheMisses: 0,
+  planCacheBypasses: 0,
+  planCacheGenerationInvalidations: 0,
+  planCacheRegistryInvalidations: 0,
+  planCacheDerivedInvalidations: 0,
+  planCacheTimingInvalidations: 0,
+  planCacheAttachmentInvalidations: 0,
+  planCacheNestedInvalidations: 0,
 });
 function record(value: unknown): AnyRecord {
   return typeof value === "object" && value !== null ? value as AnyRecord : {};
@@ -466,6 +487,60 @@ type AppliedEffect = { readonly entry: RegisteredContinuousEffect; readonly effe
 let derivedLayerEpochCount = 0;
 export function derivedLayerEpoch(): number { return derivedLayerEpochCount; }
 export function bumpDerivedLayerEpoch(): void { derivedLayerEpochCount++; }
+const OBJECT_IDS = new WeakMap<object, number>();
+const DEEPLY_FROZEN = new WeakMap<object, boolean>();
+let objectId = 0;
+function deeplyFrozen(value: unknown, visiting = new Set<object>()): boolean {
+  if (value === null || typeof value !== 'object') return true;
+  const object = value as object;
+  const cached = DEEPLY_FROZEN.get(object);
+  if (cached !== undefined) return cached;
+  if (!Object.isFrozen(object)) {
+    DEEPLY_FROZEN.set(object, false);
+    return false;
+  }
+  if (visiting.has(object)) return true;
+  visiting.add(object);
+  const result = Reflect.ownKeys(object).every(key => {
+    const descriptor = Object.getOwnPropertyDescriptor(object, key);
+    return descriptor !== undefined && 'value' in descriptor && deeplyFrozen(descriptor.value, visiting);
+  });
+  visiting.delete(object);
+  DEEPLY_FROZEN.set(object, result);
+  return result;
+}
+/**
+ * Exact immutable host generation. Frozen identities are stable; a mutable
+ * fixture always produces a fresh authority and therefore fails closed.
+ */
+export function layerObjectGeneration(value: readonly ObjectSnapshot[]): string {
+  if (!value.every(object => deeplyFrozen(object))) return `mutable:${++objectId}`;
+  return value.map(object => {
+    const existing = OBJECT_IDS.get(object);
+    if (existing !== undefined) return existing;
+    const id = ++objectId;
+    OBJECT_IDS.set(object, id);
+    return id;
+  }).join('.');
+}
+/** Exact identity generation for an immutable host view; mutable input fails closed. */
+export function hostObjectGeneration(value: readonly ObjectSnapshot[]): string {
+  if (!value.every(object => deeplyFrozen(object))) return `mutable:${++objectId}`;
+  const ids = value.map(object => {
+    const existing = OBJECT_IDS.get(object);
+    if (existing !== undefined) return existing;
+    const id = ++objectId;
+    OBJECT_IDS.set(object, id);
+    return id;
+  });
+  // Object arrays from the production host are immutable views. Keep the
+  // array identity as part of the generation so repeated calls over a stable
+  // generation reuse while any replaced view fails closed.
+  const existingArray = OBJECT_IDS.get(value);
+  const arrayId = existingArray ?? ++objectId;
+  if (existingArray === undefined) OBJECT_IDS.set(value, arrayId);
+  return `${arrayId}:${ids.join('.')}`;
+}
 
 export class LayerEngine {
   readonly registry: ContinuousEffectRegistry;
@@ -498,6 +573,9 @@ export class LayerEngine {
     Object.assign(this.diagnosticsState, ZERO_LAYER_DIAGNOSTICS);
   }
   enableDiagnostics(): void { this.diagnosticsEnabled = true; }
+  /** Test/diagnostic switch. Production defaults to enabled. */
+  setPlanCacheEnabled(enabled: boolean): void { this.commandPlanDefaultEnabled = enabled; }
+  get planCacheEnabled(): boolean { return this.commandPlanDefaultEnabled; }
   private count(field: keyof LayerDiagnostics): void {
     if (!this.diagnosticsEnabled) return;
     this.diagnosticsState[field]++;
@@ -530,7 +608,24 @@ export class LayerEngine {
     readonly bonusSize: number;
     readonly effects: readonly RegisteredContinuousEffect[];
   };
-
+  /** RIFT-1109 command-scoped complete plan; its lifetime is one atomic window. */
+  private commandPlan?: {
+    enabled: boolean;
+    disabled: boolean;
+    authority: string;
+    key?: string;
+    view?: readonly LayeredObjectSnapshot[];
+    lastCompletedKey?: string;
+  };
+  private commandPlanDefaultEnabled = true;
+  /** Exact generation and generation components used by the last completed plan. */
+  private lastCompletedPlan?: {
+    readonly authority: string;
+    readonly registryRevision: number;
+    readonly derivedEpoch: number;
+    readonly timingPoint: string | null;
+    readonly attachmentRevision: string;
+  };
   constructor(
     objects: readonly ObjectSnapshot[] | ReadonlyMap<string, ObjectSnapshot>,
     registry = new ContinuousEffectRegistry(),
@@ -561,12 +656,18 @@ export class LayerEngine {
     return removed;
   }
 
-  setObjects(objects: readonly ObjectSnapshot[] | ReadonlyMap<string, ObjectSnapshot>): void {
+  setObjects(
+    objects: readonly ObjectSnapshot[] | ReadonlyMap<string, ObjectSnapshot>,
+    preserveCommandPlan = false,
+  ): void {
     this.replaceObjects(objects);
     this.objectBoundary++;
     this.rebuildAttachmentBonuses();
-    this.invalidate();
+    this.invalidate(preserveCommandPlan);
     this.refreshAttachmentSignature();
+    // `setObjects` is itself an object boundary. A later host read may reuse
+    // the plan after one full post-reload pass; this call never reinstalls
+    // the prior view or claims it already covers the new boundary.
   }
 
   private rebuildAttachmentBonuses(): void {
@@ -608,7 +709,7 @@ export class LayerEngine {
       Object.isFrozen(object.tags) && (object.attachedTo === null || Object.isFrozen(object.attachedTo)));
   }
 
-  private invalidate(): void {
+  private invalidate(preserveCommandPlan = false): void {
     this.cache.clear();
     this.copyCache.clear();
     this.activeEffectsCache = undefined;
@@ -619,6 +720,7 @@ export class LayerEngine {
       this.groups.clear();
       this.copyGroups.clear();
     }
+    if (!preserveCommandPlan) this.invalidateCommandPlan();
   }
 
   /** Direct registry writes between reads use the same invalidation as public mutations. */
@@ -1204,6 +1306,17 @@ export class LayerEngine {
       this.derivedEffectsCache = undefined;
       this.rebuildAttachmentBonuses();
       this.attachmentRevision = attachmentRevision;
+      this.invalidateCommandPlan();
+    }
+    if (this.commandPlan !== undefined && this.commandPlan.enabled && !this.commandPlan.disabled &&
+        this.commandPlan.key !== undefined && this.commandPlan.view !== undefined &&
+        this.planKey() === this.commandPlan.key) {
+      const key = refKey(ref);
+      const planned = this.commandPlan.view.find(snapshot => refKey(snapshot.ref) === key);
+      if (planned !== undefined) {
+        this.count("planCacheReferenceHits");
+        return this.publicSnapshot(planned);
+      }
     }
     this.depth++;
     try {
@@ -1269,19 +1382,162 @@ export class LayerEngine {
     return this.evaluate(ref);
   }
 
+  /**
+   * Open a process-local command window. Nested calls share the outer window.
+   * The completed plan is discarded on every exit, including choices and
+   * rollbacks, so it can never become a cross-command cache.
+   */
+  withCommandPlanCache<T>(authority: string, run: () => T): T {
+    if (this.commandPlan !== undefined) return run();
+    // Cache activity is measured within this exact process-local window.
+    if (this.diagnosticsEnabled) Object.assign(this.diagnosticsState, {
+      planCacheHits: 0, planCacheReferenceHits: 0, planCacheMisses: 0, planCacheBypasses: 0,
+    });
+    this.lastCompletedPlan = undefined;
+    this.commandPlan = { enabled: this.commandPlanDefaultEnabled, disabled: false, authority };
+    try { return run(); } finally {
+      this.commandPlan = undefined;
+      this.lastCompletedPlan = undefined;
+    }
+  }
+
+  /** Set the immutable host-view generation before installing that view. */
+  setCommandPlanAuthority(authority: string): void {
+    if (this.commandPlan === undefined) return;
+    const completed = this.lastCompletedPlan;
+    const changed = completed === undefined ? [] : [
+      ["planCacheGenerationInvalidations", completed.authority !== authority],
+      ["planCacheRegistryInvalidations", completed.registryRevision !== this.registry.revision],
+      ["planCacheDerivedInvalidations", completed.derivedEpoch !== derivedLayerEpoch()],
+      ["planCacheTimingInvalidations", completed.timingPoint !== (this.timingPoint ?? null)],
+      ["planCacheAttachmentInvalidations", completed.attachmentRevision !== this.currentAttachmentSignature()],
+    ] as const;
+    for (const [field, didChange] of changed) if (didChange) this.count(field);
+    const authorityChanged = this.commandPlan.authority !== authority;
+    const componentsChanged = changed.some(([, didChange]) => didChange);
+    if (authorityChanged || componentsChanged) this.invalidateCommandPlan();
+    this.commandPlan.authority = authority;
+    if (!authorityChanged && !componentsChanged) {
+      // No host write occurred, so this reinstall is only a new read of the
+      // same completed authority. Require the exact completed inputs.
+      this.commandPlan.lastCompletedKey = this.lastCompletedPlan === undefined
+        ? undefined : this.completedPlanKey();
+    }
+  }
+
+  /** Explicitly arm the next read only when every authority component is stable. */
+  rearmCommandPlan(): void {
+    if (this.commandPlan === undefined || this.commandPlan.disabled || this.lastCompletedPlan === undefined) return;
+    this.commandPlan.key = this.completedPlanKey();
+  }
+
+  /** Explicitly discard any completed command plan without closing the window. */
+  invalidateCommandPlan(): void {
+    if (this.commandPlan !== undefined) {
+      this.count("planCacheNestedInvalidations");
+      this.commandPlan.view = undefined;
+      this.commandPlan.key = undefined;
+    }
+  }
+
+  /** A suspension ends the command's reusable lane even if a caller catches it. */
+  abandonCommandPlan(): void {
+    if (this.commandPlan !== undefined) this.commandPlan.disabled = true;
+    this.invalidateCommandPlan();
+  }
+
+  private planKey(): string {
+    const attachment = this.immutableAttachmentObjects
+      ? this.attachmentRevision!
+      : this.currentAttachmentSignature();
+    // The authority already includes the command generation and complete raw
+    // host generation. Registry, epoch, timing and attachment remain
+    // explicit members so an independently mutable supplier fails closed.
+    return `${this.commandPlan!.authority}\u0000${this.registry.revision}\u0000${derivedLayerEpoch()}\u0000${this.timingPoint ?? ''}\u0000${attachment}`;
+  }
+
+
+  /** Cheap read-only key for post-pass stability; no attachment tracing or diagnostics. */
+  private completionKey(): string {
+    const attachment = this.immutableAttachmentObjects
+      ? this.attachmentRevision!
+      : this.attachmentSignature();
+    return `${this.commandPlan!.authority}\u0000${this.registry.revision}\u0000${derivedLayerEpoch()}\u0000${this.timingPoint ?? ''}\u0000${attachment}`;
+  }
+  /** Install only the exact components observed by a completed full pass. */
+  private completedPlanKey(): string {
+    const completed = this.lastCompletedPlan;
+    return completed === undefined ? this.completionKey()
+      : `${completed.authority}\u0000${completed.registryRevision}\u0000${completed.derivedEpoch}\u0000${completed.timingPoint ?? ''}\u0000${completed.attachmentRevision}`;
+  }
+
+  /** Test/diagnostic fact: whether a completed plan is available for the next read. */
+  get hasCompletedCommandPlan(): boolean { return this.commandPlan?.view !== undefined; }
+  /** Exact authority installed by the latest completed read in this command. */
+  get commandPlanAuthority(): string | undefined { return this.commandPlan?.key?.split('\u0000', 1)[0]; }
+  /** Explicit test/diagnostic fact: a candidate view is available to rearm. */
+  get canRearmCommandPlan(): boolean {
+    return this.commandPlan?.view !== undefined && !this.commandPlan.disabled && this.commandPlan.lastCompletedKey !== undefined;
+  }
+
   evaluateAll(): readonly LayeredObjectSnapshot[] {
     this.count("evaluateAllCalls");
     this.syncRegistry();
     const snapshots: LayeredObjectSnapshot[] = [];
-    // Evaluation is reentrant: a condition or derived callback may refresh the
-    // host and call setObjects through the public engine. Freeze this batch's
-    // object identities first so replacing the live Map cannot restart its
-    // iterator and emit the same incarnation twice.
-    for (const object of [...this.objects.values()]) {
-      const snapshot = this.evaluate(object.ref);
-      if (snapshot !== null) snapshots.push(snapshot);
+    let key: string | undefined;
+    let boundary: number | undefined;
+    let authority: string | undefined;
+    if (this.commandPlan !== undefined && this.depth === 0) {
+      const objects = [...this.objects.values()];
+      if (this.commandPlan.enabled && !this.commandPlan.disabled) key = this.planKey();
+      if (key !== undefined && key === this.commandPlan.key && this.commandPlan.view !== undefined) {
+        this.count("planCacheHits");
+        return Object.freeze(this.commandPlan.view.map(snapshot => this.copySnapshot(snapshot)));
+      }
+      this.count(key === undefined ? "planCacheBypasses" : "planCacheMisses");
+      // A miss is terminal for the prior plan. If the complete pass throws,
+      // callers must not be able to revive the stale view by restoring only a
+      // subset of the key inputs.
+      if (key !== undefined) this.invalidateCommandPlan();
+      boundary = this.objectBoundary;
+      authority = this.commandPlan?.authority;
+      // Evaluation is reentrant: a condition or derived callback may refresh
+      // the host and call setObjects through the public engine. Freeze this
+      // batch's identities now so replacing the live Map cannot restart its
+      // iterator or omit a newly inserted incarnation.
+      for (const object of objects) {
+        const snapshot = this.evaluate(object.ref);
+        if (snapshot !== null) snapshots.push(snapshot);
+      }
+    } else {
+      for (const object of [...this.objects.values()]) {
+        const snapshot = this.evaluate(object.ref);
+        if (snapshot !== null) snapshots.push(snapshot);
+      }
     }
-    return Object.freeze(snapshots);
+    // Binding lifecycle may temporarily add and remove registration entries
+    // while a pass is resolving live sources. The completed view was built at
+    // this final revision, so the next read must compare against that fact.
+    const view = Object.freeze(snapshots);
+    if (this.commandPlan !== undefined && key !== undefined && boundary !== undefined &&
+        authority === this.commandPlan.authority && this.objectBoundary === boundary && this.depth === 0) {
+      // Recompute after evaluation: an effect may transiently consume or
+      // restore registry entries, and the installed view is the post-pass one.
+      // Evaluation may add or remove lifecycle registrations. Record the
+      // final revision now, otherwise the next read's sync step would fail
+      // closed against a revision that the completed plan already observed.
+      this.registryRevision = this.registry.revision;
+      this.commandPlan.view = view;
+      this.lastCompletedPlan = { authority: this.commandPlan.authority,
+        registryRevision: this.registryRevision, derivedEpoch: derivedLayerEpoch(),
+        timingPoint: this.timingPoint ?? null, attachmentRevision: this.immutableAttachmentObjects
+          ? this.attachmentRevision!
+          : this.attachmentSignature() };
+      this.commandPlan.lastCompletedKey = this.completedPlanKey();
+      this.commandPlan.key = this.commandPlan.lastCompletedKey;
+    }
+    const snapshotView = Object.freeze(view.map(snapshot => this.copySnapshot(snapshot)));
+    return snapshotView;
   }
 
   objectsView(): readonly ObjectSnapshot[] {

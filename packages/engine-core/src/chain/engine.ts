@@ -9,7 +9,7 @@ import { buildCostPlan } from '../cost/cost-plan.js';
 import { assessCostPayment, payCostPlan } from '../cost/payment.js';
 import { CostPlanError, type CostComponentInput, type CostPlan, type CostPlanInput, type CostPaymentReceipt } from '../cost/plan-types.js';
 import { finalizeTargetPlan, resolveTargetPlan, TargetSelectionError, type TargetFinalizeOptions, type TargetPlan, type TargetRequirement } from '../target/target-plan.js';
-import { LayerEngine, derivedLayerEpoch } from '../layers/engine.js';
+import { LayerEngine, derivedLayerEpoch, hostObjectGeneration } from '../layers/engine.js';
 import { matchesObjectFilter } from '../layers/filter.js';
 import { actionTimings, canAct as canActByRules, playLocations, restrictions as ruleRestrictions } from '../layers/rules/query.js';
 import type { RegisteredContinuousEffect } from '../layers/types.js';
@@ -761,6 +761,7 @@ export class ChainEngine {
   }
   private layerPassInFlight = false;
   private stableLayerDepth = 0;
+  private hostViewAuthority?: { readonly objects: readonly ObjectSnapshot[]; readonly epoch: number; readonly ids: string };
   private stableLayerView: {
     readonly revision: number; readonly mutations: number; readonly epoch: number; readonly view: readonly ObjectSnapshot[];
   } | undefined;
@@ -825,14 +826,34 @@ export class ChainEngine {
   private layeredPass<T>(read: () => T): T {
     if (this.layerPassInFlight) return read();
     this.layerPassInFlight = true;
-    this.hostReadSnapshot = this.options.host.objects();
+    const hostView = this.options.host.objects();
+    this.hostReadSnapshot = hostView;
+    const mappedView = this.hostObjects();
+    // A completed plan belongs to the exact host generation from which it was
+    // built. A fresh `setObjects` and full pass must occur before the key can
+    // be compared, while a later pass over the same generation may reuse it.
     try {
-      this.layers.setObjects(this.hostObjects());
+      const prior = this.hostViewAuthority;
+      const sameHostGeneration = prior !== undefined && !prior.ids.startsWith('mutable:') && prior.epoch === hostWriteEpoch &&
+        prior.objects.length === hostView.length && prior.objects.every((object, index) => object === hostView[index]);
+      const authority = sameHostGeneration ? prior.ids : this.commandAuthority(hostView);
+      if (!sameHostGeneration) this.hostViewAuthority = { objects: Object.freeze([...hostView]), epoch: hostWriteEpoch, ids: authority };
+      this.layers.setCommandPlanAuthority(authority);
+      this.layers.rearmCommandPlan();
+      this.layers.setObjects(mappedView, true);
       return read();
     } finally {
       this.layerPassInFlight = false;
       this.hostReadSnapshot = undefined;
     }
+  }
+  private commandAuthority(hostView: readonly ObjectSnapshot[]): string {
+    // Production hosts retain one deeply frozen object identity per write.
+    // Mutable fixtures fail closed with a fresh generation on every read.
+    const combatRoles = this.combatRoles.size === 0
+      ? ''
+      : JSON.stringify([...this.combatRoles.entries()].sort(([left], [right]) => left.localeCompare(right)));
+    return `${hostObjectGeneration(hostView)}:${combatRoles}`;
   }
   private executeStateAction(action: GameAction) {
     const key = (object: ObjectSnapshot) => JSON.stringify(object.ref);
@@ -1001,57 +1022,71 @@ export class ChainEngine {
     if (this.showdown && this.focusHolder) this.grantPriority(this.focusHolder);
     else this.grantPriority(this.phase === 'main' ? this.pipeline.turnPlayer : null);
   }
+  /** Public test/diagnostic seam for the default cache switch. */
+  setLayerPlanCacheEnabled(enabled: boolean): void { this.layers.setPlanCacheEnabled(enabled); }
+  get layerPlanCacheEnabled(): boolean { return this.layers.planCacheEnabled; }
+  /** Committed Pay Costs suspensions are command endpoints just like choices. */
+  private closeCommandPlanAtSuspension(): void {
+    this.layers.abandonCommandPlan();
+  }
   private atomic<T>(run: () => T): T {
-    const host = this.options.host.checkpoint(), events = this.pipeline.checkpoint();
-    const layerEntries = this.layers.registry.snapshot();
-    const suspended = new Map(this.suspendedPaymentContinuations);
-    const saved = {
-      entries: structuredClone(this.entries), issued: new Set(this.issued), traces: [...this.traces], outstanding: [...this.outstanding],
-      cleanupNeeded: this.cleanupNeeded, priorityHolder: this.priorityHolder, focusHolder: this.focusHolder, showdown: this.showdown,
-      origin: this.origin, priorityPasses: this.priorityPasses, focusPasses: this.focusPasses, triggerSequence: this.triggerSequence,
-      delayedSequence: this.delayedSequence, phase: this.phase, busy: this.busy, choiceMemorySnapshot: this.choiceMemory.snapshot(),
-      finalizedPlaysThisTurn: structuredClone(this.finalizedPlaysThisTurn),
-      finalizeSequence: this.finalizeSequence,
-      finalizeAnswers: new Map([...this.finalizeAnswers].map(([key, value]) => [key, structuredClone(value)] as const)),
-      paymentContinuation: this.paymentContinuation,
-      paymentContinuationCheckpoint: this.paymentContinuationCheckpoint,
-      paymentSuspended: this.paymentSuspended,
-      resumingPaymentContinuation: this.resumingPaymentContinuation,
-      suspendedPaymentContinuations: suspended,
-      combatRoles: new Map(this.combatRoles),
-      battlefieldControllers: new Map(this.battlefieldControllers),
-      activeCombatId: this.activeCombatId,
-      activeCombatBattlefieldId: this.activeCombatBattlefieldId,
-      activeCombatAttackerId: this.activeCombatAttackerId,
-      activeCombatDefenderId: this.activeCombatDefenderId,
-    };
-    this.transactionDepth++;
-    try { return run(); }
-    catch (error) {
-      // A successfully journaled Pay Costs suspension is a committed Chain
-      // state, not an exception that discards the preceding Finalize work.
-      // Persistence rejection and every ordinary failure still roll back.
-      if (error instanceof PaymentContinuationSuspendedError) {
-        const handle = this.paymentContinuation;
-        if (handle !== null) {
-          this.paymentContinuation = null;
-          this.paymentContinuationCheckpoint = null;
-          this.paymentSuspended = true;
-          this.suspendedPaymentContinuations.set(handle.snapshot.continuationId, handle);
+    // Keep the established checkpoint/rollback body in one place. Only the
+    // outermost command opens the process-local plan lane.
+    const execute = (): T => {
+      const host = this.options.host.checkpoint(), events = this.pipeline.checkpoint();
+      const layerEntries = this.layers.registry.snapshot();
+      const suspended = new Map(this.suspendedPaymentContinuations);
+      const saved = {
+        entries: structuredClone(this.entries), issued: new Set(this.issued), traces: [...this.traces], outstanding: [...this.outstanding],
+        cleanupNeeded: this.cleanupNeeded, priorityHolder: this.priorityHolder, focusHolder: this.focusHolder, showdown: this.showdown,
+        origin: this.origin, priorityPasses: this.priorityPasses, focusPasses: this.focusPasses, triggerSequence: this.triggerSequence,
+        delayedSequence: this.delayedSequence, phase: this.phase, busy: this.busy, choiceMemorySnapshot: this.choiceMemory.snapshot(),
+        finalizedPlaysThisTurn: structuredClone(this.finalizedPlaysThisTurn),
+        finalizeSequence: this.finalizeSequence,
+        finalizeAnswers: new Map([...this.finalizeAnswers].map(([key, value]) => [key, structuredClone(value)] as const)),
+        paymentContinuation: this.paymentContinuation,
+        paymentContinuationCheckpoint: this.paymentContinuationCheckpoint,
+        paymentSuspended: this.paymentSuspended,
+        resumingPaymentContinuation: this.resumingPaymentContinuation,
+        suspendedPaymentContinuations: suspended,
+        combatRoles: new Map(this.combatRoles),
+        battlefieldControllers: new Map(this.battlefieldControllers),
+        activeCombatId: this.activeCombatId,
+        activeCombatBattlefieldId: this.activeCombatBattlefieldId,
+        activeCombatAttackerId: this.activeCombatAttackerId,
+        activeCombatDefenderId: this.activeCombatDefenderId,
+      };
+      this.transactionDepth++;
+      try { return run(); }
+      catch (error) {
+        // A successfully journaled Pay Costs suspension is a committed Chain
+        // state, not an exception that discards the preceding Finalize work.
+        // Persistence rejection and every ordinary failure still roll back.
+        if (error instanceof PaymentContinuationSuspendedError) {
+          this.closeCommandPlanAtSuspension();
+          const handle = this.paymentContinuation;
+          if (handle !== null) {
+            this.paymentContinuation = null;
+            this.paymentContinuationCheckpoint = null;
+            this.paymentSuspended = true;
+            this.suspendedPaymentContinuations.set(handle.snapshot.continuationId, handle);
+          }
+          throw error;
         }
+        const suspendedHandle = this.paymentSuspended ? this.paymentContinuation : null;
+        const suspendedCheckpoint = this.paymentSuspended ? this.paymentContinuationCheckpoint : null;
+        const pendingFinalizeAnswers = error instanceof AwaitChoice ? new Map(this.finalizeAnswers) : undefined;
+        hostWriteEpoch++; this.options.host.restore(host); this.pipeline.restore(events); Object.assign(this, saved);
+        this.choiceMemory.restore(saved.choiceMemorySnapshot);
+        if (pendingFinalizeAnswers !== undefined) this.finalizeAnswers = new Map([...saved.finalizeAnswers, ...pendingFinalizeAnswers]);
+        this.layers.registry.clear();
+        for (const entry of layerEntries) this.layers.registry.register(entry.effect, entry.duration, entry.timestamp);
+        this.layers.setObjects(this.hostObjects());
         throw error;
-      }
-      const suspendedHandle = this.paymentSuspended ? this.paymentContinuation : null;
-      const suspendedCheckpoint = this.paymentSuspended ? this.paymentContinuationCheckpoint : null;
-      const pendingFinalizeAnswers = error instanceof AwaitChoice ? new Map(this.finalizeAnswers) : undefined;
-      hostWriteEpoch++; this.options.host.restore(host); this.pipeline.restore(events); Object.assign(this, saved);
-      this.choiceMemory.restore(saved.choiceMemorySnapshot);
-      if (pendingFinalizeAnswers !== undefined) this.finalizeAnswers = new Map([...saved.finalizeAnswers, ...pendingFinalizeAnswers]);
-      this.layers.registry.clear();
-      for (const entry of layerEntries) this.layers.registry.register(entry.effect, entry.duration, entry.timestamp);
-      this.layers.setObjects(this.hostObjects());
-      throw error;
-    } finally { this.transactionDepth--; }
+      } finally { this.transactionDepth--; }
+    };
+    if (this.transactionDepth > 0) return execute();
+    return this.layers.withCommandPlanCache('command', execute);
   }
   isPending(ref: ObjectRef): boolean { return this.entries.some(item => item.status === 'pending' && item.object.id === ref.id && item.object.zoneEntryId === ref.zoneEntryId); }
   canAct(player: PlayerId, speed: ChainSpeed, ref?: ObjectRef, object?: ObjectSnapshot | null): boolean {

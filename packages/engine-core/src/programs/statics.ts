@@ -165,14 +165,21 @@ function installKeywordReexpansion(engine: ChainEngine): void {
     if (printedMight !== null && typeof printedMight !== 'number') return object;
     return printedMight === object.might ? object : Object.freeze({ ...object, might: printedMight });
   };
-  engine.layers.setObjects = ((objects) => {
-    if (Array.isArray(objects)) setLayerObjects(objects.map(rebaseLayeredMight));
+  engine.layers.setObjects = ((objects, preserveCommandPlan = false) => {
+    if (Array.isArray(objects)) {
+      // Preserve an already-rebased object array. Rebasing allocates wrappers
+      // that would make the same host generation look different to the
+      // command plan cache on every read.
+      const rebased = objects.every(object => record(object).printed === undefined)
+        ? objects : objects.map(rebaseLayeredMight);
+      setLayerObjects(rebased, preserveCommandPlan);
+    }
     else {
       const rebased = new Map<string, ObjectSnapshot>();
       for (const [key, object] of (objects as ReadonlyMap<string, ObjectSnapshot>)) {
         rebased.set(key, rebaseLayeredMight(object));
       }
-      setLayerObjects(rebased);
+      setLayerObjects(rebased, preserveCommandPlan);
     }
   }) as typeof engine.layers.setObjects;
   const lifecycleRegistry = new Map<string, KeywordLifecycleBinding>();
