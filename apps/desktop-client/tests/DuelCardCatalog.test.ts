@@ -4,6 +4,13 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server.node";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelProjection } from "@riftbound/protocol";
+// These tests cover the legacy Duel route. RIFT-1125 made the V2 room UI the
+// default, so pin the switch to the legacy route here.
+vi.mock("../src/full-product/v2-ui-switch", async importOriginal => ({
+  ...(await importOriginal<typeof import("../src/full-product/v2-ui-switch")>()),
+  readV2UiEnabled: () => false
+}));
+
 import {
   CardCatalogClient,
   type CardCatalog

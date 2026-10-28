@@ -3,6 +3,13 @@ import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server.node";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DuelProjection } from "@riftbound/protocol";
+// These tests cover the legacy Duel route. RIFT-1125 made the V2 room UI the
+// default, so pin the switch to the legacy route here.
+vi.mock("../../src/full-product/v2-ui-switch", async importOriginal => ({
+  ...(await importOriginal<typeof import("../../src/full-product/v2-ui-switch")>()),
+  readV2UiEnabled: () => false
+}));
+
 
 // SSR starts on the home page. Substitute only the initial route state
 // to render the actual App table branch without a browser or a synthetic match.

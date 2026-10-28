@@ -208,8 +208,9 @@ describe("RIFT-1123 V2 official Chinese card names", () => {
 
     expect(panel(html, "我的基地")).toContain("兰博");
     expect(panel(html, "战场 · 珍宝堆（我方控制）")).toContain("暂无公开牌");
-    expect(panel(html, "传奇与英雄")).toContain("不灭狂雷");
-    expect(panel(html, "传奇与英雄")).toContain("菲奥娜");
+    // RIFT-1125: the playmat shows each seat's own Legend/Champion slot.
+    expect(panel(html, "Alice 传奇与英雄")).toContain("不灭狂雷");
+    expect(panel(html, "Alice 传奇与英雄")).toContain("菲奥娜");
     expect(panel(html, "我的符文")).toContain("炽烈符文");
     const runePanel = panel(html, "符文操作");
     expect(runePanel).toContain('aria-label="炽烈符文 取能量"');
