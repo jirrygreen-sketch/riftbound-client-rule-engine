@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { CardProgram } from "../../../../packages/card-dsl/dist/ir/index.js";
 import type { V2Command, V2Projection } from "../../../../packages/protocol/dist/v2/index.js";
-import { createEngineRuntime, type EngineRuntime, type EngineRuntimeDeck } from "../../src/engine-runtime/index.js";
+import {
+  createEngineRuntime,
+  RuntimeJournalWriter,
+  type EngineRuntime,
+  type EngineRuntimeDeck,
+  type RuntimeJournal,
+} from "../../src/engine-runtime/index.js";
 
 function card(id: string, name: string, types: readonly string[], extra: Record<string, unknown> = {}) {
   return { id, cardId: id, name, types, tags: [], ...extra };
@@ -45,10 +51,14 @@ function programs(): readonly CardProgram[] {
   ]);
 }
 
-function setup(matchId: string): EngineRuntime {
+function runtimeOptions(matchId: string) {
   const decks = [deck("A"), deck("B")] as const;
-  return createEngineRuntime({ matchId, roomId: matchId, decks,
-    seed: `${matchId}-seed`, firstPlayer: "A", battlefieldChoice: [0, 0], programs: programs() }).start();
+  return { matchId, roomId: matchId, decks,
+    seed: `${matchId}-seed`, firstPlayer: "A" as const, battlefieldChoice: [0, 0] as const, programs: programs() };
+}
+
+function setup(matchId: string): EngineRuntime {
+  return createEngineRuntime(runtimeOptions(matchId)).start();
 }
 
 function command<T extends V2Command["type"]>(type: T, commandId: string, stateVersion: number,
@@ -175,11 +185,11 @@ describe("RIFT-1081 V2 pass action projection", () => {
     expectExtraPassToMatchRuntime(runtime, "B", "closed-showdown-pass");
   }, 120_000);
 
-  it("keeps canPass aligned while the defender waits for the second damage allocation", () => {
+  it("rejects Pass before and after the attacker damage allocation without changing state", () => {
     const { runtime, aUnit } = closingShowdownSetup();
     // Drive the Showdown handoff with the authoritative Advance command, then
-    // compare each projected pass flag with the runtime receipt at the exact
-    // first- and second-allocation boundaries.
+    // check both allocation boundaries. CR 467.2.c-d assigns damage in order;
+    // the mandatory allocation is not a Discretionary Pass window.
     const beforeAdvance = runtime.projectFor("B");
     const advanced = runtime.submit(beforeAdvance.activePlayerId,
       command("advance", "advance-to-damage", beforeAdvance.stateVersion, {}));
@@ -189,11 +199,16 @@ describe("RIFT-1081 V2 pass action projection", () => {
       damage: { expectedPlayerId: "B", attackerSubmitted: false } });
     if (damage.combat.status !== "active" || damage.combat.combatId === undefined ||
         damage.combat.damage === undefined) throw new Error("Damage window missing");
-    // The first allocation and pass are different commands. Walk to a stable
-    // projected boundary and use that latest stateVersion rather than reusing
-    // the preview captured before another command.
-    expect(damage.actionOptions.canPass).toBe(true);
-    expect(pass(runtime, "B", "attacker-damage-window-pass").result.receipt.status).toBe("accepted");
+    const beforeFirstPass = structuredClone(runtime.projectFor(null));
+    const journalBeforeFirstPass = runtime.journal();
+    expect(damage.actionOptions.canPass).toBe(false);
+    const firstRejected = pass(runtime, "B", "attacker-damage-window-pass").result;
+    expect(firstRejected.receipt, JSON.stringify(firstRejected.receipt)).toMatchObject({
+      status: "rejected", stateVersion: damage.stateVersion,
+      error: expect.stringContaining("Pass is not allowed while Combat damage is being assigned"),
+    });
+    expect(runtime.projectFor(null)).toEqual(beforeFirstPass);
+    expect(runtime.journal()).toEqual(journalBeforeFirstPass);
     const current = runtime.projectFor("B");
     if (current.combat.status !== "active" || current.combat.combatId === undefined ||
         current.combat.damage === undefined) throw new Error("Current damage window missing");
@@ -205,7 +220,71 @@ describe("RIFT-1081 V2 pass action projection", () => {
     expect(waiting.priority.playerId).toBe("B");
     expect(waiting.combat).toMatchObject({ status: "active", step: "damage",
       damage: { attackerSubmitted: true, expectedPlayerId: "A" } });
-    expect(waiting.actionOptions.canPass).toBe(true);
-    expect(pass(runtime, "B", "waiting-defender-damage-pass").result.receipt.status).toBe("accepted");
+    const beforeSecondPass = structuredClone(runtime.projectFor(null));
+    const journalBeforeSecondPass = runtime.journal();
+    expect(waiting.actionOptions.canPass).toBe(false);
+    const secondRejected = pass(runtime, "B", "waiting-defender-damage-pass").result;
+    expect(secondRejected.receipt, JSON.stringify(secondRejected.receipt)).toMatchObject({
+      status: "rejected", stateVersion: waiting.stateVersion,
+      error: expect.stringContaining("Pass is not allowed while Combat damage is being assigned"),
+    });
+    expect(runtime.projectFor(null)).toEqual(beforeSecondPass);
+    expect(runtime.journal()).toEqual(journalBeforeSecondPass);
+  }, 120_000);
+
+  it("strictly restores a historical accepted Pass in the damage-assignment step", () => {
+    const { runtime, aUnit } = closingShowdownSetup();
+    const beforeAdvance = runtime.projectFor("B");
+    expect(runtime.submit(beforeAdvance.activePlayerId, command("advance", "legacy-advance",
+      beforeAdvance.stateVersion, {})).receipt.status).toBe("accepted");
+    const damage = runtime.projectFor("B");
+    if (damage.combat.status !== "active" || damage.combat.combatId === undefined ||
+        damage.combat.damage === undefined) throw new Error("Damage window missing");
+    expect(runtime.submit("B", command("combat-damage", "legacy-attacker-damage",
+      damage.stateVersion, { combatId: damage.combat.combatId,
+        assignments: [{ unitObjectId: aUnit, amount: damage.combat.damage.attackerMight }] }))
+      .receipt.status).toBe("accepted");
+
+    // RIFT-1081 wrote this exact journal-v1 shape before the fix: an actual
+    // Pass command was accepted, its stateVersion advanced, and no rules state
+    // changed. Build the immutable historical evidence through the production
+    // journal writer rather than patching the current TurnFlow during replay.
+    const before = runtime.projectFor("B");
+    const recordedJournal = runtime.journal();
+    const source = recordedJournal.entries.at(-1)!;
+    const legacyCommand = command("pass", "legacy-damage-pass", before.stateVersion, {});
+    const receipt = {
+      commandId: legacyCommand.commandId, status: "accepted" as const,
+      stateVersion: source.appliedStateVersion + 1, eventSeq: source.eventSeq,
+      result: { accepted: true },
+    };
+    const writer = new RuntimeJournalWriter(recordedJournal);
+    writer.append({
+      playerId: "B", actor: "B", requestId: legacyCommand.commandId,
+      commandId: legacyCommand.commandId, command: legacyCommand, payload: legacyCommand,
+      acceptedAt: new Date(0).toISOString(), expectedStateVersion: before.stateVersion,
+      expectedRoomVersion: source.expectedRoomVersion, appliedStateVersion: receipt.stateVersion,
+      roomVersion: source.roomVersion, eventSeq: source.eventSeq, result: receipt.result,
+      publicReceipt: receipt, duplicate: false, rejection: null, entropyConsumed: [],
+      projectionDigestByViewer: source.projectionDigestByViewer,
+      stateDigest: recordedJournal.head.stateDigest,
+      privateStateDigest: recordedJournal.head.privateStateDigest,
+    });
+    const journal = writer.snapshot() as RuntimeJournal;
+    expect(journal.entries.at(-1)).toMatchObject({
+      commandId: "legacy-damage-pass", duplicate: false,
+      command: { type: "pass" }, publicReceipt: { status: "accepted" },
+    });
+    const recorded = JSON.stringify(journal);
+
+    const restored = createEngineRuntime(runtimeOptions("RIFT-1081-closing-showdown"))
+      .restore(journal);
+    const restoredView = restored.projectFor("B");
+    expect(restoredView.stateVersion).toBe(receipt.stateVersion);
+    expect(restoredView.combat).toMatchObject({
+      status: "active", step: "damage", damage: { expectedPlayerId: "A" },
+    });
+    expect(restoredView.actionOptions.canPass).toBe(false);
+    expect(JSON.stringify(restored.journal())).toBe(recorded);
   }, 120_000);
 });
