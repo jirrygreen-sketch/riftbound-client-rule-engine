@@ -202,4 +202,58 @@ describe("RIFT-1108 mulligan preview reuse", () => {
     expect(projectionFor(restored, "player-1").phase).toBe("main");
     await reopened.close();
   }, 180_000);
+
+  it("restores before either mulligan choice, rebuilds one opening on demand, and starts after both seats answer", async () => {
+    const directory = await temporaryDirectory("restart-before-choices");
+    const original = await startedSetup("RIFT-1108-restart-before-choices");
+    const initialA = projectionFor(original.room, "player-1");
+    const initialB = projectionFor(original.room, "player-2");
+    const saved = original.room.exportArchive();
+    expect(saved.engineMulligan?.choices).toEqual([null, null]);
+
+    const store = new FileRoomStore(directory, async () => loadCardCatalogRuntime());
+    await store.create(original.room);
+    await store.save(original.room);
+    await store.close();
+
+    const reopened = new FileRoomStore(directory, async () => loadCardCatalogRuntime());
+    const [restored] = await reopened.listForStartup();
+    if (!restored) throw new Error("Pending mulligan room was not restored");
+    expect(restored.exportArchive()).toEqual(saved);
+    // Restore validates persisted setup facts without constructing a preview.
+    expect(Reflect.get(restored, "engineMulliganPreview")).toBeNull();
+
+    const first = restored.reconnect(original.sessions["player-1"].resumeToken,
+      transport, "alice-all-pending");
+    const second = restored.reconnect(original.sessions["player-2"].resumeToken,
+      transport, "bob-all-pending");
+    if (!first || !second) throw new Error("Pending seat did not reconnect");
+    const resumed: StartedSetup = {
+      room: restored,
+      sessions: original.sessions,
+      connections: { "player-1": first, "player-2": second },
+    };
+
+    const resumedA = projectionFor(restored, "player-1");
+    const resumedB = projectionFor(restored, "player-2");
+    const preview = Reflect.get(restored, "engineMulliganPreview");
+    expect(preview).not.toBeNull();
+    expect(resumedA.activePlayerId).toBe(initialA.activePlayerId);
+    expect(resumedB.activePlayerId).toBe(initialB.activePlayerId);
+    expect(resumedA.battlefields.map(field => field.battlefieldId))
+      .toEqual(initialA.battlefields.map(field => field.battlefieldId));
+    expect(hand(resumedA)).toEqual(hand(initialA));
+    expect(hand(resumedB)).toEqual(hand(initialB));
+
+    const firstPlayerId = resumedA.activePlayerId as "player-1" | "player-2";
+    const secondPlayerId = firstPlayerId === "player-1" ? "player-2" : "player-1";
+    expect(submitMulligan(resumed, firstPlayerId, "restart-first-choice")).toMatchObject({ accepted: true });
+    expect(Reflect.get(restored, "engineMulliganPreview")).toBe(preview);
+    expect(submitMulligan(resumed, secondPlayerId, "restart-second-choice")).toMatchObject({ accepted: true });
+    expect(Reflect.get(restored, "engineMulliganPreview")).toBeNull();
+    expect(projectionFor(restored, "player-1").phase).toBe("main");
+    expect(restored.exportArchive().engineRuntimeJournal?.header.setup?.firstPlayer)
+      .toBe(initialA.activePlayerId === "player-1" ? 0 : 1);
+    await reopened.close();
+  }, 180_000);
 });
