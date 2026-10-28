@@ -7,7 +7,11 @@ import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath } from "node:url";
-import { buildDeckCatalog, DEFAULT_OUTPUT_PATH as DECK_CATALOG_PATH } from "./build-deck-catalog.mjs";
+import {
+  buildDeckCatalog,
+  buildLocalizedTexts,
+  DEFAULT_OUTPUT_PATH as DECK_CATALOG_PATH
+} from "./build-deck-catalog.mjs";
 import {
   DEFAULT_SOURCE as DEFAULT_COMMUNITY_SOURCE,
   fetchBuffer,
@@ -672,19 +676,23 @@ async function loadCardDataApi() {
 
 export async function run(options, io = {}) {
   const log = io.log ?? console.log;
+  const fetchImpl = io.fetchImpl ?? fetch;
+  const resolveSourceImpl = io.resolveSourceImpl ?? resolveSource;
+  const fetchBufferImpl = io.fetchBufferImpl ?? fetchBuffer;
+  const clock = io.clock ?? (() => new Date());
   log("Resolving community card source...");
   const sourceUrl = options.communitySource.startsWith("https://")
     ? options.communitySource
     : `https://api.github.com/repos/${options.communitySource}/releases/latest`;
   const communitySource = await withRequestRetries(
-    () => resolveSource(options.communitySource, options.timeoutMs),
+    () => resolveSourceImpl(options.communitySource, options.timeoutMs),
     sourceUrl
   );
   log(`Downloading community cards from ${safeUrl(communitySource.url)}...`);
   let communityPayload;
   try {
     communityPayload = await withRequestRetries(
-      () => fetchBuffer(communitySource.url, options.timeoutMs),
+      () => fetchBufferImpl(communitySource.url, options.timeoutMs),
       communitySource.url
     );
   } catch (error) {
@@ -712,9 +720,28 @@ export async function run(options, io = {}) {
       localizedGalleryUrl: options.localizedGalleryUrl
     },
     options.timeoutMs,
-    { log, fetchImpl: fetch }
+    { log, fetchImpl }
   );
-  const fetchedAt = new Date().toISOString();
+  const nowValue = clock();
+  const fetchedAt = (nowValue instanceof Date
+    ? nowValue
+    : new Date(nowValue)
+  ).toISOString();
+  const localizedTexts = {
+    "zh-CN": buildLocalizedTexts(
+      {
+        ...official,
+        url: official.url,
+        resultsUpdatedAt: official.resultsUpdatedAt
+      },
+      {
+        ...localized,
+        url: localized.url,
+        resultsUpdatedAt: localized.resultsUpdatedAt
+      },
+      fetchedAt
+    )
+  };
   log("Merging official and community records...");
   const merged = mergeCards(official.cards, communityCards, fetchedAt);
   const api = await loadCardDataApi();
@@ -810,6 +837,7 @@ export async function run(options, io = {}) {
       mergedSetCounts: setCounts(merged.cards, (card) => card.setCode)
     },
     cards: merged.cards,
+    localizedTexts,
     officialGallery: {
       url: official.url,
       buildId: official.buildId,
