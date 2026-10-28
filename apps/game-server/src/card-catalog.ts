@@ -20,6 +20,22 @@ import {
 
 export type CardVariant = "standard" | "alternate" | "unknown";
 
+export type LocalizedAbilityLanguage = "zh-CN" | "en-US";
+
+export type LocalizedAbilityStatus =
+  | "official-structured"
+  | "official-accessibility-supplemented"
+  | "english-fallback"
+  | "no-effect"
+  | "missing";
+
+export interface LocalizedAbilitySource {
+  readonly url: string;
+  readonly locale: "zh-CN";
+  readonly updatedAt: string;
+  readonly syncedAt: string;
+}
+
 export interface CatalogCard {
   readonly id: string;
   readonly canonicalCardId: string;
@@ -39,6 +55,11 @@ export interface CatalogCard {
   readonly power: number | null;
   readonly might: number | null;
   readonly ability: string;
+  readonly localizedAbilityRulesText?: string;
+  readonly localizedAbilityEffectText?: string;
+  readonly localizedAbilityLanguage?: LocalizedAbilityLanguage;
+  readonly localizedAbilityStatus?: LocalizedAbilityStatus;
+  readonly localizedAbilitySource?: LocalizedAbilitySource;
 }
 
 export interface PublicCatalogCard extends CatalogCard {
@@ -107,6 +128,8 @@ const DEFAULT_IMAGES_DIRECTORY = fileURLToPath(
 const SAFE_ID_PATTERN =
   /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$/;
 const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/;
+const UTC_TIMESTAMP_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
 const CONTENT_TYPES = new Set([
   "image/avif",
   "image/jpeg",
@@ -183,6 +206,35 @@ function isHttpsUrl(value: unknown): value is string {
   return url.protocol === "https:" &&
     url.username === "" &&
     url.password === "";
+}
+
+function isUtcTimestamp(value: unknown): value is string {
+  return isText(value, 64) &&
+    UTC_TIMESTAMP_PATTERN.test(value) &&
+    !Number.isNaN(Date.parse(value));
+}
+
+function isLocalizedAbilityLanguage(
+  value: unknown
+): value is LocalizedAbilityLanguage {
+  return value === "zh-CN" || value === "en-US";
+}
+
+function isLocalizedAbilityStatus(value: unknown): value is LocalizedAbilityStatus {
+  return value === "official-structured" ||
+    value === "official-accessibility-supplemented" ||
+    value === "english-fallback" ||
+    value === "no-effect" ||
+    value === "missing";
+}
+
+function isLocalizedAbilitySource(value: unknown): value is LocalizedAbilitySource {
+  return isRecord(value) &&
+    hasExactKeys(value, ["url", "locale", "updatedAt", "syncedAt"]) &&
+    isHttpsUrl(value.url) &&
+    value.locale === "zh-CN" &&
+    isUtcTimestamp(value.updatedAt) &&
+    isUtcTimestamp(value.syncedAt);
 }
 
 function isStringArray(value: unknown): value is readonly string[] {
@@ -296,13 +348,35 @@ function isCatalogCard(value: unknown): value is CatalogCard {
   const optionalFields = [
     "subtitle",
     "localizedName",
-    "localizedSubtitle"
+    "localizedSubtitle",
+    "localizedAbilityRulesText",
+    "localizedAbilityEffectText",
+    "localizedAbilityLanguage",
+    "localizedAbilityStatus",
+    "localizedAbilitySource"
   ] as const;
   const knownFields = new Set<string>([...requiredFields, ...optionalFields]);
   if (!Object.keys(value).every(key => knownFields.has(key))) return false;
 
   for (const field of optionalFields) {
-    if (value[field] !== undefined && !isText(value[field], 512)) return false;
+    if (field === "localizedAbilityRulesText" ||
+        field === "localizedAbilityEffectText") {
+      if (value[field] !== undefined && !isAbilityText(value[field], 4096)) return false;
+    } else if (field === "localizedAbilityLanguage") {
+      if (value[field] !== undefined && !isLocalizedAbilityLanguage(value[field])) {
+        return false;
+      }
+    } else if (field === "localizedAbilityStatus") {
+      if (value[field] !== undefined && !isLocalizedAbilityStatus(value[field])) {
+        return false;
+      }
+    } else if (field === "localizedAbilitySource") {
+      if (value[field] !== undefined && !isLocalizedAbilitySource(value[field])) {
+        return false;
+      }
+    } else if (value[field] !== undefined && !isText(value[field], 512)) {
+      return false;
+    }
   }
 
   return isSafeId(value.id) &&
@@ -352,6 +426,28 @@ function publicCard(
     power: card.power,
     might: card.might,
     ability: card.ability,
+    ...(card.localizedAbilityRulesText === undefined
+      ? {}
+      : { localizedAbilityRulesText: card.localizedAbilityRulesText }),
+    ...(card.localizedAbilityEffectText === undefined
+      ? {}
+      : { localizedAbilityEffectText: card.localizedAbilityEffectText }),
+    ...(card.localizedAbilityLanguage === undefined
+      ? {}
+      : { localizedAbilityLanguage: card.localizedAbilityLanguage }),
+    ...(card.localizedAbilityStatus === undefined
+      ? {}
+      : { localizedAbilityStatus: card.localizedAbilityStatus }),
+    ...(card.localizedAbilitySource === undefined
+      ? {}
+      : {
+          localizedAbilitySource: {
+            url: card.localizedAbilitySource.url,
+            locale: card.localizedAbilitySource.locale,
+            updatedAt: card.localizedAbilitySource.updatedAt,
+            syncedAt: card.localizedAbilitySource.syncedAt
+          }
+        }),
     ...policy
   };
 }
