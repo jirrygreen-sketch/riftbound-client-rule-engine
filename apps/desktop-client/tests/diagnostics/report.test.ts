@@ -70,6 +70,26 @@ describe("IssueReportV1 assembly", () => {
     expect(serialized).toContain("[redacted]");
   });
 
+  it("redacts the reviewed API, cookie and session key forms from a final report", () => {
+    const report = buildIssueReport({
+      title: "reviewed credential forms",
+      description: 'accessToken=ACCESS_SECRET&safe=1 apiToken: API_SECRET, done ' +
+        'auth_token="SNAKE_SECRET"',
+      appVersion: "0.1.0", platform: "web", userAgent: "UA",
+      serverUrl: "https://example.test", locale: "en",
+      clientLog: [{ at: "2026-10-29T09:30:00.000Z", level: "error", source: "window",
+      message: 'sessionSecret=value {"apiKey":"K"} Cookie: a=b' }], matchLog: null
+    }, newIssueReportId(), "2026-10-29T09:30:00.000Z");
+    const serialized = JSON.stringify(report);
+    for (const secret of ["ACCESS_SECRET", "API_SECRET", "SNAKE_SECRET"]) {
+      expect(serialized).not.toContain(secret);
+    }
+    expect(serialized).not.toContain('"apiKey":"K"');
+    expect(serialized).not.toContain("Cookie: a=b");
+    expect(serialized).toContain("safe=1");
+    expect(serialized).toContain("done");
+  });
+
   it("clips oldest client entries before any match entry", () => {
     const report = buildIssueReport({
       title: "large", description: "", appVersion: "0.1.0", platform: "web",

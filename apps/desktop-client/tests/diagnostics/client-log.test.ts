@@ -103,6 +103,43 @@ describe("diagnostic redaction", () => {
     expect(serialized.match(/\[redacted\]/gu)?.length).toBe(5);
   });
 
+  it("redacts every sensitive key substring in free text while preserving safe fields", () => {
+    initializeClientLog(null);
+    appendClientLog({ level: "error", source: "window", message:
+      'accessToken=ACCESS_SECRET&safe=1 apiToken: API_SECRET, done auth_token="SNAKE_SECRET" ' +
+      'sessionSecret=value {"apiKey":"K"} Cookie: a=b' });
+    const message = getClientLog().at(-1)?.message ?? "";
+    for (const secret of ["ACCESS_SECRET", "API_SECRET", "SNAKE_SECRET", "sessionSecret=value", '"apiKey":"K"', "Cookie: a=b"]) {
+      expect(message).not.toContain(secret);
+    }
+    expect(message).toContain("safe=1");
+    expect(message).toContain("done");
+    expect(message.match(/\[redacted\]/gu)?.length).toBe(6);
+  });
+
+  it("treats camel, snake and kebab sensitive key variants identically", () => {
+    const message = safeErrorMessage(new Error(
+      'apiKey=ONE api_key=TWO api-token=THREE sessionCookie=FOUR auth-password=FIVE'
+    ));
+    for (const secret of ["ONE", "TWO", "THREE", "FOUR", "FIVE"]) {
+      expect(message).not.toContain(secret);
+    }
+    expect(message.match(/\[redacted\]/gu)).toHaveLength(5);
+  });
+
+  it("uses the same sensitive-key standard for match and kebab case", () => {
+    const redacted = redactDiagnosticValue({
+      APIKEY: "wrong-case-key",
+      nested: { "session-cookie": "kebab-secret", safe: "visible" },
+      text: "requestId=1 api_key=VALUE_KEEP"
+    });
+    const serialized = JSON.stringify(redacted);
+    expect(serialized).not.toContain("wrong-case-key");
+    expect(serialized).not.toContain("kebab-secret");
+    expect(serialized).not.toContain("VALUE_KEEP");
+    expect(serialized).toContain("visible");
+  });
+
   it("redacts before persistence", () => {
     const storage = new MemoryStorage();
     initializeClientLog(storage);
@@ -114,6 +151,36 @@ describe("diagnostic redaction", () => {
     expect(raw).toContain("[redacted]");
   });
 
+  it("redacts every reviewed value before appendClientLog returns", () => {
+    initializeClientLog(null);
+    const entry = appendClientLog({ level: "error", source: "window", message:
+      'accessToken=ACCESS_SECRET&safe=1 apiToken: API_SECRET, done auth_token="SNAKE_SECRET" ' +
+      'sessionSecret=value {"apiKey":"K"} Cookie: a=b' });
+    for (const secret of ["ACCESS_SECRET", "API_SECRET", "SNAKE_SECRET"]) {
+      expect(entry.message).not.toContain(secret);
+    }
+    expect(entry.message).not.toContain('"apiKey":"K"');
+    expect(entry.message).not.toContain("Cookie: a=b");
+    expect(entry.message).toContain("safe=1");
+    expect(entry.message).toContain("done");
+  });
+
+  it("redacts the reviewed key forms before localStorage persistence", () => {
+    const storage = new MemoryStorage();
+    initializeClientLog(storage);
+    appendClientLog({ level: "error", source: "window", message:
+      'accessToken=ACCESS_SECRET&safe=1 apiToken: API_SECRET, done ' +
+      'auth_token="SNAKE_SECRET" sessionSecret=value {"apiKey":"K"} Cookie: a=b' });
+    const raw = storage.getItem(CLIENT_LOG_STORAGE_KEY) ?? "";
+    for (const secret of ["ACCESS_SECRET", "API_SECRET", "SNAKE_SECRET"]) {
+      expect(raw).not.toContain(secret);
+    }
+    expect(raw).not.toContain('"apiKey":"K"');
+    expect(raw).not.toContain("Cookie: a=b");
+    expect(raw).toContain("safe=1");
+    expect(raw).toContain("done");
+  });
+
   it("redacts credentials embedded in captured error text", () => {
     initializeClientLog(null);
     appendClientLog({ level: "error", source: "window",
@@ -122,6 +189,20 @@ describe("diagnostic redaction", () => {
     expect(message).not.toContain("Bearer private");
     expect(message).not.toContain("abc123");
     expect(message).toContain("[redacted]");
+  });
+
+  it("redacts the reviewed API and cookie keys through safeErrorMessage", () => {
+    const message = safeErrorMessage(new Error(
+      'accessToken=ACCESS_SECRET&safe=1 apiToken: API_SECRET, done ' +
+      'auth_token="SNAKE_SECRET" sessionSecret=value {"apiKey":"K"} Cookie: a=b'
+    ));
+    for (const secret of ["ACCESS_SECRET", "API_SECRET", "SNAKE_SECRET"]) {
+      expect(message).not.toContain(secret);
+    }
+    expect(message).not.toContain('"apiKey":"K"');
+    expect(message).not.toContain("Cookie: a=b");
+    expect(message).toContain("safe=1");
+    expect(message).toContain("done");
   });
 
   it("redacts Authorization schemes and JSON credential assignments completely", () => {

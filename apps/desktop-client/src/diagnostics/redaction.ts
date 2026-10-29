@@ -1,5 +1,8 @@
-const SENSITIVE_FIELD = /(?:token|secret|password|authorization)/iu;
-const CREDENTIAL_TEXT = /(["']?)\b(authorization|resumeToken|password|secret)\b\1(\s*[:=]\s*)('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|(?:(?:Bearer|Basic)\s+)?[^\s,;}&]+)/giu;
+const SENSITIVE_FIELD = /(?:token|secret|password|authorization|apikey|api_key|cookie|session)/iu;
+// The key may be bare or quoted and use camelCase, snake_case or kebab-case.
+// A value runs until whitespace or a structural delimiter. An optional quote is
+// preserved solely to keep valid JSON/object syntax around the redaction.
+const CREDENTIAL_TEXT = /(?<![A-Z\d_-])(["']?)([A-Z\d_-]*(?:token|secret|password|authorization|apikey|api_key|cookie|session)[A-Z\d_-]*)\1(\s*[:=]\s*)(["']?)(?:(?:Bearer|Basic)\s+)?[^\s&,;"'\]}\)]+/giu;
 const REDACTED = "[redacted]";
 
 /** Recursively replaces sensitive field values while preserving log shape. */
@@ -40,9 +43,10 @@ export function safeErrorMessage(error: unknown): string {
 }
 
 export function redactCredentialText(value: string): string {
-  return value.replace(CREDENTIAL_TEXT, (_match, quote, field, separator) => {
-    const replacement = quote === '"' ? `"${REDACTED}"` : quote === "'" ? `'${REDACTED}'` : REDACTED;
-    return `${quote}${field}${quote}${separator}${replacement}`;
+  return value.replace(CREDENTIAL_TEXT, (_match, fieldQuote, field, separator, valueQuote) => {
+    const key = `${fieldQuote}${field}${fieldQuote}`;
+    const replacement = valueQuote === "'" ? `'${REDACTED}'` : valueQuote === '"' ? `"${REDACTED}"` : REDACTED;
+    return `${key}${separator}${replacement}`;
   });
 }
 
