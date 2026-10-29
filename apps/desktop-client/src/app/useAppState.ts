@@ -363,7 +363,7 @@ export function useAppState() {
         subtitle: card.subtitle ?? "",
         localizedName: card.localizedName ?? card.name,
         localizedSubtitle: card.localizedSubtitle ?? card.subtitle ?? "",
-        imageUrl: preferLocalCardImage(card.id, cardImageServerUrl(catalogServerUrl, card.id))
+        imageUrl: preferLocalCardImage(card.id, cardImageServerUrl(catalogServerUrl, card.id), card.imageUrl)
       }));
   }, [activeDeckZone, catalog, catalogServerUrl]);
 
@@ -404,7 +404,7 @@ export function useAppState() {
         title: [card.localizedName ?? card.name, card.localizedSubtitle ?? card.subtitle]
           .filter(Boolean)
           .join(" · "),
-        imageUrl: preferLocalCardImage(card.id, card.imageUrl ?? cardImageServerUrl(catalogServerUrl, card.id)),
+        imageUrl: preferLocalCardImage(card.id, card.imageUrl ?? cardImageServerUrl(catalogServerUrl, card.id), card.imageUrl),
         typeLabel: [card.cardType, ...card.domains].join(" · "),
         implemented: isCardAbilityImplemented(card)
       };

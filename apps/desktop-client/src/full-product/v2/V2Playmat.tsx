@@ -47,7 +47,7 @@ export function buildV2CardLookup(cards: readonly CatalogCard[]): V2CardLookup {
     for (const id of [card.id, card.canonicalCardId]) {
       if (!id) continue;
       if (!cardById.has(id)) cardById.set(id, card);
-      const imageUrl = preferLocalCardImage(card.id, card.imageUrl);
+      const imageUrl = preferLocalCardImage(card.id, card.imageUrl, card.imageUrl);
       if (imageUrl) imageById.set(id, imageUrl);
       if (card.domains.length > 0) domainsById.set(id, card.domains);
     }

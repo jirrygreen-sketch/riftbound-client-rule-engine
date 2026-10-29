@@ -3,15 +3,28 @@
  *
  * In the Tauri desktop shell, card art is served from the app-data directory
  * through the `rbimg` URI scheme (see `src-tauri/src/card_images.rs`). The
- * remote URL travels along as `src`, so a printing that is not cached yet is
- * downloaded once, stored, and read locally from then on. In a plain browser
- * (the web build and tests) there is no bridge and every URL is unchanged.
+ * printing's official CDN URL travels along as `src`, so a printing that is
+ * not cached yet is downloaded once from the official source, stored, and read
+ * locally from then on. In a plain browser (the web build and tests) there is
+ * no bridge and every URL is unchanged.
  */
 
 export const LOCAL_CARD_IMAGE_SCHEME = "rbimg";
 export const CARD_IMAGE_PROGRESS_EVENT = "card-images-progress";
 
 const SAFE_PRINTING_ID = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$/;
+const OFFICIAL_IMAGE_ORIGIN = "https://cmsassets.rgpub.io";
+
+/** The native cache only ever downloads from the official CDN over HTTPS. */
+export function isOfficialCardImageUrl(url: string | null | undefined): url is string {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.origin === OFFICIAL_IMAGE_ORIGIN && parsed.username === "" && parsed.password === "";
+  } catch {
+    return false;
+  }
+}
 
 export interface CardImagePrefetchItem {
   readonly id: string;
@@ -58,18 +71,20 @@ export function localCardImageBridge(
 }
 
 /**
- * Returns the local-cache URL for a printing when running in the desktop
- * shell; otherwise (or for an unusable id/URL) the remote URL unchanged.
+ * In the desktop shell, returns the local-cache URL for a printing whose
+ * official CDN image is known; otherwise (browser build, unusable id, no
+ * official URL) the display URL unchanged.
  */
 export function preferLocalCardImage(
   printingId: string,
-  remoteUrl: string | null,
+  displayUrl: string | null,
+  officialUrl: string | null | undefined,
   bridge: LocalCardImageBridge | null = localCardImageBridge()
 ): string | null {
-  if (bridge === null || !remoteUrl || !SAFE_PRINTING_ID.test(printingId)) {
-    return remoteUrl;
+  if (bridge === null || !SAFE_PRINTING_ID.test(printingId) || !isOfficialCardImageUrl(officialUrl)) {
+    return displayUrl;
   }
-  return `${bridge.convertFileSrc(printingId, LOCAL_CARD_IMAGE_SCHEME)}?src=${encodeURIComponent(remoteUrl)}`;
+  return `${bridge.convertFileSrc(printingId, LOCAL_CARD_IMAGE_SCHEME)}?src=${encodeURIComponent(officialUrl)}`;
 }
 
 /** Official image per printing, as listed by the catalog. */
@@ -79,7 +94,7 @@ export function cardImagePrefetchItems(
   const seen = new Set<string>();
   const items: CardImagePrefetchItem[] = [];
   for (const card of cards) {
-    if (!card.imageUrl || !SAFE_PRINTING_ID.test(card.id) || seen.has(card.id)) continue;
+    if (!isOfficialCardImageUrl(card.imageUrl) || !SAFE_PRINTING_ID.test(card.id) || seen.has(card.id)) continue;
     seen.add(card.id);
     items.push({ id: card.id, url: card.imageUrl });
   }

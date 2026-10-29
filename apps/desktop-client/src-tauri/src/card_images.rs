@@ -5,22 +5,21 @@
 //! webview through the `rbimg` URI scheme, so card art is read from disk
 //! instead of the network once it has been downloaded.
 //!
-//! * `rbimg://localhost/<printingId>?src=<remote url>` (Windows:
+//! * `rbimg://localhost/<printingId>?src=<official url>` (Windows:
 //!   `http://rbimg.localhost/...`) returns the cached file. On a cache miss it
 //!   downloads `src` once, validates it, stores it and returns it.
 //! * `prefetch_card_images` downloads every missing printing in the
 //!   background and reports progress through the `card-images-progress` event.
 //!
-//! Only two remote sources are accepted: the official image CDN over HTTPS,
-//! and a game server's own `/api/card-images/<printingId>` route for the same
-//! printing. The scheme is therefore never a general-purpose fetch proxy.
+//! The only accepted remote source is the official image CDN over HTTPS on
+//! its default port, so the scheme can never act as a general fetch proxy.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 
@@ -38,12 +37,6 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 const PREFETCH_WORKERS: usize = 4;
 const EXTENSIONS: [&str; 4] = ["png", "jpg", "webp", "avif"];
 
-#[derive(Default)]
-pub struct PrefetchState {
-    running: AtomicBool,
-    cancel: AtomicBool,
-}
-
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrefetchItem {
@@ -59,6 +52,68 @@ pub struct PrefetchProgress {
     failed: usize,
     running: bool,
     cancelled: bool,
+}
+
+/// Run control for the background prefetch. A start request that arrives
+/// while a run is still winding down (paused, then resumed right away) is
+/// remembered and started as soon as the current run ends, so one click on
+/// "continue" is always enough.
+#[derive(Default)]
+pub struct PrefetchControl {
+    inner: Mutex<ControlState>,
+    cancel: AtomicBool,
+}
+
+#[derive(Default)]
+struct ControlState {
+    running: bool,
+    restart: Option<Vec<PrefetchItem>>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum StartDecision {
+    /// No run in progress: start one now.
+    Start,
+    /// A run is in progress; it continues (any pending pause is withdrawn)
+    /// and the request is re-run once it ends.
+    Queued,
+}
+
+impl PrefetchControl {
+    fn request_start(&self, items: Vec<PrefetchItem>) -> (StartDecision, Option<Vec<PrefetchItem>>) {
+        let mut state = self.inner.lock().unwrap_or_else(|poison| poison.into_inner());
+        self.cancel.store(false, Ordering::SeqCst);
+        if state.running {
+            state.restart = Some(items);
+            (StartDecision::Queued, None)
+        } else {
+            state.running = true;
+            (StartDecision::Start, Some(items))
+        }
+    }
+
+    /// Called when a run's workers have all exited. Returns the items of a
+    /// start request that arrived meanwhile; the run then stays "running".
+    fn finish(&self) -> Option<Vec<PrefetchItem>> {
+        let mut state = self.inner.lock().unwrap_or_else(|poison| poison.into_inner());
+        match state.restart.take() {
+            Some(items) if !self.cancel.load(Ordering::SeqCst) => Some(items),
+            _ => {
+                state.running = false;
+                None
+            }
+        }
+    }
+
+    fn cancel(&self) {
+        let mut state = self.inner.lock().unwrap_or_else(|poison| poison.into_inner());
+        state.restart = None;
+        self.cancel.store(true, Ordering::SeqCst);
+    }
+
+    fn cancelled(&self) -> bool {
+        self.cancel.load(Ordering::SeqCst)
+    }
 }
 
 /// Same printing-id shape the game server accepts for `/api/card-images`.
@@ -101,6 +156,19 @@ fn mime_for(extension: &str) -> &'static str {
     }
 }
 
+/// An ISO-BMFF `ftyp` box whose major or any compatible brand is AVIF.
+fn is_avif(bytes: &[u8]) -> bool {
+    if bytes.len() < 16 || &bytes[4..8] != b"ftyp" {
+        return false;
+    }
+    let size = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+    if size < 16 || size > bytes.len() {
+        return false;
+    }
+    let is_avif_brand = |brand: &[u8]| brand == b"avif" || brand == b"avis";
+    is_avif_brand(&bytes[8..12]) || bytes[16..size].chunks_exact(4).any(is_avif_brand)
+}
+
 /// Identifies the image by its file signature; the response header alone is
 /// never trusted.
 fn sniff_extension(bytes: &[u8]) -> Option<&'static str> {
@@ -110,29 +178,23 @@ fn sniff_extension(bytes: &[u8]) -> Option<&'static str> {
         Some("jpg")
     } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
         Some("webp")
-    } else if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" && (&bytes[8..12] == b"avif" || &bytes[8..12] == b"avis") {
+    } else if is_avif(bytes) {
         Some("avif")
     } else {
         None
     }
 }
 
-/// The official CDN over HTTPS, or a game server's image route for exactly
-/// this printing.
-pub fn is_allowed_source(source: &str, id: &str) -> bool {
+/// Only the official CDN over HTTPS on its default port, without credentials.
+pub fn is_allowed_source(source: &str) -> bool {
     let Ok(url) = Url::parse(source) else {
         return false;
     };
-    if !url.username().is_empty() || url.password().is_some() {
-        return false;
-    }
-    match url.scheme() {
-        "https" if url.host_str() == Some(OFFICIAL_IMAGE_HOST) => true,
-        "https" | "http" => {
-            url.query().is_none() && url.path() == format!("/api/card-images/{id}")
-        }
-        _ => false,
-    }
+    url.scheme() == "https"
+        && url.host_str() == Some(OFFICIAL_IMAGE_HOST)
+        && url.port().is_none()
+        && url.username().is_empty()
+        && url.password().is_none()
 }
 
 fn download(source: &str) -> Result<(Vec<u8>, &'static str), String> {
@@ -161,6 +223,8 @@ fn download(source: &str) -> Result<(Vec<u8>, &'static str), String> {
 }
 
 /// Writes to a temporary sibling first so a reader never sees a partial file.
+/// If the rename loses a race against another writer of the same printing,
+/// the already-present file is accepted.
 fn store(directory: &Path, id: &str, bytes: &[u8], extension: &str) -> Result<PathBuf, String> {
     fs::create_dir_all(directory).map_err(|error| format!("cannot create cache: {error}"))?;
     let target = directory.join(format!("{id}.{extension}"));
@@ -175,15 +239,40 @@ fn store(directory: &Path, id: &str, bytes: &[u8], extension: &str) -> Result<Pa
         file.sync_all()?;
         fs::rename(&temporary, &target)
     };
-    if let Err(error) = write() {
-        let _ = fs::remove_file(&temporary);
-        return Err(format!("cannot store image: {error}"));
+    match write() {
+        Ok(()) => Ok(target),
+        Err(error) => {
+            let _ = fs::remove_file(&temporary);
+            match cached_file(directory, id) {
+                Some((existing, _)) => Ok(existing),
+                None => Err(format!("cannot store image: {error}")),
+            }
+        }
     }
-    Ok(target)
 }
 
-fn fetch_into_cache(directory: &Path, id: &str, source: &str) -> Result<(Vec<u8>, &'static str), String> {
-    if !is_allowed_source(source, id) {
+/// One lock per printing id, so the background prefetch and an on-demand
+/// image request never download or write the same printing at once.
+fn printing_lock(id: &str) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    let mut locks = LOCKS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    Arc::clone(locks.entry(id.to_string()).or_default())
+}
+
+/// Returns the cached bytes, downloading and storing them first when absent.
+fn load_or_fetch(directory: &Path, id: &str, source: Option<&str>) -> Result<(Vec<u8>, &'static str), String> {
+    let lock = printing_lock(id);
+    let _guard = lock.lock().unwrap_or_else(|poison| poison.into_inner());
+    if let Some((path, content_type)) = cached_file(directory, id) {
+        if let Ok(bytes) = fs::read(&path) {
+            return Ok((bytes, content_type));
+        }
+    }
+    let source = source.ok_or("image not cached")?;
+    if !is_allowed_source(source) {
         return Err("image source is not allowed".into());
     }
     let (bytes, extension) = download(source)?;
@@ -250,16 +339,9 @@ pub fn handle_request<R: Runtime>(app: &AppHandle<R>, request: &Request<Vec<u8>>
         Ok(directory) => directory,
         Err(error) => return respond(StatusCode::INTERNAL_SERVER_ERROR, "text/plain", error.into_bytes()),
     };
-    if let Some((path, content_type)) = cached_file(&directory, &id) {
-        if let Ok(bytes) = fs::read(&path) {
-            return respond(StatusCode::OK, content_type, bytes);
-        }
-    }
-    let Some(source) = source else {
-        return respond(StatusCode::NOT_FOUND, "text/plain", b"image not cached".to_vec());
-    };
-    match fetch_into_cache(&directory, &id, &source) {
+    match load_or_fetch(&directory, &id, source.as_deref()) {
         Ok((bytes, content_type)) => respond(StatusCode::OK, content_type, bytes),
+        Err(error) if source.is_none() => respond(StatusCode::NOT_FOUND, "text/plain", error.into_bytes()),
         Err(error) => respond(StatusCode::BAD_GATEWAY, "text/plain", error.into_bytes()),
     }
 }
@@ -285,110 +367,105 @@ pub fn card_image_cache_ids(app: AppHandle) -> Result<Vec<String>, String> {
     Ok(ids)
 }
 
-/// Starts (or restarts after a pause) the background download of every
-/// missing printing. Returns `false` when a run is already in progress.
+/// Starts the background download of every missing printing. A request made
+/// while a previous run is still stopping is picked up as soon as it ends.
 #[tauri::command]
 pub fn prefetch_card_images(
     app: AppHandle,
-    state: tauri::State<'_, Arc<PrefetchState>>,
+    control: tauri::State<'_, Arc<PrefetchControl>>,
     items: Vec<PrefetchItem>,
-) -> Result<bool, String> {
-    let state = Arc::clone(state.inner());
-    if state.running.swap(true, Ordering::SeqCst) {
-        return Ok(false);
+) -> Result<(), String> {
+    let directory = cache_directory(&app)?;
+    let control = Arc::clone(control.inner());
+    if let (StartDecision::Start, Some(items)) = control.request_start(items) {
+        spawn_run(app, control, directory, items);
     }
-    state.cancel.store(false, Ordering::SeqCst);
-    let directory = match cache_directory(&app) {
-        Ok(directory) => directory,
-        Err(error) => {
-            state.running.store(false, Ordering::SeqCst);
-            return Err(error);
-        }
-    };
-
-    let total = items.len();
-    let mut pending = VecDeque::new();
-    let mut cached = 0;
-    for item in items {
-        if is_safe_id(&item.id) && cached_file(&directory, &item.id).is_some() {
-            cached += 1;
-        } else {
-            pending.push_back(item);
-        }
-    }
-
-    let queue = Arc::new(Mutex::new(pending));
-    let cached = Arc::new(AtomicUsize::new(cached));
-    let failed = Arc::new(AtomicUsize::new(0));
-    let emit = {
-        let app = app.clone();
-        let state = Arc::clone(&state);
-        let cached = Arc::clone(&cached);
-        let failed = Arc::clone(&failed);
-        move |running: bool| {
-            let _ = app.emit(
-                PROGRESS_EVENT,
-                PrefetchProgress {
-                    total,
-                    cached: cached.load(Ordering::SeqCst),
-                    failed: failed.load(Ordering::SeqCst),
-                    running,
-                    cancelled: state.cancel.load(Ordering::SeqCst),
-                },
-            );
-        }
-    };
-    emit(true);
-
-    thread::spawn(move || {
-        let workers: Vec<_> = (0..PREFETCH_WORKERS)
-            .map(|_| {
-                let queue = Arc::clone(&queue);
-                let state = Arc::clone(&state);
-                let directory = directory.clone();
-                let cached = Arc::clone(&cached);
-                let failed = Arc::clone(&failed);
-                let emit = emit.clone();
-                thread::spawn(move || loop {
-                    if state.cancel.load(Ordering::SeqCst) {
-                        break;
-                    }
-                    let Some(item) = queue.lock().ok().and_then(|mut queue| queue.pop_front()) else {
-                        break;
-                    };
-                    let result = if !is_safe_id(&item.id) {
-                        Err("bad printing id".to_string())
-                    } else if cached_file(&directory, &item.id).is_some() {
-                        Ok(())
-                    } else {
-                        fetch_into_cache(&directory, &item.id, &item.url).map(|_| ())
-                    };
-                    match result {
-                        Ok(()) => cached.fetch_add(1, Ordering::SeqCst),
-                        Err(_) => failed.fetch_add(1, Ordering::SeqCst),
-                    };
-                    emit(true);
-                })
-            })
-            .collect();
-        for worker in workers {
-            let _ = worker.join();
-        }
-        state.running.store(false, Ordering::SeqCst);
-        emit(false);
-    });
-    Ok(true)
+    Ok(())
 }
 
 /// Pauses the background download; already-stored images stay cached.
 #[tauri::command]
-pub fn cancel_card_image_prefetch(state: tauri::State<'_, Arc<PrefetchState>>) {
-    state.cancel.store(true, Ordering::SeqCst);
+pub fn cancel_card_image_prefetch(control: tauri::State<'_, Arc<PrefetchControl>>) {
+    control.cancel();
+}
+
+fn spawn_run(app: AppHandle, control: Arc<PrefetchControl>, directory: PathBuf, items: Vec<PrefetchItem>) {
+    thread::spawn(move || {
+        let mut items = items;
+        loop {
+            run_once(&app, &control, &directory, items);
+            match control.finish() {
+                Some(next) => items = next,
+                None => break,
+            }
+        }
+    });
+}
+
+fn emit_progress(app: &AppHandle, control: &PrefetchControl, total: usize, cached: usize, failed: usize, running: bool) {
+    let _ = app.emit(
+        PROGRESS_EVENT,
+        PrefetchProgress { total, cached, failed, running, cancelled: control.cancelled() },
+    );
+}
+
+fn run_once(app: &AppHandle, control: &Arc<PrefetchControl>, directory: &Path, items: Vec<PrefetchItem>) {
+    let total = items.len();
+    let mut pending = VecDeque::new();
+    let mut already = 0;
+    for item in items {
+        if is_safe_id(&item.id) && cached_file(directory, &item.id).is_some() {
+            already += 1;
+        } else {
+            pending.push_back(item);
+        }
+    }
+    let queue = Mutex::new(pending);
+    let cached = AtomicUsize::new(already);
+    let failed = AtomicUsize::new(0);
+    let report = |running: bool| {
+        emit_progress(app, control, total, cached.load(Ordering::SeqCst), failed.load(Ordering::SeqCst), running);
+    };
+    report(true);
+    thread::scope(|scope| {
+        for _ in 0..PREFETCH_WORKERS {
+            scope.spawn(|| loop {
+                if control.cancelled() {
+                    break;
+                }
+                let Some(item) = queue.lock().ok().and_then(|mut queue| queue.pop_front()) else {
+                    break;
+                };
+                let result = if is_safe_id(&item.id) {
+                    load_or_fetch(directory, &item.id, Some(&item.url)).map(|_| ())
+                } else {
+                    Err("bad printing id".to_string())
+                };
+                match result {
+                    Ok(()) => cached.fetch_add(1, Ordering::SeqCst),
+                    Err(_) => failed.fetch_add(1, Ordering::SeqCst),
+                };
+                report(true);
+            });
+        }
+    });
+    // The final summary of this run (the outer loop may start another).
+    report(false);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn item(id: &str) -> PrefetchItem {
+        PrefetchItem { id: id.into(), url: format!("https://{OFFICIAL_IMAGE_HOST}/{id}.png") }
+    }
+
+    fn temp_directory(name: &str) -> PathBuf {
+        let directory = std::env::temp_dir().join(format!("rbimg-test-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        directory
+    }
 
     #[test]
     fn accepts_only_safe_printing_ids() {
@@ -403,20 +480,19 @@ mod tests {
     }
 
     #[test]
-    fn accepts_only_official_cdn_or_matching_server_route() {
-        let id = "sfd-026-221";
+    fn accepts_only_the_official_cdn() {
         assert!(is_allowed_source(
-            "https://cmsassets.rgpub.io/sanity/images/x/game_data_live/a-744x1039.png?accountingTag=RB",
-            id
+            "https://cmsassets.rgpub.io/sanity/images/x/game_data_live/a-744x1039.png?accountingTag=RB"
         ));
-        assert!(is_allowed_source("https://rift-beta.xjerryx.com/api/card-images/sfd-026-221", id));
-        assert!(is_allowed_source("http://127.0.0.1:8787/api/card-images/sfd-026-221", id));
-        assert!(!is_allowed_source("http://cmsassets.rgpub.io/a.png", id));
-        assert!(!is_allowed_source("https://evil.example/a.png", id));
-        assert!(!is_allowed_source("https://rift-beta.xjerryx.com/api/card-images/sfd-110-221", id));
-        assert!(!is_allowed_source("https://rift-beta.xjerryx.com/api/cards", id));
-        assert!(!is_allowed_source("https://user:pw@cmsassets.rgpub.io/a.png", id));
-        assert!(!is_allowed_source("file:///etc/passwd", id));
+        assert!(!is_allowed_source("http://cmsassets.rgpub.io/a.png"));
+        assert!(!is_allowed_source("https://cmsassets.rgpub.io:8443/a.png"));
+        assert!(!is_allowed_source("https://cmsassets.rgpub.io.evil.example/a.png"));
+        assert!(!is_allowed_source("https://user:pw@cmsassets.rgpub.io/a.png"));
+        assert!(!is_allowed_source("https://evil.example/api/card-images/sfd-026-221"));
+        assert!(!is_allowed_source("https://rift-beta.xjerryx.com/api/card-images/sfd-026-221"));
+        assert!(!is_allowed_source("http://10.0.0.1/api/card-images/sfd-026-221"));
+        assert!(!is_allowed_source("file:///etc/passwd"));
+        assert!(!is_allowed_source("not a url"));
     }
 
     #[test]
@@ -424,8 +500,21 @@ mod tests {
         assert_eq!(sniff_extension(b"\x89PNG\r\n\x1a\nrest"), Some("png"));
         assert_eq!(sniff_extension(&[0xff, 0xd8, 0xff, 0xe0]), Some("jpg"));
         assert_eq!(sniff_extension(b"RIFF\0\0\0\0WEBPVP8 "), Some("webp"));
-        assert_eq!(sniff_extension(b"\0\0\0\x1cftypavif"), Some("avif"));
+        assert_eq!(sniff_extension(b"\0\0\0\x10ftypavif\0\0\0\0"), Some("avif"));
         assert_eq!(sniff_extension(b"<html>not an image"), None);
+    }
+
+    #[test]
+    fn recognises_avif_from_compatible_brands() {
+        // major brand mif1, compatible brands mif1 + avif (common encoder output)
+        let mif1 = b"\0\0\0\x18ftypmif1\0\0\0\0mif1avif";
+        assert_eq!(sniff_extension(mif1), Some("avif"));
+        // a HEIC file (no AVIF brand) is not accepted
+        let heic = b"\0\0\0\x18ftypheic\0\0\0\0mif1heic";
+        assert_eq!(sniff_extension(heic), None);
+        // a box size beyond the data is rejected
+        let truncated = b"\0\0\0\x40ftypmif1\0\0\0\0avif";
+        assert_eq!(sniff_extension(truncated), None);
     }
 
     #[test]
@@ -440,8 +529,7 @@ mod tests {
 
     #[test]
     fn stores_atomically_and_finds_cached_file() {
-        let directory = std::env::temp_dir().join(format!("rbimg-test-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&directory);
+        let directory = temp_directory("store");
         let png = b"\x89PNG\r\n\x1a\nbody".to_vec();
         let path = store(&directory, "sfd-026-221", &png, "png").expect("stored");
         assert_eq!(fs::read(&path).expect("readable"), png);
@@ -449,12 +537,73 @@ mod tests {
         assert_eq!(found, path);
         assert_eq!(content_type, "image/png");
         assert!(cached_file(&directory, "sfd-110-221").is_none());
-        let leftovers: Vec<_> = fs::read_dir(&directory)
+        let _ = fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn concurrent_writers_of_one_printing_all_succeed() {
+        let directory = temp_directory("concurrent");
+        let png = b"\x89PNG\r\n\x1a\nsame-bytes".to_vec();
+        thread::scope(|scope| {
+            let handles: Vec<_> = (0..8)
+                .map(|_| scope.spawn(|| store(&directory, "sfd-026-221", &png, "png")))
+                .collect();
+            for handle in handles {
+                assert!(handle.join().expect("joined").is_ok());
+            }
+        });
+        assert_eq!(fs::read(directory.join("sfd-026-221.png")).expect("stored"), png);
+        let leftovers = fs::read_dir(&directory)
             .expect("listable")
             .filter_map(|entry| entry.ok())
             .filter(|entry| entry.file_name().to_string_lossy().ends_with(".part"))
-            .collect();
-        assert!(leftovers.is_empty());
+            .count();
+        assert_eq!(leftovers, 0);
         let _ = fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn cached_printing_is_served_without_any_source() {
+        let directory = temp_directory("cached");
+        let png = b"\x89PNG\r\n\x1a\ncached".to_vec();
+        store(&directory, "sfd-026-221", &png, "png").expect("stored");
+        let (bytes, content_type) = load_or_fetch(&directory, "sfd-026-221", None).expect("served");
+        assert_eq!(bytes, png);
+        assert_eq!(content_type, "image/png");
+        // a disallowed source is never contacted for a cached printing either
+        assert!(load_or_fetch(&directory, "sfd-026-221", Some("https://evil.example/a.png")).is_ok());
+        // an uncached printing with a disallowed source is refused before any download
+        assert_eq!(
+            load_or_fetch(&directory, "sfd-110-221", Some("https://evil.example/a.png")).unwrap_err(),
+            "image source is not allowed"
+        );
+        assert_eq!(load_or_fetch(&directory, "sfd-110-221", None).unwrap_err(), "image not cached");
+        let _ = fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn resume_during_a_stopping_run_restarts_it() {
+        let control = PrefetchControl::default();
+        assert_eq!(control.request_start(vec![item("a")]).0, StartDecision::Start);
+        control.cancel();
+        assert!(control.cancelled());
+        // "continue" clicked while the paused run's workers are still exiting
+        assert_eq!(control.request_start(vec![item("a"), item("b")]).0, StartDecision::Queued);
+        assert!(!control.cancelled());
+        let restarted = control.finish().expect("restart queued");
+        assert_eq!(restarted.len(), 2);
+        // the restarted run ends normally
+        assert!(control.finish().is_none());
+        assert_eq!(control.request_start(vec![item("c")]).0, StartDecision::Start);
+    }
+
+    #[test]
+    fn pause_withdraws_a_queued_restart() {
+        let control = PrefetchControl::default();
+        assert_eq!(control.request_start(vec![item("a")]).0, StartDecision::Start);
+        assert_eq!(control.request_start(vec![item("a")]).0, StartDecision::Queued);
+        control.cancel();
+        assert!(control.finish().is_none());
+        assert_eq!(control.request_start(vec![item("a")]).0, StartDecision::Start);
     }
 }

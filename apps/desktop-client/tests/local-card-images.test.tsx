@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server.node";
 import {
   cardImagePrefetchItems,
+  isOfficialCardImageUrl,
   localCardImageBridge,
   parseCardImagePrefetchProgress,
   preferLocalCardImage,
@@ -31,7 +32,7 @@ describe("local card-image bridge", () => {
     expect(localCardImageBridge(undefined)).toBeNull();
     expect(localCardImageBridge({})).toBeNull();
     expect(localCardImageBridge({ __TAURI__: { core: { invoke: () => undefined } } })).toBeNull();
-    expect(preferLocalCardImage("sfd-026-221", CDN, null)).toBe(CDN);
+    expect(preferLocalCardImage("sfd-026-221", CDN, CDN, null)).toBe(CDN);
   });
 
   it("detects the Tauri global API", () => {
@@ -41,20 +42,35 @@ describe("local card-image bridge", () => {
     expect(localCardImageBridge(scope)).not.toBeNull();
   });
 
-  it("routes a printing through the local scheme and carries the remote source", () => {
-    const url = preferLocalCardImage("sfd-026-221", CDN, fakeBridge());
-    expect(url).toBe(`rbimg://localhost/sfd-026-221?src=${encodeURIComponent(CDN)}`);
+  it("routes a printing through the local scheme, always sourcing the official CDN image", () => {
+    const local = `rbimg://localhost/sfd-026-221?src=${encodeURIComponent(CDN)}`;
+    expect(preferLocalCardImage("sfd-026-221", CDN, CDN, fakeBridge())).toBe(local);
+    // the deck builder displays the server route in the browser, but the
+    // desktop cache still downloads the official image, never the server URL
     const server = "https://rift-beta.xjerryx.com/api/card-images/sfd-026-221";
-    expect(preferLocalCardImage("sfd-026-221", server, fakeBridge()))
-      .toBe(`rbimg://localhost/sfd-026-221?src=${encodeURIComponent(server)}`);
+    expect(preferLocalCardImage("sfd-026-221", server, CDN, fakeBridge())).toBe(local);
+    expect(preferLocalCardImage("sfd-026-221", server, CDN, null)).toBe(server);
   });
 
-  it("never routes unusable ids or missing URLs", () => {
+  it("only treats the official CDN over HTTPS as a download source", () => {
+    expect(isOfficialCardImageUrl(CDN)).toBe(true);
+    expect(isOfficialCardImageUrl("http://cmsassets.rgpub.io/a.png")).toBe(false);
+    expect(isOfficialCardImageUrl("https://cmsassets.rgpub.io:8443/a.png")).toBe(false);
+    expect(isOfficialCardImageUrl("https://cmsassets.rgpub.io.evil.example/a.png")).toBe(false);
+    expect(isOfficialCardImageUrl("https://user:pw@cmsassets.rgpub.io/a.png")).toBe(false);
+    expect(isOfficialCardImageUrl("https://evil.example/api/card-images/sfd-026-221")).toBe(false);
+    expect(isOfficialCardImageUrl("not a url")).toBe(false);
+    expect(isOfficialCardImageUrl(null)).toBe(false);
+  });
+
+  it("keeps the display URL for unusable ids or without an official image", () => {
     const bridge = fakeBridge();
-    expect(preferLocalCardImage("../etc", CDN, bridge)).toBe(CDN);
-    expect(preferLocalCardImage("bad/id", CDN, bridge)).toBe(CDN);
-    expect(preferLocalCardImage("sfd-026-221", null, bridge)).toBeNull();
-    expect(preferLocalCardImage("sfd-026-221", "", bridge)).toBe("");
+    const server = "https://rift-beta.xjerryx.com/api/card-images/sfd-026-221";
+    expect(preferLocalCardImage("../etc", CDN, CDN, bridge)).toBe(CDN);
+    expect(preferLocalCardImage("bad/id", CDN, CDN, bridge)).toBe(CDN);
+    expect(preferLocalCardImage("sfd-026-221", server, null, bridge)).toBe(server);
+    expect(preferLocalCardImage("sfd-026-221", server, "https://evil.example/a.png", bridge)).toBe(server);
+    expect(preferLocalCardImage("sfd-026-221", null, null, bridge)).toBeNull();
   });
 
   it("prefetches each catalog printing once, from its official image", () => {
@@ -63,6 +79,7 @@ describe("local card-image bridge", () => {
       { id: "sfd-026-221", imageUrl: "https://cmsassets.rgpub.io/other.png" },
       { id: "sfd-110-221", imageUrl: null },
       { id: "../bad", imageUrl: CDN },
+      { id: "sfd-200-221", imageUrl: "https://evil.example/a.png" },
       { id: "ogn-007-298", imageUrl: "https://cmsassets.rgpub.io/rune.png" }
     ])).toEqual([
       { id: "sfd-026-221", url: CDN },

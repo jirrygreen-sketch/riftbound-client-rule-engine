@@ -57,6 +57,8 @@ export function useLocalCardImages(
   const start = useCallback(() => {
     if (bridge === null || itemsRef.current.length === 0) return;
     setError(null);
+    // The native side queues a start that arrives while a paused run is
+    // still stopping, so one call is always enough.
     void bridge.invoke("prefetch_card_images", { items: itemsRef.current })
       .catch(caught => setError(caught instanceof Error ? caught.message : String(caught)));
   }, [bridge]);
@@ -73,9 +75,11 @@ export function useLocalCardImages(
   }, [bridge]);
 
   const resume = useCallback(() => {
-    setPaused(false);
-    start();
-  }, [start]);
+    // Un-pausing re-runs the auto-start effect; when not paused (a finished
+    // run with failures), start a retry directly.
+    if (paused) setPaused(false);
+    else start();
+  }, [paused, start]);
 
   return { supported: bridge !== null, progress, error, pause, resume };
 }

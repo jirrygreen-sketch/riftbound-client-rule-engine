@@ -378,7 +378,7 @@ export function useDuelCardCatalog(
         : cardImageServerUrl(imageBase, card.id) || null;
       return {
         title,
-        imageUrl: preferLocalCardImage(card.id, localImageUrl ?? card.imageUrl ?? null),
+        imageUrl: preferLocalCardImage(card.id, localImageUrl ?? card.imageUrl ?? null, card.imageUrl),
         domains: card.domains
       };
     },
