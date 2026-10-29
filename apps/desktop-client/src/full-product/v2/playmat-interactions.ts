@@ -22,25 +22,16 @@ export function v2LocationKey(location: V2Location): string {
   return location.kind === "base" ? `base:${location.playerId}` : `battlefield:${location.battlefieldId}`;
 }
 
-/** The viewer's own drop zones: their base and every shared battlefield. */
-export function v2ViewerDropKeys(projection: V2Projection): readonly string[] {
-  const base = projection.viewerPlayerId ? [`base:${projection.viewerPlayerId}`] : [];
-  return [...base, ...projection.scoring.battlefieldLocationIds.map(id => `battlefield:${id}`)];
-}
-
 /**
- * Legal drop zones for playing one hand card. A card that needs no
- * destination (e.g. a spell) can be dropped on any of the viewer's zones.
+ * Legal drop zones for playing one hand card: exactly the destinations the
+ * server lists. A card that needs no destination (e.g. a spell) still drops
+ * only on its listed destination; its command then omits the destination.
  */
 export function v2PlayDropTargets(projection: V2Projection, cardObjectId: string): ReadonlyMap<string, V2PlayOption> {
   const targets = new Map<string, V2PlayOption>();
   // Older projections may omit actionOptions entirely: no drops are legal then.
   for (const option of projection.actionOptions?.plays ?? []) {
     if (option.cardObjectId !== cardObjectId) continue;
-    if (option.requiresDestination === false) {
-      for (const key of v2ViewerDropKeys(projection)) if (!targets.has(key)) targets.set(key, option);
-      continue;
-    }
     const key = v2LocationKey(option.destination);
     if (!targets.has(key)) targets.set(key, option);
   }
@@ -59,6 +50,28 @@ export function v2MoveDropTargets(projection: V2Projection, objectId: string): R
 /** Whether a dropped play can be sent at once or still needs target selection in the side panel. */
 export function v2PlayNeedsSelection(option: V2PlayOption): boolean {
   return option.targetRequirements !== undefined && option.targetRequirements.length > 0;
+}
+
+export type V2DropResult =
+  | { readonly kind: "play"; readonly option: V2PlayOption }
+  | { readonly kind: "move"; readonly destination: V2Location }
+  | { readonly kind: "illegal"; readonly notice: string };
+
+/**
+ * What a released drag does. Any release outside a listed drop zone, blank
+ * table space included, is an illegal drop and gets a notice.
+ */
+export function v2ResolveDrop(projection: V2Projection, source: V2DragSource, dropKey: string | null): V2DropResult {
+  if (source.kind === "move") {
+    const destination = dropKey === null ? undefined : v2MoveDropTargets(projection, source.objectId).get(dropKey);
+    return destination === undefined
+      ? { kind: "illegal", notice: `${source.label} 不能移动到这里` }
+      : { kind: "move", destination };
+  }
+  const option = dropKey === null ? undefined : v2PlayDropTargets(projection, source.objectId).get(dropKey);
+  return option === undefined
+    ? { kind: "illegal", notice: `${source.label} 不能打出到这里` }
+    : { kind: "play", option };
 }
 
 /** Left click exhausts for Energy (CR 164.2.a): only a ready rune. */

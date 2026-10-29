@@ -54,6 +54,7 @@ import {
   v2MoveDropTargets,
   v2PlayDropTargets,
   v2PlayNeedsSelection,
+  v2ResolveDrop,
   v2RuneCanAddEnergy,
   v2RuneCanAddPower,
   type V2DragSource
@@ -558,24 +559,20 @@ export function V2MatchBoard({
   const playmatCards = v2PlaymatCards(projection, cardNames, cardLookup);
   const inspectCard = (cardId: string): void => setPreviewCardId(cardId);
   dropHandlerRef.current = (source, dropKey) => {
-    if (dropKey === null) return;
-    if (source.kind === "move") {
-      const destination = v2MoveDropTargets(projection, source.objectId).get(dropKey);
-      if (destination === undefined) {
-        setDragNotice(`${source.label} 不能移动到这里`);
-        return;
-      }
+    const result = v2ResolveDrop(projection, source, dropKey);
+    if (result.kind === "illegal") {
+      setDragNotice(result.notice);
+      return;
+    }
+    if (result.kind === "move") {
+      const destination = result.destination;
       setDragNotice(null);
       submit(buildV2MoveCommand(source.objectId, destination.kind === "base"
         ? { kind: "base", playerId: destination.playerId }
         : { kind: "battlefield", battlefieldId: destination.battlefieldId }));
       return;
     }
-    const option = v2PlayDropTargets(projection, source.objectId).get(dropKey);
-    if (option === undefined) {
-      setDragNotice(`${source.label} 不能打出到这里`);
-      return;
-    }
+    const option = result.option;
     const command = v2PlayNeedsSelection(option) ? null : buildProjectedV2PlayCommand(projection, source.objectId,
       option.requiresDestination === false ? undefined : option.destination);
     if (command !== null) {
@@ -585,7 +582,7 @@ export function V2MatchBoard({
     }
     // Targets are still needed: keep the drop as the chosen card and placement.
     setSelectedCardId(source.objectId);
-    if (option.requiresDestination !== false) setSelectedPlayDestination(dropKey);
+    if (option.requiresDestination !== false && dropKey !== null) setSelectedPlayDestination(dropKey);
     setDragNotice(`已选好 ${source.label} 的落点，请在右侧选择目标后点「打出手牌」`);
   };
   const dragTargets: ReadonlyMap<string, unknown> | null = drag === null || !drag.active ? null :

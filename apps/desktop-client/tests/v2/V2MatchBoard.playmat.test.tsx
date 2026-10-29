@@ -8,6 +8,7 @@ import {
   v2MoveDropTargets,
   v2PlayDropTargets,
   v2PlayNeedsSelection,
+  v2ResolveDrop,
   v2RuneCanAddEnergy,
   v2RuneCanAddPower,
   type V2DragState
@@ -235,13 +236,30 @@ describe("RIFT-1144 playmat interactions", () => {
     ] });
     expect([...v2PlayDropTargets(value, "hand-1").keys()]).toEqual(["base:alice", "battlefield:field-2"]);
     expect(v2PlayDropTargets(value, "unit-1").size).toBe(0);
-    // A card that needs no destination can be dropped on any of the viewer's zones.
+    // A card that needs no destination drops only where the server lists it;
+    // the client never widens that to other zones.
     const spell = withActions({ plays: [
       { cardObjectId: "hand-1", destination: { kind: "base", playerId: "alice" }, requiresDestination: false }
     ] });
-    expect([...v2PlayDropTargets(spell, "hand-1").keys()]).toEqual(["base:alice", "battlefield:field-1", "battlefield:field-2"]);
+    expect([...v2PlayDropTargets(spell, "hand-1").keys()]).toEqual(["base:alice"]);
     // Older projections without actionOptions offer no drops.
     expect(v2PlayDropTargets({ ...value, actionOptions: undefined } as unknown as V2Projection, "hand-1").size).toBe(0);
+  });
+
+  it("resolves a release on a listed zone and gives a notice everywhere else, blank space included", () => {
+    const value = withActions({
+      plays: [{ cardObjectId: "hand-1", destination: { kind: "base", playerId: "alice" }, requiresDestination: false }],
+      moves: [{ objectId: "unit-1", destination: { kind: "battlefield", battlefieldId: "field-2" } }]
+    });
+    const play = { kind: "play", objectId: "hand-1", label: "兰博" } as const;
+    const move = { kind: "move", objectId: "unit-1", label: "盖伦" } as const;
+    expect(v2ResolveDrop(value, play, "base:alice")).toMatchObject({ kind: "play", option: { cardObjectId: "hand-1" } });
+    expect(v2ResolveDrop(value, play, "battlefield:field-1")).toEqual({ kind: "illegal", notice: "兰博 不能打出到这里" });
+    expect(v2ResolveDrop(value, play, null)).toEqual({ kind: "illegal", notice: "兰博 不能打出到这里" });
+    expect(v2ResolveDrop(value, move, "battlefield:field-2")).toEqual({
+      kind: "move", destination: { kind: "battlefield", battlefieldId: "field-2" } });
+    expect(v2ResolveDrop(value, move, "base:bob")).toEqual({ kind: "illegal", notice: "盖伦 不能移动到这里" });
+    expect(v2ResolveDrop(value, move, null)).toEqual({ kind: "illegal", notice: "盖伦 不能移动到这里" });
   });
 
   it("asks for side-panel targets instead of sending a play that needs them", () => {
