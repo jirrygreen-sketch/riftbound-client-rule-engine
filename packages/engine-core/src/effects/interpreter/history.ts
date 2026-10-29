@@ -1,5 +1,7 @@
 import type { Expr, GameAction, HistoryQuery, ObjectFilter, ObjectRef, ObjectSelector, ResolveContext } from "../contract.js";
 import { isTimingPointId } from "../../events/timing-points.js";
+import type { PipelineEvent } from "../../events/pipeline-types.js";
+import { matchesObjectPredicates } from "../filters/predicates.js";
 import { asValue, integer, MissingInformation, record, string } from "./values.js";
 import type { ExpressionContext } from "./expr.js";
 import { resolveObjectSelector } from "./selectors.js";
@@ -61,6 +63,98 @@ export function historyCount(value: unknown, context: ResolveContext): number {
   return integer(context.history(readHistoryQuery(value, context)), "History count");
 }
 
+/**
+ * Internal, non-serialized discriminator used only while mapping an authored
+ * "card played/finalized this turn" count to the authoritative
+ * chain-item-finalize event. CR 420.4.b distinguishes those events from an
+ * ability sharing the same timing point through the published cardFinalize
+ * payload bit.
+ */
+export const CARD_FINALIZE_HISTORY = Symbol("riftbound.card-finalize-history");
+const AUTHORITATIVE_HISTORY = Symbol("riftbound.authoritative-history");
+
+type EventHistoryQuery = HistoryQuery & { readonly [CARD_FINALIZE_HISTORY]?: true };
+
+function eventPlayer(event: PipelineEvent): string | undefined {
+  // The event snapshot identifies whose Hand card was discarded even when an
+  // effect controlled by the other player caused it (CR 423.1).
+  return event.timingPoint === "card-discarded" ? event.object?.controller : event.player;
+}
+
+function historyEventMatches(
+  event: PipelineEvent,
+  query: EventHistoryQuery,
+  controller: string,
+): boolean {
+  if (event.timingPoint !== query.timingPoint) return false;
+  if (query[CARD_FINALIZE_HISTORY] === true &&
+      (event.timingPoint !== "chain-item-finalize" || event.details?.cardFinalize !== true)) return false;
+  if (query.player !== undefined && eventPlayer(event) !== query.player) return false;
+  const object = event.object;
+  if (query.object !== undefined && (object === undefined ||
+      object.ref.id !== query.object.id || object.ref.zoneEntryId !== query.object.zoneEntryId)) return false;
+  if (query.objectFilter !== undefined) {
+    // A Chain Finalize carries its card identity through the Pending item's
+    // source snapshot even though the capsule event's object field represents
+    // the play slot. Other event histories inspect their immutable object
+    // snapshot directly and fail closed when it is absent.
+    const candidate = object ?? (event.timingPoint === 'chain-item-finalize' ? event.source : undefined);
+    if (candidate === undefined ||
+        !matchesObjectPredicates(query.objectFilter, candidate, { controller, anchor: event.source ?? candidate })) return false;
+  }
+  return true;
+}
+
+/**
+ * Bind event-history reads to the live authoritative EventPipeline. No count is
+ * reconstructed from current objects. Action-only queries continue to use the
+ * state owner's action journal because the pipeline event log does not retain
+ * every action's journal receipt.
+ */
+export function bindAuthoritativeHistory(
+  context: ResolveContext,
+  pipeline: { readonly events: readonly PipelineEvent[] },
+): ResolveContext {
+  const eventHistory = (input: HistoryQuery) => {
+    const query = input as EventHistoryQuery;
+    if (query.timingPoint === undefined || query.action !== undefined) return context.history(input);
+    const player = query.player !== undefined && ["controller", "self", "you"].includes(query.player)
+      ? context.controller : query.player;
+    const excluded = new Set(query.exclude === undefined ? [] :
+      resolveObjectSelector(query.exclude, {
+        context,
+        linked: id => context.linked(id),
+      }).map(ref => ref.id));
+    const events = pipeline.events;
+    let start = 0;
+    if (query.scope !== "game") {
+      for (let index = events.length - 1; index >= 0; index--) {
+        if (events[index]!.timingPoint === "turn-start") { start = index; break; }
+      }
+      if (query.scope === "combat") {
+        let combat: number | undefined;
+        for (let index = events.length - 1; index >= start; index--) {
+          if (events[index]!.timingPoint === "combat-start") { combat = index; break; }
+        }
+        if (combat === undefined) return 0;
+        start = combat;
+      }
+    }
+    return events.slice(start).filter(event => {
+      if (!historyEventMatches(event, { ...query, ...(player === undefined ? {} : { player }) }, context.controller)) return false;
+      return event.object === undefined || !excluded.has(event.object.ref.id);
+    }).length;
+  };
+  return new Proxy(context, {
+    get(target, key) {
+      if (key === AUTHORITATIVE_HISTORY) return true;
+      if (key === "history") return eventHistory;
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
 /** Existing authored history subjects are event queries, never live set queries. */
 export function historyExpressionCount(expr: Extract<Expr, { kind: "count" }>, environment: ExpressionContext): number | undefined {
   const filter = { ...expr.filter };
@@ -68,6 +162,15 @@ export function historyExpressionCount(expr: Extract<Expr, { kind: "count" }>, e
   let player: unknown;
   let object: ObjectRef | undefined;
   switch (expr.subject) {
+    case "cards-played-this-turn":
+    case "cards-finalized-this-turn": {
+      if ((environment.context as ResolveContext & { readonly [AUTHORITATIVE_HISTORY]?: true })[AUTHORITATIVE_HISTORY] !== true) {
+        throw new MissingInformation(`Unavailable history subject: ${expr.subject}`);
+      }
+      timingPoint = "chain-item-finalize";
+      player = filter.player ?? "controller";
+      break;
+    }
     case "cards-discarded-this-turn": timingPoint = "card-discarded"; player = filter.player ?? "controller"; break;
     case "cards-drawn-this-turn": timingPoint = "card-drawn"; player = filter.player ?? "controller"; break;
     case "controller-xp-gained-this-turn": timingPoint = "xp-gained"; player = filter.player ?? "controller"; break;
@@ -108,7 +211,11 @@ export function historyExpressionCount(expr: Extract<Expr, { kind: "count" }>, e
   for (const key of ["controller", "owner"] as const) {
     if (["controller", "self", "you"].includes(String(filter[key]))) filter[key] = environment.context.controller;
   }
-  return historyCount({ scope: "turn", timingPoint, ...(player === undefined ? {} : { player }),
-    ...(object === undefined ? {} : { object }), ...(exclude === undefined ? {} : { exclude }),
-    ...(Object.keys(filter).length === 0 ? {} : { objectFilter: filter }) }, environment.context);
+  const query: EventHistoryQuery = { scope: "turn", timingPoint, ...(player === undefined ? {} : { player: player as string }),
+    ...(object === undefined ? {} : { object }), ...(exclude === undefined ? {} : { exclude: exclude as ObjectSelector }),
+    ...(Object.keys(filter).length === 0 ? {} : { objectFilter: filter }) };
+  if (expr.subject === "cards-played-this-turn" || expr.subject === "cards-finalized-this-turn") {
+    Object.defineProperty(query, CARD_FINALIZE_HISTORY, { value: true, enumerable: false });
+  }
+  return integer(environment.context.history(query), "History count");
 }
