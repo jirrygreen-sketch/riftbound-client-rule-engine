@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { AlertTriangle, CheckCircle2, FileWarning, Send } from "lucide-react";
 import { getClientLog } from "./client-log";
-import { readActiveMatchRoom, readMatchLog } from "./match-log";
+import { readActiveMatchRoom, readMatchLog, readMatchLogHistory } from "./match-log";
 import {
   buildIssueReport,
   detectIssueReportPlatform,
@@ -92,7 +92,13 @@ export function IssueReportPage({
   const [outcome, setOutcome] = useState<IssueSubmitOutcome | null>(null);
   const clientLog = getClientLog();
   const activeRoomId = hasMatch ? roomId?.trim() || readActiveMatchRoom(storage) : null;
-  const matchLog = activeRoomId ? readMatchLog(storage, activeRoomId) : null;
+  // Outside a match nothing is attached by default; a problem is often
+  // reported right after leaving one, so the player may opt in to the most
+  // recent room's log (RIFT-1148).
+  const [attachRecent, setAttachRecent] = useState(false);
+  const recentRoomId = activeRoomId === null ? readMatchLogHistory(storage).at(-1) ?? null : null;
+  const recentLog = recentRoomId === null ? null : readMatchLog(storage, recentRoomId);
+  const matchLog = activeRoomId ? readMatchLog(storage, activeRoomId) : attachRecent ? recentLog : null;
   const platform = useMemo(() => detectIssueReportPlatform(
     typeof navigator === "undefined" ? "" : navigator.userAgent,
     typeof navigator === "undefined" ? "" : navigator.platform,
@@ -178,6 +184,13 @@ export function IssueReportPage({
           {matchLog === null ? <p>当前未在对局中，不附带对局日志。</p> : (
             <p>对局日志 {matchLog.entries.length} 条（房间 {matchLog.roomId}）</p>
           )}
+          {recentLog !== null && recentLog.entries.length > 0 ? (
+            <label className="diag-report-recent">
+              <input type="checkbox" name="attach-recent-match-log" checked={attachRecent}
+                onChange={event => setAttachRecent(event.currentTarget.checked)} />
+              附带最近一局的对局日志（房间 {recentLog.roomId}，{recentLog.entries.length} 条）
+            </label>
+          ) : null}
           <details>
             <summary>展开预览前几条</summary>
             <h4>客户端日志</h4>
