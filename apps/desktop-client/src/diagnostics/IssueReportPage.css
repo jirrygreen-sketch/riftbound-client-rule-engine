@@ -1,0 +1,65 @@
+.diag-report-page {
+  width: 100%;
+  max-width: 1080px;
+  min-width: 0;
+  overflow-x: hidden;
+  margin: 0 auto;
+  color: #f3f0ea;
+}
+
+.diag-report-head,
+.diag-report-form,
+.diag-report-attachments {
+  padding: 18px;
+  background: #232326;
+  border: 1px solid #3a3a40;
+  border-radius: 10px;
+}
+
+.diag-report-head { margin-bottom: 14px; }
+.diag-report-head h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 1.1rem; }
+.diag-report-head p { margin: 7px 0 0; color: #a6a29a; font-size: .82rem; line-height: 1.5; }
+
+.diag-report-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(240px, .85fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.diag-report-form { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.diag-report-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.diag-report-field > span { font-size: .85rem; color: #d9d5cc; }
+.diag-report-field strong { color: #e5635a; }
+.diag-report-field input,
+.diag-report-field textarea {
+  width: 100%; min-width: 0; padding: 9px 10px; color: #f3f0ea;
+  background: #1a1a1c; border: 1px solid #4a4a51; border-radius: 7px;
+}
+.diag-report-field textarea { resize: vertical; min-height: 150px; line-height: 1.5; }
+.diag-report-field input:focus-visible,
+.diag-report-field textarea:focus-visible { outline: none; border-color: #37c8bb; box-shadow: 0 0 0 2px #63e2d5; }
+.diag-report-field small { align-self: flex-end; color: #89867f; font-size: .72rem; }
+
+.diag-report-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.diag-report-submit {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 0 16px;
+  color: #062724; font-weight: 700; background: #1aa79b; border: 1px solid #37c8bb; border-radius: 7px;
+}
+.diag-report-target { min-width: 0; color: #a6a29a; font-size: .75rem; overflow-wrap: anywhere; }
+.diag-report-success, .diag-report-error { display: flex; align-items: flex-start; gap: 7px; margin: 0; padding: 9px 11px; border-radius: 7px; font-size: .82rem; }
+.diag-report-success { color: #8de9df; background: rgba(26, 167, 155, .12); border: 1px solid rgba(55, 200, 187, .45); }
+.diag-report-error { color: #ffd0cb; background: rgba(229, 99, 90, .12); border: 1px solid rgba(229, 99, 90, .45); }
+
+.diag-report-attachments { min-width: 0; }
+.diag-report-attachments h3 { margin: 0 0 10px; font-size: .95rem; }
+.diag-report-attachments p { margin: 7px 0; font-size: .82rem; color: #c1bdb4; overflow-wrap: anywhere; }
+.diag-report-attachments details { margin-top: 12px; border-top: 1px solid #34343a; padding-top: 10px; }
+.diag-report-attachments summary { cursor: pointer; color: #37c8bb; font-size: .82rem; }
+.diag-report-attachments h4 { margin: 12px 0 5px; font-size: .78rem; }
+.diag-report-attachments ol { margin: 0; padding-left: 20px; font-size: .75rem; line-height: 1.45; }
+.diag-report-attachments li { margin: 5px 0; overflow-wrap: anywhere; }
+
+@media (max-width: 760px) {
+  .diag-report-grid { grid-template-columns: minmax(0, 1fr); }
+}

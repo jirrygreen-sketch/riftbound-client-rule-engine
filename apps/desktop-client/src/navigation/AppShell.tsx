@@ -14,6 +14,7 @@ export type AppPage =
   | "replays"
   | "profile"
   | "settings"
+  | "issue-report"
   | "game-table";
 
 export interface AppShellProps {
@@ -37,6 +38,7 @@ export const APP_PAGE_TITLES: Readonly<Record<AppPage, string>> = {
   replays: "对局回放",
   profile: "个人信息管理",
   settings: "设置",
+  "issue-report": "问题上报",
   "game-table": "对局"
 };
 

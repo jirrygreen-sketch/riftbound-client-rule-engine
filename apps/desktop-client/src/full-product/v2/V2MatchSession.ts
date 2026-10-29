@@ -10,6 +10,7 @@ import {
   isV2CommandReceipt,
   isV2EngineEvent,
   isV2Projection,
+  type V2EngineEvent,
   type V2CommandReceipt,
   type V2Projection
 } from "../../../../../packages/protocol/src/v2/index.js";
@@ -18,6 +19,14 @@ import {
   V2ClientStateStore,
   type V2ClientState
 } from "../../state/v2";
+import { appendClientLog } from "../../diagnostics/client-log";
+import {
+  appendMatchLog,
+  clearActiveMatchRoom,
+  setActiveMatchRoom,
+  type DiagnosticStorage
+} from "../../diagnostics/match-log";
+import { sanitizeDiagnosticRecord, safeErrorMessage } from "../../diagnostics/redaction";
 import type {
   V2CommandRequest,
   V2Socket,
@@ -36,6 +45,7 @@ export interface V2MatchSessionOptions {
   readonly choiceTimeoutMs?: number;
   readonly reconnectDelayMs?: number;
   readonly maxReconnectAttempts?: number;
+  readonly diagnosticStorage?: DiagnosticStorage | null;
 }
 
 export interface V2MatchSessionSnapshot {
@@ -208,8 +218,10 @@ export class V2MatchSessionController {
   private readonly reconnectDelayMs: number;
   private readonly maxReconnectAttempts: number;
   private readonly listeners = new Set<(snapshot: V2MatchSessionSnapshot) => void>();
+  private readonly diagnosticStorage: DiagnosticStorage | null;
   private readonly pendingRequests = new Map<string, PendingRoomRequest>();
   private readonly pendingCommands = new Map<string, PendingCommand>();
+  private readonly recordedProjectionEvents = new Map<string, Set<number>>();
   private store: V2ClientStateStore;
   private socket: V2Socket | null = null;
   private session: ClientSession | null = null;
@@ -230,6 +242,8 @@ export class V2MatchSessionController {
     this.requestTimeoutMs = Math.max(1, options.requestTimeoutMs ?? 10_000);
     this.commandTimeoutMs = Math.max(1, options.commandTimeoutMs ?? 5_000);
     this.choiceTimeoutMs = options.choiceTimeoutMs;
+    this.diagnosticStorage = options.diagnosticStorage ??
+      (typeof localStorage === "undefined" ? null : localStorage);
     this.reconnectDelayMs = Math.max(0, options.reconnectDelayMs ?? 250);
     this.maxReconnectAttempts = Math.max(0, options.maxReconnectAttempts ?? 8);
     this.session = initialSession;
@@ -294,10 +308,13 @@ export class V2MatchSessionController {
     }
     this.rejectPending(new Error(reason));
     this.store.setConnectionStatus("disconnected");
+    clearActiveMatchRoom(this.diagnosticStorage);
+    this.recordStatus("disconnected", reason);
     this.emit();
   }
 
   public async createRoom(playerName: string): Promise<RoomView> {
+    this.recordMatch("command", { type: "create-room", playerName: playerName.trim() || "玩家" }, false);
     await this.request({
       type: "create-room",
       playerName: playerName.trim() || "玩家",
@@ -309,6 +326,7 @@ export class V2MatchSessionController {
   public discardRecoverySession(): void {
     this.session = null;
     this.room = null;
+    clearActiveMatchRoom(this.diagnosticStorage);
     this.ready = false;
     const socket = this.socket;
     this.socket = null;
@@ -326,6 +344,8 @@ export class V2MatchSessionController {
   public async joinRoom(roomId: string, playerName: string): Promise<RoomView> {
     const normalized = roomId.trim();
     if (!normalized) throw new Error("请输入房间号。");
+    this.recordMatch("command", { type: "join-room", roomId: normalized,
+      playerName: playerName.trim() || "玩家" }, false);
     await this.request({
       type: "join-room",
       roomId: normalized,
@@ -336,6 +356,8 @@ export class V2MatchSessionController {
 
   public async submitDeck(deck: RoomDeckSubmission): Promise<RoomView> {
     const room = this.requireRoom();
+    this.recordMatch("command", { type: "submit-deck", expectedRoomVersion: room.roomVersion,
+      deck: sanitizeDiagnosticRecord(deck) });
     await this.request({
       type: "submit-deck",
       expectedRoomVersion: room.roomVersion,
@@ -346,6 +368,7 @@ export class V2MatchSessionController {
 
   public async setReady(ready: boolean): Promise<RoomView> {
     const room = this.requireRoom();
+    this.recordMatch("command", { type: "set-ready", expectedRoomVersion: room.roomVersion, ready });
     await this.request({
       type: "set-ready",
       expectedRoomVersion: room.roomVersion,
@@ -355,7 +378,11 @@ export class V2MatchSessionController {
   }
 
   public sendCommand(input: V2CommandRequest): Promise<V2CommandReceipt> {
-    if (!this.ready) return Promise.reject(new Error("V2 握手尚未完成。"));
+    if (!this.ready) {
+      const error = new Error("V2 握手尚未完成。");
+      this.recordError(error);
+      return Promise.reject(error);
+    }
     const commandId = "commandId" in input && typeof input.commandId === "string"
       ? input.commandId
       : this.nextId("command");
@@ -368,6 +395,7 @@ export class V2MatchSessionController {
       commandId,
       stateVersion: input.stateVersion ?? this.store.state.stateVersion
     };
+    this.recordMatch("command", packet);
     return new Promise((resolve, reject) => {
       const pending: PendingCommand = {
         packet,
@@ -393,7 +421,9 @@ export class V2MatchSessionController {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingRequests.delete(requestId);
-        reject(new Error(`V2 请求 ${requestId} 超时。`));
+        const error = new Error(`V2 请求 ${requestId} 超时。`);
+        this.recordError(error, { requestId, type: String(packet.type) });
+        reject(error);
       }, this.requestTimeoutMs);
       this.pendingRequests.set(requestId, { packet: fullPacket, resumable, resolve, reject, timer });
       try {
@@ -401,7 +431,9 @@ export class V2MatchSessionController {
       } catch (caught) {
         clearTimeout(timer);
         this.pendingRequests.delete(requestId);
-        reject(caught instanceof Error ? caught : new Error(String(caught)));
+        const error = caught instanceof Error ? caught : new Error(String(caught));
+        this.recordError(error, { requestId, type: String(packet.type) });
+        reject(error);
       }
     });
   }
@@ -420,6 +452,7 @@ export class V2MatchSessionController {
     this.socket = socket;
     this.ready = false;
     this.store.setConnectionStatus(this.reconnectAttempts > 0 ? "reconnecting" : "connecting");
+    this.recordStatus(this.reconnectAttempts > 0 ? "reconnecting" : "connecting");
     this.emit();
     socket.onopen = () => {
       if (this.socket !== socket || this.socketGeneration !== generation || this.manuallyClosed) return;
@@ -441,6 +474,8 @@ export class V2MatchSessionController {
       if (this.manuallyClosed) return;
       this.dropPendingNonResumableRequests();
       this.store.setConnectionStatus("reconnecting");
+      clearActiveMatchRoom(this.diagnosticStorage);
+      this.recordStatus("reconnecting", "WebSocket closed");
       this.emit();
       if (this.reconnectAttempts >= this.maxReconnectAttempts) {
         this.store.setConnectionStatus("disconnected");
@@ -481,6 +516,7 @@ export class V2MatchSessionController {
       this.reconnectAttempts = 0;
       this.error = null;
       this.store.setConnectionStatus("connected");
+      this.recordStatus("connected");
       this.flushPending();
       this.emit();
       return;
@@ -497,11 +533,23 @@ export class V2MatchSessionController {
     }
     if (isRecord(packet) && packet.type === "room" && isRoomView(packet.room)) {
       this.room = packet.room;
+      setActiveMatchRoom(this.diagnosticStorage,
+        packet.room.status === "playing" ? packet.room.roomId : null);
+      appendMatchLog(this.diagnosticStorage, {
+        roomId: packet.room.roomId,
+        matchId: this.store.state.projection?.matchId ?? null,
+        viewerPlayerId: this.session?.playerId ?? null,
+        kind: "status",
+        payload: { status: packet.room.status, roomVersion: packet.room.roomVersion }
+      });
       this.emit();
       return;
     }
     if (isServerError(packet)) {
-      this.fail(packet.message);
+      this.fail(packet.message, {
+        code: packet.code,
+        requestId: packet.requestId ?? null
+      });
       if (packet.requestId) {
         const pending = this.pendingRequests.get(packet.requestId);
         if (pending) {
@@ -523,23 +571,63 @@ export class V2MatchSessionController {
       return;
     }
     if (packet.type === "command-receipt") {
-      this.lastReceipt = packet as V2CommandReceipt;
-      const pending = this.pendingCommands.get(packet.commandId);
+      const receipt = packet as V2CommandReceipt;
+      this.lastReceipt = receipt;
+      this.recordMatch("receipt", receipt, true, receipt.stateVersion, receipt.eventSeq);
+      if (!receipt.accepted) {
+        const reason = receipt.rejection ?? "服务端拒绝该命令。";
+        this.error = reason;
+        appendClientLog({ level: "error", source: "v2-session", message: reason,
+          data: { commandId: receipt.commandId } });
+        this.recordMatch("error", { commandId: receipt.commandId,
+          message: reason, rejection: receipt.rejection }, true,
+          receipt.stateVersion, receipt.eventSeq);
+      }
+      const pending = this.pendingCommands.get(receipt.commandId);
       if (pending) {
         clearTimeout(pending.timer);
-        this.pendingCommands.delete(packet.commandId);
-        if (packet.accepted) {
-          for (const waiter of pending.waiters) waiter.resolve(packet as V2CommandReceipt);
+        this.pendingCommands.delete(receipt.commandId);
+        if (receipt.accepted) {
+          for (const waiter of pending.waiters) waiter.resolve(receipt);
         }
         else {
-          const reason = packet.rejection ?? "服务端拒绝该命令。";
-          this.error = reason;
+          const reason = receipt.rejection ?? "服务端拒绝该命令。";
           for (const waiter of pending.waiters) waiter.reject(new Error(reason));
         }
       }
     }
     const applied = this.store.apply(packet);
-    if (!applied.accepted && applied.reason && applied.reason !== "Stale projection") this.error = applied.reason;
+    if (isRecord(packet) && packet.type === "projection" && isV2Projection(packet.projection)) {
+      const projection = packet.projection;
+      this.recordMatch("projection", {
+        stateVersion: projection.stateVersion,
+        eventSeq: projection.eventSeq,
+        phase: projection.phase,
+        turnNumber: projection.turnNumber,
+        activePlayerId: projection.activePlayerId,
+        pendingChoice: projection.pendingChoice.status === "pending"
+          ? {
+              status: "pending",
+              choiceId: projection.pendingChoice.choiceId,
+              kind: projection.pendingChoice.kind,
+              ownerPlayerId: projection.pendingChoice.ownerPlayerId
+            }
+          : { status: "none" }
+      }, true, projection.stateVersion, projection.eventSeq);
+      this.recordProjectionEvents(projection);
+    }
+    if (isRecord(packet) && packet.type === "event") {
+      const eventValue = (packet as Record<string, unknown>).event;
+      if (isV2EngineEvent(eventValue)) {
+        const engineEvent = eventValue as V2EngineEvent;
+        const matchId = this.store.state.projection?.matchId ?? this.room?.roomId ?? "unmatched";
+        this.recordEngineEvent(matchId, engineEvent);
+      }
+    }
+    if (!applied.accepted && applied.reason && applied.reason !== "Stale projection") {
+      this.error = applied.reason;
+      this.recordError(new Error(applied.reason), { type: String((packet as Record<string, unknown>).type) });
+    }
     this.emit();
   }
 
@@ -562,6 +650,9 @@ export class V2MatchSessionController {
       });
     } catch {
       // Reconnect will send the same command id and packet again.
+      appendClientLog({ level: "warn", source: "v2-session",
+        message: `V2 命令 ${pending.commandId} 发送失败，等待重连后重试。`,
+        data: { commandId: pending.commandId, attempt: pending.attempts } });
       return;
     }
     clearTimeout(pending.timer);
@@ -594,14 +685,85 @@ export class V2MatchSessionController {
     return `desktop-v2-${kind}-${Date.now()}-${this.idCounter}`;
   }
 
-  private fail(message: string): void {
+  private fail(message: string, data?: unknown): void {
     this.error = message;
+    this.recordError(new Error(message), data);
     this.emit();
   }
 
   private emit(): void {
     const snapshot = this.snapshot;
     for (const listener of this.listeners) listener(snapshot);
+  }
+
+  private recordStatus(status: string, detail?: string): void {
+    const roomId = this.room?.roomId ?? this.session?.roomId ?? null;
+    appendClientLog({
+      level: status === "connected" ? "info" : "warn",
+      source: "v2-session",
+      message: `V2 会话连接状态：${status}`,
+      data: {
+        status,
+        ...(detail === undefined ? {} : { detail }),
+        roomId,
+        matchId: this.store.state.projection?.matchId ?? null
+      }
+    });
+    this.recordMatch("status", {
+      connectionStatus: status,
+      ...(detail === undefined ? {} : { detail })
+    }, false);
+  }
+
+  private recordError(error: unknown, data?: unknown): void {
+    const message = safeErrorMessage(error);
+    appendClientLog({
+      level: "error",
+      source: "v2-session",
+      message,
+      data: sanitizeDiagnosticRecord({
+        ...(data === undefined ? {} : { data }),
+        roomId: this.room?.roomId ?? this.session?.roomId ?? null
+      })
+    });
+    this.recordMatch("error", {
+      message,
+      ...(data === undefined ? {} : { data })
+    }, false);
+  }
+
+  private recordMatch(
+    kind: "projection" | "event" | "command" | "receipt" | "error" | "status",
+    payload: unknown,
+    _requireRoom = true,
+    stateVersion?: number,
+    eventSeq?: number
+  ): void {
+    const roomId = this.room?.roomId ?? this.session?.roomId ?? null;
+    if (roomId === null) return;
+    appendMatchLog(this.diagnosticStorage, {
+      roomId,
+      matchId: this.store.state.projection?.matchId ?? null,
+      viewerPlayerId: this.session?.playerId ?? null,
+      kind,
+      payload,
+      ...(stateVersion === undefined ? {} : { stateVersion }),
+      ...(eventSeq === undefined ? {} : { eventSeq })
+    });
+  }
+
+  private recordProjectionEvents(projection: V2Projection): void {
+    for (const event of projection.events) {
+      this.recordEngineEvent(projection.matchId, event);
+    }
+  }
+
+  private recordEngineEvent(matchId: string, event: V2EngineEvent): void {
+    const seen = this.recordedProjectionEvents.get(matchId) ?? new Set<number>();
+    if (seen.has(event.eventSeq)) return;
+    seen.add(event.eventSeq);
+    this.recordedProjectionEvents.set(matchId, seen);
+    this.recordMatch("event", event, true, event.stateVersion, event.eventSeq);
   }
 
   private clearReconnectTimer(): void {

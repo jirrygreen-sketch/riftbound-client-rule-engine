@@ -37,6 +37,7 @@ import { V2MatchBoard } from "../full-product/v2/V2MatchBoard";
 import { clearV2Session } from "../full-product/v2/session-storage";
 import { toPlayableConnectionStatus } from "../full-product/transport";
 import { normalizeCardServerUrl } from "../net/CardCatalogClient";
+import { IssueReportPage } from "../diagnostics/IssueReportPage";
 import { DECK_ZONE_LABELS, DECK_ZONE_ORDER } from "./deck-policy";
 import type { AppState } from "./useAppState";
 import type { AppActions } from "./useAppActions";
@@ -170,6 +171,7 @@ export function AppView({
     </button>
     <MatchControls settings={displaySettings} onChange={changeDisplaySettings}
       onGoHome={() => setActiveTab("home")} onGoRoom={() => setActiveTab("room")}
+      onIssueReport={() => setActiveTab("issue-report")}
       onConcede={duelProjection === null && projection !== null ? concede : undefined}
       canConcede={concedeAllowance.enabled} />
     <button className="button" type="button" onClick={saveCurrentReplay} disabled={!duelProjection}>保存回放</button>
@@ -225,6 +227,21 @@ export function AppView({
       ) : activeTab === "settings" ? (
         <SettingsPage settings={displaySettings} onChange={changeDisplaySettings} saveError={settingsError}
           localCardImages={localCardImages} />
+      ) : activeTab === "issue-report" ? (
+        <IssueReportPage
+          storage={preferenceStorage}
+          serverUrl={v2UiEnabled
+            ? v2Match.reconnectUrl || v2ServerUrl || catalogServerUrl
+            : activeServerUrl ?? catalogServerUrl}
+          playerName={profile.name || undefined}
+          roomId={v2UiEnabled
+            ? inMatch ? v2Match.room?.roomId ?? v2Match.session?.roomId ?? null : null
+            : inMatch ? roomId : null}
+          playerId={v2UiEnabled
+            ? v2Match.session?.playerId ?? null
+            : session?.playerId ?? viewerPlayerId}
+          hasMatch={inMatch}
+        />
       ) : activeTab === "replays" ? (
         <ReplayPage library={replayLibrary} selectedId={replaySelection?.id ?? null}
           selectedFrameIndex={replaySelection?.index ?? 0}
