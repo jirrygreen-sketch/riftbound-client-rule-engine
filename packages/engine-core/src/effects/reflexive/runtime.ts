@@ -138,6 +138,16 @@ function createRuntime(
  * ChainEngine without changing shared contracts.  Parent integration can
  * replace this host-context wrapper with the direct ResolveContext seam.
  */
+/** Whether a Reflexive Pending runtime is currently installed on this Chain. */
+export function hasReflexivePendingRuntime(engine: ChainEngine): boolean {
+  return installations.has(engine);
+}
+
+/** The runtime currently installed on this Chain, if any. */
+export function currentReflexivePendingRuntime(engine: ChainEngine): ReflexivePendingRuntimeHandle | undefined {
+  return installations.get(engine);
+}
+
 export function installReflexivePendingRuntime(engine: ChainEngine): ReflexivePendingRuntimeHandle {
   const existing = installations.get(engine);
   if (existing !== undefined) return existing;
@@ -192,8 +202,10 @@ export function installReflexivePendingRuntime(engine: ChainEngine): ReflexivePe
       });
     },
     detach() {
+      // Idempotent, and only ever removes this handle's own installation: a
+      // later runtime installed on the same Chain belongs to whoever installed it.
       if (host.context === wrapped) host.context = original;
-      installations.delete(engine);
+      if (installations.get(engine) === handle) installations.delete(engine);
       (runtime as ReflexivePendingRuntime & { detachRuntime?: () => void }).detachRuntime?.();
     },
   };

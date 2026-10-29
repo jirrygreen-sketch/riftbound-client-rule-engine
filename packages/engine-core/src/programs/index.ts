@@ -15,6 +15,40 @@ import {
 import { ProgramBindingError } from './errors.js';
 import { registerProgramTriggers as registerTriggers, unregisterProgramTriggers as unregisterTriggers } from './triggers.js';
 import { attachProgramLifecycle, type ProgramLifecycleHandle } from './lifecycle.js';
+import { currentReflexivePendingRuntime, installReflexivePendingRuntime } from '../effects/reflexive/runtime.js';
+import type { ReflexivePendingRuntimeHandle } from '../effects/reflexive/contract.js';
+
+/**
+ * Lifecycle handles on one Chain share a single Reflexive Pending runtime
+ * (RIFT-1140). The last lifecycle handle that leased it removes it; a runtime
+ * the caller installed is never leased, so no lifecycle handle removes it.
+ */
+const reflexiveLeases = new WeakMap<ChainEngine, { readonly runtime: ReflexivePendingRuntimeHandle; count: number }>();
+
+function leaseReflexiveRuntime(engine: ChainEngine): () => void {
+  let lease = reflexiveLeases.get(engine);
+  if (lease !== undefined && currentReflexivePendingRuntime(engine) !== lease.runtime) {
+    // The leased runtime was detached elsewhere; earlier handles release a stale lease.
+    reflexiveLeases.delete(engine);
+    lease = undefined;
+  }
+  if (lease === undefined) {
+    if (currentReflexivePendingRuntime(engine) !== undefined) return () => undefined;
+    lease = { runtime: installReflexivePendingRuntime(engine), count: 0 };
+    reflexiveLeases.set(engine, lease);
+  }
+  const held = lease;
+  held.count += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    held.count -= 1;
+    if (held.count > 0) return;
+    if (reflexiveLeases.get(engine) === held) reflexiveLeases.delete(engine);
+    held.runtime.detach();
+  };
+}
 import { bindReplacementAbility, bindStaticAbility, type ProgramStaticBinder, noopStaticBinder, type StaticBindingHandle } from './statics.js';
 import { expandProgram } from './keywords.js';
 
@@ -177,8 +211,14 @@ export function createProgramBinding(options: {
     attachLifecycle: (engine, onError) => {
       const detachCatalog = installPrintedCatalog(engine, lookup);
       const lifecycle = attachProgramLifecycle(engine, registry, binder, onError);
+      // Reflexive Pending (RIFT-1140) is part of the default production assembly.
+      const releaseReflexive = leaseReflexiveRuntime(engine);
+      let detached = false;
       return {
         detach() {
+          if (detached) return;
+          detached = true;
+          releaseReflexive();
           lifecycle.detach();
           detachCatalog();
         },
