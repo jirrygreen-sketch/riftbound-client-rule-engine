@@ -9,7 +9,7 @@ import {
 import { createEngineStaticBinder } from "../../../../packages/engine-core/dist/programs/statics.js";
 import { playPermissionAllows } from "../../../../packages/engine-core/dist/programs/play-permissions.js";
 import { moveUnits } from "../../../../packages/engine-core/dist/game/commands/movement.js";
-import type { ChoiceRequest, Domain, GameAction, Instruction, LocationRef, ObjectRef, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
+import type { ChoiceRequest, Domain, GameAction, Instruction, LocationRef, ObjectRef, PlayerId, TokenSpec } from "../../../../packages/engine-core/dist/effects/contract.js";
 import type { TriggerRegistration } from "../../../../packages/engine-core/dist/events/pipeline-types.js";
 import {
   executeBasicRuneResourcePlan,
@@ -161,6 +161,11 @@ class PendingChoiceError extends Error {
   }
 }
 
+function isWeaponmasterPaymentRequest(request: ChoiceRequest<unknown>): boolean {
+  return request.type === "mode" && /^weaponmaster(?:%3A|:)pay(?:%3A|:)/u.test(request.id) &&
+    request.options.length === 2 && request.options.includes("支付") && request.options.includes("放弃装配");
+}
+
 interface SeenCommand {
   readonly playerId: string;
   readonly command: V2Command;
@@ -234,6 +239,25 @@ function canonicalCommand(command: V2Command): string {
   return canonicalJson(command);
 }
 
+/** Setup TokenSpec has no keyword params; restore them from the trusted CardProgram without guessing. */
+function withTrustedTokenKeywords(action: GameAction, program: ReturnType<ProgramBinding["registry"]["get"]> | undefined): GameAction {
+  if (action.type !== "create-token" || program === undefined || action.token.cardId === null ||
+      action.token.cardId === undefined) return action;
+  if (action.token.keywords?.some(keyword => keyword.id.toLowerCase() === "equip")) return action;
+  const declared = program.abilities.filter(ability => ability.kind === "keyword");
+  const equip = declared.find(ability => ability.kind === "keyword" && ability.keyword.toLowerCase() === "equip");
+  if (equip?.kind !== "keyword" || equip.params?.cost === undefined) return action;
+  const keywords: TokenSpec["keywords"] = [
+    ...(action.token.keywords ?? []),
+    {
+      id: equip.keyword,
+      ...(equip.value === undefined ? {} : { value: equip.value }),
+      params: { cost: structuredClone(equip.params.cost) },
+    } as NonNullable<TokenSpec["keywords"]>[number],
+  ];
+  return keywords.length === 0 ? action : { ...action, token: { ...action.token, keywords } };
+}
+
 function choiceBounds(request: ChoiceRequest<unknown>): { readonly min?: number; readonly max?: number } {
   if (request.type !== "select-objects" && request.type !== "number") return {};
   if (!Number.isSafeInteger(request.min) || !Number.isSafeInteger(request.max) ||
@@ -276,6 +300,10 @@ function choiceOptions(request: ChoiceRequest<unknown>, host: EngineRuntimeHost,
   if (viewer !== request.chooser) return undefined;
   if (request.type === "optional" || request.type === "number") return undefined;
   if (request.type === "mode") {
+    if (isWeaponmasterPaymentRequest(request) &&
+        request.options.every((option): option is string => typeof option === "string")) {
+      return request.options.map(option => ({ id: option, label: option, value: option }));
+    }
     const triggerOrder = /^trigger:\d+:[^:]+:order:\d+$/.test(request.id);
     const resolved = new Map<string, ResolvedTriggerOption | undefined>(request.options.map(option => {
       const id = String(option);
@@ -640,6 +668,11 @@ class MatchRuntime implements EngineRuntime {
     let choiceMetadata: ChoiceMetadata = {};
     const normalizedDecks = this.normalizeDecks(this.runtimeOptions.decks);
     const catalogDomains = this.catalogDomains(normalizedDecks);
+    const trustedPrograms = this.runtimeOptions.programs === undefined
+      ? new Map<string, CardProgram>()
+      : Array.isArray(this.runtimeOptions.programs)
+        ? new Map((this.runtimeOptions.programs as readonly CardProgram[]).map(program => [program.canonicalCardId, program] as const))
+        : new Map(this.runtimeOptions.programs as ReadonlyMap<string, CardProgram>);
     const hostState = new RuntimeBoardHost(Object.fromEntries(seats.map(seat => [seat.playerId, seat.name])), request => {
       if (this.decisions !== null && this.decisions.has(request.id)) {
         return structuredClone(this.decisions.get(request.id)) as never;
@@ -655,7 +688,9 @@ class MatchRuntime implements EngineRuntime {
     this.host = hostState;
     const pipelineHost = createActionPipelineHost({
       checkpoint: () => hostState.checkpoint(), restore: checkpoint => hostState.restore(checkpoint), objects: () => hostState.objects(),
-      perform: action => hostState.perform(action), choose: request => hostState.choose(request),
+      perform: action => hostState.perform(withTrustedTokenKeywords(action,
+        action.type === "create-token" && action.token.cardId !== null && action.token.cardId !== undefined
+          ? trustedPrograms.get(action.token.cardId) : undefined)), choose: request => hostState.choose(request),
       performContract: action => hostState.performContract(action),
       performWithDeathBoundary: (action, boundary) => hostState.performWithDeathBoundary(action, boundary),
       performKillBatchWithDeathBoundary: (actions, batchId, boundary) =>
@@ -1237,6 +1272,7 @@ class MatchRuntime implements EngineRuntime {
       throw new Error(`Rune ${command.runeObjectId}:${command.zoneEntryId} is no longer current`);
     }
     const priorityLegal = match.flow.chain.canAct(playerId, "reaction", source.ref, source);
+    const weaponmasterPayment = this.pendingWeaponmasterPaymentChoice(playerId);
     const request = {
       actor: playerId,
       activationId: `rune-command:${command.commandId}`,
@@ -1245,7 +1281,11 @@ class MatchRuntime implements EngineRuntime {
         runeObjectId: command.runeObjectId,
         zoneEntryId: command.zoneEntryId,
       },
-      window: priorityLegal ? { kind: "priority" as const } : { kind: "payment" as const },
+      // Preserve the payment interrupt window even if Priority was granted
+      // separately. CR 430.3 still resolves the Add immediately in place.
+      window: weaponmasterPayment === null
+        ? priorityLegal ? { kind: "priority" as const } : { kind: "payment" as const }
+        : { kind: "payment" as const },
     };
     const plan = planBasicRuneResourceActivation({
       chain: match.flow.chain,
@@ -1257,8 +1297,19 @@ class MatchRuntime implements EngineRuntime {
       },
       request,
     });
+    // A Basic Rune Add during the prompt enters
+    // ChainEngine.activateAddDuringPayment and returns its real receipt here.
     const receipt = executeBasicRuneResourcePlan(plan);
     return this.runeReceiptResult(receipt);
+  }
+
+  /** Only the chooser's current Weaponmaster payment prompt opens this narrow Add window. */
+  private pendingWeaponmasterPaymentChoice(playerId: string): string | null {
+    const pending = this.pending;
+    return pending !== null && pending.command.type === "play" &&
+      isWeaponmasterPaymentRequest(pending.request) && pending.request.chooser === playerId
+      ? pending.request.id
+      : null;
   }
 
   private runeReceiptResult(receipt: BasicRuneResourceReceipt): Record<string, unknown> {

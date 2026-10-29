@@ -844,7 +844,10 @@ test(PRODUCTION_TEST_NAMES.unpayableEquip, () => {
   };
   const f = productionPlay({
     programs: [program],
-    answers: { "target:weaponmaster-equipment": ["sword"] },
+    answers: {
+      "target:weaponmaster-equipment": ["sword"],
+      "weaponmaster-choice/weaponmaster-pay/weaponmaster%3Apay": () => "放弃装配"
+    },
     build: (w) => w.player("A", { energy: 3 }).player("B")
       .unit("old-host", {
         owner: "A", controller: "A", cardId: "test:old-host", types: ["unit"], tags: [],
@@ -893,7 +896,10 @@ test("production boundary: unpayable Equip rolls back every attempted resource a
   };
   const f = productionPlay({
     programs: [program],
-    answers: { "target:weaponmaster-equipment": ["sword"] },
+    answers: {
+      "target:weaponmaster-equipment": ["sword"],
+      "weaponmaster-choice/weaponmaster-pay/weaponmaster%3Apay": () => "放弃装配"
+    },
     build: (w) => w.player("A", { energy: 4, power: ["Fury"] }).player("B")
       .object("lucian", {
         owner: "A", controller: "A", cardId: program.canonicalCardId, types: ["unit"],

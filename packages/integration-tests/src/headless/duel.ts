@@ -845,9 +845,17 @@ function botChoice(
   counters: MutableCounters,
 ): unknown {
   counters.actionCoverage.choices[request.type] += 1;
-  if (request.type === "optional") return random.next(2) === 0;
-  if (request.type === "mode") return request.options[random.next(request.options.length)];
-  if (request.type === "number") return request.min + random.next(request.max - request.min + 1);
+  return headlessBotAnswer(random.next.bind(random), request);
+}
+
+/** Pure deterministic chooser shared by the game bot and focused mode-window tests. */
+export function headlessBotAnswer(
+  next: (max: number) => number,
+  request: Parameters<NonNullable<PipelineHost["choose"]>>[0],
+): unknown {
+  if (request.type === "optional") return next(2) === 0;
+  if (request.type === "mode") return request.options[next(request.options.length)];
+  if (request.type === "number") return request.min + next(request.max - request.min + 1);
   if (request.type === "select-objects") {
     const count = Math.min(request.max, Math.max(request.min, request.min));
     return request.options.slice(0, count);
