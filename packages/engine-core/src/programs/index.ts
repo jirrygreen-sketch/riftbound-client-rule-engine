@@ -15,6 +15,7 @@ import {
 import { ProgramBindingError } from './errors.js';
 import { registerProgramTriggers as registerTriggers, unregisterProgramTriggers as unregisterTriggers } from './triggers.js';
 import { attachProgramLifecycle, type ProgramLifecycleHandle } from './lifecycle.js';
+import { hasReflexivePendingRuntime, installReflexivePendingRuntime } from '../effects/reflexive/runtime.js';
 import { bindReplacementAbility, bindStaticAbility, type ProgramStaticBinder, noopStaticBinder, type StaticBindingHandle } from './statics.js';
 import { expandProgram } from './keywords.js';
 
@@ -177,8 +178,13 @@ export function createProgramBinding(options: {
     attachLifecycle: (engine, onError) => {
       const detachCatalog = installPrintedCatalog(engine, lookup);
       const lifecycle = attachProgramLifecycle(engine, registry, binder, onError);
+      // Reflexive Pending (RIFT-1140) is part of the default production
+      // assembly. A runtime the caller installed first stays the caller's.
+      const ownsReflexive = !hasReflexivePendingRuntime(engine);
+      const reflexive = installReflexivePendingRuntime(engine);
       return {
         detach() {
+          if (ownsReflexive) reflexive.detach();
           lifecycle.detach();
           detachCatalog();
         },
