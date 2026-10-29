@@ -20,7 +20,7 @@ import { sameLocation } from "../target/location/ref.js";
 type AnyRecord = Record<string, unknown>;
 
 export interface PlayPermissionSpec {
-  readonly kind?: "play-permission" | "location";
+  readonly kind?: "play-permission" | "location" | "play-location-permission";
   readonly objectRefs?: readonly ObjectRef[];
   readonly zone?: ZoneId | readonly ZoneId[];
   readonly player?: PlayerId;
@@ -93,11 +93,40 @@ function locationSpec(effect: AnyRecord): LocationFilter | undefined {
   return candidate as LocationFilter;
 }
 
+/*
+ * Static play-location permissions are authored as an EffectIR
+ * `{ kind: 'constant', value: { zone, battlefield, appliesTo } }` wrapper.  The
+ * static binder preserves that wrapper under `effect.value`; unlike the
+ * instruction primitive it deliberately does not flatten the expression.  A
+ * missing or malformed wrapper stays unknown rather than becoming an
+ * unrestricted battlefield permission (CR v1.5 355.2.b, 355.3).
+ */
+function staticLocationSpec(effect: AnyRecord): LocationFilter | undefined {
+  const wrapper = record(effect.value);
+  if (wrapper === null || !['constant', 'literal'].includes(String(wrapper.kind))) return undefined;
+  const authored = record(wrapper.value);
+  if (authored === null) return undefined;
+  const zone = authored.zone;
+  if (zone !== 'battlefield' && zone !== 'base') return undefined;
+  const battlefield = record(authored.battlefield);
+  if (zone === 'battlefield' && battlefield === null) return undefined;
+  const candidate = {
+    type: zone,
+    ...(battlefield ?? {}),
+  };
+  const allowed = new Set([
+    "type", "kind", "player", "owner", "controller", "occupied", "open", "controlled",
+    "contested", "hasUnits", "unitController", "id",
+  ]);
+  if (Object.keys(candidate).some(key => !allowed.has(key))) return undefined;
+  return candidate as LocationFilter;
+}
+
 function queryEntry(entry: RegisteredContinuousEffect): PlayPermissionQuery | null {
   const effect = effectValue(entry);
   const objectRefs = refs(effect.objectRefs ?? effect.objects ?? entry.effect.filter.objectRefs);
   const zonesValue = zones(effect.zone ?? effect.zones);
-  const location = locationSpec(effect);
+  const location = locationSpec(effect) ?? staticLocationSpec(effect);
   if (effectKind(entry) === "play-permission") {
     if (objectRefs.length === 0 || zonesValue.length === 0) return null;
     return {
@@ -112,7 +141,8 @@ function queryEntry(entry: RegisteredContinuousEffect): PlayPermissionQuery | nu
   }
   // A continuous.location registration may carry the structured 355.2.b
   // predicate.  String labels stay in layers/rules/query.ts for compatibility.
-  if (effectKind(entry) === "location" && location !== undefined && objectRefs.length > 0) {
+  if ((effectKind(entry) === "location" || effectKind(entry) === "play-location-permission") &&
+      location !== undefined && objectRefs.length > 0) {
     return {
       source: entry.effect.source ?? { id: "unknown", zoneEntryId: 0 },
       objectRefs,
