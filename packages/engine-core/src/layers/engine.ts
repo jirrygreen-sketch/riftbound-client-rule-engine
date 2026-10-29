@@ -561,6 +561,7 @@ export class LayerEngine {
   private immutableAttachmentObjects = false;
   private readonly diagnosticsState = { ...ZERO_LAYER_DIAGNOSTICS };
   private diagnosticsEnabled = false;
+  private immutableSnapshotReuseEnabled = true;
   /** Normalized raw snapshots remain reusable until the explicit object boundary. */
   private baseSnapshots = new WeakMap<ObjectSnapshot, FrozenSnapshot>();
   private depth = 0;
@@ -576,6 +577,8 @@ export class LayerEngine {
   /** Test/diagnostic switch. Production defaults to enabled. */
   setPlanCacheEnabled(enabled: boolean): void { this.commandPlanDefaultEnabled = enabled; }
   get planCacheEnabled(): boolean { return this.commandPlanDefaultEnabled; }
+  /** Test switch for cache-on/off equivalence; production defaults to enabled. */
+  setImmutableSnapshotReuseEnabled(enabled: boolean): void { this.immutableSnapshotReuseEnabled = enabled; }
   private count(field: keyof LayerDiagnostics): void {
     if (!this.diagnosticsEnabled) return;
     this.diagnosticsState[field]++;
@@ -737,6 +740,13 @@ export class LayerEngine {
 
   private copySnapshot(source: ObjectSnapshot): FrozenSnapshot {
     this.count("snapshotCopies");
+    // Derived snapshots are recursively frozen. Reusing their immutable field
+    // identities avoids rebuilding every array/object on each public detach.
+    const input = source as Partial<LayeredObjectSnapshot>;
+    if (this.immutableSnapshotReuseEnabled && input.printed !== undefined && input.movement !== undefined &&
+        (input.actionTimings !== undefined || input.availableTimings !== undefined) && deeplyFrozen(source)) {
+      return Object.freeze({ ...source }) as unknown as FrozenSnapshot;
+    }
     return cloneSnapshot(source);
   }
 
@@ -1156,11 +1166,14 @@ export class LayerEngine {
       candidatesByLayer.set(layer, effects.filter(entry => entry.effect.layer === layer));
     }
     const current = new Map<string, MutableSnapshot>();
+    const base = new Map<string, FrozenSnapshot>();
     const applied = new Map<string, Map<string, AppliedEffect>>();
     const removed = new Map<string, Set<string>>();
     for (const key of keys) {
       const raw = this.objects.get(key)!;
-      current.set(key, { ...this.baseSnapshot(raw) } as MutableSnapshot);
+      const normalized = this.baseSnapshot(raw);
+      base.set(key, normalized);
+      current.set(key, { ...normalized } as MutableSnapshot);
       applied.set(key, new Map());
       removed.set(key, new Set());
       this.evaluating.add(key);
@@ -1233,7 +1246,7 @@ export class LayerEngine {
             }
           }
           if (rebuild) {
-            const target = { ...this.baseSnapshot(this.objects.get(key)!) } as MutableSnapshot;
+            const target = { ...base.get(key)! } as MutableSnapshot;
             current.set(key, target);
             this.partial.set(key, target);
             for (const layer of LAYER_ORDER) for (const item of done.values()) {
