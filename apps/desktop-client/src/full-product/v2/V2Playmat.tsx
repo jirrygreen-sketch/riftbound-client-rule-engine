@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { MouseEvent, PointerEvent, ReactNode } from "react";
 import type { DuelWireScoring } from "@riftbound/protocol";
 import type {
   V2PlayerSnapshot,
@@ -16,6 +16,7 @@ import {
 import { CardArt, CardPreviewOverlay, DuelScoreRail, HiddenHand, PlaymatPile } from "../duel/DuelBoardComponents";
 import type { CardTextData } from "../duel/card-text";
 import { projectedObjectCardName, type CardNameIndex } from "./card-names";
+import { v2RuneCanAddEnergy, v2RuneCanAddPower } from "./playmat-interactions";
 import "../DuelMatchBoard.css";
 
 /**
@@ -31,6 +32,25 @@ import "../DuelMatchBoard.css";
  * gallery writes it as 休眠 (e.g. ven-075-166 / unl-136-219 “此牌以休眠状态进场”).
  */
 export const V2_EXHAUSTED_LABEL = "休眠";
+
+/** Drag-and-drop and rune handling the board passes into the playmat (RIFT-1144). */
+export interface V2BoardInteraction {
+  /** While a drag is active: how a drop zone should look; null when nothing is being dragged. */
+  readonly dropStateFor: (dropKey: string) => "legal" | "over" | "blocked" | null;
+  /** Pointer-down handler that starts dragging this permanent, or null when it cannot move now. */
+  readonly dragHandlerFor: (object: V2ProjectedObject) => ((event: PointerEvent<HTMLElement>) => void) | null;
+  /** Rune clicks for the viewer's own runes. */
+  readonly rune?: {
+    readonly enabled: boolean;
+    readonly onEnergy: (rune: V2ProjectedObject) => void;
+    readonly onPower: (rune: V2ProjectedObject) => void;
+  };
+}
+
+function dropZoneProps(interaction: V2BoardInteraction | undefined, dropKey: string): Record<string, string> {
+  const state = interaction?.dropStateFor(dropKey) ?? null;
+  return state === null ? { "data-drop-key": dropKey } : { "data-drop-key": dropKey, "data-drop-state": state };
+}
 
 /** Catalog facts the playmat needs: card art, a legend's two domains and card text. */
 export interface V2CardLookup {
@@ -61,6 +81,7 @@ export interface V2PlaymatCards {
   readonly image: (cardId: string) => string | null;
   readonly domains: (cardId: string) => readonly string[];
   readonly text: (cardId: string) => CardTextData | undefined;
+  readonly card: (cardId: string) => CatalogCard | undefined;
   readonly objectName: (object: V2ProjectedObject) => string;
 }
 
@@ -76,6 +97,7 @@ export function v2PlaymatCards(projection: V2Projection, names: CardNameIndex, l
     image: cardId => lookup.imageById.get(cardId) ?? null,
     domains: cardId => lookup.domainsById.get(cardId) ?? [],
     text: cardId => lookup.cardById.get(cardId),
+    card: cardId => lookup.cardById.get(cardId),
     objectName: object => projectedObjectCardName(names, object)
   };
 }
@@ -100,15 +122,17 @@ function powerAmount(power: Readonly<Record<string, number>>, domain: string): n
 }
 
 /** One permanent (unit or gear) with its face, name, readiness, Might and damage. */
-export function V2PermanentChip({ object, cards, onInspect }: {
+export function V2PermanentChip({ object, cards, onInspect, onDragStart }: {
   readonly object: V2ProjectedObject;
   readonly cards: V2PlaymatCards;
   readonly onInspect: (cardId: string) => void;
+  readonly onDragStart?: ((event: PointerEvent<HTMLElement>) => void) | null;
 }) {
   const name = cards.objectName(object);
   return (
-    <li className="full-product-duel-unit" data-object-id={object.objectId}
-      data-controller-player-id={controllerOf(object)} data-readied={object.exhausted === true ? "false" : "true"}>
+    <li className={`full-product-duel-unit${onDragStart ? " v2-draggable" : ""}`} data-object-id={object.objectId}
+      data-controller-player-id={controllerOf(object)} data-readied={object.exhausted === true ? "false" : "true"}
+      {...(onDragStart ? { onPointerDown: onDragStart, title: `拖动 ${name} 到其他位置即可移动` } : {})}>
       {object.cardId !== undefined && !object.faceDown ? (
         <CardArt cardId={object.cardId} resolveCardTitle={cards.title} resolveCardImage={cards.image}
           className="full-product-duel-unit-thumb" onInspect={onInspect} />
@@ -127,11 +151,12 @@ export function V2PermanentChip({ object, cards, onInspect }: {
   );
 }
 
-function PermanentGroups({ projection, objects, cards, onInspect }: {
+function PermanentGroups({ projection, objects, cards, onInspect, interaction }: {
   readonly projection: V2Projection;
   readonly objects: readonly V2ProjectedObject[];
   readonly cards: V2PlaymatCards;
   readonly onInspect: (cardId: string) => void;
+  readonly interaction?: V2BoardInteraction | undefined;
 }) {
   if (objects.length === 0) return <p className="full-product-duel-empty">暂无公开牌</p>;
   // Opposing seat first, matching the order of the two playmat sides.
@@ -145,7 +170,8 @@ function PermanentGroups({ projection, objects, cards, onInspect }: {
           <h5 className="full-product-duel-unit-group-owner">{playerName(projection, controllerId)}</h5>
           <ul className="full-product-duel-unit-list">
             {objects.filter(object => controllerOf(object) === controllerId).map(object => (
-              <V2PermanentChip key={object.objectId} object={object} cards={cards} onInspect={onInspect} />
+              <V2PermanentChip key={object.objectId} object={object} cards={cards} onInspect={onInspect}
+                onDragStart={interaction?.dragHandlerFor(object) ?? null} />
             ))}
           </ul>
         </div>
@@ -174,12 +200,63 @@ function IdentitySlot({ role, object, cards, onInspect }: {
   );
 }
 
+/** One rune: a large card tile; the viewer's own runes are buttons (left: Energy, right: Power). */
+function RuneTile({ rune, cards, onInspect, runeActions }: {
+  readonly rune: V2ProjectedObject;
+  readonly cards: V2PlaymatCards;
+  readonly onInspect: (cardId: string) => void;
+  readonly runeActions: V2BoardInteraction["rune"] | undefined;
+}) {
+  const name = cards.objectName(rune);
+  const state = rune.exhausted === true ? V2_EXHAUSTED_LABEL : DUEL_READY_LABEL;
+  const face = rune.cardId !== undefined
+    ? <img className="v2-rune-face" src={cards.image(rune.cardId) ?? undefined} alt="" draggable={false}
+      {...(cards.image(rune.cardId) === null ? { "data-missing": "true" } : {})} />
+    : <span className="v2-rune-face" data-missing="true" aria-hidden="true" />;
+  if (runeActions === undefined) {
+    return (
+      <li className="full-product-duel-baserune v2-rune" data-readied={rune.exhausted === true ? "false" : "true"}
+        title={`${name}（${state}）`}>
+        {rune.cardId !== undefined ? (
+          <CardArt cardId={rune.cardId} resolveCardTitle={cards.title} resolveCardImage={cards.image}
+            className="full-product-duel-baserune-thumb" onInspect={onInspect} />
+        ) : null}
+        <span className="full-product-duel-baserune-caption">
+          <span className="full-product-duel-baserune-domain">{name}</span>
+          <span className="full-product-duel-baserune-state">{state}</span>
+        </span>
+      </li>
+    );
+  }
+  const canEnergy = runeActions.enabled && v2RuneCanAddEnergy(rune);
+  const canPower = runeActions.enabled && v2RuneCanAddPower(rune);
+  const hint = `${name}（${state}）：左键横置取能量${canEnergy ? "" : "（不可用）"}，右键回收取符能${canPower ? "" : "（不可用）"}`;
+  return (
+    <li className="full-product-duel-baserune v2-rune" data-readied={rune.exhausted === true ? "false" : "true"}>
+      <button type="button" className="v2-rune-button" aria-label={hint} title={hint}
+        data-can-energy={canEnergy ? "true" : "false"} data-can-power={canPower ? "true" : "false"}
+        aria-disabled={!canEnergy && !canPower}
+        onClick={() => { if (canEnergy) runeActions.onEnergy(rune); }}
+        onContextMenu={(event: MouseEvent<HTMLButtonElement>) => {
+          event.preventDefault();
+          if (canPower) runeActions.onPower(rune);
+        }}>
+        {face}
+        <span className="full-product-duel-baserune-caption">
+          <span className="full-product-duel-baserune-domain">{name}</span>
+          <span className="full-product-duel-baserune-state">{state}</span>
+        </span>
+      </button>
+    </li>
+  );
+}
+
 /**
  * One seat's half of the playmat: legend and champion, base permanents, main
  * deck / rune deck / trash counts, rune row and the current rune pool. The
  * opposing seat is mirrored by the shared CSS (`data-position="opponent"`).
  */
-export function V2PlaymatSide({ projection, player, position, baseObjects, runes, cards, onInspect }: {
+export function V2PlaymatSide({ projection, player, position, baseObjects, runes, cards, onInspect, interaction }: {
   readonly projection: V2Projection;
   readonly player: V2PlayerSnapshot;
   readonly position: "player" | "opponent";
@@ -187,6 +264,7 @@ export function V2PlaymatSide({ projection, player, position, baseObjects, runes
   readonly runes: readonly V2ProjectedObject[];
   readonly cards: V2PlaymatCards;
   readonly onInspect: (cardId: string) => void;
+  readonly interaction?: V2BoardInteraction | undefined;
 }) {
   const name = player.name;
   const isViewer = player.playerId === projection.viewerPlayerId;
@@ -208,14 +286,16 @@ export function V2PlaymatSide({ projection, player, position, baseObjects, runes
           <IdentitySlot role="英雄" object={champion} cards={cards} onInspect={onInspect} />
         </dl>
       </div>
-      <div className="full-product-duel-mat-base" role="group" aria-label={`${name} 基地`}>
+      <div className="full-product-duel-mat-base" role="group" aria-label={`${name} 基地`}
+        {...dropZoneProps(interaction, `base:${player.playerId}`)}>
         <header className="full-product-duel-base-head">
           <h4 className="full-product-duel-base-title">{name} 基地</h4>
           <span className="full-product-duel-mat-score" aria-label={`${name} 得分`}>{points}</span>
         </header>
         <div className="full-product-duel-base-body">
           <article className="v2-zone" aria-label={isViewer ? "我的基地" : "对手基地"}>
-            <PermanentGroups projection={projection} objects={baseObjects} cards={cards} onInspect={onInspect} />
+            <PermanentGroups projection={projection} objects={baseObjects} cards={cards} onInspect={onInspect}
+              interaction={interaction} />
           </article>
         </div>
       </div>
@@ -226,16 +306,8 @@ export function V2PlaymatSide({ projection, player, position, baseObjects, runes
           {runes.length === 0 ? <p className="full-product-duel-empty">暂无公开牌</p> : (
             <ul className="full-product-duel-baserune-list">
               {runes.map(rune => (
-                <li key={rune.objectId} className="full-product-duel-baserune" data-readied={rune.exhausted === true ? "false" : "true"}>
-                  {rune.cardId !== undefined ? (
-                    <CardArt cardId={rune.cardId} resolveCardTitle={cards.title} resolveCardImage={cards.image}
-                      className="full-product-duel-baserune-thumb" onInspect={onInspect} />
-                  ) : null}
-                  <span className="full-product-duel-baserune-caption">
-                    <span className="full-product-duel-baserune-domain">{cards.objectName(rune)}</span>
-                    <span className="full-product-duel-baserune-state">{rune.exhausted === true ? V2_EXHAUSTED_LABEL : DUEL_READY_LABEL}</span>
-                  </span>
-                </li>
+                <RuneTile key={rune.objectId} rune={rune} cards={cards} onInspect={onInspect}
+                  runeActions={isViewer ? interaction?.rune : undefined} />
               ))}
             </ul>
           )}
@@ -258,12 +330,13 @@ export function V2PlaymatSide({ projection, player, position, baseObjects, runes
 }
 
 /** One shared battlefield: its card, controller and the permanents there, grouped by controller. */
-export function V2BattlefieldCard({ projection, battlefieldId, objects, cards, onInspect }: {
+export function V2BattlefieldCard({ projection, battlefieldId, objects, cards, onInspect, interaction }: {
   readonly projection: V2Projection;
   readonly battlefieldId: string;
   readonly objects: readonly V2ProjectedObject[];
   readonly cards: V2PlaymatCards;
   readonly onInspect: (cardId: string) => void;
+  readonly interaction?: V2BoardInteraction | undefined;
 }) {
   const card = projection.objects.find(object => object.objectId === battlefieldId);
   const title = card === undefined ? battlefieldId : cards.objectName(card);
@@ -274,7 +347,8 @@ export function V2BattlefieldCard({ projection, battlefieldId, objects, cards, o
   const combatHere = projection.combat?.status === "active" && projection.combat.battlefieldId === battlefieldId;
   return (
     <section className={`full-product-duel-battlefield${combatHere ? " v2-battlefield-in-combat" : ""}`}
-      data-location-id={battlefieldId} aria-label={`中央战场 ${title}`}>
+      data-location-id={battlefieldId} aria-label={`中央战场 ${title}`}
+      {...dropZoneProps(interaction, `battlefield:${battlefieldId}`)}>
       <header className="full-product-duel-battlefield-head">
         <div className="full-product-duel-battlefield-head-main">
           <h4 className="full-product-duel-battlefield-title">{title}</h4>
@@ -291,7 +365,8 @@ export function V2BattlefieldCard({ projection, battlefieldId, objects, cards, o
         ) : null}
       </header>
       <article className="v2-zone" aria-label={`战场 · ${title}（${controllerText}）`}>
-        <PermanentGroups projection={projection} objects={objects} cards={cards} onInspect={onInspect} />
+        <PermanentGroups projection={projection} objects={objects} cards={cards} onInspect={onInspect}
+          interaction={interaction} />
       </article>
     </section>
   );
@@ -310,6 +385,23 @@ export function V2OpponentHand({ player }: { readonly player: V2PlayerSnapshot |
   return player === null ? null : <HiddenHand playerName={player.name} count={player.handCount} />;
 }
 
+const CARD_TYPE_LABELS: Readonly<Record<string, string>> = {
+  Unit: "单位", Spell: "法术", Gear: "装备", Rune: "符文", Legend: "传奇", Battlefield: "战场", Champion: "英雄"
+};
+
+/** Short facts for the large preview, from the catalog only (no invented text). */
+export function v2CardDetails(card: CatalogCard | undefined): readonly string[] {
+  if (card === undefined) return [];
+  const details: string[] = [];
+  details.push(CARD_TYPE_LABELS[card.cardType] ?? card.cardType);
+  if (card.domains.length > 0) details.push(card.domains.map(domainLabel).join(" / "));
+  if (card.energy !== null) details.push(`费用 ${card.energy}`);
+  if (card.power !== null) details.push(`符能 ${card.power}`);
+  if (card.might !== null) details.push(`战力 ${card.might}`);
+  details.push(card.cardNumber);
+  return details;
+}
+
 export function V2CardPreview({ cardId, cards, onClose }: {
   readonly cardId: string | null;
   readonly cards: V2PlaymatCards;
@@ -317,6 +409,7 @@ export function V2CardPreview({ cardId, cards, onClose }: {
 }): ReactNode {
   if (cardId === null) return null;
   const text = cards.text(cardId);
+  const details = v2CardDetails(cards.card(cardId));
   return <CardPreviewOverlay cardId={cardId} title={cards.title(cardId)} imageUrl={cards.image(cardId)}
-    {...(text === undefined ? {} : { cardText: text })} onClose={onClose} />;
+    {...(text === undefined ? {} : { cardText: text })} {...(details.length === 0 ? {} : { details })} onClose={onClose} />;
 }

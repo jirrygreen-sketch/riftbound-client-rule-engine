@@ -169,6 +169,24 @@ describe("issue report page interactions", () => {
     expect(body.matchLog).toBeNull();
   });
 
+  it("lets the player opt in to the most recent match log after leaving the match (RIFT-1148)", async () => {
+    appendMatchLog(storage, { roomId: "left-room", matchId: "left-match", kind: "event",
+      eventSeq: 1, payload: { left: true } });
+    pageProps = { roomId: null, hasMatch: false };
+    const before = renderPage();
+    expect(before).toContain("当前未在对局中，不附带对局日志");
+    expect(before).toContain("附带最近一局的对局日志（房间 left-room，");
+    const checkbox = captured.nodes.find(node => node.props.name === "attach-recent-match-log");
+    if (typeof checkbox?.props.onChange !== "function") throw new Error("checkbox not found");
+    (checkbox.props.onChange as (event: { currentTarget: { checked: boolean } }) => void)({ currentTarget: { checked: true } });
+    fill();
+    const markup = await submit();
+    expect(markup).toContain("对局日志 ");
+    expect(markup).toContain("（房间 left-room）");
+    const body = fetchCalls[0]!.body as { readonly matchLog: { readonly roomId: string } | null };
+    expect(body.matchLog?.roomId).toBe("left-room");
+  });
+
   it("attaches the active log only when the current match flag is true", async () => {
     appendMatchLog(storage, { roomId: "live-room", matchId: "live-match", kind: "event",
       eventSeq: 1, payload: { live: true } });

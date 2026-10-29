@@ -2,8 +2,22 @@ import type { ObjectRef } from "@riftbound/card-dsl";
 import type { LocationRef, ObjectSnapshot, PlayerId, ZoneId } from "../effects/contract.js";
 import { sameRef, type LayeredObjectSnapshot } from "./types.js";
 
-const COPYABLE_KEYS = ["cardId", "name", "types", "tags", "keywords", "might", "energy", "power"] as const;
+const COPYABLE_KEYS = [
+  "cardId", "name", "types", "tags", "keywords", "might", "energy", "power",
+  "text", "effectText",
+] as const;
 type CopyableKey = (typeof COPYABLE_KEYS)[number];
+export type CopiedTextField = "text" | "effectText";
+
+/**
+ * Explicit source -> destination trait mappings. Plain "text" and
+ * "effectText" copy within their own fields; only the named alias crosses
+ * sections for the CR 479.1.d form.
+ */
+const TEXT_COPY_ALIASES: Readonly<Record<string,
+  { readonly source: CopiedTextField; readonly target: CopiedTextField }>> = Object.freeze({
+  "text->effectText": { source: "text", target: "effectText" },
+});
 
 function copyList<T>(value: readonly T[]): readonly T[] {
   return Object.freeze([...value]);
@@ -22,14 +36,32 @@ export function copyCharacteristics(
   source: ObjectSnapshot,
   properties: readonly string[] = COPYABLE_KEYS,
 ): LayeredObjectSnapshot {
-  const selected = new Set(properties);
   const result = { ...target } as LayeredObjectSnapshot;
-  for (const key of COPYABLE_KEYS) {
-    if (!selected.has(key)) continue;
-    const value = source[key];
-    (result as unknown as Record<string, unknown>)[key] = Array.isArray(value) ? copyList(value) : value;
+  for (const property of properties) {
+    const mapping = TEXT_COPY_ALIASES[property];
+    const sourceKey = mapping?.source ?? property;
+    const writeKey = mapping?.target ?? property;
+    if (!COPYABLE_KEYS.includes(sourceKey as CopyableKey)) continue;
+    const value = sourceKey === "text" || sourceKey === "effectText"
+      ? copiedText(source, sourceKey)
+      : source[sourceKey as Exclude<CopyableKey, "text" | "effectText">];
+    (result as unknown as Record<string, unknown>)[writeKey] = Array.isArray(value) ? copyList(value) : value;
   }
   return Object.freeze(result);
+}
+
+/**
+ * Select only the source text requested by a Copy Effect. `text` is Rules
+ * Text and `effectText` is the separate attach-only Effect Text section
+ * (Core Rules v1.5 135, 136, 479.1.b.1, 479.1.d). The value is read from the
+ * source's copy-layer view, before trait/ability/arithmetic modifications.
+ */
+export function copiedText(
+  source: ObjectSnapshot,
+  field: CopiedTextField,
+): string | null {
+  const value = source as ObjectSnapshot & Partial<Record<CopiedTextField, string | null>>;
+  return value[field] ?? null;
 }
 
 export interface CopiedObjectOptions {
@@ -77,8 +109,8 @@ export function createCopiedObjectSnapshot(
     actionTimings: [],
     availableTimings: [],
     movement: { allowed: true, canMove: true, canGank: false, restrictions: [] },
-    text: null,
-    effectText: null,
+    text: copiedText(source, "text"),
+    effectText: copiedText(source, "effectText"),
   });
   return object;
 }

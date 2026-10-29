@@ -102,17 +102,26 @@ export function DuelScoreRail({
     </div>
   );
 }
+/** A click on the backdrop itself (not bubbled up from the card body) closes the preview. */
+export function closeOnBackdropClick(onClose: () => void) {
+  return (event: { readonly target: unknown; readonly currentTarget: unknown }): void => {
+    if (event.target === event.currentTarget) onClose();
+  };
+}
 export function CardPreviewOverlay({
   cardId,
   title,
   imageUrl,
   cardText,
+  details,
   onClose
 }: {
   readonly cardId: string;
   readonly title: string;
   readonly imageUrl: string | null;
   readonly cardText?: CardTextData;
+  /** Short facts shown beside the image (type, domains, cost, Might, printing). */
+  readonly details?: readonly string[];
   readonly onClose: () => void;
 }) {
   useEffect(() => {
@@ -122,25 +131,46 @@ export function CardPreviewOverlay({
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
+  const image = imageUrl !== null ? (
+    <img className="full-product-duel-preview-image" src={imageUrl} alt={title} />
+  ) : (
+    <p className="full-product-duel-preview-missing">{DUEL_PREVIEW_NO_IMAGE_NOTICE}</p>
+  );
+  const close = (
+    <button
+      type="button"
+      className="full-product-duel-preview-close"
+      aria-label={DUEL_PREVIEW_CLOSE_LABEL}
+      onClick={onClose}
+    >
+      {DUEL_PREVIEW_CLOSE_TEXT}
+    </button>
+  );
+  const split = cardText !== undefined || (details !== undefined && details.length > 0);
   return (
-    <div className="full-product-duel-preview" role="dialog" aria-modal="true" aria-label={DUEL_PREVIEW_LABEL}>
-      <div className="full-product-duel-preview-body" data-card-id={cardId}>
-        <h3 className="full-product-duel-preview-title">{title}</h3>
-        {imageUrl !== null ? (
-          <img className="full-product-duel-preview-image" src={imageUrl} alt={title} />
-        ) : (
-          <p className="full-product-duel-preview-missing">{DUEL_PREVIEW_NO_IMAGE_NOTICE}</p>
-        )}
-        {cardText ? <CardText card={cardText} /> : null}
-        <button
-          type="button"
-          className="full-product-duel-preview-close"
-          aria-label={DUEL_PREVIEW_CLOSE_LABEL}
-          onClick={onClose}
-        >
-          {DUEL_PREVIEW_CLOSE_TEXT}
-        </button>
-      </div>
+    <div className="full-product-duel-preview" role="dialog" aria-modal="true" aria-label={DUEL_PREVIEW_LABEL}
+      onClick={closeOnBackdropClick(onClose)}>
+      {split ? (
+        <div className="full-product-duel-preview-body is-split" data-card-id={cardId}>
+          <div className="full-product-duel-preview-art">{image}</div>
+          <div className="full-product-duel-preview-info">
+            <h3 className="full-product-duel-preview-title">{title}</h3>
+            {details !== undefined && details.length > 0 ? (
+              <ul className="full-product-duel-preview-details">
+                {details.map(detail => <li key={detail}>{detail}</li>)}
+              </ul>
+            ) : null}
+            {cardText ? <CardText card={cardText} /> : null}
+            {close}
+          </div>
+        </div>
+      ) : (
+        <div className="full-product-duel-preview-body" data-card-id={cardId}>
+          <h3 className="full-product-duel-preview-title">{title}</h3>
+          {image}
+          {close}
+        </div>
+      )}
     </div>
   );
 }

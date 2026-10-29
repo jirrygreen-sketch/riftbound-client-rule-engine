@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { V2Socket } from "../../src/transport/v2";
 import {
   buildV2Hello,
@@ -111,5 +111,76 @@ describe("V2 waiting-room resume cursor", () => {
     sockets[0]!.receive({ ...echo, playerId: "player-2" });
     expect(controller.snapshot.error).toBe("V2 服务端返回了未识别数据包。");
     controller.stop();
+  });
+});
+
+// RIFT-1148: a long turn kept the HK server busy for ~40 s while the client
+// gave up after five 5 s retries and stayed on a stale stateVersion.
+describe("V2 slow command receipts", () => {
+  function connected(options: { readonly commandTimeoutMs: number; readonly commandGiveUpMs: number }) {
+    const sockets: FakeSocket[] = [];
+    const controller = new V2MatchSessionController({
+      serverUrl: "ws://example.test",
+      socketFactory: () => {
+        const socket = new FakeSocket();
+        sockets.push(socket);
+        return socket;
+      },
+      reconnectDelayMs: 0,
+      ...options
+    }, { roomId: "room-1", playerId: "player-1", resumeToken: "resume-1" });
+    controller.start();
+    sockets[0]!.open();
+    sockets[0]!.receive({ type: "welcome", protocolVersion: "2.0.0", resumed: true, session: {
+      roomId: "room-1", playerId: "player-1", resumeToken: "resume-1"
+    } });
+    return { controller, sockets };
+  }
+  const commandsSent = (socket: FakeSocket) => socket.sent.map(raw => JSON.parse(raw)).filter(packet => packet.type === "command");
+
+  it("keeps waiting with backed-off resends and accepts a receipt that arrives after 25 s", async () => {
+    vi.useFakeTimers();
+    try {
+      const { controller, sockets } = connected({ commandTimeoutMs: 5_000, commandGiveUpMs: 120_000 });
+      vi.setSystemTime(1_000_000);
+      const pending = controller.sendCommand({ type: "end-turn" });
+      expect(controller.snapshot.pendingCommandSince).toBe(1_000_000);
+      vi.advanceTimersByTime(40_000);
+      // Resends at 5, 15, 35 s (1x, 2x, 4x backoff), not five sends in 25 s.
+      expect(commandsSent(sockets[0]!)).toHaveLength(4);
+      expect(new Set(commandsSent(sockets[0]!).map(packet => packet.command.commandId)).size).toBe(1);
+      expect(controller.snapshot.error).toBeNull();
+      const commandId = commandsSent(sockets[0]!)[0].command.commandId;
+      sockets[0]!.receive({ type: "command-receipt", protocolVersion: "2.0.0", commandId,
+        stateVersion: 76, eventSeq: 1150, accepted: true, duplicate: false, rejection: null });
+      await expect(pending).resolves.toMatchObject({ accepted: true, stateVersion: 76 });
+      expect(controller.snapshot.pendingCommandIds).toEqual([]);
+      expect(controller.snapshot.pendingCommandSince).toBeNull();
+      controller.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives up only after the total wait and reconnects to resync instead of keeping a stale state", async () => {
+    vi.useFakeTimers();
+    try {
+      const { controller, sockets } = connected({ commandTimeoutMs: 1_000, commandGiveUpMs: 10_000 });
+      const pending = controller.sendCommand({ type: "end-turn" });
+      const outcome = pending.then(() => "resolved", (error: Error) => error.message);
+      vi.advanceTimersByTime(9_000);
+      expect(controller.snapshot.pendingCommandIds).toHaveLength(1);
+      expect(sockets).toHaveLength(1);
+      vi.advanceTimersByTime(1_000);
+      expect(await outcome).toMatch(/等待服务端回执超过 10 秒，已重新同步对局状态/);
+      expect(controller.snapshot.pendingCommandIds).toEqual([]);
+      vi.advanceTimersByTime(1);
+      expect(sockets).toHaveLength(2);
+      sockets[1]!.open();
+      expect(JSON.parse(sockets[1]!.sent[0]!)).toMatchObject({ type: "hello", roomId: "room-1", resumeToken: "resume-1" });
+      controller.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

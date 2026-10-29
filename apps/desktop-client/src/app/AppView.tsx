@@ -454,6 +454,8 @@ export function AppView({
               session={v2Match.session}
               playerName={profile.name}
               pendingCommandIds={v2Match.pendingCommandIds}
+              pendingCommandSince={v2Match.pendingCommandSince}
+              onReportIssue={() => setActiveTab("issue-report")}
               transportError={v2Match.error}
               catalogServerUrl={v2ServerUrl ?? catalogServerUrl}
               serverUrl={v2Match.reconnectUrl || v2ServerUrl || catalogServerUrl}
@@ -515,6 +517,8 @@ export function AppView({
             session={v2Match.session}
             playerName={profile.name}
             pendingCommandIds={v2Match.pendingCommandIds}
+            pendingCommandSince={v2Match.pendingCommandSince}
+            onReportIssue={() => setActiveTab("issue-report")}
             transportError={v2Match.error}
             catalogServerUrl={v2ServerUrl ?? catalogServerUrl}
             serverUrl={v2Match.reconnectUrl || v2ServerUrl || catalogServerUrl}

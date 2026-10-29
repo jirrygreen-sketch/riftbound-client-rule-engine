@@ -118,3 +118,145 @@
 .v2-hand-zoom { position: absolute; top: .25rem; right: .25rem; width: 1.4rem; height: 1.4rem; padding: 0; border-radius: 50%;
   font-size: .8rem; line-height: 1; color: #f3f0ea; background: rgba(11, 15, 15, .75); border: 1px solid #42534f; cursor: zoom-in; }
 .v2-hand-zoom:hover { border-color: #37c8bb; }
+
+/* ---- RIFT-1144: bigger seats, rune buttons and drag-and-drop ----
+   The V2 resource cell is always empty, so the hand spans the full width. The
+   seats (base + runes) get more height than the centre, and every card face is
+   sized from its own row with container queries, so faces grow with the
+   window instead of stopping at a fixed small size. */
+.v2-playmat .full-product-duel-table-main {
+  --duel-hand-row-height: clamp(128px, 21dvh, 240px);
+  grid-template-rows: 24px minmax(112px, 1fr) minmax(92px, .8fr) minmax(136px, 1.2fr) var(--duel-hand-row-height);
+  grid-template-areas:
+    "opponent-hand opponent-hand"
+    "opponent opponent"
+    "central central"
+    "player player"
+    "hand hand";
+}
+.v2-playmat .full-product-duel-table-resources:empty { display: none; }
+.v2-playmat .full-product-duel-playmat-side {
+  --v2-rune-row: clamp(60px, 10.5dvh, 120px);
+  grid-template-rows: minmax(64px, 1fr) var(--v2-rune-row);
+}
+.v2-playmat .full-product-duel-playmat-side[data-position="opponent"] {
+  --v2-rune-row: clamp(48px, 7dvh, 96px);
+  grid-template-rows: var(--v2-rune-row) minmax(64px, 1fr);
+}
+.v2-playmat .full-product-duel-mat-base,
+.v2-playmat .full-product-duel-mat-runes,
+.v2-playmat-hand { container-type: size; }
+.v2-playmat .full-product-duel-mat-base { position: relative; }
+/* The base title and score sit in a slim left column so units get the full height. */
+.v2-playmat .full-product-duel-mat-base .full-product-duel-base-head {
+  position: absolute; top: .25rem; left: .4rem; z-index: 1; width: 4.4rem;
+  flex-direction: column; align-items: flex-start; gap: .15rem;
+}
+.v2-playmat .full-product-duel-mat-base .full-product-duel-base-body { height: 100%; padding-left: 4.8rem; }
+.v2-playmat .full-product-duel-mat-base { --v2-base-face: clamp(2.6rem, calc(100cqh - .8rem), 10rem); }
+.v2-playmat .full-product-duel-mat-runes { --v2-rune-row: 100cqh; }
+
+/* Base permanents: card faces like the battlefield, not mini chips. */
+.v2-playmat .full-product-duel-mat-base .full-product-duel-unit-groups { display: flex; flex-wrap: nowrap; gap: .4rem; align-items: flex-start; overflow-x: auto; }
+.v2-playmat .full-product-duel-mat-base .full-product-duel-unit-list { display: flex; gap: .3rem; }
+/* Height is the scarce axis on the base: name and state sit beside the face. */
+.v2-playmat .full-product-duel-mat-base .full-product-duel-unit { flex-direction: row; align-items: center; gap: .3rem; width: auto; max-width: none; padding: .15rem .25rem; }
+.v2-playmat .full-product-duel-mat-base .full-product-duel-unit-thumb,
+.v2-playmat .full-product-duel-mat-base .full-product-duel-unit-thumb.is-missing { width: auto; height: var(--v2-base-face); max-height: var(--v2-base-face); }
+/* An exhausted base unit turns sideways without shrinking: the face is drawn
+   1.3x taller so its turned height still fills the row, and the margins give
+   the layout box the turned footprint (1.3 x .716 = .93 high, 1.3 wide). */
+.v2-playmat .full-product-duel-mat-base .full-product-duel-unit[data-readied="false"] .full-product-duel-unit-thumb {
+  height: calc(var(--v2-base-face) * 1.3); max-height: none; transform: rotate(90deg);
+  margin-block: calc(var(--v2-base-face) * -.185); margin-inline: calc(var(--v2-base-face) * .185);
+}
+.v2-playmat .full-product-duel-mat-base .full-product-duel-unit-details { align-items: flex-start; text-align: left; max-width: 5.5rem; font-size: .65rem; }
+.v2-playmat .full-product-duel-mat-base .full-product-duel-unit-state { display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; font-size: .6rem; }
+
+/* Runes: card tiles; the viewer's own runes are buttons. */
+.v2-playmat .full-product-duel-baserune-list { gap: .4rem; height: 100%; align-items: stretch; }
+.v2-playmat .full-product-duel-mat-runes .full-product-duel-baserune-thumb,
+.v2-playmat .v2-rune-face { height: calc(var(--v2-rune-row) - 1.7rem); width: auto; aspect-ratio: 744 / 1039; object-fit: cover; border-radius: .25rem; }
+.v2-playmat .v2-rune-face[data-missing="true"] { background: #1c2523; border: 1px dashed #42534f; }
+.v2-rune-button {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .1rem;
+  height: 100%; padding: .15rem .3rem; border: 1px solid #42534f; border-radius: .4rem;
+  background: rgba(19, 28, 27, .6); color: inherit; font: inherit; cursor: pointer;
+  transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease;
+}
+.v2-rune-button[data-can-energy="true"]:hover, .v2-rune-button[data-can-power="true"]:hover {
+  border-color: #37c8bb; box-shadow: 0 0 0 2px rgba(55, 200, 187, .35); transform: translateY(-2px);
+}
+.v2-rune-button[aria-disabled="true"] { cursor: not-allowed; }
+.v2-rune[data-readied="false"] .v2-rune-face { transform: rotate(90deg) scale(.86); }
+.v2-playmat .v2-rune .full-product-duel-baserune-caption { align-items: center; font-size: .6rem; }
+
+/* Drag-and-drop. */
+.v2-playmat .v2-draggable { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.v2-playmat[data-dragging], .v2-playmat[data-dragging] * { cursor: grabbing !important; user-select: none; -webkit-user-select: none; }
+.v2-playmat [data-drop-state="legal"] { outline: 2px dashed rgba(55, 200, 187, .8); outline-offset: -2px; background-color: rgba(55, 200, 187, .06); }
+.v2-playmat [data-drop-state="over"] { outline: 3px solid #37c8bb; outline-offset: -3px; background-color: rgba(55, 200, 187, .18); }
+.v2-playmat [data-drop-state="blocked"] { opacity: .5; }
+.v2-drag-ghost { position: fixed; z-index: 60; pointer-events: none; transform: translate(-50%, -60%) rotate(-4deg); }
+.v2-drag-ghost img { display: block; height: 7.5rem; width: auto; border-radius: .4rem; box-shadow: 0 12px 32px rgba(0, 0, 0, .6); }
+.v2-drag-ghost span { display: inline-block; padding: .4rem .7rem; border-radius: .4rem; background: #1aa79b; color: #071413; font-weight: 700; }
+.v2-drag-hint {
+  position: fixed; left: 50%; bottom: 1rem; z-index: 61; transform: translateX(-50%); pointer-events: none;
+  margin: 0; padding: .4rem .9rem; border-radius: 999px; background: rgba(7, 20, 19, .92); color: #e9e5dc;
+  border: 1px solid #37c8bb; font-size: .8rem;
+}
+
+/* Hand: heading in the corner, faces fill the row. */
+.v2-playmat-hand { position: relative; }
+.v2-playmat-hand .v2-section-heading { position: absolute; top: .2rem; right: .6rem; z-index: 1; gap: .4rem; pointer-events: none; }
+.v2-playmat-hand .v2-card-row { --v2-hand-face: clamp(4rem, calc(100cqh - 2.6rem), 15rem); height: 100%; }
+.v2-playmat-hand .v2-card { padding: .2rem .25rem; gap: .1rem; }
+.v2-playmat-hand .v2-card > small:first-of-type { display: none; }
+.v2-playmat-hand .v2-card > strong { line-height: 1.1; }
+
+/* Short rune rows drop the caption (name and state stay in the button label
+   and title) so the rune face keeps the full row height. */
+@container (max-height: 84px) {
+  .v2-playmat .v2-rune .full-product-duel-baserune-caption { display: none; }
+  .v2-playmat .full-product-duel-mat-runes .full-product-duel-baserune-thumb,
+  .v2-playmat .v2-rune-face { height: calc(100cqh - .7rem); }
+}
+
+/* During a V2 match the room page's protocol toggle moves into the empty
+   middle of the app header, and the page padding shrinks, so the table gets
+   that height back. */
+.room-shell.room-page:has(> .v2-playmat) { padding-top: .5rem; padding-bottom: .5rem; gap: 0; }
+.room-shell.room-page:has(> .v2-playmat) > .match-local-controls {
+  position: fixed; top: .6rem; left: 50%; z-index: 30; transform: translateX(-50%); margin: 0;
+}
+.room-shell.room-page:has(> .v2-playmat) > .match-local-controls .button { padding: .3rem .75rem; font-size: .8rem; }
+.room-shell.room-page > .v2-match-board.v2-playmat { height: calc(100dvh - 6.9rem); }
+
+/* Battlefield units get the base treatment: the unit zone is a size
+   container, faces fill its height, owner/name/state sit beside the faces. */
+.v2-playmat .full-product-duel-battlefield > .v2-zone { container-type: size; min-height: 0; overflow: hidden; }
+.v2-playmat .full-product-duel-battlefield { --v2-base-face: clamp(2.4rem, calc(100cqh - .6rem), 10rem); }
+.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-groups { display: flex; flex-wrap: nowrap; gap: .5rem; height: 100%; overflow-x: auto; overflow-y: hidden; }
+.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-group { display: flex; flex-direction: row; justify-content: flex-start; align-items: center; gap: .25rem; height: 100%; padding: 0 .2rem; }
+.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-group-owner { margin: 0; width: auto; writing-mode: vertical-rl; font-size: .6rem; }
+.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-list { display: flex; align-items: center; gap: .3rem; height: 100%; margin: 0; padding: 0; overflow: visible; }
+.v2-playmat .full-product-duel-battlefield .full-product-duel-unit { flex-direction: row; align-items: center; gap: .3rem; width: auto; max-width: none; padding: .1rem .2rem; }
+.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-thumb,
+.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-thumb.is-missing { width: auto; height: var(--v2-base-face); max-height: var(--v2-base-face); }
+.v2-playmat .full-product-duel-battlefield .full-product-duel-unit[data-readied="false"] .full-product-duel-unit-thumb {
+  height: calc(var(--v2-base-face) * 1.3); max-height: none; transform: rotate(90deg);
+  margin-block: calc(var(--v2-base-face) * -.185); margin-inline: calc(var(--v2-base-face) * .185);
+}
+.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-details { align-items: flex-start; text-align: left; max-width: 5.5rem; font-size: .65rem; }
+.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-state { display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; font-size: .6rem; }
+/* One-line battlefield header (name, control, tags) leaves the height to the units. */
+.v2-playmat .full-product-duel-battlefield-head-main { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: baseline; gap: .4rem; min-width: 0; overflow: hidden; }
+.v2-playmat .full-product-duel-battlefield-head-main > * { flex: 0 0 auto; white-space: nowrap; }
+.v2-playmat .full-product-duel-battlefield-head .full-product-duel-battlefield-thumb { height: 1.4rem; width: auto; }
+
+/* RIFT-1148: in-match issue report entry in the board header. */
+.v2-playmat-report {
+  margin-left: .5rem; padding: .25rem .7rem; border: 1px solid #42534f; border-radius: .4rem;
+  background: rgba(19, 28, 27, .7); color: #e9e5dc; font: inherit; font-size: .78rem; cursor: pointer;
+}
+.v2-playmat-report:hover { border-color: #37c8bb; }
