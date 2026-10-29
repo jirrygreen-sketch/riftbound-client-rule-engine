@@ -145,4 +145,3 @@ export function readMatchLog(storage: DiagnosticStorage | null, roomId: string):
     entries: record.entries.map(entry => ({ ...entry, payload: sanitizeDiagnosticRecord(entry.payload) }))
   };
 }
-
