@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -158,7 +159,87 @@ describe("issue report server API", () => {
     expect(invalidAck.json).toEqual({ error: "invalid-ack" });
   });
 
-  it("returns 400 for malformed, unknown, oversized-field, and credential-bearing reports", async () => {
+  it("accepts RIFT-1131 redacted log fields and returns them unchanged in pending", async () => {
+    const { baseUrl } = await startServer({ issueReportPullToken: PULL_TOKEN });
+    const base = report(uuid());
+    const sample = {
+      ...base,
+      clientLog: [{
+        ...base.clientLog[0],
+        data: {
+          stateVersion: 1,
+          resumeToken: "[redacted]",
+          authorization: "[redacted]",
+          creds: [{ password: "[redacted]" }]
+        }
+      }],
+      matchLog: {
+        roomId: "room-1",
+        matchId: "match-1",
+        protocol: "v2",
+        viewerPlayerId: "player-1",
+        capturedAt: "2026-10-29T09:30:00.000Z",
+        entries: [{
+          at: "2026-10-29T09:30:00.000Z",
+          kind: "event",
+          eventSeq: 1,
+          payload: {
+            audience: { visibility: "private" },
+            session: { nested: { resumeToken: "[redacted]" } },
+            credentials: [{ clientSecret: "[redacted]" }]
+          }
+        }]
+      }
+    };
+
+    const accepted = await submit(baseUrl, sample);
+    expect(accepted.response.status).toBe(202);
+    expect(accepted.json).toEqual({ reportId: sample.reportId, status: "queued" });
+    expect((await pending(baseUrl)).json).toEqual({ reports: [sample] });
+  });
+
+  it("rejects unredacted and noncanonical sensitive values with their paths", async () => {
+    const { baseUrl } = await startServer({ issueReportPullToken: PULL_TOKEN });
+    const base = report(uuid());
+    const matchLog = {
+      roomId: "room-1",
+      matchId: "match-1",
+      protocol: "v2",
+      viewerPlayerId: "player-1",
+      capturedAt: "2026-10-29T09:30:00.000Z",
+      entries: [{
+        at: "2026-10-29T09:30:00.000Z",
+        kind: "event",
+        payload: { nested: { resumeToken: "not-redacted" } }
+      }]
+    };
+
+    for (const [field, value, expectedPath] of [
+      ["resumeToken", "plaintext-token", "report.clientLog[0].data.resumeToken"],
+      ["authorization", "Bearer plaintext", "report.clientLog[0].data.authorization"],
+      ["password", "<redacted>", "report.clientLog[0].data.password"]
+    ] as const) {
+      const rejected = await submit(baseUrl, {
+        ...base,
+        clientLog: [{ ...base.clientLog[0], data: { [field]: value } }]
+      });
+      expect(rejected.response.status).toBe(400);
+      expect(rejected.json).toEqual({
+        error: "invalid-report",
+        message: `${expectedPath} must be the string "[redacted]"`
+      });
+    }
+
+    const rejected = await submit(baseUrl, { ...base, matchLog });
+    expect(rejected.response.status).toBe(400);
+    expect(rejected.json).toEqual({
+      error: "invalid-report",
+      message:
+        "report.matchLog.entries[0].payload.nested.resumeToken must be the string \"[redacted]\""
+    });
+  });
+
+  it("returns 400 for malformed, unknown, and oversized-field reports", async () => {
     const { baseUrl } = await startServer({ issueReportPullToken: PULL_TOKEN });
     const cases: unknown[] = [
       { ...report(uuid()), unexpected: true },
@@ -214,9 +295,15 @@ describe("issue report server API", () => {
     ];
 
     for (const sample of cases) {
+      const index = cases.indexOf(sample);
       const rejected = await submit(baseUrl, sample);
       expect(rejected.response.status).toBe(400);
       expect(rejected.json).toMatchObject({ error: "invalid-report" });
+      if (index === 6) {
+        expect(rejected.json.message).toBe(
+          "report.clientLog[0].data.authorization must be the string \"[redacted]\""
+        );
+      }
     }
 
     const wrongType = await fetch(`${baseUrl}/api/issue-reports`, {
@@ -227,21 +314,65 @@ describe("issue report server API", () => {
     expect(wrongType.status).toBe(400);
   });
 
-  it("stops reading a body that exceeds 2 MiB and returns 413", async () => {
-    const { baseUrl } = await startServer({ issueReportPullToken: PULL_TOKEN });
-    const oversized = JSON.stringify({
-      ...report(uuid()),
-      description: "x".repeat(2 * 1024 * 1024)
-    });
-    expect(Buffer.byteLength(oversized)).toBeGreaterThan(2 * 1024 * 1024);
+  it("returns 413 and never consumes a data chunk after the 2 MiB limit", async () => {
+    const { server, baseUrl } = await startServer({ issueReportPullToken: PULL_TOKEN });
+    let serverDataEvents = 0;
+    let observedRequest: import("node:http").IncomingMessage | undefined;
+    const observeRequest = (request: import("node:http").IncomingMessage): void => {
+      observedRequest = request;
+      const emit = request.emit;
+      request.emit = function (this: import("node:http").IncomingMessage, event: string, ...args: unknown[]) {
+        if (event === "data") serverDataEvents += 1;
+        return emit.call(this, event, ...args);
+      } as typeof request.emit;
+      request.on("data", () => {});
+    };
+    server.httpServer.prependListener("request", observeRequest);
 
-    const response = await fetch(`${baseUrl}/api/issue-reports`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: oversized
+    const address = server.httpServer.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("The issue-report test server did not expose a TCP address.");
+    }
+    const socket = createConnection(address.port, "127.0.0.1");
+    let responseText = "";
+    socket.setEncoding("utf8");
+    socket.on("data", chunk => {
+      responseText += chunk;
     });
-    expect(response.status).toBe(413);
-    expect(await response.json()).toEqual({ error: "report-too-large" });
+    const closed = new Promise<void>((resolve, reject) => {
+      socket.once("close", resolve);
+      socket.once("error", error => {
+        if (!responseText.includes("HTTP/1.1 413")) reject(error);
+      });
+    });
+
+    const thresholdChunk = Buffer.from(
+      `{"description":"${"x".repeat(2 * 1024 * 1024 - 64)}"}`
+    );
+    socket.write(
+      "POST /api/issue-reports HTTP/1.1\r\n" +
+      "Host: 127.0.0.1\r\n" +
+      "Content-Type: application/json\r\n" +
+      `Content-Length: ${thresholdChunk.byteLength + 1024}\r\n` +
+      "Connection: close\r\n\r\n"
+    );
+    while (!socket.write(thresholdChunk)) {
+      await new Promise(resolve => socket.once("drain", resolve));
+    }
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const dataEventsBeforeLateWrite = serverDataEvents;
+    socket.write("x".repeat(1024));
+    expect(serverDataEvents).toBe(dataEventsBeforeLateWrite);
+    await closed;
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(responseText).toContain("HTTP/1.1 413 Payload Too Large\r\n");
+    expect(responseText.toLowerCase()).toContain("connection: close\r\n");
+    expect(responseText).toContain('{"error":"report-too-large"}');
+    expect(serverDataEvents).toBeGreaterThan(0);
+    expect(dataEventsBeforeLateWrite).toBe(serverDataEvents);
+    expect(observedRequest?.socket.destroyed).toBe(true);
+    expect((await fetch(`${baseUrl}/health`)).status).toBe(200);
     expect((await pending(baseUrl)).json).toEqual({ reports: [] });
   });
 

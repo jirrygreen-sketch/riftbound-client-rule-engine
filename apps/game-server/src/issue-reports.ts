@@ -151,6 +151,7 @@ const UUID_V4_PATTERN =
 const ISO_DATE_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|([+-])(\d{2}):(\d{2}))$/;
 const SENSITIVE_FIELD_PATTERN = /(?:token|secret|password|authorization)/i;
+const REDACTED_FIELD_VALUE = "[redacted]";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -247,8 +248,33 @@ function findSensitiveField(value: unknown, path: string): string | null {
   if (!isRecord(value)) return null;
   for (const [key, child] of Object.entries(value)) {
     const childPath = `${path}.${key}`;
-    if (SENSITIVE_FIELD_PATTERN.test(key)) return `${childPath} is not allowed`;
+    if (SENSITIVE_FIELD_PATTERN.test(key)) {
+      return `${childPath} is not allowed`;
+    }
     const found = findSensitiveField(child, childPath);
+    if (found !== null) return found;
+  }
+  return null;
+}
+
+function findUnredactedField(value: unknown, path: string): string | null {
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const found = findUnredactedField(value[index], `${path}[${index}]`);
+      if (found !== null) return found;
+    }
+    return null;
+  }
+  if (!isRecord(value)) return null;
+  for (const [key, child] of Object.entries(value)) {
+    const childPath = `${path}.${key}`;
+    if (SENSITIVE_FIELD_PATTERN.test(key)) {
+      if (child !== REDACTED_FIELD_VALUE) {
+        return `${childPath} must be the string "${REDACTED_FIELD_VALUE}"`;
+      }
+      continue;
+    }
+    const found = findUnredactedField(child, childPath);
     if (found !== null) return found;
   }
   return null;
@@ -274,8 +300,28 @@ export function validateIssueReport(input: unknown): IssueReportValidationResult
   }
   const unknownKey = hasOnlyKeys(input, ROOT_KEYS, "report");
   if (unknownKey !== null) return { ok: false, message: unknownKey };
-  const sensitiveField = findSensitiveField(input, "report");
-  if (sensitiveField !== null) return { ok: false, message: sensitiveField };
+  const topLevelSensitiveField = findSensitiveField(
+    {
+      ...input,
+      clientLog: Array.isArray(input.clientLog)
+        ? input.clientLog.map(entry => isRecord(entry) && entry.data !== undefined
+          ? { ...entry, data: undefined }
+          : entry)
+        : input.clientLog,
+      matchLog: isRecord(input.matchLog)
+        ? {
+            ...input.matchLog,
+            entries: Array.isArray(input.matchLog.entries)
+              ? input.matchLog.entries.map(entry => isRecord(entry) && entry.payload !== undefined
+                ? { ...entry, payload: undefined }
+                : entry)
+              : input.matchLog.entries
+          }
+        : input.matchLog
+    },
+    "report"
+  );
+  if (topLevelSensitiveField !== null) return { ok: false, message: topLevelSensitiveField };
 
   if (input.schemaVersion !== ISSUE_REPORT_SCHEMA_VERSION) {
     return { ok: false, message: "report.schemaVersion must be 1" };
@@ -348,6 +394,8 @@ export function validateIssueReport(input: unknown): IssueReportValidationResult
     if (messageFailure !== null) return { ok: false, message: messageFailure };
     if (entry.data !== undefined) {
       if (!isRecord(entry.data)) return { ok: false, message: `${path}.data must be an object` };
+      const sensitiveField = findUnredactedField(entry.data, `${path}.data`);
+      if (sensitiveField !== null) return { ok: false, message: sensitiveField };
       const dataFailure = serializedObjectBytes(entry.data, 8 * 1024, `${path}.data`);
       if (dataFailure !== null) return { ok: false, message: dataFailure };
     }
@@ -401,6 +449,8 @@ export function validateIssueReport(input: unknown): IssueReportValidationResult
       if (!isRecord(entry.payload)) {
         return { ok: false, message: `${path}.payload must be an object` };
       }
+      const sensitiveField = findUnredactedField(entry.payload, `${path}.payload`);
+      if (sensitiveField !== null) return { ok: false, message: sensitiveField };
       const payloadFailure = serializedObjectBytes(
         entry.payload,
         64 * 1024,

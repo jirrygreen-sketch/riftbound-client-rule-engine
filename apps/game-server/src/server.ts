@@ -350,13 +350,23 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
     if (pathname === ISSUE_REPORT_PATH ||
         pathname === ISSUE_REPORT_PENDING_PATH ||
         pathname === ISSUE_REPORT_ACK_PATH) {
-      const sendIssueReportJson = (status: number, value: unknown): void => {
+      const sendIssueReportJson = (
+        status: number,
+        value: unknown,
+        connectionClose = false,
+        afterResponse?: () => void
+      ): void => {
+        const body = JSON.stringify(value);
         response.writeHead(status, {
           "content-type": "application/json",
           "cache-control": "no-store",
+          ...(connectionClose ? {
+            connection: "close",
+            "content-length": Buffer.byteLength(body)
+          } : {}),
           ...(pathname === ISSUE_REPORT_PATH ? PUBLIC_CORS_HEADERS : {})
         });
-        response.end(JSON.stringify(value));
+        response.end(body, afterResponse);
       };
 
       if (request.method === "POST" && pathname === ISSUE_REPORT_PATH) {
@@ -373,7 +383,7 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
           });
           return;
         }
-        readRequestBytes(request, ISSUE_REPORT_MAX_BYTES).then(body => {
+        readRequestBytes(request, ISSUE_REPORT_MAX_BYTES, true).then(body => {
           let parsed: unknown;
           try {
             parsed = JSON.parse(body.toString("utf8"));
@@ -424,7 +434,12 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
           logIssueReportAccess(validation.report.reportId, body.byteLength, result);
         }).catch(error => {
           if (error instanceof RequestTooLargeError) {
-            sendIssueReportJson(413, { error: "report-too-large" });
+            sendIssueReportJson(
+              413,
+              { error: "report-too-large" },
+              true,
+              () => request.destroy()
+            );
             logIssueReportAccess(null, ISSUE_REPORT_MAX_BYTES + 1, "too-large");
             return;
           }
@@ -846,26 +861,38 @@ class RequestTooLargeError extends Error {}
 
 function readRequestBytes(
   request: IncomingMessage,
-  maximumBytes: number
+  maximumBytes: number,
+  stopOnOverflow = false
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let received = 0;
 
     request.once("error", reject);
+    let settled = false;
     request.on("data", chunk => {
+      if (settled) return;
       received += chunk.byteLength;
       if (received > maximumBytes) {
+        settled = true;
         request.removeAllListeners("data");
         request.removeAllListeners("end");
+        request.removeAllListeners("error");
+        if (stopOnOverflow) request.pause();
+        else {
           request.on("data", () => {});
           request.resume();
+        }
         reject(new RequestTooLargeError());
         return;
       }
       chunks.push(chunk);
     });
-    request.once("end", () => resolve(Buffer.concat(chunks)));
+    request.once("end", () => {
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks));
+    });
   });
 }
 
