@@ -97,4 +97,34 @@ describe("V2 diagnostic capture points", () => {
     expect(JSON.stringify(log)).not.toContain("not-for-log");
     expect(JSON.stringify(log)).not.toContain("new-secret");
   });
+
+  it("records a reconnect-delivered rejection even when its local pending entry is gone", () => {
+    const socket = new FakeSocket();
+    const controller = new V2MatchSessionController({
+      serverUrl: "ws://127.0.0.1:37480", socketFactory: () => socket,
+      diagnosticStorage: storage, requestTimeoutMs: 1_000
+    }, { roomId: "room-replayed-reject", playerId: "player-1", resumeToken: "hidden-token" });
+    controller.start();
+    socket.open();
+    socket.receive({ type: "welcome", protocolVersion: "2.0.0", resumed: true,
+      session: { roomId: "room-replayed-reject", playerId: "player-1",
+        resumeToken: "hidden-token" } });
+    socket.receive({ type: "command-receipt", protocolVersion: "2.0.0",
+      commandId: "already-completed-before-reconnect", stateVersion: 3, eventSeq: 2,
+      accepted: false, duplicate: true, rejection: "Choice is no longer pending" });
+    controller.stop();
+
+    const log = readMatchLog(storage, "room-replayed-reject");
+    expect(log?.entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "receipt", payload: expect.objectContaining({
+        commandId: "already-completed-before-reconnect", duplicate: true
+      }) }),
+      expect.objectContaining({ kind: "error", payload: expect.objectContaining({
+        message: "Choice is no longer pending"
+      }) })
+    ]));
+    expect(getClientLog().some(entry => entry.message === "Choice is no longer pending"))
+      .toBe(true);
+    expect(JSON.stringify(log)).not.toContain("hidden-token");
+  });
 });

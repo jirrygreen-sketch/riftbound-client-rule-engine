@@ -414,7 +414,9 @@ export class V2MatchSessionController {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingRequests.delete(requestId);
-        reject(new Error(`V2 请求 ${requestId} 超时。`));
+        const error = new Error(`V2 请求 ${requestId} 超时。`);
+        this.recordError(error, { requestId, type: String(packet.type) });
+        reject(error);
       }, this.requestTimeoutMs);
       this.pendingRequests.set(requestId, { packet: fullPacket, resumable, resolve, reject, timer });
       try {
@@ -422,7 +424,9 @@ export class V2MatchSessionController {
       } catch (caught) {
         clearTimeout(timer);
         this.pendingRequests.delete(requestId);
-        reject(caught instanceof Error ? caught : new Error(String(caught)));
+        const error = caught instanceof Error ? caught : new Error(String(caught));
+        this.recordError(error, { requestId, type: String(packet.type) });
+        reject(error);
       }
     });
   }
@@ -463,6 +467,7 @@ export class V2MatchSessionController {
       if (this.manuallyClosed) return;
       this.dropPendingNonResumableRequests();
       this.store.setConnectionStatus("reconnecting");
+      this.recordStatus("reconnecting", "WebSocket closed");
       this.emit();
       if (this.reconnectAttempts >= this.maxReconnectAttempts) {
         this.store.setConnectionStatus("disconnected");
@@ -532,11 +537,10 @@ export class V2MatchSessionController {
       return;
     }
     if (isServerError(packet)) {
-      this.recordError(new Error(packet.message), {
+      this.fail(packet.message, {
         code: packet.code,
         requestId: packet.requestId ?? null
       });
-      this.fail(packet.message);
       if (packet.requestId) {
         const pending = this.pendingRequests.get(packet.requestId);
         if (pending) {
@@ -561,6 +565,15 @@ export class V2MatchSessionController {
       const receipt = packet as V2CommandReceipt;
       this.lastReceipt = receipt;
       this.recordMatch("receipt", receipt, true, receipt.stateVersion, receipt.eventSeq);
+      if (!receipt.accepted) {
+        const reason = receipt.rejection ?? "服务端拒绝该命令。";
+        this.error = reason;
+        appendClientLog({ level: "error", source: "v2-session", message: reason,
+          data: { commandId: receipt.commandId } });
+        this.recordMatch("error", { commandId: receipt.commandId,
+          message: reason, rejection: receipt.rejection }, true,
+          receipt.stateVersion, receipt.eventSeq);
+      }
       const pending = this.pendingCommands.get(receipt.commandId);
       if (pending) {
         clearTimeout(pending.timer);
@@ -570,12 +583,6 @@ export class V2MatchSessionController {
         }
         else {
           const reason = receipt.rejection ?? "服务端拒绝该命令。";
-          this.error = reason;
-          appendClientLog({ level: "error", source: "v2-session", message: reason,
-            data: { commandId: receipt.commandId } });
-          this.recordMatch("error", { commandId: receipt.commandId,
-            message: reason, rejection: receipt.rejection }, true,
-            receipt.stateVersion, receipt.eventSeq);
           for (const waiter of pending.waiters) waiter.reject(new Error(reason));
         }
       }
@@ -607,7 +614,10 @@ export class V2MatchSessionController {
           engineEvent.stateVersion, engineEvent.eventSeq);
       }
     }
-    if (!applied.accepted && applied.reason && applied.reason !== "Stale projection") this.error = applied.reason;
+    if (!applied.accepted && applied.reason && applied.reason !== "Stale projection") {
+      this.error = applied.reason;
+      this.recordError(new Error(applied.reason), { type: String((packet as Record<string, unknown>).type) });
+    }
     this.emit();
   }
 
@@ -630,6 +640,9 @@ export class V2MatchSessionController {
       });
     } catch {
       // Reconnect will send the same command id and packet again.
+      appendClientLog({ level: "warn", source: "v2-session",
+        message: `V2 命令 ${pending.commandId} 发送失败，等待重连后重试。`,
+        data: { commandId: pending.commandId, attempt: pending.attempts } });
       return;
     }
     clearTimeout(pending.timer);
@@ -662,8 +675,9 @@ export class V2MatchSessionController {
     return `desktop-v2-${kind}-${Date.now()}-${this.idCounter}`;
   }
 
-  private fail(message: string): void {
+  private fail(message: string, data?: unknown): void {
     this.error = message;
+    this.recordError(new Error(message), data);
     this.emit();
   }
 

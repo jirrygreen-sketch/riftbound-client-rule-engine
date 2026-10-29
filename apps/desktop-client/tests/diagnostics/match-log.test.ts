@@ -15,7 +15,8 @@ describe("local match logs", () => {
       appendMatchLog(storage, { roomId: `room-${index}`, matchId: `match-${index}`,
         viewerPlayerId: "player-1", kind: "status", payload: { index } });
     }
-    expect(readMatchLogHistory(storage)).toEqual([
+    const history = readMatchLogHistory(storage);
+    expect(history).toEqual([
       "room-2", "room-3", "room-4", "room-5", "room-6"
     ]);
     expect(readMatchLog(storage, "room-0")).toBeNull();

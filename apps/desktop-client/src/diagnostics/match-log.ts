@@ -41,7 +41,8 @@ export function readMatchLogHistory(storage: DiagnosticStorage | null): string[]
     const value: unknown = JSON.parse(storage.getItem(MATCH_LOG_HISTORY_KEY) ?? "null");
     if (value === null || typeof value !== "object" || Array.isArray(value)) return [];
     const roomIds = (value as Record<string, unknown>).roomIds;
-    return Array.isArray(roomIds) ? roomIds.filter((id): id is string => typeof id === "string").slice(-MATCH_LOG_KEEP) : [];
+    if (!Array.isArray(roomIds)) return [];
+    return roomIds.filter((id): id is string => typeof id === "string").slice(-MATCH_LOG_KEEP);
   } catch { return []; }
 }
 
