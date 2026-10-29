@@ -33,10 +33,6 @@ export interface IssueReportDraft {
   readonly reportId: string | null;
 }
 
-export function resetReportDraftAfterSuccess(draft: IssueReportDraft): IssueReportDraft {
-  return { ...draft, reportId: null };
-}
-
 export function currentReportDraft(title: string, description: string, reportId: string | null): IssueReportDraft {
   return { title, description, reportId };
 }
@@ -198,6 +194,10 @@ export function draftAfterDescriptionChange(draft: IssueReportDraft, description
 export function reportIdForAttempt(draft: IssueReportDraft): { readonly draft: IssueReportDraft; readonly reportId: string } {
   const reportId = draft.reportId ?? newIssueReportId();
   return { draft: { ...draft, reportId }, reportId };
+}
+
+export function resetReportDraftAfterSuccess(draft: IssueReportDraft): IssueReportDraft {
+  return { ...draft, reportId: null };
 }
 
 export function canSubmitIssueDraft(draft: IssueReportDraft, submitting: boolean): boolean {
