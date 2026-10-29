@@ -231,6 +231,18 @@ describe("waiting V2 room restart", () => {
       engineRuntimeJournal: null
     });
 
+    // RIFT-1130: resuming during the mulligan window validates the event
+    // cursor against the runtime clock instead of crashing. After a restart
+    // the window has no engine runtime yet, so that clock is the setup clock.
+    expect(restored!.runtimeClock.eventSeq).toBe(0);
+    for (const target of [original, restored!]) {
+      expect(() => target.validateResumeCursors(aliceSession.resumeToken, 0, target.currentRoomEventSeq))
+        .not.toThrow();
+      expect(() => target.validateResumeCursors(bobSession.resumeToken, 0)).not.toThrow();
+      expect(() => target.validateResumeCursors(aliceSession.resumeToken, target.runtimeClock.eventSeq + 1))
+        .toThrow("Event cursor is ahead of the authoritative log");
+    }
+
     const aliceResumed = reconnect(restored!, aliceSession, "alice-resumed");
     reconnect(restored!, bobSession, "bob-resumed");
     const setup = projectionFor(restored!, "player-1");

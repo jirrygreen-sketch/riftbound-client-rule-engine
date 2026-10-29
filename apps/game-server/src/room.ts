@@ -1699,8 +1699,10 @@ export class GameRoom {
           "command-rejected"
         );
       }
-      if (this.hasGame &&
-          afterEventSeq > (this.duelMatch?.eventSeq ?? this.engineProjection?.eventSeq ?? this.state!.eventSeq)) {
+      // The runtime clock covers every game shape, including an engine-v2
+      // mulligan window whose engine runtime does not exist yet (its setup
+      // projection is at eventSeq 0) and a lazily restored room.
+      if (this.hasGame && afterEventSeq > this.runtimeClock.eventSeq) {
         throw new RoomError(
           "Event cursor is ahead of the authoritative log",
           "command-rejected"
