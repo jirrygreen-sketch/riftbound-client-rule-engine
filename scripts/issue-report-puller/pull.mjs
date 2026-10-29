@@ -13,7 +13,7 @@
 // the Zira Authorization header is read at run time from an existing local
 // configuration file.
 
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -51,7 +51,13 @@ export async function loadConfig(configPath = DEFAULT_CONFIG_PATH) {
   return { ...DEFAULTS, ...overrides };
 }
 
-async function readSecretFile(file, label) {
+/** Reads a secret only from a regular file that no group/other can access. */
+export async function readSecretFile(file, label) {
+  const info = await stat(file);
+  if (!info.isFile()) throw new Error(`${label} ${file} is not a regular file`);
+  if ((info.mode & 0o077) !== 0) {
+    throw new Error(`${label} ${file} has mode ${(info.mode & 0o777).toString(8)}; chmod 600 it first`);
+  }
   const value = (await readFile(file, "utf8")).trim();
   if (value.length === 0) throw new Error(`${label} file ${file} is empty`);
   return value;
@@ -210,38 +216,58 @@ export function createReportServerClient({ serverUrl, pullToken, fetchImpl = fet
   };
 }
 
+/** Attachment names already uploaded for a filed report (legacy `attached: true` means all). */
+function uploadedAttachments(record, report) {
+  if (record.attached === true) return new Set(attachmentsFor(report).map(file => file.name));
+  return new Set(Array.isArray(record.uploaded) ? record.uploaded : []);
+}
+
 /**
  * One pull cycle. Returns a summary; never logs report content.
- * Reports already filed (per state) are only acknowledged again.
+ * A report is acknowledged only once its issue exists and every attachment is
+ * uploaded; a report filed earlier resumes with only its missing attachments,
+ * and never gets a second issue.
  */
 export async function runOnce({ server, zira, state, saveStateFn, config, log = () => undefined }) {
   const reports = await server.pending(config.batchSize);
   const toAck = [];
-  const summary = { fetched: reports.length, filed: 0, reacknowledged: 0, skipped: 0, failed: 0 };
+  const summary = { fetched: reports.length, filed: 0, resumed: 0, reacknowledged: 0, skipped: 0, failed: 0 };
   for (const report of reports) {
     if (!isReport(report)) {
       summary.skipped += 1;
       log(`skip malformed report ${oneLine(report?.reportId, 40)}`);
       continue;
     }
-    const known = state.filed[report.reportId];
-    if (known) {
-      toAck.push(report.reportId);
-      summary.reacknowledged += 1;
-      continue;
-    }
+    let record = state.filed[report.reportId];
+    const isNew = record === undefined;
     try {
-      const issueKey = await zira.createIssue(issueFieldsFor(report, config));
-      // Remember the issue before attaching, so an attachment failure never
-      // leads to a second issue for the same report.
-      state.filed[report.reportId] = { issueKey, filedAt: new Date().toISOString(), attached: false };
-      await saveStateFn(state);
-      for (const file of attachmentsFor(report)) await zira.attach(issueKey, file);
-      state.filed[report.reportId].attached = true;
-      await saveStateFn(state);
+      if (isNew) {
+        const issueKey = await zira.createIssue(issueFieldsFor(report, config));
+        // Remember the issue before attaching, so a later failure never leads
+        // to a second issue for the same report.
+        record = { issueKey, filedAt: new Date().toISOString(), uploaded: [] };
+        state.filed[report.reportId] = record;
+        await saveStateFn(state);
+      }
+      const done = uploadedAttachments(record, report);
+      const missing = attachmentsFor(report).filter(file => !done.has(file.name));
+      for (const file of missing) {
+        await zira.attach(record.issueKey, file);
+        done.add(file.name);
+        record.uploaded = [...done];
+        delete record.attached;
+        await saveStateFn(state);
+      }
       toAck.push(report.reportId);
-      summary.filed += 1;
-      log(`filed ${report.reportId} as ${issueKey}`);
+      if (isNew) {
+        summary.filed += 1;
+        log(`filed ${report.reportId} as ${record.issueKey}`);
+      } else if (missing.length > 0) {
+        summary.resumed += 1;
+        log(`resumed ${report.reportId} on ${record.issueKey} (+${missing.length} attachment)`);
+      } else {
+        summary.reacknowledged += 1;
+      }
     } catch (error) {
       summary.failed += 1;
       log(`failed ${report.reportId}: ${error.message}`);

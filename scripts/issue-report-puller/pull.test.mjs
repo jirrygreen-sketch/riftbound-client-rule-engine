@@ -5,6 +5,7 @@ import path from "node:path";
 import { test } from "node:test";
 import {
   attachmentsFor,
+  readSecretFile,
   createReportServerClient,
   createZiraClient,
   issueFieldsFor,
@@ -58,7 +59,7 @@ function fakeServer(reports) {
   };
 }
 
-function fakeZira({ failAttach = false } = {}) {
+function fakeZira({ failAttach = false, failNames = [] } = {}) {
   const issues = [];
   const attachments = [];
   return {
@@ -69,7 +70,7 @@ function fakeZira({ failAttach = false } = {}) {
       return `RIFT-${2000 + issues.length}`;
     },
     async attach(key, file) {
-      if (failAttach) throw new Error("upload failed");
+      if (failAttach || failNames.includes(file.name)) throw new Error("upload failed");
       attachments.push({ key, name: file.name, body: file.body });
     }
   };
@@ -80,7 +81,7 @@ test("files one issue per report with both logs attached, then acknowledges", as
   const zira = fakeZira();
   const state = { filed: {} };
   const summary = await runOnce({ server, zira, state, config, saveStateFn: async () => undefined });
-  assert.deepEqual(summary, { fetched: 1, filed: 1, reacknowledged: 0, skipped: 0, failed: 0 });
+  assert.deepEqual(summary, { fetched: 1, filed: 1, resumed: 0, reacknowledged: 0, skipped: 0, failed: 0 });
   assert.equal(zira.issues.length, 1);
   assert.equal(zira.issues[0].summary, "【玩家上报】换牌后卡住");
   assert.deepEqual(zira.issues[0].labels, ["user-report", "m1"]);
@@ -90,7 +91,7 @@ test("files one issue per report with both logs attached, then acknowledges", as
   assert.deepEqual(zira.attachments.map(file => file.name), ["client-log.json", "match-log.json"]);
   assert.deepEqual(server.acked, [report().reportId]);
   assert.equal(state.filed[report().reportId].issueKey, "RIFT-2001");
-  assert.equal(state.filed[report().reportId].attached, true);
+  assert.deepEqual(state.filed[report().reportId].uploaded, ["client-log.json", "match-log.json"]);
 });
 
 test("a report outside a match carries only the client log", () => {
@@ -109,17 +110,51 @@ test("an already filed report is only re-acknowledged, never filed twice", async
   assert.deepEqual(server.acked, [report().reportId]);
 });
 
-test("an attachment failure keeps the report queued but remembers the issue", async () => {
+test("a partial attachment failure keeps the report queued, then uploads only the missing file", async () => {
   const server = fakeServer([report()]);
-  const zira = fakeZira({ failAttach: true });
+  const first = fakeZira({ failNames: ["match-log.json"] });
   const state = { filed: {} };
-  const summary = await runOnce({ server, zira, state, config, saveStateFn: async () => undefined });
+  const summary = await runOnce({ server, zira: first, state, config, saveStateFn: async () => undefined });
   assert.equal(summary.failed, 1);
   assert.deepEqual(server.acked, []);
+  assert.deepEqual(first.attachments.map(file => file.name), ["client-log.json"]);
   assert.equal(state.filed[report().reportId].issueKey, "RIFT-2001");
-  // the next run does not create a second issue
-  const again = await runOnce({ server, zira: fakeZira(), state, config, saveStateFn: async () => undefined });
+  assert.deepEqual(state.filed[report().reportId].uploaded, ["client-log.json"]);
+
+  // the next run reuses the issue, uploads only the missing attachment, then acknowledges
+  const second = fakeZira();
+  const again = await runOnce({ server, zira: second, state, config, saveStateFn: async () => undefined });
+  assert.equal(again.resumed, 1);
+  assert.equal(second.issues.length, 0);
+  assert.deepEqual(second.attachments, [{ key: "RIFT-2001", name: "match-log.json", body: attachmentsFor(report())[1].body }]);
+  assert.deepEqual(server.acked, [report().reportId]);
+  assert.deepEqual(state.filed[report().reportId].uploaded, ["client-log.json", "match-log.json"]);
+});
+
+test("a complete report whose acknowledgement failed is only re-acknowledged", async () => {
+  const server = fakeServer([report()]);
+  const failingAck = { ...server, async ack() { throw new Error("ack HTTP 502"); } };
+  const zira = fakeZira();
+  const state = { filed: {} };
+  await assert.rejects(runOnce({ server: failingAck, zira, state, config, saveStateFn: async () => undefined }), /ack HTTP 502/);
+  assert.equal(zira.issues.length, 1);
+  assert.equal(zira.attachments.length, 2);
+
+  const retry = fakeZira();
+  const again = await runOnce({ server, zira: retry, state, config, saveStateFn: async () => undefined });
   assert.equal(again.reacknowledged, 1);
+  assert.equal(retry.issues.length, 0);
+  assert.equal(retry.attachments.length, 0);
+  assert.deepEqual(server.acked, [report().reportId]);
+});
+
+test("legacy state marked attached is treated as complete", async () => {
+  const server = fakeServer([report()]);
+  const zira = fakeZira();
+  const state = { filed: { [report().reportId]: { issueKey: "RIFT-1999", attached: true } } };
+  const summary = await runOnce({ server, zira, state, config, saveStateFn: async () => undefined });
+  assert.equal(summary.reacknowledged, 1);
+  assert.equal(zira.attachments.length, 0);
 });
 
 test("malformed reports are skipped and stay queued", async () => {
@@ -180,6 +215,27 @@ test("zira client posts Jira-style fields and multipart attachments", async () =
   assert.deepEqual(created.fields.parent, { key: "RIFT-1046" });
   assert.equal(calls[1].url, "https://zira.example/api/v1/issues/RIFT-3000/attachments");
   assert.ok(calls[1].init.body instanceof FormData);
+});
+
+test("the pull token is only read from a private regular file", async () => {
+  const { chmod, writeFile } = await import("node:fs/promises");
+  const directory = await mkdtemp(path.join(tmpdir(), "issue-puller-"));
+  try {
+    const file = path.join(directory, "token");
+    const secret = "pull-token-0123456789abcdef0123456789";
+    await writeFile(file, `${secret}\n`, { mode: 0o600 });
+    await chmod(file, 0o600);
+    assert.equal(await readSecretFile(file, "pull token"), secret);
+    await chmod(file, 0o644);
+    await assert.rejects(readSecretFile(file, "pull token"), error => {
+      assert.match(error.message, /mode 644; chmod 600/);
+      assert.doesNotMatch(error.message, /pull-token-0123/);
+      return true;
+    });
+    await assert.rejects(readSecretFile(directory, "pull token"), /not a regular file/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("state is written atomically with private permissions", async () => {
