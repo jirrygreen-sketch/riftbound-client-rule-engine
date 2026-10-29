@@ -71,6 +71,7 @@ describe("local card-image bridge", () => {
     expect(preferLocalCardImage("sfd-026-221", server, null, bridge)).toBe(server);
     expect(preferLocalCardImage("sfd-026-221", server, "https://evil.example/a.png", bridge)).toBe(server);
     expect(preferLocalCardImage("sfd-026-221", null, null, bridge)).toBeNull();
+    expect(preferLocalCardImage("sfd-026-221", "", null, bridge)).toBe("");
   });
 
   it("prefetches each catalog printing once, from its official image", () => {
