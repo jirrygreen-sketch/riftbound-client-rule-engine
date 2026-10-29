@@ -78,10 +78,14 @@ export function v2PlannedDamage(plan: V2DamagePlan): number {
 /**
  * A click on one unit or a stack. Combat damage must make one unit lethal
  * before the next (core rules: Fight!), so a click tops each clicked unit up
- * to lethal in turn; once all of them are lethal, a further click adds one
- * more point to the first. The budget is never exceeded.
+ * to lethal in turn. Damage beyond lethal is only allowed once no other
+ * target can still take lethal damage (CR 467.2.c.3/.c.4): a click on an
+ * already lethal unit goes to the next not-yet-lethal target in `targets`
+ * (the server-projected enemy units) and only overflows onto the clicked
+ * unit when every target is lethal. The budget is never exceeded.
  */
-export function v2AssignDamage(plan: V2DamagePlan, clicked: readonly V2ProjectedObject[], budget: number): V2DamagePlan {
+export function v2AssignDamage(plan: V2DamagePlan, clicked: readonly V2ProjectedObject[], budget: number,
+  targets: readonly V2ProjectedObject[] = clicked): V2DamagePlan {
   let remaining = budget - v2PlannedDamage(plan);
   if (remaining <= 0 || clicked.length === 0) return plan;
   const drafts: Record<string, string> = { ...plan.drafts };
@@ -101,7 +105,15 @@ export function v2AssignDamage(plan: V2DamagePlan, clicked: readonly V2Projected
     remaining -= add;
     added = true;
   }
-  if (!added) put(clicked[0]!.objectId, amountOf({ drafts, order }, clicked[0]!.objectId) + 1);
+  if (!added) {
+    const next = targets.find(target => amountOf({ drafts, order }, target.objectId) < v2LethalNeed(target));
+    if (next === undefined) {
+      put(clicked[0]!.objectId, amountOf({ drafts, order }, clicked[0]!.objectId) + 1);
+    } else {
+      const current = amountOf({ drafts, order }, next.objectId);
+      put(next.objectId, current + Math.min(v2LethalNeed(next) - current, remaining));
+    }
+  }
   return { drafts, order };
 }
 

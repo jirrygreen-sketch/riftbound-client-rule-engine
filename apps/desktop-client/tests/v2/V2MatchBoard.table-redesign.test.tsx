@@ -122,9 +122,19 @@ describe("RIFT-1146 on-board damage allocation", () => {
     expect(v2AssignDamage(plan, [units[0]!], 5)).toBe(plan);
   });
 
-  it("adds one point to an already lethal unit and takes points back on right click", () => {
-    const lethal = v2AssignDamage({ drafts: {}, order: [] }, [units[0]!], 6);
-    const extra = v2AssignDamage(lethal, [units[0]!], 6);
+  it("sends a click on a lethal unit to the next target that is not yet lethal (CR 467.2.c.3/.c.4)", () => {
+    const targets = [units[0]!, units[1]!];
+    const lethal = v2AssignDamage({ drafts: {}, order: [] }, [units[0]!], 4, targets);
+    expect(lethal.drafts).toEqual({ x: "2" });
+    // x is lethal while y can still take lethal damage: the extra damage goes to y, not x.
+    const next = v2AssignDamage(lethal, [units[0]!], 4, targets);
+    expect(next).toEqual({ drafts: { x: "2", y: "2" }, order: ["x", "y"] });
+    expect(next.drafts.x).toBe("2");
+  });
+
+  it("overflows onto a lethal unit only once every target is lethal, and takes points back on right click", () => {
+    const lethal = v2AssignDamage({ drafts: {}, order: [] }, [units[0]!], 6, [units[0]!]);
+    const extra = v2AssignDamage(lethal, [units[0]!], 6, [units[0]!]);
     expect(extra.drafts).toEqual({ x: "3" });
     expect(v2UnassignDamage(v2UnassignDamage(v2UnassignDamage(extra, [units[0]!]), [units[0]!]), [units[0]!]))
       .toEqual({ drafts: {}, order: [] });

@@ -747,7 +747,7 @@ export function V2MatchBoard({
       if (combatDamage !== null && combatDamageBudget !== null && objects.length > 0 &&
           objects.every(object => combatTargetIds.has(object.objectId))) {
         if (!canAct) return true;
-        const next = v2AssignDamage(damagePlan, objects, combatDamageBudget);
+        const next = v2AssignDamage(damagePlan, objects, combatDamageBudget, combatDamageTargets);
         setCombatDamageDrafts(next.drafts);
         setCombatDamageOrder(next.order);
         return true;
