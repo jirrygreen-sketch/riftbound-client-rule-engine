@@ -8,7 +8,6 @@ import type {
   ObjectRef,
   ObjectSnapshot,
   ResolveContext,
-  Schema,
   Value,
 } from '../contract.js';
 import { matchesObjectPredicates } from '../filters/predicates.js';
@@ -38,6 +37,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isExpr = (value: unknown): value is Expr =>
   isRecord(value) && typeof value.kind === 'string' && value.kind.length > 0;
 
+const evaluateValue = (ctx: ResolveContext, value: unknown): Value =>
+  isExpr(value) ? ctx.evaluate(value) : value as Value;
+
 function parseArgs(value: unknown): ParsedReflexiveArgs {
   if (!isRecord(value)) throw new TypeError('trigger.reflexive args must be an object');
   for (const key of Object.keys(value)) {
@@ -54,20 +56,8 @@ function parseArgs(value: unknown): ParsedReflexiveArgs {
   return value as unknown as ParsedReflexiveArgs;
 }
 
-const argsSchema: Schema<ParsedReflexiveArgs> = {
-  parse: parseArgs,
-  safeParse: (value: unknown) => {
-    try { return { success: true, data: parseArgs(value) }; }
-    catch (error) { return { success: false, error }; }
-  },
-};
-
 function negated(): InstructionResult {
   return { status: 'negated', reason: 'impossible', events: [] };
-}
-
-function sameRef(left: ObjectRef, right: ObjectRef): boolean {
-  return left.id === right.id && left.zoneEntryId === right.zoneEntryId;
 }
 
 function collectRefs(value: unknown, output: ObjectRef[], seen = new Set<string>()): void {
@@ -161,15 +151,6 @@ function evaluateCondition(ctx: ResolveContext, value: Value | undefined): boole
   return ctx.test(condition);
 }
 
-function evaluateCount(ctx: ResolveContext, expression: Expr | undefined): number {
-  if (expression === undefined) return 1;
-  const value = ctx.evaluate(expression);
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
-    throw new TypeError('trigger.reflexive count must be a non-negative safe integer');
-  }
-  return value;
-}
-
 function evaluateBody(ctx: ResolveContext, expression: Expr): readonly Instruction[] {
   const value = ctx.evaluate(expression);
   const body = Array.isArray(value)
@@ -187,26 +168,25 @@ function evaluateBody(ctx: ResolveContext, expression: Expr): readonly Instructi
   return body as unknown as readonly Instruction[];
 }
 
-function evaluateLinkKey(ctx: ResolveContext, args: ParsedReflexiveArgs): string | undefined {
-  const expression = args.link ?? args.linkKey;
-  if (expression === undefined) return undefined;
-  const value = ctx.evaluate(expression);
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new TypeError('trigger.reflexive link key must be a non-empty string');
-  }
-  return value;
-}
-
-function evaluateOptionalString(ctx: ResolveContext, expression: Expr | undefined, label: string): string | undefined {
-  if (expression === undefined) return undefined;
-  const value = ctx.evaluate(expression);
-  if (typeof value !== 'string' || value.length === 0) throw new TypeError(`trigger.reflexive ${label} must be a non-empty string`);
-  return value;
+function productionArgs(value: unknown): ParsedReflexiveArgs {
+  // resolveChainBody wraps authored Expr arguments in its primitiveArgs envelope.
+  // Keep that envelope while restoring the declaration's original nested body.
+  if (!isRecord(value) || !isRecord(value.primitiveArgs)) return parseArgs(value);
+  const authored = value.primitiveArgs as Record<string, unknown>;
+  const raw = { ...authored };
+  if (authored.body !== undefined) raw.body = authored.body;
+  return parseArgs(raw);
 }
 
 const triggerReflexive: InstructionDef<ParsedReflexiveArgs> = {
   op: 'trigger.reflexive',
-  argsSchema,
+  argsSchema: {
+    parse: productionArgs,
+    safeParse: (value: unknown) => {
+      try { return { success: true, data: productionArgs(value) }; }
+      catch (error) { return { success: false, error }; }
+    },
+  },
   execute(ctx, args): InstructionResult {
     const runtime = reflexivePendingRuntimeFor(ctx.source);
     if (runtime === undefined) return negated();
@@ -222,19 +202,48 @@ const triggerReflexive: InstructionDef<ParsedReflexiveArgs> = {
       body = evaluateBody(ctx, args.body);
       objects = args.objects === undefined && args.burned === undefined
         ? undefined
-        : ctx.evaluate((args.objects ?? args.burned)!);
-      filter = args.filter === undefined ? undefined : objectFilter(ctx.evaluate(args.filter));
-      conditionResult = evaluateCondition(ctx, args.condition === undefined ? undefined : ctx.evaluate(args.condition));
-      count = evaluateCount(ctx, args.count);
-      linkKey = evaluateLinkKey(ctx, args);
-      event = evaluateOptionalString(ctx, args.at, 'at');
+        : evaluateValue(ctx, args.objects ?? args.burned);
+      filter = args.filter === undefined ? undefined : objectFilter(evaluateValue(ctx, args.filter));
+      conditionResult = evaluateCondition(ctx, args.condition === undefined ? undefined : evaluateValue(ctx, args.condition));
+      count = args.count === undefined
+        ? 1
+        : (() => {
+          const evaluated = evaluateValue(ctx, args.count);
+          if (typeof evaluated !== 'number' || !Number.isSafeInteger(evaluated) || evaluated < 0) {
+            throw new TypeError('trigger.reflexive count must be a non-negative safe integer');
+          }
+          return evaluated;
+        })();
+      linkKey = args.link === undefined && args.linkKey === undefined
+        ? undefined
+        : (() => {
+          const expression = (args.link ?? args.linkKey)!;
+          const evaluated = evaluateValue(ctx, expression);
+          if (typeof evaluated !== 'string' || evaluated.length === 0) {
+            throw new TypeError('trigger.reflexive link key must be a non-empty string');
+          }
+          return evaluated;
+        })();
+      event = args.at === undefined ? undefined : (() => {
+        const evaluated = evaluateValue(ctx, args.at);
+        if (typeof evaluated !== 'string' || evaluated.length === 0) {
+          throw new TypeError('trigger.reflexive at must be a non-empty string');
+        }
+        return evaluated;
+      })();
     } catch (error) {
       // Direct primitive harnesses receive an evaluated object while the
       // production interpreter passes Expr envelopes. Re-evaluate the same
       // fields without the envelope so both entry points exercise one schema.
       if (error instanceof MissingInformation) return negated();
-      if (isRecord(args.body) && !('kind' in args.body)) {
-        body = args.body as unknown as readonly Instruction[];
+      const primitiveBody = isRecord(args.body)
+        ? (args.body as unknown as Record<string, unknown>).primitiveArgs
+        : undefined;
+      const directBody = isRecord(primitiveBody)
+        ? primitiveBody.body
+        : args.body;
+      if (isRecord(directBody) && !('kind' in directBody)) {
+        body = directBody as unknown as readonly Instruction[];
         objects = args.objects === undefined && args.burned === undefined
           ? undefined
           : (args.objects ?? args.burned) as unknown as Value;
