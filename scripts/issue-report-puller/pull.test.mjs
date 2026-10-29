@@ -5,6 +5,7 @@ import path from "node:path";
 import { test } from "node:test";
 import {
   attachmentsFor,
+  loadConfig,
   readSecretFile,
   createReportServerClient,
   createZiraClient,
@@ -233,6 +234,29 @@ test("the pull token is only read from a private regular file", async () => {
       return true;
     });
     await assert.rejects(readSecretFile(directory, "pull token"), /not a regular file/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("the Zira base URL must come from local config or the environment", async () => {
+  const { writeFile } = await import("node:fs/promises");
+  const directory = await mkdtemp(path.join(tmpdir(), "issue-puller-"));
+  try {
+    const missing = path.join(directory, "missing.json");
+    await assert.rejects(loadConfig(missing, {}), /set "ziraBaseUrl"/);
+    const fromEnv = await loadConfig(missing, { RIFTBOUND_ZIRA_BASE_URL: "https://zira.example.test/" });
+    assert.equal(fromEnv.ziraBaseUrl, "https://zira.example.test");
+    const file = path.join(directory, "config.json");
+    await writeFile(file, JSON.stringify({ ziraBaseUrl: "https://tracker.example.test", batchSize: 3 }));
+    const fromFile = await loadConfig(file, {});
+    assert.equal(fromFile.ziraBaseUrl, "https://tracker.example.test");
+    assert.equal(fromFile.batchSize, 3);
+    assert.equal(fromFile.serverUrl, "https://rift-beta.xjerryx.com");
+    await writeFile(file, JSON.stringify({ ziraBaseUrl: "http://tracker.example.test" }));
+    await assert.rejects(loadConfig(file, {}), /https URL without credentials/);
+    await writeFile(file, JSON.stringify({ ziraBaseUrl: "https://user:pw@tracker.example.test" }));
+    await assert.rejects(loadConfig(file, {}), /https URL without credentials/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
