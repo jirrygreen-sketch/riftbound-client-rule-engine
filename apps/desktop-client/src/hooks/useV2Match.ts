@@ -58,6 +58,7 @@ const emptySnapshot: V2MatchSessionSnapshot = {
   room: null,
   session: null,
   pendingCommandIds: [],
+  pendingCommandSince: null,
   error: null,
   reconnectUrl: "",
   lastReceipt: null
