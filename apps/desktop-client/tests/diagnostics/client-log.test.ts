@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   appendClientLog,
+  bindClientLogStorage,
   CLIENT_LOG_LIMIT,
   CLIENT_LOG_STORAGE_BYTES,
   CLIENT_LOG_STORAGE_KEY,
@@ -47,6 +48,31 @@ describe("client diagnostics ring buffer", () => {
     expect(() => initializeClientLog({ getItem: () => { throw new Error("read"); },
       setItem: () => { throw new Error("write"); } })).not.toThrow();
     expect(() => appendClientLog({ level: "info", source: "test", message: "safe" })).not.toThrow();
+    expect(getClientLog().some(entry => entry.source === "client-log-storage")).toBe(true);
+  });
+
+  it("rebinding the mounted app never replaces newer memory entries", () => {
+    const storage = new MemoryStorage();
+    initializeClientLog(storage);
+    appendClientLog({ level: "info", source: "before-mount", message: "kept" });
+    bindClientLogStorage(storage);
+    bindClientLogStorage(storage);
+    expect(getClientLog().map(entry => entry.message)).toEqual(["kept"]);
+  });
+
+  it("stops persistence for the session after the first setItem failure", () => {
+    let writes = 0;
+    const storage = {
+      getItem: () => null,
+      setItem: () => { writes += 1; throw new Error("quota exceeded"); }
+    };
+    initializeClientLog(storage);
+    appendClientLog({ level: "error", source: "first", message: "one" });
+    appendClientLog({ level: "error", source: "second", message: "two" });
+    expect(writes).toBe(1);
+    expect(getClientLog()).toHaveLength(3);
+    expect(getClientLog().filter(entry => entry.source === "client-log-storage"))
+      .toHaveLength(1);
   });
 
   it("truncates oversized structured data to the 8 KiB per-entry contract", () => {

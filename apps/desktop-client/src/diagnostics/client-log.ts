@@ -69,31 +69,60 @@ export function readClientLog(storage: DiagnosticStorage | null): ClientLogEntry
 
 let memoryEntries: ClientLogEntry[] = [];
 let activeStorage: DiagnosticStorage | null = null;
+let persistenceDisabled = false;
+let persisting = false;
 
 export function initializeClientLog(storage: DiagnosticStorage | null): void {
   activeStorage = storage;
+  persistenceDisabled = false;
+  persisting = false;
   memoryEntries = readClientLog(storage);
+}
+
+/** A repeated bind only swaps a not-yet-seen storage, never discards memory. */
+export function bindClientLogStorage(storage: DiagnosticStorage | null): void {
+  if (activeStorage === storage) return;
+  activeStorage = storage;
+  if (memoryEntries.length === 0) memoryEntries = readClientLog(storage);
 }
 
 export function appendClientLog(input: ClientLogInput): ClientLogEntry {
   const entry = normalize(input);
   memoryEntries = trimClientLog([...memoryEntries, entry]);
-  if (activeStorage) {
-    try { activeStorage.setItem(CLIENT_LOG_STORAGE_KEY, JSON.stringify(memoryEntries)); } catch { /* best effort */ }
-  }
+  if (!persistenceDisabled) persistClientLog();
   return entry;
 }
 
-/** Binds this process's client log to the app's single local storage instance. */
-export function bindClientLogStorage(storage: DiagnosticStorage | null): void {
-  activeStorage = storage;
-  if (memoryEntries.length === 0) memoryEntries = readClientLog(storage);
+
+function persistClientLog(): void {
+  if (!activeStorage || persisting || persistenceDisabled) return;
+  persisting = true;
+  try {
+    activeStorage.setItem(CLIENT_LOG_STORAGE_KEY, JSON.stringify(memoryEntries));
+  } catch {
+    // A storage quota/security exception is commonly exposed as a window error.
+    // Stop this session's persistence before the capture hook can append that
+    // same exception and recurse through another failing setItem call.
+    persistenceDisabled = true;
+    // A synchronous exception from setItem is not delivered to the window
+    // capture listeners by every host. Surface the storage failure once in the
+    // in-memory buffer without attempting another persistent write.
+    memoryEntries = trimClientLog([...memoryEntries, normalize({
+      level: "warn",
+      source: "client-log-storage",
+      message: "客户端日志持久化失败，已停止本次会话的磁盘写入。"
+    })]);
+  } finally {
+    persisting = false;
+  }
 }
 
 /** Releases the process-scoped buffer after tests or an explicit app teardown. */
 export function resetClientLogForTests(): void {
   activeStorage = null;
   memoryEntries = [];
+  persistenceDisabled = false;
+  persisting = false;
 }
 
 export function getClientLog(): readonly ClientLogEntry[] { return memoryEntries; }

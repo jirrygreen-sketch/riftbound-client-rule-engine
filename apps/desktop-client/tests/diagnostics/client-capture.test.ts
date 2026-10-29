@@ -45,4 +45,36 @@ describe("global client log capture", () => {
     warn.mockRestore();
     error.mockRestore();
   });
+
+  it("does not recurse when persistence throws and the host reports that error", () => {
+    const fakeWindow = new FakeWindow();
+    let writes = 0;
+    let throwOnWrite = true;
+    const storage = {
+      getItem: () => null,
+      setItem: () => {
+        writes += 1;
+        if (throwOnWrite) {
+          throwOnWrite = false;
+          const storageError = new Error("quota exceeded: resumeToken=secret");
+          queueMicrotask(() => fakeWindow.dispatch("error", {
+            target: fakeWindow, error: storageError, message: storageError.message
+          }));
+          throw storageError;
+        }
+      }
+    };
+    cleanup = installClientLogCapture(fakeWindow as unknown as Window, storage);
+    expect(() => fakeWindow.dispatch("error", {
+      target: fakeWindow, error: new Error("initial error"), message: "initial error"
+    })).not.toThrow();
+    return Promise.resolve().then(() => {
+      expect(writes).toBe(1);
+      expect(getClientLog().some(entry => entry.source === "client-log-storage"))
+        .toBe(true);
+      expect(getClientLog().length).toBeLessThan(4);
+      expect(JSON.stringify(getClientLog())).not.toContain("secret");
+    });
+  });
+
 });

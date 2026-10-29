@@ -1,42 +1,62 @@
-import { createElement } from "react";
+import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server.node";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_DISPLAY_SETTINGS } from "../../src/settings/display-settings";
 import { MATCH_ISSUE_REPORT_LABEL, MatchControls } from "../../src/settings/MatchControls";
 import { HomePage } from "../../src/navigation/HomePage";
 import { APP_PAGE_TITLES } from "../../src/navigation/AppShell";
 
+type CapturedElement = ReactElement<Record<string, unknown>>;
+const captured = vi.hoisted(() => ({ elements: [] as CapturedElement[] }));
+
+vi.mock("react/jsx-dev-runtime", async importOriginal => {
+  const actual = await importOriginal<typeof import("react/jsx-dev-runtime")>();
+  const capture = (type: unknown, props: Record<string, unknown>, ...rest: unknown[]) => {
+    captured.elements.push(actual.jsxDEV(type, props, ...rest as never[]) as CapturedElement);
+    return actual.jsxDEV(type, props, ...rest as never[]);
+  };
+  return { ...actual, jsxDEV: capture, jsx: capture };
+});
+
+function click(entryId: string): void {
+  const button = captured.elements.findLast(element =>
+    element.type === "button" && element.props["data-entry"] === entryId);
+  if (!button || typeof button.props.onClick !== "function") throw new Error(`button not found: ${entryId}`);
+  (button.props.onClick as () => void)();
+}
+
+function clickByClass(className: string): void {
+  const button = captured.elements.findLast(element => element.type === "button" &&
+    typeof element.props.className === "string" && element.props.className.includes(className));
+  if (!button || typeof button.props.onClick !== "function") throw new Error(`button not found: ${className}`);
+  (button.props.onClick as () => void)();
+}
+
 describe("issue report entry points", () => {
-  it("renders a home menu card that routes to the issue report page", () => {
-    let navigated = "";
+  it("routes the home menu card through its real click handler", () => {
+    const navigate = vi.fn();
+    captured.elements.length = 0;
     const markup = renderToStaticMarkup(createElement(HomePage, {
-      onNavigate: page => { navigated = page; },
-      onExit: () => undefined,
-      playerName: "Alice",
-      connected: true,
-      inMatch: false,
-      roomId: null,
-      deckCount: 0
+      onNavigate: navigate, onExit: () => undefined, playerName: "Alice",
+      connected: true, inMatch: false, roomId: null, deckCount: 0
     }));
     expect(markup).toContain('data-entry="issue-report"');
-    expect(markup).toContain("问题上报");
+    click("issue-report");
+    expect(navigate).toHaveBeenCalledWith("issue-report");
     expect(APP_PAGE_TITLES["issue-report"]).toBe("问题上报");
-    const Card = HomePage({ onNavigate: page => { navigated = page; }, onExit: () => undefined,
-      playerName: "Alice", connected: true, inMatch: false, roomId: null, deckCount: 0 });
-    expect(Card).toBeTruthy();
-    expect(markup).toContain('data-entry="settings"');
-    void navigated;
   });
 
-  it("renders the issue report action inside the in-match gear menu", () => {
+  it("routes the in-match gear-menu action through its real click handler", () => {
+    const issueReport = vi.fn();
+    captured.elements.length = 0;
     const markup = renderToStaticMarkup(createElement(MatchControls, {
-      settings: DEFAULT_DISPLAY_SETTINGS,
-      onChange: () => undefined,
-      onGoHome: () => undefined,
-      onGoRoom: () => undefined,
-      onIssueReport: () => undefined
+      settings: DEFAULT_DISPLAY_SETTINGS, onChange: () => undefined,
+      onGoHome: () => undefined, onGoRoom: () => undefined,
+      onIssueReport: issueReport
     }));
     expect(markup).toContain(MATCH_ISSUE_REPORT_LABEL);
-    expect(markup).toMatch(/class="stg-button stg-issue-report-action"[^>]*>问题上报<\/button>/u);
+    clickByClass("stg-issue-report-action");
+    expect(issueReport).toHaveBeenCalledTimes(1);
   });
+
 });

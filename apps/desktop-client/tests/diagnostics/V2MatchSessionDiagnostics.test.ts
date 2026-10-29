@@ -3,7 +3,7 @@ import type { V2Socket } from "../../src/transport/v2";
 import { V2MatchSessionController } from "../../src/full-product/v2/V2MatchSession";
 import { getClientLog } from "../../src/diagnostics/client-log";
 import { readMatchLog } from "../../src/diagnostics/match-log";
-import { MemoryStorage, projection } from "./fixtures";
+import { event, MemoryStorage, projection } from "./fixtures";
 
 class FakeSocket implements V2Socket {
   readonly sent: string[] = [];
@@ -126,5 +126,37 @@ describe("V2 diagnostic capture points", () => {
     expect(getClientLog().some(entry => entry.message === "Choice is no longer pending"))
       .toBe(true);
     expect(JSON.stringify(log)).not.toContain("hidden-token");
+  });
+
+  it("records projection.events with projection snapshots and de-duplicates replays", () => {
+    const socket = new FakeSocket();
+    const controller = new V2MatchSessionController({
+      serverUrl: "ws://127.0.0.1:37480", socketFactory: () => socket,
+      diagnosticStorage: storage, requestTimeoutMs: 1_000
+    }, { roomId: "room-projection-events", playerId: "player-1", resumeToken: "private" });
+    controller.start();
+    socket.open();
+    socket.receive({ type: "welcome", protocolVersion: "2.0.0", resumed: true,
+      session: { roomId: "room-projection-events", playerId: "player-1",
+        resumeToken: "private" } });
+    const first = projection({ matchId: "match-events", eventSeq: 2,
+      events: [event(1), event(2)] });
+    socket.receive({ type: "projection", protocolVersion: "2.0.0", projection: first });
+    socket.receive({ type: "projection", protocolVersion: "2.0.0", projection: {
+      ...first, stateVersion: 10, eventSeq: 3, events: [event(1), event(2), event(3, 10)]
+    } });
+    socket.receive({ type: "event", protocolVersion: "2.0.0", event: event(3, 10) });
+    controller.stop();
+
+    const log = readMatchLog(storage, "room-projection-events");
+    expect(log?.entries.filter(entry => entry.kind === "event").map(entry => entry.eventSeq))
+      .toEqual([1, 2, 3]);
+    expect(log?.entries.filter(entry => entry.kind === "event").map(entry => entry.payload))
+      .toEqual([
+        expect.objectContaining({ timingPoint: "card-played", eventSeq: 1 }),
+        expect.objectContaining({ timingPoint: "card-played", eventSeq: 2 }),
+        expect.objectContaining({ timingPoint: "card-played", eventSeq: 3 })
+      ]);
+    expect(log?.entries.filter(entry => entry.kind === "projection")).toHaveLength(2);
   });
 });

@@ -19,7 +19,7 @@ import {
   V2ClientStateStore,
   type V2ClientState
 } from "../../state/v2";
-import { appendClientLog, bindClientLogStorage } from "../../diagnostics/client-log";
+import { appendClientLog } from "../../diagnostics/client-log";
 import { appendMatchLog, setActiveMatchRoom, type DiagnosticStorage } from "../../diagnostics/match-log";
 import { sanitizeDiagnosticRecord, safeErrorMessage } from "../../diagnostics/redaction";
 import type {
@@ -216,6 +216,7 @@ export class V2MatchSessionController {
   private readonly diagnosticStorage: DiagnosticStorage | null;
   private readonly pendingRequests = new Map<string, PendingRoomRequest>();
   private readonly pendingCommands = new Map<string, PendingCommand>();
+  private readonly recordedProjectionEvents = new Map<string, Set<number>>();
   private store: V2ClientStateStore;
   private socket: V2Socket | null = null;
   private session: ClientSession | null = null;
@@ -238,7 +239,6 @@ export class V2MatchSessionController {
     this.choiceTimeoutMs = options.choiceTimeoutMs;
     this.diagnosticStorage = options.diagnosticStorage ??
       (typeof localStorage === "undefined" ? null : localStorage);
-    bindClientLogStorage(this.diagnosticStorage);
     this.reconnectDelayMs = Math.max(0, options.reconnectDelayMs ?? 250);
     this.maxReconnectAttempts = Math.max(0, options.maxReconnectAttempts ?? 8);
     this.session = initialSession;
@@ -605,13 +605,14 @@ export class V2MatchSessionController {
             }
           : { status: "none" }
       }, true, projection.stateVersion, projection.eventSeq);
+      this.recordProjectionEvents(projection);
     }
     if (isRecord(packet) && packet.type === "event") {
       const eventValue = (packet as Record<string, unknown>).event;
       if (isV2EngineEvent(eventValue)) {
         const engineEvent = eventValue as V2EngineEvent;
-        this.recordMatch("event", engineEvent, true,
-          engineEvent.stateVersion, engineEvent.eventSeq);
+        const matchId = this.store.state.projection?.matchId ?? this.room?.roomId ?? "unmatched";
+        this.recordEngineEvent(matchId, engineEvent);
       }
     }
     if (!applied.accepted && applied.reason && applied.reason !== "Stale projection") {
@@ -740,6 +741,20 @@ export class V2MatchSessionController {
       ...(stateVersion === undefined ? {} : { stateVersion }),
       ...(eventSeq === undefined ? {} : { eventSeq })
     });
+  }
+
+  private recordProjectionEvents(projection: V2Projection): void {
+    for (const event of projection.events) {
+      this.recordEngineEvent(projection.matchId, event);
+    }
+  }
+
+  private recordEngineEvent(matchId: string, event: V2EngineEvent): void {
+    const seen = this.recordedProjectionEvents.get(matchId) ?? new Set<number>();
+    if (seen.has(event.eventSeq)) return;
+    seen.add(event.eventSeq);
+    this.recordedProjectionEvents.set(matchId, seen);
+    this.recordMatch("event", event, true, event.stateVersion, event.eventSeq);
   }
 
   private clearReconnectTimer(): void {

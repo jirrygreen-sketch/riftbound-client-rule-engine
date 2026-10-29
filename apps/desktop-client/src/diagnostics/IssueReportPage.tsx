@@ -37,6 +37,37 @@ export function currentReportDraft(title: string, description: string, reportId:
   return { title, description, reportId };
 }
 
+export function buildSubmittableIssueReport(input: {
+  readonly title: string;
+  readonly description: string;
+  readonly reportId: string;
+  readonly appVersion: string;
+  readonly platform: ReturnType<typeof detectIssueReportPlatform>;
+  readonly userAgent: string;
+  readonly serverUrl: string;
+  readonly locale: string;
+  readonly playerName?: string;
+  readonly roomId?: string | null;
+  readonly playerId?: string | null;
+  readonly clientLog: Parameters<typeof buildIssueReport>[0]["clientLog"];
+  readonly matchLog: Parameters<typeof buildIssueReport>[0]["matchLog"];
+}): IssueReportV1 {
+  return buildIssueReport({
+    title: input.title,
+    description: input.description,
+    appVersion: input.appVersion,
+    platform: input.platform,
+    userAgent: input.userAgent,
+    serverUrl: input.serverUrl,
+    locale: input.locale,
+    ...(input.playerName === undefined ? {} : { playerName: input.playerName }),
+    ...(input.roomId === null || input.roomId === undefined ? {} : { roomId: input.roomId }),
+    ...(input.playerId === null || input.playerId === undefined ? {} : { playerId: input.playerId }),
+    clientLog: input.clientLog,
+    matchLog: input.matchLog
+  }, input.reportId, new Date().toISOString());
+}
+
 const PREVIEW_LIMIT = 5;
 
 export function IssueReportPage({
@@ -67,24 +98,18 @@ export function IssueReportPage({
     if (!normalizedTitle || submitting) return;
     const reportId = reportIdForAttempt(currentReportDraft(title, description, reportIdRef.current));
     reportIdRef.current = reportId.reportId;
-    const report: IssueReportV1 = buildIssueReport({
-      title: normalizedTitle,
-      description,
-      appVersion,
-      platform,
-      userAgent: typeof navigator === "undefined" ? "" : navigator.userAgent,
-      serverUrl,
-      locale: typeof navigator === "undefined" ? "zh-CN" : navigator.language,
-      ...(playerName === undefined ? {} : { playerName }),
-      ...(activeRoomId === null ? {} : { roomId: activeRoomId }),
-      ...(playerId === null || playerId === undefined ? {} : { playerId }),
-      clientLog,
-      matchLog
-    }, reportId.reportId, new Date().toISOString());
+    const report = buildSubmittableIssueReport({
+      title: normalizedTitle, description, reportId: reportId.reportId, appVersion,
+      platform, userAgent: typeof navigator === "undefined" ? "" : navigator.userAgent,
+      serverUrl, locale: typeof navigator === "undefined" ? "zh-CN" : navigator.language,
+      playerName, roomId: activeRoomId, playerId, clientLog, matchLog
+    });
+    const operation = submitIssueReport(fitIssueReport(report), serverUrl,
+      fetchImpl ?? ((input, init) => fetch(input, init)));
     setSubmitting(true);
     setOutcome(null);
     try {
-      const nextOutcome = await submitIssueReport(fitIssueReport(report), serverUrl, fetchImpl);
+      const nextOutcome = await operation;
       setOutcome(nextOutcome);
       if (nextOutcome.status === "success") {
         reportIdRef.current = null;
@@ -106,7 +131,7 @@ export function IssueReportPage({
       </header>
 
       <div className="diag-report-grid" data-layout="responsive-two-column">
-        <form className="diag-report-form" onSubmit={event => { void submit(event); }}>
+        <form className="diag-report-form" onSubmit={submit}>
           <label className="diag-report-field">
             <span>标题 <strong aria-hidden>*</strong></span>
             <input

@@ -1,4 +1,17 @@
 import type { V2Projection } from "../../../../packages/protocol/src/v2/index.js";
+import type { V2EngineEvent } from "../../../../packages/protocol/src/v2/index.js";
+
+export function event(eventSeq: number, stateVersion = eventSeq): V2EngineEvent {
+  return {
+    contract: "riftbound.protocol.v2.event",
+    seq: eventSeq,
+    eventSeq,
+    stateVersion,
+    timingPoint: "card-played",
+    audience: { visibility: "public" },
+    payload: { cardObjectId: { visibility: "public", value: `card-${eventSeq}` } }
+  };
+}
 
 export function projection(overrides: Partial<V2Projection> = {}): V2Projection {
   return {
