@@ -22,14 +22,22 @@
  * trait/ability/arithmetic effects. effect mode registers one permanent (or
  * explicitly bounded) copy-layer effect per source/recipient pair and never
  * creates an object. Its filter includes the recipient's zone-entry identity,
- * so a later incarnation does not inherit the old effect. Attachment-bound
- * lifetimes and copyable text/exceptions remain blocked because the contract
- * cannot freeze them independently of the original object's later identity.
+ * so a later incarnation does not inherit the old effect. textMode optionally
+ * narrows a Copy Effect: rules-text reproduces source Rules Text in the same
+ * field, while effect-text implements CR 479.1.d's host Rules Text → receiver
+ * Effect Text mapping. That form also requires attachment: the registration
+ * compares the recipient's current attachedTo identity, so detach disqualifies
+ * the layer continuously and a later reattach restores it without another
+ * Resolve (479.1.d, 479.4). A copying source itself in the Attached state has
+ * Inactive printed Rules Text (135.4, 435.1.e, 718.2), so textMode fails closed
+ * instead of treating its presence as evidence that the text is active.
  * play mode also remains blocked: Copy has no Chain destination, so Copy-to-
  * Board followed by Play would introduce an incorrect Board entry (185.2.a,
  * 440.2.c). effect.token owns ordinary token definitions; effect.play owns
  * existing playable objects. Neither is a substitute for these paths.
- * Unknown copy exceptions are rejected by the schema, never silently ignored.
+ * `properties` may select a non-empty subset of copyable traits. Unknown traits
+ * are rejected by the schema, never silently ignored. `textMode` is the narrow
+ * CR 479.1.d form and remains mutually exclusive with that subset spelling.
  *
  * linkKey defaults to copied. Its receipt records the actual done action
  * amount, returned objects, and corresponding original sources. objectsComplete
@@ -40,15 +48,18 @@
  * P0 3.6 rules 1-3). Unsupported modes link a blockedReason and are negated.
  */
 import type {
-  Duration, Expr, GameEvent, InstructionDef, InstructionResult, LocationRef,
-  ObjectRef, ResolveContext, Value
+  ContinuousEffectSpec, Duration, Expr, GameEvent, InstructionDef, InstructionResult,
+  LocationRef, ObjectRef, ObjectSnapshot, ResolveContext, Value
 } from "../contract.js";
 import {
   buildCopyEffectRegistration,
   copyEffectReceipt,
   pairCopySources,
   sameCopyRef,
+  type CopyEffectPair,
 } from "../copy/effect.js";
+
+type CopyTextMode = "rules-text" | "effect-text";
 
 export interface CopyArgs {
   readonly source: Expr;
@@ -60,6 +71,8 @@ export interface CopyArgs {
   readonly onto?: Expr;
   readonly duration?: Expr;
   readonly linkKey?: Expr;
+  readonly textMode?: Expr;
+  readonly properties?: Expr;
 }
 
 type Selector = "self" | "source" |
@@ -113,7 +126,7 @@ function isExpr(value: unknown): value is Expr {
 
 function parseArgs(value: unknown): CopyArgs {
   if (!isRecord(value) || !Object.hasOwn(value, "source")) throw new TypeError("effect.copy requires a source Expr");
-  const keys = ["source", "mode", "amount", "player", "location", "choiceId", "onto", "duration", "linkKey"];
+  const keys = ["source", "mode", "amount", "player", "location", "choiceId", "onto", "duration", "linkKey", "textMode", "properties"];
   for (const [key, expression] of Object.entries(value)) {
     if (!keys.includes(key) || !isExpr(expression)) throw new TypeError("Invalid effect.copy argument: " + key);
   }
@@ -122,6 +135,58 @@ function parseArgs(value: unknown): CopyArgs {
 
 function isRef(value: unknown): value is ObjectRef {
   return isRecord(value) && isId(value.id) && Number.isSafeInteger(value.zoneEntryId) && Number(value.zoneEntryId) >= 0;
+}
+
+/** Only traits explicitly supported by the copy-layer matcher may be selected. */
+function copyEffectProperties(value: unknown): readonly string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.some(item => typeof item !== "string" || item.length === 0)) {
+    throw new TypeError("effect.copy properties must be a non-empty string list");
+  }
+  const allowed = new Set([
+    "cardId", "name", "types", "tags", "keywords", "might", "energy", "power",
+    "text", "effectText", "text->effectText",
+  ]);
+  const properties = [...new Set(value as string[])];
+  if (properties.length === 0 || properties.some(property => !allowed.has(property))) {
+    throw new TypeError("effect.copy properties contain an unsupported copyable trait");
+  }
+  return Object.freeze(properties);
+}
+
+/**
+ * Keep the text registration local to the instruction owner. The exact
+ * attachment incarnation is a function condition because the generic filter
+ * matcher does not compare an object's attachedTo pointer itself.
+ */
+function buildCopyTextRegistration(
+  actor: ObjectRef,
+  pair: CopyEffectPair,
+  duration: Duration,
+  read: (key: string) => unknown,
+  write: (key: string, value: number) => void,
+  index: number,
+  options: { readonly attachment: ObjectRef; readonly mode: CopyTextMode },
+): { readonly effect: ContinuousEffectSpec; readonly duration: Duration } {
+  const registration = buildCopyEffectRegistration(
+    actor, pair, duration, read, write, index,
+  );
+  return {
+    duration,
+    effect: {
+      ...registration.effect,
+      filter: { ...registration.effect.filter, states: "attached" },
+      effect: {
+        ...registration.effect.effect,
+        properties: [options.mode === "rules-text" ? "text" : "text->effectText"],
+        attachment: { ...options.attachment },
+        condition: (target: ObjectSnapshot) =>
+          !target.types.includes("unit") &&
+          target.attachedTo?.id === options.attachment.id &&
+          target.attachedTo.zoneEntryId === options.attachment.zoneEntryId,
+      },
+    },
+  };
 }
 
 function sameRef(left: ObjectRef, right: ObjectRef): boolean {
@@ -183,6 +248,10 @@ export default {
     const player = args.player === undefined ? ctx.controller : ctx.evaluate(args.player);
     const linkKey = args.linkKey === undefined ? "copied" : ctx.evaluate(args.linkKey);
     const choiceId = args.choiceId === undefined ? undefined : ctx.evaluate(args.choiceId);
+    const textMode = args.textMode === undefined ? undefined : ctx.evaluate(args.textMode);
+    const properties = copyEffectProperties(
+      args.properties === undefined ? undefined : ctx.evaluate(args.properties),
+    );
     if (!isSelector(source)) throw new TypeError("effect.copy source must be a symbolic ObjectSelector");
     if (mode !== "create" && mode !== "play" && mode !== "effect") throw new TypeError("Invalid effect.copy mode");
     if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount < 0) {
@@ -190,6 +259,18 @@ export default {
     }
     if (!isId(player) || !isId(linkKey) || choiceId !== undefined && !isId(choiceId)) {
       throw new TypeError("effect.copy player, linkKey and choiceId must be nonempty strings");
+    }
+    if (textMode !== undefined && textMode !== "rules-text" && textMode !== "effect-text") {
+      throw new TypeError("effect.copy textMode must be rules-text or effect-text");
+    }
+    if (textMode !== undefined && mode !== "effect") {
+      throw new TypeError("effect.copy textMode requires effect mode");
+    }
+    if (properties !== undefined && mode !== "effect") {
+      throw new TypeError("effect.copy properties requires effect mode");
+    }
+    if (properties !== undefined && textMode !== undefined) {
+      throw new TypeError("effect.copy properties and textMode are mutually exclusive");
     }
     if (choiceId !== undefined && (typeof source === "string" || "target" in source)) {
       throw new TypeError("effect.copy choiceId requires a non-target pick or linked source");
@@ -259,14 +340,43 @@ export default {
       const pairs = pairCopySources(sourceObjects, recipientObjects)
         .filter(pair => !sameCopyRef(pair.source.ref, pair.recipient.ref));
       if (pairs.length === 0) return negate("copy-layer-source-recipient-pairs-unavailable");
-      const registrations = pairs.map((pair, index) => buildCopyEffectRegistration(
-        ctx.source.ref,
-        pair,
-        duration,
-        key => ctx.linked(key),
-        (key, value) => ctx.link(key, value),
-        index,
-      ));
+      if (pairs.some(pair => pair.source.attachedTo !== null) &&
+          (textMode !== undefined || properties?.includes("text") || properties?.includes("text->effectText"))) {
+        return negate("copy-text-source-rules-text-is-inactive");
+      }
+      if (textMode !== undefined) {
+        if (pairs.some(pair => pair.recipient.attachedTo === null)) {
+          return negate("copy-text-recipient-must-be-attached");
+        }
+        if (pairs.some(pair => !sameCopyRef(pair.recipient.attachedTo!, pair.source.ref))) {
+          return negate("copy-text-must-copy-from-attached-host");
+        }
+        if (pairs.some(pair => pair.recipient.types.includes("unit"))) {
+          return negate("copy-text-recipient-must-be-attached-card");
+        }
+      }
+      const registrations = pairs.map((pair, index) => textMode === undefined
+        ? (() => {
+            const registration = buildCopyEffectRegistration(
+              ctx.source.ref, pair, duration,
+              key => ctx.linked(key), (key, value) => ctx.link(key, value), index,
+            );
+            return properties === undefined ? registration : {
+              ...registration,
+              effect: {
+                ...registration.effect,
+                effect: {
+                  ...registration.effect.effect,
+                  properties: [...properties],
+                },
+              },
+            };
+          })()
+        : buildCopyTextRegistration(
+            ctx.source.ref, pair, duration,
+            key => ctx.linked(key), (key, value) => ctx.link(key, value),
+            index, { attachment: pair.recipient.attachedTo!, mode: textMode as CopyTextMode },
+          ));
       for (const registration of registrations) ctx.addContinuous(registration.effect, registration.duration);
       const value = copyEffectReceipt(pairs, duration);
       const linkedValues: Record<string, Value> = {
