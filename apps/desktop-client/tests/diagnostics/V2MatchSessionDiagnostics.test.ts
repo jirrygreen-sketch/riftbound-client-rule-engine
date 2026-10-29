@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { V2Socket } from "../../src/transport/v2";
 import { V2MatchSessionController } from "../../src/full-product/v2/V2MatchSession";
 import { getClientLog } from "../../src/diagnostics/client-log";
-import { readMatchLog } from "../../src/diagnostics/match-log";
+import { readActiveMatchRoom, readMatchLog } from "../../src/diagnostics/match-log";
 import { event, MemoryStorage, projection } from "./fixtures";
 
 class FakeSocket implements V2Socket {
@@ -62,6 +62,7 @@ describe("V2 diagnostic capture points", () => {
     expect(getClientLog().some(entry => entry.source === "v2-session" &&
       entry.message.includes("connected"))).toBe(true);
     expect(JSON.stringify(log)).not.toContain("secret-resume");
+    expect(readActiveMatchRoom(storage)).toBeNull();
   });
 
   it("records a rejected command receipt and reason", async () => {
@@ -158,5 +159,22 @@ describe("V2 diagnostic capture points", () => {
         expect.objectContaining({ timingPoint: "card-played", eventSeq: 3 })
       ]);
     expect(log?.entries.filter(entry => entry.kind === "projection")).toHaveLength(2);
+  });
+
+  it("clears the active room on session stop and room exit", () => {
+    const socket = new FakeSocket();
+    const controller = new V2MatchSessionController({
+      serverUrl: "ws://127.0.0.1:37480", socketFactory: () => socket,
+      diagnosticStorage: storage, requestTimeoutMs: 1_000
+    }, { roomId: "room-lifecycle", playerId: "player-1", resumeToken: "private" });
+    controller.start();
+    socket.open();
+    socket.receive({ type: "welcome", protocolVersion: "2.0.0", resumed: true,
+      session: { roomId: "room-lifecycle", playerId: "player-1", resumeToken: "private" } });
+    socket.receive({ type: "room", room: { roomId: "room-lifecycle", status: "playing",
+      rulesetId: "riftbound-duel", version: 0, roomVersion: 1, roomEventSeq: 0, players: [] } });
+    expect(readActiveMatchRoom(storage)).toBe("room-lifecycle");
+    controller.stop();
+    expect(readActiveMatchRoom(storage)).toBeNull();
   });
 });

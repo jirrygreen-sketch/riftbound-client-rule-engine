@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server.node";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { initializeClientLog } from "../../src/diagnostics/client-log";
 import { IssueReportPage } from "../../src/diagnostics/IssueReportPage";
+import { appendMatchLog, readActiveMatchRoom, setActiveMatchRoom } from "../../src/diagnostics/match-log";
 import { MemoryStorage } from "./fixtures";
 
 type Node = { readonly type: unknown; readonly props: Record<string, unknown> };
@@ -50,6 +51,8 @@ const storage = new MemoryStorage();
 let fetchCalls: FetchCall[] = [];
 let fetchBehavior: (callNumber: number) => Response | Promise<Response> =
   async () => new Response(null, { status: 202 });
+let pageProps: { readonly roomId: string | null; readonly hasMatch: boolean } =
+  { roomId: null, hasMatch: false };
 
 function renderPage(): string {
   captured.nodes.length = 0;
@@ -59,8 +62,9 @@ function renderPage(): string {
     storage,
     serverUrl: "ws://127.0.0.1:37480/ws",
     playerName: "Alice",
-    roomId: null,
+    roomId: pageProps.roomId,
     playerId: "player-1",
+    hasMatch: pageProps.hasMatch,
     fetchImpl: (async (input, init) => {
       let body: Record<string, unknown> = {};
       try { body = JSON.parse(String(init?.body)) as Record<string, unknown>; } catch { /* mocked response */ }
@@ -101,6 +105,7 @@ beforeEach(() => {
   captured.refIndex = 0;
   fetchCalls = [];
   fetchBehavior = async () => new Response(null, { status: 202 });
+  pageProps = { roomId: null, hasMatch: false };
 });
 
 describe("issue report page interactions", () => {
@@ -145,5 +150,32 @@ describe("issue report page interactions", () => {
     const markup = await submit();
     expect(markup).toContain("网络错误，无法连接当前游戏服务器，请检查网络后重试。");
     expect(markup).toContain("保留的描述");
+  });
+
+  it("does not attach a stored match log when the current match flag is false", async () => {
+    appendMatchLog(storage, { roomId: "old-room", matchId: "old-match", kind: "event",
+      eventSeq: 1, payload: { old: true } });
+    setActiveMatchRoom(storage, "old-room");
+    expect(readActiveMatchRoom(storage)).toBe("old-room");
+    pageProps = { roomId: null, hasMatch: false };
+    renderPage();
+    fill();
+    const markup = await submit();
+    expect(markup).toContain("当前未在对局中，不附带对局日志");
+    const body = fetchCalls[0]!.body as { readonly matchLog: unknown };
+    expect(body.matchLog).toBeNull();
+  });
+
+  it("attaches the active log only when the current match flag is true", async () => {
+    appendMatchLog(storage, { roomId: "live-room", matchId: "live-match", kind: "event",
+      eventSeq: 1, payload: { live: true } });
+    setActiveMatchRoom(storage, "live-room");
+    pageProps = { roomId: "live-room", hasMatch: true };
+    renderPage();
+    fill();
+    const markup = await submit();
+    expect(markup).toContain("对局日志 1 条");
+    const body = fetchCalls[0]!.body as { readonly matchLog: { readonly roomId: string } | null };
+    expect(body.matchLog?.roomId).toBe("live-room");
   });
 });

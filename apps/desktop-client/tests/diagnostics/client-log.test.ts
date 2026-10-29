@@ -12,6 +12,7 @@ import {
   trimClientLog
 } from "../../src/diagnostics/client-log";
 import { redactDiagnosticValue } from "../../src/diagnostics/redaction";
+import { safeErrorMessage } from "../../src/diagnostics/redaction";
 import { MemoryStorage } from "./fixtures";
 
 beforeEach(() => resetClientLogForTests());
@@ -121,6 +122,41 @@ describe("diagnostic redaction", () => {
     expect(message).not.toContain("Bearer private");
     expect(message).not.toContain("abc123");
     expect(message).toContain("[redacted]");
+  });
+
+  it("redacts Authorization schemes and JSON credential assignments completely", () => {
+    initializeClientLog(null);
+    const authorization = safeErrorMessage(new Error("Authorization: Bearer TOPSECRET"));
+    const json = '{"authorization":"Bearer JSONSECRET","resumeToken":"RESUMESECRET"}';
+    appendClientLog({ level: "error", source: "window", message: json,
+      data: { diagnostic: authorization } });
+    const serialized = JSON.stringify(getClientLog());
+    expect(authorization).toBe("Authorization: [redacted]");
+    expect(serialized).not.toContain("TOPSECRET");
+    expect(serialized).not.toContain("JSONSECRET");
+    expect(serialized).not.toContain("RESUMESECRET");
+    expect(serialized.match(/\[redacted\]/gu)?.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("keeps redacting Authorization after a preceding JSON or scheme prefix", () => {
+    initializeClientLog(null);
+    appendClientLog({ level: "error", source: "window",
+      message: 'payload={"authorization":"Bearer JSONSECRET2"}; flow Authorization: Basic BASICSECRET' });
+    const serialized = JSON.stringify(getClientLog());
+    expect(serialized).not.toContain("JSONSECRET2");
+    expect(serialized).not.toContain("BASICSECRET");
+    expect(serialized).toContain("[redacted]");
+  });
+
+  it("redacts Basic credentials and credential text before localStorage persistence", () => {
+    const storage = new MemoryStorage();
+    initializeClientLog(storage);
+    appendClientLog({ level: "error", source: "window",
+      message: '{Authorization: Basic STORAGESECRET, password="PASSWORDSECRET"}' });
+    const raw = storage.getItem(CLIENT_LOG_STORAGE_KEY) ?? "";
+    expect(raw).not.toContain("STORAGESECRET");
+    expect(raw).not.toContain("PASSWORDSECRET");
+    expect(raw).toContain("[redacted]");
   });
 
   it("redacts credentials embedded in structured strings and console data", () => {

@@ -70,6 +70,11 @@ export function setActiveMatchRoom(storage: DiagnosticStorage | null, roomIdValu
   } catch { /* best effort */ }
 }
 
+/** Ends only the active match; historical room logs remain locally available. */
+export function clearActiveMatchRoom(storage: DiagnosticStorage | null): void {
+  setActiveMatchRoom(storage, null);
+}
+
 export function appendMatchLog(
   storage: DiagnosticStorage | null,
   input: {
@@ -132,7 +137,6 @@ export function appendMatchLog(
       try { storage.removeItem?.(roomKey(removed)); } catch { /* best effort */ }
     }
     writeHistory(storage, nextHistory);
-    setActiveMatchRoom(storage, input.roomId);
   } catch { /* diagnostics never affect gameplay */ }
 }
 

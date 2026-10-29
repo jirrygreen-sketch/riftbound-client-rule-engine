@@ -20,7 +20,12 @@ import {
   type V2ClientState
 } from "../../state/v2";
 import { appendClientLog } from "../../diagnostics/client-log";
-import { appendMatchLog, setActiveMatchRoom, type DiagnosticStorage } from "../../diagnostics/match-log";
+import {
+  appendMatchLog,
+  clearActiveMatchRoom,
+  setActiveMatchRoom,
+  type DiagnosticStorage
+} from "../../diagnostics/match-log";
 import { sanitizeDiagnosticRecord, safeErrorMessage } from "../../diagnostics/redaction";
 import type {
   V2CommandRequest,
@@ -303,6 +308,7 @@ export class V2MatchSessionController {
     }
     this.rejectPending(new Error(reason));
     this.store.setConnectionStatus("disconnected");
+    clearActiveMatchRoom(this.diagnosticStorage);
     this.recordStatus("disconnected", reason);
     this.emit();
   }
@@ -320,6 +326,7 @@ export class V2MatchSessionController {
   public discardRecoverySession(): void {
     this.session = null;
     this.room = null;
+    clearActiveMatchRoom(this.diagnosticStorage);
     this.ready = false;
     const socket = this.socket;
     this.socket = null;
@@ -467,6 +474,7 @@ export class V2MatchSessionController {
       if (this.manuallyClosed) return;
       this.dropPendingNonResumableRequests();
       this.store.setConnectionStatus("reconnecting");
+      clearActiveMatchRoom(this.diagnosticStorage);
       this.recordStatus("reconnecting", "WebSocket closed");
       this.emit();
       if (this.reconnectAttempts >= this.maxReconnectAttempts) {
@@ -525,7 +533,8 @@ export class V2MatchSessionController {
     }
     if (isRecord(packet) && packet.type === "room" && isRoomView(packet.room)) {
       this.room = packet.room;
-      setActiveMatchRoom(this.diagnosticStorage, packet.room.roomId);
+      setActiveMatchRoom(this.diagnosticStorage,
+        packet.room.status === "playing" ? packet.room.roomId : null);
       appendMatchLog(this.diagnosticStorage, {
         roomId: packet.room.roomId,
         matchId: this.store.state.projection?.matchId ?? null,

@@ -240,6 +240,7 @@ export function AppView({
           playerId={v2UiEnabled
             ? v2Match.session?.playerId ?? null
             : session?.playerId ?? viewerPlayerId}
+          hasMatch={inMatch}
         />
       ) : activeTab === "replays" ? (
         <ReplayPage library={replayLibrary} selectedId={replaySelection?.id ?? null}

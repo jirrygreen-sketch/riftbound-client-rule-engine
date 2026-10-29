@@ -38,7 +38,7 @@ describe("local match logs", () => {
       viewerPlayerId: "player-1", entries: [{ stateVersion: 12, eventSeq: 7,
         payload: { phase: "main", turnNumber: 3, resumeToken: "[redacted]" } }] });
     expect(JSON.stringify(log)).not.toContain("must-not-persist");
-    expect(readActiveMatchRoom(storage)).toBe("room-a");
+    expect(readActiveMatchRoom(storage)).toBeNull();
   });
 
   it("evicts the oldest match entries to keep one room below 1 MiB", () => {

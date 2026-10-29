@@ -56,6 +56,20 @@ describe("IssueReportV1 assembly", () => {
     } satisfies IssueReportV1);
   });
 
+  it("redacts text credentials in the final report", () => {
+    const report = buildIssueReport({
+      title: "credential leak", description: '{"Authorization":"Bearer REPORTSECRET"}',
+      appVersion: "0.1.0", platform: "web", userAgent: "UA",
+      serverUrl: "https://example.test", locale: "en",
+      clientLog: [{ at: "2026-10-29T09:30:00.000Z", level: "error", source: "window",
+        message: "resumeToken=CLIENTSECRET" }], matchLog: null
+    }, newIssueReportId(), "2026-10-29T09:30:00.000Z");
+    const serialized = JSON.stringify(report);
+    expect(serialized).not.toContain("REPORTSECRET");
+    expect(serialized).not.toContain("CLIENTSECRET");
+    expect(serialized).toContain("[redacted]");
+  });
+
   it("clips oldest client entries before any match entry", () => {
     const report = buildIssueReport({
       title: "large", description: "", appVersion: "0.1.0", platform: "web",

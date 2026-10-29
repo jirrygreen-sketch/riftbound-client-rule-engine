@@ -1,5 +1,5 @@
 import type { ClientLogEntry, IssueReportPlatform, IssueReportV1, MatchLogCapture } from "./types";
-import { sanitizeDiagnosticRecord } from "./redaction";
+import { redactCredentialText, sanitizeDiagnosticRecord } from "./redaction";
 
 export const ISSUE_REPORT_BYTES = 2 * 1024 * 1024;
 export const ISSUE_REPORT_TITLE_MAX = 120;
@@ -47,14 +47,14 @@ export function buildIssueReport(context: ReportContext, reportId: string, creat
     schemaVersion: 1,
     reportId,
     createdAt,
-    title: context.title.trim().slice(0, ISSUE_REPORT_TITLE_MAX),
-    description: context.description.slice(0, ISSUE_REPORT_DESCRIPTION_MAX),
+    title: redactCredentialText(context.title).trim().slice(0, ISSUE_REPORT_TITLE_MAX),
+    description: redactCredentialText(context.description).slice(0, ISSUE_REPORT_DESCRIPTION_MAX),
     client: {
       appVersion: context.appVersion.slice(0, 64),
       platform: context.platform,
-      userAgent: context.userAgent.slice(0, 512),
-      serverUrl: context.serverUrl.slice(0, 512),
-      locale: context.locale.slice(0, 32)
+      userAgent: redactCredentialText(context.userAgent).slice(0, 512),
+      serverUrl: redactCredentialText(context.serverUrl).slice(0, 512),
+      locale: redactCredentialText(context.locale).slice(0, 32)
     },
     player: {
       ...(trimOptional(context.playerName, 64) === undefined ? {} : { name: trimOptional(context.playerName, 64) }),
@@ -64,7 +64,7 @@ export function buildIssueReport(context: ReportContext, reportId: string, creat
     clientLog: clientLog.map(entry => ({
       ...entry,
       source: entry.source.slice(0, 64),
-      message: entry.message.slice(0, 2_000),
+      message: redactCredentialText(entry.message).slice(0, 2_000),
       ...(entry.data === undefined ? {} : { data: safeClientEntryData(entry.data) })
     })),
     matchLog: matchLog === null ? null : {
@@ -84,7 +84,7 @@ export function fitIssueReport(report: IssueReportV1): IssueReportV1 {
   let clientLog = report.clientLog.slice(-2_000).map(entry => ({
     ...entry,
     source: entry.source.slice(0, 64),
-    message: entry.message.slice(0, 2_000),
+    message: redactCredentialText(entry.message).slice(0, 2_000),
     ...(entry.data === undefined ? {} : { data: safeClientEntryData(entry.data) })
   }));
   let matchEntries = report.matchLog === null ? null : report.matchLog.entries.slice(-5_000).map(entry =>
@@ -92,6 +92,8 @@ export function fitIssueReport(report: IssueReportV1): IssueReportV1 {
   let candidate: IssueReportV1 = report;
   const rebuild = (): IssueReportV1 => ({
     ...report,
+    title: redactCredentialText(report.title).slice(0, ISSUE_REPORT_TITLE_MAX),
+    description: redactCredentialText(report.description).slice(0, ISSUE_REPORT_DESCRIPTION_MAX),
     clientLog,
     matchLog: report.matchLog === null || matchEntries === null ? null : { ...report.matchLog, entries: matchEntries }
   });

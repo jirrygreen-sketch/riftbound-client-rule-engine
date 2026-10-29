@@ -1,5 +1,5 @@
 const SENSITIVE_FIELD = /(?:token|secret|password|authorization)/iu;
-const CREDENTIAL_TEXT = /\b(?:authorization|resumeToken|password|secret)\b\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;}]+)/giu;
+const CREDENTIAL_TEXT = /(["']?)\b(authorization|resumeToken|password|secret)\b\1(\s*[:=]\s*)('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|(?:(?:Bearer|Basic)\s+)?[^\s,;}&]+)/giu;
 const REDACTED = "[redacted]";
 
 /** Recursively replaces sensitive field values while preserving log shape. */
@@ -40,11 +40,9 @@ export function safeErrorMessage(error: unknown): string {
 }
 
 export function redactCredentialText(value: string): string {
-  return value.replace(CREDENTIAL_TEXT, match => {
-    const separatorIndex = match.search(/[:=]/u);
-    const separator = match[separatorIndex] === ":" ? ":" : "=";
-    const field = match.slice(0, separatorIndex).trimEnd();
-    return `${field}${separator} ${REDACTED}`;
+  return value.replace(CREDENTIAL_TEXT, (_match, quote, field, separator) => {
+    const replacement = quote === '"' ? `"${REDACTED}"` : quote === "'" ? `'${REDACTED}'` : REDACTED;
+    return `${quote}${field}${quote}${separator}${replacement}`;
   });
 }
 

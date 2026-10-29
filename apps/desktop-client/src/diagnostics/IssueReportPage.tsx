@@ -24,6 +24,8 @@ export interface IssueReportPageProps {
   readonly playerName?: string;
   readonly roomId?: string | null;
   readonly playerId?: string | null;
+  /** Explicit live-match signal; persists no substitute when false. */
+  readonly hasMatch: boolean;
   readonly fetchImpl?: typeof fetch;
 }
 
@@ -76,6 +78,7 @@ export function IssueReportPage({
   playerName,
   roomId,
   playerId,
+  hasMatch,
   fetchImpl
 }: IssueReportPageProps) {
   const [title, setTitle] = useState("");
@@ -84,7 +87,7 @@ export function IssueReportPage({
   const [submitting, setSubmitting] = useState(false);
   const [outcome, setOutcome] = useState<IssueSubmitOutcome | null>(null);
   const clientLog = getClientLog();
-  const activeRoomId = roomId?.trim() || readActiveMatchRoom(storage);
+  const activeRoomId = hasMatch ? roomId?.trim() || readActiveMatchRoom(storage) : null;
   const matchLog = activeRoomId ? readMatchLog(storage, activeRoomId) : null;
   const platform = useMemo(() => detectIssueReportPlatform(
     typeof navigator === "undefined" ? "" : navigator.userAgent,
