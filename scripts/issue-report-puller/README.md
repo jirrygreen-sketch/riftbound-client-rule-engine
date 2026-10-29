@@ -14,8 +14,9 @@
 
 ## 配置
 - 拉取口令：`~/.config/riftbound/issue-pull-token`，权限 600，内容与服务器环境变量 `RIFTBOUND_ISSUE_PULL_TOKEN` 相同。
+- Zira 地址（必填）：内网地址不写进仓库。需在 `~/.config/riftbound/issue-puller.json`（建议权限 600）里设置 `"ziraBaseUrl": "https://<内网 Zira 地址>"`，也可以用环境变量 `RIFTBOUND_ZIRA_BASE_URL`；只接受 https，且不能带账号密码。
 - Zira 凭据：默认运行时从 `~/.claude.json` 的 `mcpServers.zira.headers.Authorization` 读取，不另存。
-- 可选覆盖：`~/.config/riftbound/issue-puller.json`，可设置的字段见 `pull.mjs` 中的 `DEFAULTS`，例如 `serverUrl`、`batchSize`、`ziraAuthFile`。
+- 其他可选覆盖也写在同一个配置文件里，字段见 `pull.mjs` 中的 `DEFAULTS`，例如 `serverUrl`、`batchSize`、`ziraAuthFile`。
 
 ## 安装与运维
 ```sh

@@ -25,7 +25,9 @@ const DEFAULTS = Object.freeze({
   serverUrl: "https://rift-beta.xjerryx.com",
   pullTokenFile: path.join(homedir(), ".config", "riftbound", "issue-pull-token"),
   stateFile: path.join(homedir(), ".local", "state", "riftbound", "issue-puller.json"),
-  ziraBaseUrl: "https://zira.intra.zeron.ai",
+  // The Zira base URL is internal and never committed: it comes from the
+  // local config file (ziraBaseUrl) or RIFTBOUND_ZIRA_BASE_URL.
+  ziraBaseUrl: null,
   // Where the Zira Authorization header comes from: a JSON file and a dotted
   // path inside it (the Claude Code MCP configuration by default).
   ziraAuthFile: path.join(homedir(), ".claude.json"),
@@ -41,14 +43,35 @@ const DEFAULTS = Object.freeze({
 const REPORT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const MAX_ERROR_LINES = 20;
 
-export async function loadConfig(configPath = DEFAULT_CONFIG_PATH) {
+export async function loadConfig(configPath = DEFAULT_CONFIG_PATH, env = process.env) {
   let overrides = {};
   try {
     overrides = JSON.parse(await readFile(configPath, "utf8"));
   } catch (error) {
     if (error?.code !== "ENOENT") throw new Error(`cannot read ${configPath}: ${error.message}`);
   }
-  return { ...DEFAULTS, ...overrides };
+  const config = { ...DEFAULTS, ...overrides };
+  if (typeof env.RIFTBOUND_ZIRA_BASE_URL === "string" && env.RIFTBOUND_ZIRA_BASE_URL.length > 0) {
+    config.ziraBaseUrl = env.RIFTBOUND_ZIRA_BASE_URL;
+  }
+  config.ziraBaseUrl = requireHttpsBaseUrl(config.ziraBaseUrl, configPath);
+  return config;
+}
+
+function requireHttpsBaseUrl(value, configPath) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`set "ziraBaseUrl" in ${configPath} or RIFTBOUND_ZIRA_BASE_URL`);
+  }
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("ziraBaseUrl is not a valid URL");
+  }
+  if (url.protocol !== "https:" || url.username || url.password) {
+    throw new Error("ziraBaseUrl must be an https URL without credentials");
+  }
+  return url.origin;
 }
 
 /** Reads a secret only from a regular file that no group/other can access. */
