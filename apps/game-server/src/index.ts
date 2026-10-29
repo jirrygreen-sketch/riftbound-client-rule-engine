@@ -6,6 +6,7 @@ import { DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK,
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? "127.0.0.1";
 const storageDirectory = process.env.RIFTBOUND_STORAGE_DIRECTORY;
+const issueReportPullToken = process.env.RIFTBOUND_ISSUE_PULL_TOKEN;
 const duelRoomProfile = process.env.RIFTBOUND_DUEL_PROFILE ?? "p4";
 if (duelRoomProfile !== "v1" && duelRoomProfile !== "p4") throw new TypeError("RIFTBOUND_DUEL_PROFILE 必须是 v1 或 p4");
 
@@ -26,6 +27,7 @@ if (requestedRuntimeMode !== undefined && requestedRuntimeMode !== "legacy-p4" &
   throw new TypeError("RIFTBOUND_DUEL_RUNTIME_MODE 必须是 legacy-p4 或 engine-v2");
 }
 const server = createGameServer({ host, port, storageDirectory,
+  ...(issueReportPullToken === undefined ? {} : { issueReportPullToken }),
   ...(requestedRuntimeMode === undefined ? {} : { duelRuntimeMode: requestedRuntimeMode as DuelRuntimeMode }) });
 
 server.httpServer.on("listening", () => {
