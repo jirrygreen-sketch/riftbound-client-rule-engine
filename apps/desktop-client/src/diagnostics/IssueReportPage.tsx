@@ -9,6 +9,7 @@ import {
   ISSUE_REPORT_DESCRIPTION_MAX,
   ISSUE_REPORT_TITLE_MAX,
   newIssueReportId,
+  normalizeIssueServerUrl,
   prepareIssueReport,
   submitIssueReport,
   type IssueSubmitOutcome
@@ -98,6 +99,10 @@ export function IssueReportPage({
     typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
   ), []);
 
+  // The report records (and shows) the HTTP(S) endpoint it is submitted to,
+  // not the WebSocket address the V2 session happens to use.
+  const reportServerUrl = normalizeIssueServerUrl(serverUrl) ?? serverUrl;
+
   const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     const normalizedTitle = title.trim();
@@ -107,7 +112,7 @@ export function IssueReportPage({
     const report = buildSubmittableIssueReport({
       title: normalizedTitle, description, reportId: reportId.reportId, appVersion,
       platform, userAgent: userAgentOverride ?? (typeof navigator === "undefined" ? "" : navigator.userAgent),
-      serverUrl, locale: typeof navigator === "undefined" ? "zh-CN" : navigator.language,
+      serverUrl: reportServerUrl, locale: typeof navigator === "undefined" ? "zh-CN" : navigator.language,
       playerName, roomId: activeRoomId, playerId, clientLog, matchLog
     });
     const operation = submitIssueReport(prepareIssueReport(report), serverUrl,
@@ -162,7 +167,7 @@ export function IssueReportPage({
               disabled={submitting || title.trim().length === 0}>
               <Send size={16} aria-hidden /> {submitting ? "正在提交…" : "提交报告"}
             </button>
-            <span className="diag-report-target" title={serverUrl}>提交到 {serverUrl}</span>
+            <span className="diag-report-target" title={reportServerUrl}>提交到 {reportServerUrl}</span>
           </div>
           <IssueReportOutcome outcome={outcome} />
         </form>
