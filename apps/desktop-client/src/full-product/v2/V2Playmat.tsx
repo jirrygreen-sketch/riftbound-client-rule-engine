@@ -6,6 +6,7 @@ import type {
   V2Projection
 } from "../../../../../packages/protocol/src/v2/index.js";
 import type { CatalogCard } from "../../net/CardCatalogClient";
+import { preferLocalCardImage } from "../../net/local-card-images";
 import {
   DUEL_CARD_ROLE_LANDSCAPE,
   DUEL_CONTESTED_LABEL,
@@ -46,7 +47,8 @@ export function buildV2CardLookup(cards: readonly CatalogCard[]): V2CardLookup {
     for (const id of [card.id, card.canonicalCardId]) {
       if (!id) continue;
       if (!cardById.has(id)) cardById.set(id, card);
-      if (card.imageUrl) imageById.set(id, card.imageUrl);
+      const imageUrl = preferLocalCardImage(card.id, card.imageUrl, card.imageUrl);
+      if (imageUrl) imageById.set(id, imageUrl);
       if (card.domains.length > 0) domainsById.set(id, card.domains);
     }
   }

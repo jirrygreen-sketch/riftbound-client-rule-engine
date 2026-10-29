@@ -18,6 +18,8 @@ tauri-build = { version = "=2.7.2", features = [] }
 tauri = { version = "=2.12.3", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# RIFT-1129: downloads official card art into the local image cache (rustls, no OpenSSL).
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
 
 [profile.release]
 panic = "abort"
