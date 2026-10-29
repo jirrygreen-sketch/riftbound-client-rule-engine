@@ -1363,6 +1363,55 @@
   color: #a6a29a;
 }
 
+/* Split preview (RIFT-1144): the card image on the left, its title, facts and
+   official text on the right; a click on the dimmed backdrop closes it. */
+.full-product-duel-preview { cursor: zoom-out; }
+.full-product-duel-preview-body { cursor: default; }
+.full-product-duel-preview-body.is-split {
+  display: grid;
+  grid-template-columns: auto minmax(16rem, 28rem);
+  align-items: start;
+  gap: 1.25rem;
+  max-width: min(94vw, 1100px);
+  max-height: 92vh;
+  padding: 1.25rem;
+}
+.full-product-duel-preview-art { display: flex; justify-content: center; min-width: 0; }
+.full-product-duel-preview-body.is-split .full-product-duel-preview-image { max-height: min(84vh, 760px); max-width: min(52vw, 540px); }
+.full-product-duel-preview-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+  max-height: min(84vh, 760px);
+  overflow: auto;
+  color: #e9e5dc;
+}
+.full-product-duel-preview-body.is-split .full-product-duel-preview-title { font-size: 1.35rem; text-align: left; }
+.full-product-duel-preview-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.full-product-duel-preview-details li {
+  padding: 0.15rem 0.55rem;
+  border: 1px solid #3a3a40;
+  border-radius: 999px;
+  background: rgba(55, 200, 187, 0.08);
+  font-size: 0.82rem;
+  color: #cfd8d4;
+}
+.full-product-duel-preview-info .card-text { font-size: 0.95rem; line-height: 1.6; }
+.full-product-duel-preview-body.is-split .full-product-duel-preview-close { align-self: flex-start; margin-top: auto; }
+@media (max-width: 760px) {
+  .full-product-duel-preview-body.is-split { grid-template-columns: 1fr; overflow: auto; }
+  .full-product-duel-preview-body.is-split .full-product-duel-preview-image { max-width: 100%; max-height: 60vh; }
+  .full-product-duel-preview-info { max-height: none; overflow: visible; }
+}
+
 .full-product-duel-preview-close {
   align-self: center;
   padding: 0.35rem 0.9rem;

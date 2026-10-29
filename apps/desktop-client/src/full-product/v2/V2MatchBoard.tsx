@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type {
   ClientSession,
@@ -46,8 +46,18 @@ import {
   V2OpponentHand,
   V2PlaymatSide,
   v2PlaymatCards,
-  V2ScoreRail
+  V2ScoreRail,
+  type V2BoardInteraction
 } from "./V2Playmat";
+import {
+  useV2PointerDrag,
+  v2MoveDropTargets,
+  v2PlayDropTargets,
+  v2PlayNeedsSelection,
+  v2RuneCanAddEnergy,
+  v2RuneCanAddPower,
+  type V2DragSource
+} from "./playmat-interactions";
 import "./V2MatchBoard.css";
 
 export interface V2MatchBoardProps {
@@ -271,6 +281,12 @@ export function V2MatchBoard({
   const cardLookup = useMemo(() => buildV2CardLookup(catalogCards), [catalogCards]);
   // Read-only card preview on the playmat; it never selects or plays a card.
   const [previewCardId, setPreviewCardId] = useState<string | null>(null);
+  // Playmat drag-and-drop (RIFT-1144). The drop handler is refreshed every
+  // render so it always reads the projection the drop happened on.
+  const [dragNotice, setDragNotice] = useState<string | null>(null);
+  const dropHandlerRef = useRef<(source: V2DragSource, dropKey: string | null) => void>(() => undefined);
+  const { drag, begin: beginDrag, consumeDragClick, cancel: cancelDrag } =
+    useV2PointerDrag((source, dropKey) => dropHandlerRef.current(source, dropKey));
   // One command can raise several choices in a row at the same stateVersion
   // (e.g. ordering three simultaneous triggers). Keying only on the version
   // carried the previous choice's selection into the next one, so its answer
@@ -292,7 +308,9 @@ export function V2MatchBoard({
     setCombatDamageDrafts({});
     setConcedeConfirmationOpen(false);
     setCommandError(null);
-  }, [sceneKey]);
+    setDragNotice(null);
+    cancelDrag();
+  }, [sceneKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (room === null || catalogStatus !== "idle") return;
@@ -539,6 +557,53 @@ export function V2MatchBoard({
 
   const playmatCards = v2PlaymatCards(projection, cardNames, cardLookup);
   const inspectCard = (cardId: string): void => setPreviewCardId(cardId);
+  dropHandlerRef.current = (source, dropKey) => {
+    if (dropKey === null) return;
+    if (source.kind === "move") {
+      const destination = v2MoveDropTargets(projection, source.objectId).get(dropKey);
+      if (destination === undefined) {
+        setDragNotice(`${source.label} 不能移动到这里`);
+        return;
+      }
+      setDragNotice(null);
+      submit(buildV2MoveCommand(source.objectId, destination.kind === "base"
+        ? { kind: "base", playerId: destination.playerId }
+        : { kind: "battlefield", battlefieldId: destination.battlefieldId }));
+      return;
+    }
+    const option = v2PlayDropTargets(projection, source.objectId).get(dropKey);
+    if (option === undefined) {
+      setDragNotice(`${source.label} 不能打出到这里`);
+      return;
+    }
+    const command = v2PlayNeedsSelection(option) ? null : buildProjectedV2PlayCommand(projection, source.objectId,
+      option.requiresDestination === false ? undefined : option.destination);
+    if (command !== null) {
+      setDragNotice(null);
+      submit(command);
+      return;
+    }
+    // Targets are still needed: keep the drop as the chosen card and placement.
+    setSelectedCardId(source.objectId);
+    if (option.requiresDestination !== false) setSelectedPlayDestination(dropKey);
+    setDragNotice(`已选好 ${source.label} 的落点，请在右侧选择目标后点「打出手牌」`);
+  };
+  const dragTargets: ReadonlyMap<string, unknown> | null = drag === null || !drag.active ? null :
+    drag.source.kind === "play" ? v2PlayDropTargets(projection, drag.source.objectId) :
+      v2MoveDropTargets(projection, drag.source.objectId);
+  const movableIds = new Set(movableUnits.map(unit => unit.objectId));
+  const boardInteraction: V2BoardInteraction = {
+    dropStateFor: dropKey => dragTargets === null ? null : !dragTargets.has(dropKey) ? "blocked" :
+      drag?.overKey === dropKey ? "over" : "legal",
+    dragHandlerFor: object => setup || !canAct || !movableIds.has(object.objectId) ? null :
+      beginDrag({ kind: "move", objectId: object.objectId, label: objectLabel(object),
+        ...(object.cardId === undefined ? {} : { cardId: object.cardId }) }),
+    rune: {
+      enabled: !setup && canAct,
+      onEnergy: rune => submit(buildV2RuneCommand("rune-energy", rune)),
+      onPower: rune => submit(buildV2RuneCommand("rune-power", rune))
+    }
+  };
   const viewerSide = viewer ?? projection.players[0] ?? null;
   const opponentSide = viewer === null ? projection.players[1] ?? null : opponent;
   const sideBase = (playerId: string) => baseObjects.filter(object => baseOwnerOf(object) === playerId);
@@ -558,8 +623,14 @@ export function V2MatchBoard({
           <div className="v2-section-heading"><h3>我的手牌</h3><span>{ownHand.length} / {viewer?.handCount ?? ownHand.length}</span></div>
           {ownHand.length === 0 ? <p className="v2-muted">手牌为空</p> : (
             <div className="v2-card-row">{ownHand.map(card => <div key={card.objectId} className="v2-hand-slot"><button type="button"
-              className={`v2-card${selectedMulliganIds.includes(card.objectId) || selectedCardId === card.objectId ? " is-selected" : ""}`}
-              disabled={setup ? !canChooseMulligan : !canPlay} onClick={() => {
+              className={`v2-card${selectedMulliganIds.includes(card.objectId) || selectedCardId === card.objectId ? " is-selected" : ""}${
+                !setup && canPlay && v2PlayDropTargets(projection, card.objectId).size > 0 ? " v2-draggable" : ""}`}
+              disabled={setup ? !canChooseMulligan : !canPlay}
+              onPointerDown={!setup && canPlay && v2PlayDropTargets(projection, card.objectId).size > 0
+                ? beginDrag({ kind: "play", objectId: card.objectId, label: objectLabel(card),
+                  ...(card.cardId === undefined ? {} : { cardId: card.cardId }) }) : undefined}
+              onClick={() => {
+                if (consumeDragClick()) return;
                 if (setup) {
                   const choice = mulliganSelection;
                   if (!choice || choice.status !== "pending") return;
@@ -581,6 +652,7 @@ export function V2MatchBoard({
   );
   const actionPanel = (
     <div className="v2-playmat-actions">
+        {dragNotice ? <p className="v2-waiting" role="status" aria-label="拖动提示">{dragNotice}</p> : null}
         {busy ? (
           <p className="v2-waiting" role="status" aria-live="polite" aria-label="命令处理中">
             正在处理…请等待服务端回执；命令完成前，重复操作已停用。
@@ -682,7 +754,7 @@ export function V2MatchBoard({
         </section> : null}
         {!setup ? <section className="v2-action-panel" aria-label="符文操作">
           <div className="v2-section-heading"><h3>符文</h3><span>能量 {viewer?.energy ?? 0} · Power {formatPower(viewer?.power ?? {})}</span></div>
-          {ownRunes.length === 0 ? <p className="v2-muted">没有公开的我方符文。符文区顺序由服务端隐藏，只显示投影对象。</p> : <div className="v2-choice-options">{ownRunes.map(rune => <div key={rune.objectId}><strong title={rune.name ?? rune.cardId}>{objectLabel(rune)}</strong><button type="button" aria-label={`${objectLabel(rune)} 取能量`} disabled={!canAct || rune.zoneEntryId === undefined || rune.exhausted === true} onClick={() => submit(buildV2RuneCommand("rune-energy", rune))}>取能量</button><button type="button" aria-label={`${objectLabel(rune)} 取 Power`} disabled={!canAct || rune.zoneEntryId === undefined || rune.exhausted === true} onClick={() => submit(buildV2RuneCommand("rune-power", rune))}>取 Power</button></div>)}</div>}
+          {ownRunes.length === 0 ? <p className="v2-muted">没有公开的我方符文。符文区顺序由服务端隐藏，只显示投影对象。</p> : <div className="v2-choice-options">{ownRunes.map(rune => <div key={rune.objectId}><strong title={rune.name ?? rune.cardId}>{objectLabel(rune)}</strong><button type="button" aria-label={`${objectLabel(rune)} 取能量`} disabled={!canAct || !v2RuneCanAddEnergy(rune)} onClick={() => submit(buildV2RuneCommand("rune-energy", rune))}>取能量</button><button type="button" aria-label={`${objectLabel(rune)} 取 Power`} disabled={!canAct || !v2RuneCanAddPower(rune)} onClick={() => submit(buildV2RuneCommand("rune-power", rune))}>取 Power</button></div>)}</div>}
         </section> : null}
         {!setup ? <section className="v2-action-panel" aria-label="战斗推进与伤害操作" data-v2-ui-hook="combat-advance-and-damage">
           <div className="v2-section-heading"><h3>战斗</h3><span>{projection.combat?.status === "active" ? `${projection.combat.step ?? "active"}${combatDamageSide === null ? "" : ` · ${combatDamageSide}`}` : "无进行中的战斗"}</span></div>
@@ -756,28 +828,44 @@ export function V2MatchBoard({
   );
 
   return (
-    <section className="v2-match-board v2-playmat full-product-duel-match" aria-label="协议 v2 对局">
+    <section className="v2-match-board v2-playmat full-product-duel-match" aria-label="协议 v2 对局"
+      {...(drag?.active ? { "data-dragging": drag.source.kind } : {})}>
       <DuelTableLayout
         header={playmatHeader}
         scoreboard={<V2ScoreRail projection={projection} />}
         controls={controls}
         opponentHand={<V2OpponentHand player={opponentSide} />}
         opponentBase={opponentSide === null ? null : <V2PlaymatSide projection={projection} player={opponentSide} position="opponent"
-          baseObjects={sideBase(opponentSide.playerId)} runes={sideRunes(opponentSide.playerId)} cards={playmatCards} onInspect={inspectCard} />}
+          baseObjects={sideBase(opponentSide.playerId)} runes={sideRunes(opponentSide.playerId)} cards={playmatCards} onInspect={inspectCard}
+          interaction={boardInteraction} />}
         battlefields={<div className="full-product-duel-fields">
           {projection.scoring.battlefieldLocationIds.map(battlefieldId => (
             <V2BattlefieldCard key={battlefieldId} projection={projection} battlefieldId={battlefieldId} cards={playmatCards} onInspect={inspectCard}
+              interaction={boardInteraction}
               objects={battlefieldPanels.find(panel => panel.battlefieldId === battlefieldId)?.objects ?? []} />
           ))}
         </div>}
         playerBase={viewerSide === null ? null : <V2PlaymatSide projection={projection} player={viewerSide} position="player"
-          baseObjects={sideBase(viewerSide.playerId)} runes={sideRunes(viewerSide.playerId)} cards={playmatCards} onInspect={inspectCard} />}
+          baseObjects={sideBase(viewerSide.playerId)} runes={sideRunes(viewerSide.playerId)} cards={playmatCards} onInspect={inspectCard}
+          interaction={boardInteraction} />}
         hand={handPanel}
         actionPanel={actionPanel}
         chat={chat}
         activityLog={<LogPanel cardNames={cardNames} projection={projection} events={state.events} />}
       />
       <V2CardPreview cardId={previewCardId} cards={playmatCards} onClose={() => setPreviewCardId(null)} />
+      {drag?.active ? (
+        <div className="v2-drag-ghost" style={{ left: drag.x, top: drag.y }} aria-hidden="true">
+          {drag.source.cardId !== undefined && playmatCards.image(drag.source.cardId) !== null
+            ? <img src={playmatCards.image(drag.source.cardId)!} alt="" draggable={false} />
+            : <span>{drag.source.label}</span>}
+        </div>
+      ) : null}
+      {drag?.active ? (
+        <p className="v2-drag-hint" role="status">
+          {drag.source.kind === "play" ? "拖到高亮的基地或战场松开即可打出" : "拖到高亮的位置松开即可移动"}，按 Esc 取消
+        </p>
+      ) : null}
     </section>
   );
 }
