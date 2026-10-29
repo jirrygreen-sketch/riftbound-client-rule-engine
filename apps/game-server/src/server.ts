@@ -45,6 +45,13 @@ import {
 } from "./file-room-store.js";
 import { InMemoryRoomStore, type RoomStore } from "./room-store.js";
 import {
+  ISSUE_REPORT_MAX_BYTES,
+  IssueReportQueue,
+  normalizePendingLimit,
+  validateIssueReport,
+  type IssueReportQueueLimits
+} from "./issue-reports.js";
+import {
   loadM1PresetCatalog,
   matchingM1Preset,
   m1DeckDigest,
@@ -74,6 +81,12 @@ export interface GameServerOptions {
   m1PresetsOnly?: boolean;
   /** Deprecated compatibility option; startup archive validation is fail-closed. */
   startupRoomRestoreTimeoutMs?: number;
+  /** Trusted deployment token for pending/ack. The feature is disabled when absent or empty. */
+  issueReportPullToken?: string;
+  /** Injectable retention/rate-limit clock; production defaults to Date.now. */
+  issueReportClock?: () => number;
+  /** Injectable bounded queue capacities for focused lifecycle tests. */
+  issueReportLimits?: Partial<IssueReportQueueLimits>;
 }
 
 export interface GameServer {
@@ -102,6 +115,10 @@ type ServerLifecycle =
   | "stopped";
 
 const MAX_DECK_REQUEST_BYTES = 64 * 1024;
+const LOOPBACK_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+const ISSUE_REPORT_PATH = "/api/issue-reports";
+const ISSUE_REPORT_PENDING_PATH = "/api/issue-reports/pending";
+const ISSUE_REPORT_ACK_PATH = "/api/issue-reports/ack";
 const DETERMINISTIC_RANDOM_SEED_ENV = "RIFTBOUND_DETERMINISTIC_RANDOM_SEED";
 const DETERMINISTIC_RANDOM_GATE_ENV = "RIFTBOUND_ALLOW_DETERMINISTIC_RANDOM";
 const PUBLIC_CORS_HEADERS = {
@@ -173,6 +190,13 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
   }
   const duelRuntimeMode = options.duelRuntimeMode ?? "engine-v2";
   const m1PresetsOnly = options.m1PresetsOnly ?? process.env.RIFTBOUND_M1_PRESETS_ONLY === "1";
+  const issueReportQueue = new IssueReportQueue({
+    ...(options.issueReportPullToken === undefined
+      ? {}
+      : { pullToken: options.issueReportPullToken }),
+    ...(options.issueReportClock === undefined ? {} : { clock: options.issueReportClock }),
+    ...(options.issueReportLimits === undefined ? {} : { limits: options.issueReportLimits })
+  });
   const startupRoomRestoreTimeoutMs = options.startupRoomRestoreTimeoutMs;
   if (startupRoomRestoreTimeoutMs !== undefined &&
       (!Number.isSafeInteger(startupRoomRestoreTimeoutMs) || startupRoomRestoreTimeoutMs < 0)) {
@@ -316,9 +340,170 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
         (pathname === "/api/cards" ||
           pathname === "/api/presets" ||
           pathname === "/api/decks/validate" ||
+          pathname === ISSUE_REPORT_PATH ||
           pathname.startsWith("/api/card-images/"))) {
       response.writeHead(204, PUBLIC_CORS_HEADERS);
       response.end();
+      return;
+    }
+
+    if (pathname === ISSUE_REPORT_PATH ||
+        pathname === ISSUE_REPORT_PENDING_PATH ||
+        pathname === ISSUE_REPORT_ACK_PATH) {
+      const sendIssueReportJson = (status: number, value: unknown): void => {
+        response.writeHead(status, {
+          "content-type": "application/json",
+          "cache-control": "no-store",
+          ...(pathname === ISSUE_REPORT_PATH ? PUBLIC_CORS_HEADERS : {})
+        });
+        response.end(JSON.stringify(value));
+      };
+
+      if (request.method === "POST" && pathname === ISSUE_REPORT_PATH) {
+        if (!issueReportQueue.enabled) {
+          request.resume();
+          sendIssueReportJson(503, { error: "issue-reports-disabled" });
+          return;
+        }
+        if (!isJsonContentType(request.headers["content-type"])) {
+          request.resume();
+          sendIssueReportJson(400, {
+            error: "invalid-report",
+            message: "The request body must have Content-Type application/json."
+          });
+          return;
+        }
+        readRequestBytes(request, ISSUE_REPORT_MAX_BYTES).then(body => {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(body.toString("utf8"));
+          } catch {
+            sendIssueReportJson(400, {
+              error: "invalid-report",
+              message: "The request body must be valid JSON."
+            });
+            return;
+          }
+          const validation = validateIssueReport(parsed);
+          if (!validation.ok) {
+            sendIssueReportJson(400, {
+              error: "invalid-report",
+              message: validation.message
+            });
+            return;
+          }
+
+          const sourceIp = issueReportSourceIp(request);
+          const result = issueReportQueue.enqueue(validation.report, sourceIp);
+          if (result === "invalid-report") {
+            sendIssueReportJson(400, {
+              error: "invalid-report",
+              message: "The report could not be serialized as JSON."
+            });
+            return;
+          }
+          if (result === "too-large") {
+            sendIssueReportJson(413, { error: "report-too-large" });
+            logIssueReportAccess(validation.report.reportId, body.byteLength, result);
+            return;
+          }
+          if (result === "rate-limited") {
+            sendIssueReportJson(429, { error: "rate-limited" });
+            logIssueReportAccess(validation.report.reportId, body.byteLength, result);
+            return;
+          }
+          if (result === "queue-full") {
+            sendIssueReportJson(503, { error: "queue-full" });
+            logIssueReportAccess(validation.report.reportId, body.byteLength, result);
+            return;
+          }
+          sendIssueReportJson(202, {
+            reportId: validation.report.reportId,
+            status: "queued"
+          });
+          logIssueReportAccess(validation.report.reportId, body.byteLength, result);
+        }).catch(error => {
+          if (error instanceof RequestTooLargeError) {
+            sendIssueReportJson(413, { error: "report-too-large" });
+            logIssueReportAccess(null, ISSUE_REPORT_MAX_BYTES + 1, "too-large");
+            return;
+          }
+          sendIssueReportJson(400, {
+            error: "invalid-report",
+            message: error instanceof Error
+              ? error.message
+              : "The request body could not be read."
+          });
+        });
+        return;
+      }
+
+      if (!issueReportQueue.enabled) {
+        request.resume();
+        sendIssueReportJson(503, { error: "issue-reports-disabled" });
+        return;
+      }
+      if (!issueReportQueue.isAuthorized(request.headers.authorization)) {
+        request.resume();
+        sendIssueReportJson(401, { error: "unauthorized" });
+        return;
+      }
+
+      if (request.method === "GET" && pathname === ISSUE_REPORT_PENDING_PATH) {
+        const url = new URL(request.url ?? "/", `http://${request.headers.host ?? host}`);
+        if ([...url.searchParams.keys()].some(key => key !== "limit")) {
+          sendIssueReportJson(400, { error: "invalid-query" });
+          return;
+        }
+        const requestedLimit = url.searchParams.get("limit");
+        if (requestedLimit !== null && !/^\d+$/.test(requestedLimit)) {
+          sendIssueReportJson(400, { error: "invalid-query" });
+          return;
+        }
+        sendIssueReportJson(200, {
+          reports: issueReportQueue.pending(normalizePendingLimit(requestedLimit))
+        });
+        return;
+      }
+
+      if (request.method === "POST" && pathname === ISSUE_REPORT_ACK_PATH) {
+        if (!isJsonContentType(request.headers["content-type"])) {
+          request.resume();
+          sendIssueReportJson(400, { error: "invalid-ack" });
+          return;
+        }
+        readRequestBytes(request, 16 * 1024).then(body => {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(body.toString("utf8"));
+          } catch {
+            sendIssueReportJson(400, { error: "invalid-ack" });
+            return;
+          }
+          if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+            sendIssueReportJson(400, { error: "invalid-ack" });
+            return;
+          }
+          const record = parsed as Record<string, unknown>;
+          if (Object.keys(record).some(key => key !== "reportIds") ||
+              !Array.isArray(record.reportIds) || record.reportIds.length > 50 ||
+              record.reportIds.some(reportId => typeof reportId !== "string")) {
+            sendIssueReportJson(400, { error: "invalid-ack" });
+            return;
+          }
+          sendIssueReportJson(200, {
+            removed: issueReportQueue.acknowledge(record.reportIds as string[])
+          });
+        }).catch(error => {
+          sendIssueReportJson(error instanceof RequestTooLargeError ? 413 : 400, {
+            error: error instanceof RequestTooLargeError ? "payload-too-large" : "invalid-ack"
+          });
+        });
+        return;
+      }
+
+      request.resume();
+      sendIssueReportJson(404, { error: "not found" });
       return;
     }
 
@@ -470,6 +655,7 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
     }
     await Promise.all([...rooms.values()].map(room => room.close()));
     await roomStore.close?.();
+    issueReportQueue.close();
     contexts.clear();
     for (const context of contextSnapshot) {
       contexts.delete(context);
@@ -681,6 +867,39 @@ function readRequestBytes(
     });
     request.once("end", () => resolve(Buffer.concat(chunks)));
   });
+}
+
+function issueReportSourceIp(request: IncomingMessage): string {
+  const remoteAddress = request.socket.remoteAddress ?? "unknown";
+  if (!LOOPBACK_ADDRESSES.has(remoteAddress)) return remoteAddress;
+  const forwarded = request.headers["x-forwarded-for"];
+  const value = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+  if (value === undefined) return remoteAddress;
+  const hops = value.split(",").map(hop => hop.trim()).filter(Boolean);
+  // The final hop is appended by the trusted loopback proxy. Earlier values
+  // are caller-controlled and must never be used as a rate-limit identity.
+  const trustedHop = hops.at(-1);
+  return trustedHop === "127.0.0.1" || trustedHop === "::1" ||
+    trustedHop === "::ffff:127.0.0.1"
+    ? remoteAddress
+    : trustedHop ?? remoteAddress;
+}
+
+function isJsonContentType(value: string | string[] | undefined): boolean {
+  const joined = Array.isArray(value) ? value[0] : value;
+  if (joined === undefined) return false;
+  const mediaType = joined.split(";", 1)[0]?.trim().toLowerCase();
+  return mediaType === "application/json";
+}
+
+function logIssueReportAccess(
+  reportId: string | null,
+  bytes: number,
+  result: string
+): void {
+  console.info(
+    JSON.stringify({ event: "issue-report", reportId, bytes, result })
+  );
 }
 
 async function handleInbound(
