@@ -221,6 +221,18 @@ describe("issue report page interactions", () => {
     expect(bodyText).toContain("done");
   });
 
+  it("records and shows the HTTPS endpoint instead of the V2 WebSocket address", async () => {
+    pageProps = { roomId: null, hasMatch: false, serverUrl: "wss://rift-beta.example.test/ws" };
+    const markup = renderPage();
+    expect(markup).toContain("提交到 https://rift-beta.example.test");
+    expect(markup).not.toContain("wss://");
+    fill();
+    await submit();
+    expect(fetchCalls[0]?.url).toBe("https://rift-beta.example.test/api/issue-reports");
+    const client = fetchCalls[0]?.body.client as { readonly serverUrl?: string } | undefined;
+    expect(client?.serverUrl).toBe("https://rift-beta.example.test");
+  });
+
   it("does not produce double brackets when the same report retries", async () => {
     pageProps = { roomId: null, hasMatch: false,
       playerName: "Authorization: Bearer RETRY_SECRET" };
