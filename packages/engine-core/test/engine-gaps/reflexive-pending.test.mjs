@@ -197,6 +197,41 @@ test("RIFT-1145 a Reflexive runtime installed before the lifecycle stays install
   assert.equal(hasReflexivePendingRuntime(f.engine), false);
 });
 
+test("RIFT-1145 two lifecycle handles on one Chain keep the runtime until the last one detaches", () => {
+  const f = runtime({ install: "none" });
+  const second = f.binding.attachLifecycle(f.engine, error => { throw error; });
+  f.lifecycle.detach();
+  assert.equal(hasReflexivePendingRuntime(f.engine), true, "the second handle still holds the runtime");
+  f.lifecycle.detach();
+  assert.equal(hasReflexivePendingRuntime(f.engine), true, "detaching the first handle again is a no-op");
+  second.detach();
+  assert.equal(hasReflexivePendingRuntime(f.engine), false, "the last handle removes the runtime");
+});
+
+test("RIFT-1145 a detached lifecycle handle never removes a runtime the caller installs later", () => {
+  const f = runtime({ install: "none" });
+  f.lifecycle.detach();
+  assert.equal(hasReflexivePendingRuntime(f.engine), false);
+  const callerRuntime = installReflexivePendingRuntime(f.engine);
+  f.lifecycle.detach();
+  assert.equal(hasReflexivePendingRuntime(f.engine), true, "the stale lifecycle handle leaves the caller's runtime");
+  callerRuntime.detach();
+  assert.equal(hasReflexivePendingRuntime(f.engine), false);
+});
+
+test("RIFT-1145 an old runtime handle detached again leaves a newer installation in place", () => {
+  const f = runtime({ install: "none" });
+  f.lifecycle.detach();
+  const first = installReflexivePendingRuntime(f.engine);
+  first.detach();
+  const second = installReflexivePendingRuntime(f.engine);
+  assert.notEqual(second, first);
+  first.detach();
+  assert.equal(hasReflexivePendingRuntime(f.engine), true, "the old handle no longer owns the Chain's installation");
+  second.detach();
+  assert.equal(hasReflexivePendingRuntime(f.engine), false);
+});
+
 test("RIFT-1140 an empty Burn creates no Reflexive Pending item", () => {
   const f = runtime({ deck: [] });
   beginTurn(f);
