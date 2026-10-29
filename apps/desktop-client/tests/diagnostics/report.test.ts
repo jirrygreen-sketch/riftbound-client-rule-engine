@@ -90,6 +90,77 @@ describe("IssueReportV1 assembly", () => {
     expect(serialized).toContain("done");
   });
 
+  it("redacts every player identity field and changes none because of the 64-character limit", () => {
+    const secrets = [
+      "PLAYER_AUTH_SECRET", "PLAYER_ACCESS_SECRET", "PLAYER_API_SECRET",
+      "PLAYER_SNAKE_SECRET", "PLAYER_SESSION_SECRET", "PLAYER_JSON_SECRET"
+    ];
+    const forms = [
+      "Authorization: Bearer PLAYER_AUTH_SECRET",
+      "accessToken=PLAYER_ACCESS_SECRET",
+      "apiToken:PLAYER_API_SECRET",
+      'auth_token="PLAYER_SNAKE_SECRET"',
+      "sessionSecret=PLAYER_SESSION_SECRET",
+      '{"apiKey":"PLAYER_JSON_SECRET"}'
+    ];
+    for (const form of forms) {
+      const report = buildIssueReport({
+        title: "player redaction", description: "", appVersion: "0.1.0", platform: "web",
+        userAgent: "UA", serverUrl: "https://example.test", locale: "en",
+        playerName: form, roomId: form, playerId: form, clientLog: [], matchLog: null
+      }, newIssueReportId(), "2026-10-29T09:30:00.000Z");
+      const serialized = JSON.stringify(report);
+      for (const secret of secrets) expect(serialized).not.toContain(secret);
+      expect(report.player.name?.length).toBeLessThanOrEqual(64);
+      expect(report.player.roomId?.length).toBeLessThanOrEqual(64);
+      expect(report.player.playerId?.length).toBeLessThanOrEqual(64);
+      expect(report.player.name).toContain("[redacted]");
+      expect(report.player.roomId).toContain("[redacted]");
+      expect(report.player.playerId).toContain("[redacted]");
+      expect(serialized).toContain("[redacted]");
+    }
+  });
+
+  it("applies the same redaction to report title, description, userAgent and serverUrl", () => {
+    const forms = [
+      "Authorization: Bearer META_AUTH_SECRET",
+      "accessToken=META_ACCESS_SECRET",
+      "apiToken:META_API_SECRET",
+      'auth_token="META_SNAKE_SECRET"',
+      "sessionSecret=META_SESSION_SECRET",
+      '{"apiKey":"META_JSON_SECRET"}'
+    ];
+    for (const form of forms) {
+      const report = buildIssueReport({
+        title: form, description: form, appVersion: "0.1.0", platform: "web",
+        userAgent: form, serverUrl: form, locale: "en", clientLog: [], matchLog: null
+      }, newIssueReportId(), "2026-10-29T09:30:00.000Z");
+      const serialized = JSON.stringify(report);
+      expect(serialized).not.toContain("META_AUTH_SECRET");
+      expect(serialized).not.toContain("META_ACCESS_SECRET");
+      expect(serialized).not.toContain("META_API_SECRET");
+      expect(serialized).not.toContain("META_SNAKE_SECRET");
+      expect(serialized).not.toContain("META_SESSION_SECRET");
+      expect(serialized).not.toContain("META_JSON_SECRET");
+      expect(serialized).toContain("[redacted]");
+    }
+  });
+
+  it("redacts before trimming the 64-character player limit", () => {
+    const report = buildIssueReport({
+      title: "redaction ordering", description: "", appVersion: "0.1.0", platform: "web",
+      userAgent: "UA", serverUrl: "https://example.test", locale: "en",
+      playerName: `Authorization: Bearer ${'A'.repeat(80)}`, roomId: `accessToken=${'R'.repeat(80)}`,
+      playerId: `sessionSecret=${'P'.repeat(80)}`, clientLog: [], matchLog: null
+    }, newIssueReportId(), "2026-10-29T09:30:00.000Z");
+    expect(report.player.name).toBe("Authorization: [redacted]");
+    expect(report.player.roomId).toBe("accessToken=[redacted]");
+    expect(report.player.playerId).toBe("sessionSecret=[redacted]");
+    expect(report.player.name).not.toContain("AAAA");
+    expect(report.player.roomId).not.toContain("RRRR");
+    expect(report.player.playerId).not.toContain("PPPP");
+  });
+
   it("clips oldest client entries before any match entry", () => {
     const report = buildIssueReport({
       title: "large", description: "", appVersion: "0.1.0", platform: "web",

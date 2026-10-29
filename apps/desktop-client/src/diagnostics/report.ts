@@ -34,7 +34,7 @@ export function newIssueReportId(): string {
 
 function trimOptional(value: string | undefined, max: number): string | undefined {
   if (!value || !value.trim()) return undefined;
-  return value.slice(0, max);
+  return redactCredentialText(value).slice(0, max);
 }
 
 export function buildIssueReport(context: ReportContext, reportId: string, createdAt = new Date().toISOString()): IssueReportV1 {
@@ -94,6 +94,16 @@ export function fitIssueReport(report: IssueReportV1): IssueReportV1 {
     ...report,
     title: redactCredentialText(report.title).slice(0, ISSUE_REPORT_TITLE_MAX),
     description: redactCredentialText(report.description).slice(0, ISSUE_REPORT_DESCRIPTION_MAX),
+    player: {
+      ...(trimOptional(report.player.name, 64) === undefined ? {} : { name: trimOptional(report.player.name, 64) }),
+      ...(trimOptional(report.player.roomId, 64) === undefined ? {} : { roomId: trimOptional(report.player.roomId, 64) }),
+      ...(trimOptional(report.player.playerId, 64) === undefined ? {} : { playerId: trimOptional(report.player.playerId, 64) })
+    },
+    client: {
+      ...report.client,
+      userAgent: redactCredentialText(report.client.userAgent).slice(0, 512),
+      serverUrl: redactCredentialText(report.client.serverUrl).slice(0, 512)
+    },
     clientLog,
     matchLog: report.matchLog === null || matchEntries === null ? null : { ...report.matchLog, entries: matchEntries }
   });
