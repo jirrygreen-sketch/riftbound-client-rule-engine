@@ -68,6 +68,7 @@ import { useV2Match } from "../hooks/useV2Match";
 import { useLocalCardImages } from "../hooks/useLocalCardImages";
 import { readV2UiEnabled, writeV2UiEnabled } from "../full-product/v2-ui-switch";
 import { readV2Session, writeV2Session } from "../full-product/v2/session-storage";
+import { bindClientLogStorage } from "../diagnostics/client-log";
 
 type AppTab = AppPage;
 
@@ -134,6 +135,7 @@ export function useAppState() {
   // address and the named deck they were actually using.
   const [bootstrap] = useState<UiBootstrap>(() => createUiBootstrap());
   const preferenceStorage = bootstrap.storage;
+  bindClientLogStorage(preferenceStorage);
   const [v2UiEnabled, setV2UiEnabledState] = useState(() => readV2UiEnabled(preferenceStorage));
   const setV2UiEnabled = useCallback((enabled: boolean): void => {
     if (writeV2UiEnabled(preferenceStorage, enabled)) setV2UiEnabledState(enabled);
@@ -253,7 +255,8 @@ export function useAppState() {
     // values are never reused or overwritten by this independent channel.
     roomId: storedV2Session?.roomId ?? null,
     session: storedV2Session,
-    playerName: profile.name
+    playerName: profile.name,
+    diagnosticStorage: preferenceStorage
   });
   useEffect(() => {
     if (!writeV2Session(bootstrap.storage, v2Match.session)) return;

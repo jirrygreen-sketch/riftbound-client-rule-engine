@@ -271,6 +271,11 @@
   gap: 8px;
 }
 
+.stg-issue-report-action {
+  width: 100%;
+  text-align: left;
+}
+
 .stg-button {
   padding: 6px 14px;
   color: var(--stg-text, #f3f0ea);

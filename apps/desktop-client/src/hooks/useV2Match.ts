@@ -27,6 +27,7 @@ export interface UseV2MatchOptions {
   readonly socketFactory?: V2SocketFactory;
   readonly choiceTimeoutMs?: number;
   readonly requestTimeoutMs?: number;
+  readonly diagnosticStorage?: Storage | null;
 }
 
 export interface V2MatchClient extends V2MatchSessionSnapshot {
@@ -133,7 +134,8 @@ export function useV2Match(options: UseV2MatchOptions): V2MatchClient {
       serverUrl: options.serverUrl,
       socketFactory: options.socketFactory,
       choiceTimeoutMs: options.choiceTimeoutMs,
-      requestTimeoutMs: options.requestTimeoutMs
+      requestTimeoutMs: options.requestTimeoutMs,
+      diagnosticStorage: options.diagnosticStorage
     }, initialSession);
     controllerRef.current = controller;
     callbacksRef.current = {

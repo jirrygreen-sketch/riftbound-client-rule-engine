@@ -21,6 +21,7 @@ export const MATCH_CONCEDE_CONFIRM_LABEL = "确认认输";
 export const MATCH_CONCEDE_CANCEL_LABEL = "取消";
 export const MATCH_GO_HOME_LABEL = "返回首页";
 export const MATCH_GO_ROOM_LABEL = "返回房间";
+export const MATCH_ISSUE_REPORT_LABEL = "问题上报";
 
 export type ConcedeRequestOutcome = "ignore" | "confirm" | "concede";
 
@@ -46,6 +47,7 @@ export interface MatchControlsProps {
   readonly onGoRoom: () => void;
   readonly onConcede?: () => void;
   readonly canConcede?: boolean;
+  readonly onIssueReport?: () => void;
 }
 
 export function MatchControls({
@@ -54,7 +56,8 @@ export function MatchControls({
   onGoHome,
   onGoRoom,
   onConcede,
-  canConcede = false
+  canConcede = false,
+  onIssueReport
 }: MatchControlsProps) {
   const [confirmingConcede, setConfirmingConcede] = useState(false);
   const update = (patch: Partial<DisplaySettings>) => onChange({ ...settings, ...patch });
@@ -139,6 +142,12 @@ export function MatchControls({
             />
             <span className="stg-toggle-label">认输需要二次确认</span>
           </label>
+          {onIssueReport ? (
+            <button type="button" className="stg-button stg-issue-report-action"
+              onClick={onIssueReport}>
+              {MATCH_ISSUE_REPORT_LABEL}
+            </button>
+          ) : null}
         </div>
       </details>
 

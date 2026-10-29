@@ -5,6 +5,7 @@ import {
   UserCircle,
   LogOut,
   Settings,
+  MessageSquareWarning,
   Play,
   Wifi,
   WifiOff
@@ -28,7 +29,7 @@ export interface HomePageProps {
  * `exit` entries are real actions (a callback), never a decorative link.
  */
 export interface HomeMenuEntry {
-  readonly id: "room" | "deck-builder" | "replays" | "profile" | "exit" | "settings";
+  readonly id: "room" | "deck-builder" | "replays" | "profile" | "exit" | "settings" | "issue-report";
   readonly label: string;
   readonly description: string;
   readonly icon: LucideIcon;
@@ -38,10 +39,21 @@ export interface HomeMenuEntry {
   readonly disabledReason?: string;
 }
 
+export const ISSUE_REPORT_HOME_ENTRY: HomeMenuEntry = Object.freeze({
+  id: "issue-report",
+  label: "问题上报",
+  description: "提交问题描述和本地诊断日志",
+  icon: MessageSquareWarning,
+  kind: "navigate",
+  page: "issue-report",
+  disabled: false
+});
+
 /**
- * Pure model for the six fixed home-menu entries, in the exact user-specified
- * order and with their exact user-facing names. Disabled state is computed from
- * the passed-in projection only; the component never disables every entry.
+ * Pure model for the six legacy home-menu entries. The production page appends
+ * the issue-report action separately so existing navigation contracts remain
+ * stable. Disabled state is computed from the passed-in projection only; the
+ * component never disables every entry.
  *
  * Every menu stays usable offline. Replays and profile/settings are local;
  * the room page provides the actual server connection workflow.
@@ -122,7 +134,7 @@ export function HomePage({
   roomId,
   deckCount
 }: HomePageProps) {
-  const entries = homeMenuEntries({ connected });
+  const entries = [...homeMenuEntries({ connected }), ISSUE_REPORT_HOME_ENTRY];
 
   return (
     <div className="rb-home">
