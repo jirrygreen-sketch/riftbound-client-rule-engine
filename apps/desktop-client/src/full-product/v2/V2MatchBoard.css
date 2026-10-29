@@ -253,3 +253,10 @@
 .v2-playmat .full-product-duel-battlefield-head-main { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: baseline; gap: .4rem; min-width: 0; overflow: hidden; }
 .v2-playmat .full-product-duel-battlefield-head-main > * { flex: 0 0 auto; white-space: nowrap; }
 .v2-playmat .full-product-duel-battlefield-head .full-product-duel-battlefield-thumb { height: 1.4rem; width: auto; }
+
+/* RIFT-1148: in-match issue report entry in the board header. */
+.v2-playmat-report {
+  margin-left: .5rem; padding: .25rem .7rem; border: 1px solid #42534f; border-radius: .4rem;
+  background: rgba(19, 28, 27, .7); color: #e9e5dc; font: inherit; font-size: .78rem; cursor: pointer;
+}
+.v2-playmat-report:hover { border-color: #37c8bb; }

@@ -68,6 +68,10 @@ export interface V2MatchBoardProps {
   readonly session?: ClientSession | null;
   readonly playerName?: string;
   readonly pendingCommandIds?: readonly string[];
+  /** When the oldest unanswered command was first sent (ms since epoch). */
+  readonly pendingCommandSince?: number | null;
+  /** Opens the issue report page; the in-match entry attaches this match's log. */
+  readonly onReportIssue?: () => void;
   readonly transportError?: string | null;
   readonly catalogServerUrl?: string;
   /** Test/static-render seam for an already loaded catalog; production loads `/api/cards`. */
@@ -236,6 +240,8 @@ export function V2MatchBoard({
   session = null,
   playerName = "玩家",
   pendingCommandIds = [],
+  pendingCommandSince = null,
+  onReportIssue,
   transportError = null,
   catalogServerUrl = DEFAULT_HTTP_SERVER_URL,
   initialCatalogCards,
@@ -255,6 +261,17 @@ export function V2MatchBoard({
   onCommand
 }: V2MatchBoardProps) {
   const projection = state.projection;
+  // A long turn can keep the server busy for tens of seconds (RIFT-1148):
+  // show how long the current command has been waiting.
+  const waitingSince = pendingCommandIds.length > 0 ? pendingCommandSince : null;
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (waitingSince === null) return undefined;
+    setClock(Date.now());
+    const timer = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [waitingSince]);
+  const waitedSeconds = waitingSince === null ? 0 : Math.max(0, Math.floor((clock - waitingSince) / 1000));
   const [joinRoomId, setJoinRoomId] = useState("");
   // Both clients defaulted to the same profile name, so the board showed two
   // players called "玩家" (RIFT-1055); the lobby lets each player set theirs.
@@ -613,6 +630,9 @@ export function V2MatchBoard({
       <span className="full-product-duel-header-turn" aria-label="行动玩家">行动：{v2PlayerName(projection, projection.activePlayerId)}</span>
       <span className="v2-playmat-score" aria-label="比分">比分 {scoreLine}</span>
       <span className="v2-playmat-meta"><ConnectionState state={state.connectionStatus} /><span>状态 {projection.stateVersion}</span><span>事件 {projection.eventSeq}</span></span>
+      {onReportIssue ? (
+        <button type="button" className="v2-playmat-report" onClick={onReportIssue} title="提交问题描述和本局日志">问题上报</button>
+      ) : null}
     </div>
   );
   const handPanel = (
@@ -652,7 +672,9 @@ export function V2MatchBoard({
         {dragNotice ? <p className="v2-waiting" role="status" aria-label="拖动提示">{dragNotice}</p> : null}
         {busy ? (
           <p className="v2-waiting" role="status" aria-live="polite" aria-label="命令处理中">
-            正在处理…请等待服务端回执；命令完成前，重复操作已停用。
+            {waitedSeconds >= 5
+              ? `服务器仍在处理（已等待 ${waitedSeconds} 秒），请稍候；命令完成前，重复操作已停用。`
+              : "正在处理…请等待服务端回执；命令完成前，重复操作已停用。"}
           </p>
         ) : null}
         {matchEnded ? (

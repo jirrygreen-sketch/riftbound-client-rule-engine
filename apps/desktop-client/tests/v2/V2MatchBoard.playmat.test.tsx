@@ -372,3 +372,21 @@ describe("RIFT-1144 playmat interactions", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("RIFT-1148 slow command feedback and in-match issue report", () => {
+  it("shows how long a command has been waiting once it passes five seconds", () => {
+    const fresh = renderToStaticMarkup(<V2MatchBoard state={state(projection())} initialCatalogCards={catalog}
+      pendingCommandIds={["c-1"]} pendingCommandSince={Date.now()} onCommand={vi.fn()} />);
+    expect(fresh).toContain("正在处理…请等待服务端回执");
+    const slow = renderToStaticMarkup(<V2MatchBoard state={state(projection())} initialCatalogCards={catalog}
+      pendingCommandIds={["c-1"]} pendingCommandSince={Date.now() - 12_400} onCommand={vi.fn()} />);
+    expect(slow).toContain("服务器仍在处理（已等待 12 秒）");
+  });
+
+  it("offers an issue report entry in the board header only when wired", () => {
+    expect(render()).not.toContain("v2-playmat-report");
+    const html = renderToStaticMarkup(<V2MatchBoard state={state(projection())} initialCatalogCards={catalog}
+      onReportIssue={vi.fn()} onCommand={vi.fn()} />);
+    expect(html).toMatch(/<button type="button" class="v2-playmat-report"[^>]*>问题上报<\/button>/);
+  });
+});

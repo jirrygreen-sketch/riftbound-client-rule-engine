@@ -42,6 +42,8 @@ export interface V2MatchSessionOptions {
   readonly socketFactory?: V2SocketFactory;
   readonly requestTimeoutMs?: number;
   readonly commandTimeoutMs?: number;
+  /** Total wait for one command's receipt before resyncing from the server (default 120 s). */
+  readonly commandGiveUpMs?: number;
   readonly choiceTimeoutMs?: number;
   readonly reconnectDelayMs?: number;
   readonly maxReconnectAttempts?: number;
@@ -53,6 +55,8 @@ export interface V2MatchSessionSnapshot {
   readonly room: RoomView | null;
   readonly session: ClientSession | null;
   readonly pendingCommandIds: readonly string[];
+  /** When the oldest unanswered command was first sent (ms since epoch), or null. */
+  readonly pendingCommandSince: number | null;
   readonly error: string | null;
   readonly reconnectUrl: string;
   readonly lastReceipt: V2CommandReceipt | null;
@@ -82,6 +86,8 @@ interface PendingCommand {
   }>;
   timer: ReturnType<typeof setTimeout>;
   attempts: number;
+  /** First transmission time; 0 until the command is first sent. */
+  firstSentAt: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -214,6 +220,7 @@ export class V2MatchSessionController {
   private readonly socketFactory: V2SocketFactory;
   private readonly requestTimeoutMs: number;
   private readonly commandTimeoutMs: number;
+  private readonly commandGiveUpMs: number;
   private readonly choiceTimeoutMs?: number;
   private readonly reconnectDelayMs: number;
   private readonly maxReconnectAttempts: number;
@@ -241,6 +248,7 @@ export class V2MatchSessionController {
     this.socketFactory = options.socketFactory ?? (url => new WebSocket(url) as unknown as V2Socket);
     this.requestTimeoutMs = Math.max(1, options.requestTimeoutMs ?? 10_000);
     this.commandTimeoutMs = Math.max(1, options.commandTimeoutMs ?? 5_000);
+    this.commandGiveUpMs = Math.max(this.commandTimeoutMs, options.commandGiveUpMs ?? 120_000);
     this.choiceTimeoutMs = options.choiceTimeoutMs;
     this.diagnosticStorage = options.diagnosticStorage ??
       (typeof localStorage === "undefined" ? null : localStorage);
@@ -259,6 +267,7 @@ export class V2MatchSessionController {
       room: this.room,
       session: this.session,
       pendingCommandIds: [...this.pendingCommands.keys()],
+      pendingCommandSince: this.pendingCommandSince(),
       error: this.error,
       reconnectUrl: this.url,
       lastReceipt: this.lastReceipt
@@ -402,7 +411,8 @@ export class V2MatchSessionController {
         commandId,
         waiters: [{ resolve, reject }],
         timer: setTimeout(() => undefined, 1),
-        attempts: 0
+        attempts: 0,
+        firstSentAt: 0
       };
       clearTimeout(pending.timer);
       this.pendingCommands.set(commandId, pending);
@@ -632,12 +642,22 @@ export class V2MatchSessionController {
   }
 
   private transmitCommand(pending: PendingCommand): void {
-    if (pending.attempts > 4) {
+    const now = Date.now();
+    if (pending.firstSentAt === 0) pending.firstSentAt = now;
+    const waited = now - pending.firstSentAt;
+    // The server handles one room's commands in order and can take tens of
+    // seconds on a long turn (RIFT-1148). Resends are deduplicated by
+    // commandId, so keep waiting until commandGiveUpMs, then resync rather
+    // than stay on a stale stateVersion.
+    if (pending.attempts > 0 && waited >= this.commandGiveUpMs) {
       this.pendingCommands.delete(pending.commandId);
       clearTimeout(pending.timer);
-      const message = `命令 ${pending.commandId} 超过重试上限。`;
+      const message = `命令 ${pending.commandId} 等待服务端回执超过 ${Math.round(waited / 1000)} 秒，已重新同步对局状态。`;
       this.error = message;
+      appendClientLog({ level: "error", source: "v2-session", message,
+        data: { commandId: pending.commandId, attempts: pending.attempts, waitedMs: waited } });
       for (const waiter of pending.waiters) waiter.reject(new Error(message));
+      this.resyncFromServer();
       this.emit();
       return;
     }
@@ -656,9 +676,26 @@ export class V2MatchSessionController {
       return;
     }
     clearTimeout(pending.timer);
+    // Back off 1x, 2x, 4x the base interval; the last wait ends at the give-up time.
+    const backoff = this.commandTimeoutMs * Math.min(4, 2 ** (pending.attempts - 1));
     pending.timer = setTimeout(() => {
       if (this.pendingCommands.has(pending.commandId)) this.transmitCommand(pending);
-    }, this.commandTimeoutMs);
+    }, Math.max(1, Math.min(backoff, this.commandGiveUpMs - waited)));
+  }
+
+  private pendingCommandSince(): number | null {
+    let since: number | null = null;
+    for (const pending of this.pendingCommands.values()) {
+      if (pending.firstSentAt > 0 && (since === null || pending.firstSentAt < since)) since = pending.firstSentAt;
+    }
+    return since;
+  }
+
+  /** Reconnects so the server sends a fresh projection; the hello carries the event cursor. */
+  private resyncFromServer(): void {
+    const socket = this.socket;
+    if (socket === null) return;
+    try { socket.close(4000, "command receipt timeout resync"); } catch { /* already closing */ }
   }
 
   private flushPending(): void {
