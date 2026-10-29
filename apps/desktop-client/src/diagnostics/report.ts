@@ -74,6 +74,41 @@ export function buildIssueReport(context: ReportContext, reportId: string, creat
   };
 }
 
+/** The sole report-wide redaction pass; callers must not pre-redact twice. */
+export function redactIssueReport(report: IssueReportV1): IssueReportV1 {
+  return {
+    ...report,
+    title: redactCredentialText(report.title).trim().slice(0, ISSUE_REPORT_TITLE_MAX),
+    description: redactCredentialText(report.description).slice(0, ISSUE_REPORT_DESCRIPTION_MAX),
+    client: {
+      ...report.client,
+      userAgent: redactCredentialText(report.client.userAgent).slice(0, 512),
+      serverUrl: redactCredentialText(report.client.serverUrl).slice(0, 512),
+      locale: redactCredentialText(report.client.locale).slice(0, 32)
+    },
+    player: {
+      ...(trimOptional(report.player.name, 64) === undefined ? {} : { name: trimOptional(report.player.name, 64) }),
+      ...(trimOptional(report.player.roomId, 64) === undefined ? {} : { roomId: trimOptional(report.player.roomId, 64) }),
+      ...(trimOptional(report.player.playerId, 64) === undefined ? {} : { playerId: trimOptional(report.player.playerId, 64) })
+    },
+    clientLog: report.clientLog.map(entry => ({
+      ...entry,
+      source: entry.source.slice(0, 64),
+      message: redactCredentialText(entry.message).slice(0, 2_000),
+      ...(entry.data === undefined ? {} : { data: safeClientEntryData(entry.data) })
+    })),
+    matchLog: report.matchLog === null ? null : {
+      ...report.matchLog,
+      entries: report.matchLog.entries.map(entry => ({ ...entry, payload: safeReportPayload(entry.payload) }))
+    }
+  };
+}
+
+/** One report-wide redaction pass followed by bounded clipping. */
+export function prepareIssueReport(report: IssueReportV1): IssueReportV1 {
+  return fitIssueReport(redactIssueReport(report));
+}
+
 const SIXTY_FOUR_KIB = 64 * 1024;
 const EIGHT_KIB = 8 * 1024;
 
@@ -84,25 +119,25 @@ export function fitIssueReport(report: IssueReportV1): IssueReportV1 {
   let clientLog = report.clientLog.slice(-2_000).map(entry => ({
     ...entry,
     source: entry.source.slice(0, 64),
-    message: redactCredentialText(entry.message).slice(0, 2_000),
-    ...(entry.data === undefined ? {} : { data: safeClientEntryData(entry.data) })
+    message: entry.message.slice(0, 2_000),
+    ...(entry.data === undefined ? {} : { data: limitClientEntryData(entry.data) })
   }));
   let matchEntries = report.matchLog === null ? null : report.matchLog.entries.slice(-5_000).map(entry =>
-    ({ ...entry, payload: safeReportPayload(entry.payload) }));
+    ({ ...entry, payload: limitReportPayload(entry.payload) }));
   let candidate: IssueReportV1 = report;
   const rebuild = (): IssueReportV1 => ({
     ...report,
-    title: redactCredentialText(report.title).slice(0, ISSUE_REPORT_TITLE_MAX),
-    description: redactCredentialText(report.description).slice(0, ISSUE_REPORT_DESCRIPTION_MAX),
+    title: report.title.slice(0, ISSUE_REPORT_TITLE_MAX),
+    description: report.description.slice(0, ISSUE_REPORT_DESCRIPTION_MAX),
     player: {
-      ...(trimOptional(report.player.name, 64) === undefined ? {} : { name: trimOptional(report.player.name, 64) }),
-      ...(trimOptional(report.player.roomId, 64) === undefined ? {} : { roomId: trimOptional(report.player.roomId, 64) }),
-      ...(trimOptional(report.player.playerId, 64) === undefined ? {} : { playerId: trimOptional(report.player.playerId, 64) })
+      ...(trimLimited(report.player.name, 64) === undefined ? {} : { name: trimLimited(report.player.name, 64) }),
+      ...(trimLimited(report.player.roomId, 64) === undefined ? {} : { roomId: trimLimited(report.player.roomId, 64) }),
+      ...(trimLimited(report.player.playerId, 64) === undefined ? {} : { playerId: trimLimited(report.player.playerId, 64) })
     },
     client: {
       ...report.client,
-      userAgent: redactCredentialText(report.client.userAgent).slice(0, 512),
-      serverUrl: redactCredentialText(report.client.serverUrl).slice(0, 512)
+      userAgent: report.client.userAgent.slice(0, 512),
+      serverUrl: report.client.serverUrl.slice(0, 512)
     },
     clientLog,
     matchLog: report.matchLog === null || matchEntries === null ? null : { ...report.matchLog, entries: matchEntries }
@@ -128,10 +163,24 @@ function safeReportPayload(payload: Readonly<Record<string, unknown>>): Readonly
   return size <= SIXTY_FOUR_KIB ? sanitized : { diagnosticPayloadTruncated: true, originalBytes: size };
 }
 
+function limitReportPayload(payload: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+  const size = new TextEncoder().encode(JSON.stringify(payload)).byteLength;
+  return size <= SIXTY_FOUR_KIB ? payload : { diagnosticPayloadTruncated: true, originalBytes: size };
+}
+
 function safeClientEntryData(data: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
   const sanitized = sanitizeDiagnosticRecord(data);
   const size = new TextEncoder().encode(JSON.stringify(sanitized)).byteLength;
   return size <= EIGHT_KIB ? sanitized : { diagnosticDataTruncated: true, originalBytes: size };
+}
+
+function limitClientEntryData(data: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+  const size = new TextEncoder().encode(JSON.stringify(data)).byteLength;
+  return size <= EIGHT_KIB ? data : { diagnosticDataTruncated: true, originalBytes: size };
+}
+
+function trimLimited(value: string | undefined, max: number): string | undefined {
+  return value === undefined || !value.trim() ? undefined : value.slice(0, max);
 }
 
 export function detectIssueReportPlatform(userAgent = "", platform = "", isDesktop = false): IssueReportPlatform {
@@ -159,7 +208,7 @@ export async function submitIssueReport(
     const response = await fetchImpl(`${normalizedServerUrl}/api/issue-reports`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(fitIssueReport(report)),
+      body: JSON.stringify(report),
       ...(typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
         ? { signal: AbortSignal.timeout(15_000) }
         : {})

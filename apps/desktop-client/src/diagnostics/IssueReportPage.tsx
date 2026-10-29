@@ -6,10 +6,10 @@ import { readActiveMatchRoom, readMatchLog } from "./match-log";
 import {
   buildIssueReport,
   detectIssueReportPlatform,
-  fitIssueReport,
   ISSUE_REPORT_DESCRIPTION_MAX,
   ISSUE_REPORT_TITLE_MAX,
   newIssueReportId,
+  prepareIssueReport,
   submitIssueReport,
   type IssueSubmitOutcome
 } from "./report";
@@ -21,6 +21,8 @@ import "./IssueReportPage.css";
 export interface IssueReportPageProps {
   readonly storage: DiagnosticStorage | null;
   readonly serverUrl: string;
+  /** Testable browser identity values; production reads navigator below. */
+  readonly userAgent?: string;
   readonly playerName?: string;
   readonly roomId?: string | null;
   readonly playerId?: string | null;
@@ -79,7 +81,8 @@ export function IssueReportPage({
   roomId,
   playerId,
   hasMatch,
-  fetchImpl
+  fetchImpl,
+  userAgent: userAgentOverride
 }: IssueReportPageProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -103,11 +106,11 @@ export function IssueReportPage({
     reportIdRef.current = reportId.reportId;
     const report = buildSubmittableIssueReport({
       title: normalizedTitle, description, reportId: reportId.reportId, appVersion,
-      platform, userAgent: typeof navigator === "undefined" ? "" : navigator.userAgent,
+      platform, userAgent: userAgentOverride ?? (typeof navigator === "undefined" ? "" : navigator.userAgent),
       serverUrl, locale: typeof navigator === "undefined" ? "zh-CN" : navigator.language,
       playerName, roomId: activeRoomId, playerId, clientLog, matchLog
     });
-    const operation = submitIssueReport(fitIssueReport(report), serverUrl,
+    const operation = submitIssueReport(prepareIssueReport(report), serverUrl,
       fetchImpl ?? ((input, init) => fetch(input, init)));
     setSubmitting(true);
     setOutcome(null);

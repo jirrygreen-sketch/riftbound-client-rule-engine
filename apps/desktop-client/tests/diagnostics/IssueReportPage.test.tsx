@@ -51,7 +51,9 @@ const storage = new MemoryStorage();
 let fetchCalls: FetchCall[] = [];
 let fetchBehavior: (callNumber: number) => Response | Promise<Response> =
   async () => new Response(null, { status: 202 });
-let pageProps: { readonly roomId: string | null; readonly hasMatch: boolean } =
+let pageProps: { readonly roomId: string | null; readonly hasMatch: boolean;
+  readonly playerName?: string; readonly playerId?: string;
+  readonly userAgent?: string; readonly serverUrl?: string } =
   { roomId: null, hasMatch: false };
 
 function renderPage(): string {
@@ -60,11 +62,12 @@ function renderPage(): string {
   captured.refIndex = 0;
   return renderToStaticMarkup(createElement(IssueReportPage, {
     storage,
-    serverUrl: "ws://127.0.0.1:37480/ws",
-    playerName: "Alice",
+    serverUrl: pageProps.serverUrl ?? "ws://127.0.0.1:37480/ws",
+    playerName: pageProps.playerName ?? "Alice",
     roomId: pageProps.roomId,
-    playerId: "player-1",
+    playerId: pageProps.playerId ?? "player-1",
     hasMatch: pageProps.hasMatch,
+    ...(pageProps.userAgent === undefined ? {} : { userAgent: pageProps.userAgent }),
     fetchImpl: (async (input, init) => {
       let body: Record<string, unknown> = {};
       try { body = JSON.parse(String(init?.body)) as Record<string, unknown>; } catch { /* mocked response */ }
@@ -178,4 +181,63 @@ describe("issue report page interactions", () => {
     const body = fetchCalls[0]!.body as { readonly matchLog: { readonly roomId: string } | null };
     expect(body.matchLog?.roomId).toBe("live-room");
   });
+
+  it("redacts credentials from every form-backed report field before fetch without double brackets", async () => {
+    pageProps = {
+      playerName: "Authorization: Bearer FORM_NAME_SECRET",
+      roomId: "auth_token=\"FORM_ROOM_SECRET\"", hasMatch: true,
+      playerId: "sessionSecret=FORM_ID_SECRET"
+    };
+    renderPage();
+    fill("apiToken: FORM_TITLE_SECRET, done", 'accessToken=FORM_DESCRIPTION_SECRET&safe=1');
+    const markup = await submit();
+    expect(markup).toContain("已提交，编号 ");
+    const bodyText = JSON.stringify(fetchCalls[0]?.body);
+    for (const secret of ["FORM_NAME_SECRET", "FORM_ROOM_SECRET", "FORM_ID_SECRET",
+      "FORM_TITLE_SECRET", "FORM_DESCRIPTION_SECRET"]) expect(bodyText).not.toContain(secret);
+    expect(bodyText).not.toContain("[redacted]]");
+    expect(bodyText).toContain("safe=1");
+    expect(bodyText).toContain("done");
+  });
+
+  it("redacts userAgent and serverUrl from the real form fetch body exactly once", async () => {
+    pageProps = {
+      playerName: "Authorization: Bearer FORM_NAME_SECRET2",
+      roomId: '{"apiKey":"FORM_ROOM_SECRET2"}', hasMatch: true,
+      playerId: "sessionSecret=FORM_ID_SECRET2",
+      userAgent: 'auth_token="FORM_UA_SECRET"',
+      serverUrl: "sessionSecret=FORM_SERVER_SECRET"
+    };
+    renderPage();
+    fill("accessToken=FORM_TITLE_SECRET2&safe=1", "apiToken: FORM_DESCRIPTION_SECRET2, done");
+    await submit();
+    const bodyText = JSON.stringify(fetchCalls[0]?.body);
+    for (const secret of ["FORM_NAME_SECRET2", "FORM_ROOM_SECRET2", "FORM_ID_SECRET2",
+      "FORM_TITLE_SECRET2", "FORM_DESCRIPTION_SECRET2", "FORM_UA_SECRET", "FORM_SERVER_SECRET"]) {
+      expect(bodyText).not.toContain(secret);
+    }
+    expect(bodyText).not.toContain("[redacted]]");
+    expect(bodyText).toContain("safe=1");
+    expect(bodyText).toContain("done");
+  });
+
+  it("does not produce double brackets when the same report retries", async () => {
+    pageProps = { roomId: null, hasMatch: false,
+      playerName: "Authorization: Bearer RETRY_SECRET" };
+    fetchBehavior = callNumber => new Response(null, { status: callNumber === 1 ? 503 : 202 });
+    renderPage();
+    fill("Authorization: Bearer RETRY_TITLE", "accessToken=RETRY_DESCRIPTION");
+    await submit();
+    await submit();
+    expect(fetchCalls).toHaveLength(2);
+    for (const call of fetchCalls) {
+      const bodyText = JSON.stringify(call.body);
+      for (const secret of ["RETRY_SECRET", "RETRY_TITLE", "RETRY_DESCRIPTION"]) {
+        expect(bodyText).not.toContain(secret);
+      }
+      expect(bodyText).not.toContain("[redacted]]");
+    }
+    expect(fetchCalls[1]?.body.reportId).toBe(fetchCalls[0]?.body.reportId);
+  });
+
 });

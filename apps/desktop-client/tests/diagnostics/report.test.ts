@@ -6,6 +6,7 @@ import {
   ISSUE_REPORT_BYTES,
   newIssueReportId,
   normalizeIssueServerUrl,
+  prepareIssueReport,
   submitIssueReport
 } from "../../src/diagnostics/report";
 import type { ClientLogEntry, IssueReportV1, MatchLogCapture } from "../../src/diagnostics/types";
@@ -159,6 +160,29 @@ describe("IssueReportV1 assembly", () => {
     expect(report.player.name).not.toContain("AAAA");
     expect(report.player.roomId).not.toContain("RRRR");
     expect(report.player.playerId).not.toContain("PPPP");
+  });
+
+  it("does not rewrite already-redacted report text during fitting", () => {
+    const raw = buildIssueReport({
+      title: "Authorization: Bearer TITLE_SECRET",
+      description: "accessToken=DESCRIPTION_SECRET&safe=1",
+      appVersion: "0.1.0", platform: "web",
+      userAgent: "apiToken:USER_AGENT_SECRET, done",
+      serverUrl: '{"apiKey":"SERVER_SECRET"}', locale: "en",
+      playerName: "sessionSecret=PLAYER_SECRET", roomId: "auth_token=\"ROOM_SECRET\"",
+      playerId: "accessToken=ID_SECRET", clientLog: [], matchLog: null
+    }, newIssueReportId(), "2026-10-29T09:30:00.000Z");
+    const once = prepareIssueReport(raw);
+    const twice = prepareIssueReport(once);
+    expect(twice).toEqual(once);
+    const serialized = JSON.stringify(twice);
+    expect(serialized).not.toContain("[redacted]]");
+    for (const secret of ["TITLE_SECRET", "DESCRIPTION_SECRET", "USER_AGENT_SECRET",
+      "SERVER_SECRET", "PLAYER_SECRET", "ROOM_SECRET", "ID_SECRET"]) {
+      expect(serialized).not.toContain(secret);
+    }
+    expect(serialized).toContain("safe=1");
+    expect(serialized).toContain("done");
   });
 
   it("clips oldest client entries before any match entry", () => {

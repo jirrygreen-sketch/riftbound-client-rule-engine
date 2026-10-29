@@ -12,7 +12,7 @@ import {
   trimClientLog
 } from "../../src/diagnostics/client-log";
 import { redactDiagnosticValue } from "../../src/diagnostics/redaction";
-import { safeErrorMessage } from "../../src/diagnostics/redaction";
+import { redactCredentialText, safeErrorMessage } from "../../src/diagnostics/redaction";
 import { MemoryStorage } from "./fixtures";
 
 beforeEach(() => resetClientLogForTests());
@@ -125,6 +125,24 @@ describe("diagnostic redaction", () => {
       expect(message).not.toContain(secret);
     }
     expect(message.match(/\[redacted\]/gu)).toHaveLength(5);
+  });
+
+  it("is idempotent for every reviewed credential form", () => {
+    const samples = [
+      "Authorization: Bearer AUTH_SECRET",
+      "accessToken=ACCESS_SECRET&safe=1",
+      "apiToken: API_SECRET, done",
+      'auth_token="SNAKE_SECRET"',
+      "sessionSecret=SESSION_SECRET",
+      '{"apiKey":"JSON_SECRET"}'
+    ];
+    for (const sample of samples) {
+      const once = redactCredentialText(sample);
+      const twice = redactCredentialText(once);
+      expect(twice).toBe(once);
+      expect(twice).not.toContain("[redacted]]");
+      expect(twice.match(/\[redacted\]/gu)?.length).toBe(1);
+    }
   });
 
   it("uses the same sensitive-key standard for match and kebab case", () => {

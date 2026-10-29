@@ -2,7 +2,7 @@ const SENSITIVE_FIELD = /(?:token|secret|password|authorization|apikey|api_key|c
 // The key may be bare or quoted and use camelCase, snake_case or kebab-case.
 // A value runs until whitespace or a structural delimiter. An optional quote is
 // preserved solely to keep valid JSON/object syntax around the redaction.
-const CREDENTIAL_TEXT = /(?<![A-Z\d_-])(["']?)([A-Z\d_-]*(?:token|secret|password|authorization|apikey|api_key|cookie|session)[A-Z\d_-]*)\1(\s*[:=]\s*)(["']?)(?:(?:Bearer|Basic)\s+)?[^\s&,;"'\]}\)]+/giu;
+const CREDENTIAL_TEXT = /(?<![A-Z\d_-])(["']?)([A-Z\d_-]*(?:token|secret|password|authorization|apikey|api_key|cookie|session)[A-Z\d_-]*)\1(\s*[:=]\s*)(["']?)(?!\[redacted\])(?:(?:Bearer|Basic)\s+)?[^\s&,;"'\]}\)]+/giu;
 const REDACTED = "[redacted]";
 
 /** Recursively replaces sensitive field values while preserving log shape. */
