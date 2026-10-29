@@ -35,224 +35,403 @@
 .v2-waiting { margin: 0; border-radius: .5rem; padding: .65rem; background: #fef3c7; color: #92400e; }
 .v2-receipt { margin: 0; border-radius: .5rem; padding: .5rem .65rem; background: #dcfce7; color: #166534; }
 
-/* ---- RIFT-1125 playmat ----
-   The in-match V2 board renders inside the shared Duel table shell
-   (DuelTableLayout + DuelMatchBoard.css). These rules only adapt the V2
-   regions that keep their own markup (zones, hand, action panels) to the
-   dark-teal tabletop; the lobby above keeps the plain V2 style. */
-.v2-match-board.v2-playmat { display: flex; flex-direction: column; gap: 0; padding: 0; min-height: 0; height: 100%; }
-.v2-playmat .v2-zone { border: 0; border-radius: 0; padding: 0; background: transparent; min-width: 0; }
-.v2-playmat .full-product-duel-mat-runes .v2-zone { flex: 1 1 0; display: flex; align-items: center; overflow-x: auto; }
-.v2-playmat .full-product-duel-mat-base .v2-zone { height: 100%; }
-.v2-playmat .full-product-duel-baserune-list { display: flex; gap: .3rem; margin: 0; padding: 0; list-style: none; }
-.v2-playmat .full-product-duel-baserune { display: flex; align-items: center; gap: .2rem; }
-.v2-playmat .full-product-duel-baserune[data-readied="false"] { opacity: .55; }
-.v2-playmat .full-product-duel-baserune-caption { display: flex; flex-direction: column; font-size: .55rem; line-height: 1.15; }
-.v2-playmat .full-product-duel-unit[data-readied="false"] .full-product-duel-unit-thumb { transform: rotate(90deg) scale(.82); }
-.v2-playmat .full-product-duel-unit-might { color: #f2c86b; font-weight: 700; }
-.v2-battlefield-in-combat { box-shadow: inset 0 0 0 2px #e8a33d; }
-
-.v2-playmat-header { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
-.v2-playmat-meta { margin-left: auto; display: inline-flex; align-items: center; gap: .5rem; font-size: .72rem; color: #9fb1ad; }
-
-/* Own hand: card faces in one scrolling strip. */
-.v2-playmat-hand { display: flex; flex-direction: column; gap: .3rem; height: 100%; min-height: 0; padding: .3rem .5rem;
-  border: 0; border-radius: 0; background: transparent; }
-.v2-playmat-hand .v2-section-heading { font-size: .75rem; color: #9fb1ad; }
-.v2-playmat-hand .v2-section-heading h3 { font-size: .8rem; color: #f3f0ea; }
-.v2-playmat-hand .v2-card-row { flex: 1 1 auto; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; margin: 0; padding-bottom: .2rem; align-items: stretch; }
-.v2-playmat-hand .v2-card { flex: 0 0 auto; min-width: 0; width: calc(var(--duel-hand-face-height, 12rem) * 744 / 1039 + .7rem);
-  display: flex; flex-direction: column; align-items: center; gap: .15rem; padding: .3rem; text-align: center;
-  color: #f3f0ea; background: rgba(28, 34, 34, .62); border-color: #42534f; }
-.v2-playmat-hand .v2-card strong { font-size: .72rem; line-height: 1.2; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.v2-playmat-hand .v2-card small { font-size: .62rem; color: #9fb1ad; }
-.v2-hand-face { width: 100%; height: var(--duel-hand-face-height, 12rem); max-height: var(--duel-hand-face-height, 12rem); object-fit: contain; border-radius: 6px; }
-.v2-hand-face.is-missing { display: block; background: repeating-linear-gradient(45deg, #263a34, #263a34 4px, #192a25 4px, #192a25 8px); border: 1px solid #687f76; }
-.v2-playmat .v2-card:not(:disabled):hover { border-color: #37c8bb; transform: translateY(-3px); }
-.v2-playmat .v2-card.is-selected { border-color: #37c8bb; background: rgba(26, 167, 155, .25); color: #f3f0ea; box-shadow: 0 0 0 2px rgba(55, 200, 187, .5); transform: translateY(-6px); }
-.v2-playmat .v2-card { transition: transform .12s ease, border-color .12s ease; }
-
-/* Sidebar: the unchanged V2 action panels, compacted for the narrow column. */
-.v2-playmat-actions { display: grid; gap: .5rem; font-size: .8rem; }
-.v2-playmat-actions .v2-action-panel, .v2-playmat-actions .v2-choice, .v2-playmat-actions .v2-chain, .v2-playmat-actions .v2-lobby {
-  gap: .4rem; padding: .5rem; border-radius: .5rem; border-color: #343b3b; background: rgba(28, 34, 34, .62); }
-.v2-playmat-actions .v2-section-heading { flex-wrap: wrap; gap: .25rem; }
-.v2-playmat-actions .v2-section-heading h3 { font-size: .85rem; }
-.v2-playmat-actions .v2-section-heading span, .v2-playmat-actions .v2-muted, .v2-playmat-actions .v2-chain p { color: #9fb1ad; font-size: .72rem; }
-.v2-playmat-actions .v2-choice-options { gap: .35rem; margin-top: .2rem; }
-.v2-playmat-actions .v2-action-row { flex-wrap: wrap; justify-content: flex-start; gap: .35rem; }
-.v2-playmat .v2-choice-options button, .v2-playmat .v2-action-row button, .v2-playmat-actions button {
-  padding: .35rem .55rem; border-radius: .4rem; color: #f3f0ea; background: rgba(11, 15, 15, .6); border: 1px solid #42534f; }
-.v2-playmat .v2-choice-options button[aria-pressed="true"] { border-color: #37c8bb; background: rgba(26, 167, 155, .28); color: #f3f0ea; }
-.v2-playmat .v2-primary-action { background: #1aa79b; border-color: #1aa79b; color: #071413; font-weight: 700; }
-.v2-playmat button:disabled { opacity: .45; cursor: not-allowed; }
-.v2-playmat .v2-error { font-size: .75rem; padding: .45rem; }
-.v2-playmat .v2-waiting, .v2-playmat .v2-receipt { font-size: .72rem; margin: 0; color: #9fb1ad; }
-.v2-playmat .v2-log { border: 0; padding: .3rem; background: transparent; font-size: .72rem; }
-.v2-playmat .v2-log ol { padding-left: 1rem; }
-.v2-playmat .v2-chain ol { padding-left: 1rem; margin: .3rem 0 0; }
-.v2-playmat-actions label { display: grid; gap: .2rem; }
-
-/* Battlefield permanents: the field column has room, so show real card faces
-   (portrait, height-bounded) instead of the legacy short-screen mini chips. */
-.v2-playmat .full-product-duel-battlefield .v2-zone { flex: 1 1 auto; min-height: 0; overflow: auto; }
-.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-groups { display: flex; flex-wrap: nowrap; gap: .4rem; align-items: flex-start; }
-.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-list { display: flex; flex-wrap: wrap; gap: .3rem; margin: 0; padding: 0; list-style: none; }
-.v2-playmat .full-product-duel-battlefield .full-product-duel-unit { flex-direction: column; align-items: center; min-width: 0; width: auto; max-width: 7rem; padding: .2rem; }
-.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-thumb,
-.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-thumb.is-missing { width: auto; height: clamp(3rem, calc(20dvh - 4.5rem), 5.6rem); max-height: clamp(3rem, calc(20dvh - 4.5rem), 5.6rem); }
-.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-details { align-items: center; text-align: center; }
-.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-state { display: flex; flex-wrap: wrap; justify-content: center; gap: .2rem; font-size: .6rem; }
-.v2-playmat .full-product-duel-mat-base .full-product-duel-unit-groups { display: flex; gap: .3rem; }
-.v2-playmat .full-product-duel-mat-base .full-product-duel-unit-list { display: flex; gap: .25rem; margin: 0; padding: 0; list-style: none; }
-.v2-playmat .full-product-duel-identity-title { font-size: .55rem; }
-
-/* The V2 match also renders inside the room page (not only the table shell),
-   so give the playmat a viewport-bound height there; inside the table shell
-   the grid row already sizes it. */
-.v2-match-board.v2-playmat { height: calc(100dvh - 10.75rem); min-height: 32rem; --v2-hand-face: clamp(4.5rem, 11vh, 9rem); }
-.table-shell > .v2-match-board.v2-playmat { height: 100%; min-height: 0; }
-.v2-playmat .v2-hand-face { height: var(--v2-hand-face); max-height: var(--v2-hand-face); }
-.v2-playmat-hand .v2-card { width: calc(var(--v2-hand-face) * 744 / 1039 + .7rem); }
-.v2-hand-slot { position: relative; flex: 0 0 auto; display: flex; }
-.v2-hand-zoom { position: absolute; top: .25rem; right: .25rem; width: 1.4rem; height: 1.4rem; padding: 0; border-radius: 50%;
-  font-size: .8rem; line-height: 1; color: #f3f0ea; background: rgba(11, 15, 15, .75); border: 1px solid #42534f; cursor: zoom-in; }
-.v2-hand-zoom:hover { border-color: #37c8bb; }
-
-/* ---- RIFT-1144: bigger seats, rune buttons and drag-and-drop ----
-   The V2 resource cell is always empty, so the hand spans the full width. The
-   seats (base + runes) get more height than the centre, and every card face is
-   sized from its own row with container queries, so faces grow with the
-   window instead of stopping at a fixed small size. */
-.v2-playmat .full-product-duel-table-main {
-  --duel-hand-row-height: clamp(128px, 21dvh, 240px);
-  grid-template-rows: 24px minmax(112px, 1fr) minmax(92px, .8fr) minmax(136px, 1.2fr) var(--duel-hand-row-height);
-  grid-template-areas:
-    "opponent-hand opponent-hand"
-    "opponent opponent"
-    "central central"
-    "player player"
-    "hand hand";
+/* ---- RIFT-1146 table: official mat layout, Master Duel style timing ----
+   Layout: header strip; table column (opponent hand strip, opponent mat,
+   battlefields, own mat, hand) beside a narrow rail (chain, log/chat, main
+   action dock, collapsed form drawer). Each mat follows the official two-row
+   mat: Base | Legend | Champion next to the battlefields, Rune Deck | Runes |
+   Trash | Main Deck on the outside; the opposing mat is the same turned round. */
+.v2-match-board.v2t {
+  --v2t-gold: rgba(184, 154, 82, .5);
+  --v2t-mat: #132b31;
+  --v2t-felt: #0f1f22;
+  --v2t-panel: #0e1b20;
+  --v2t-ink: #ece4cf;
+  --v2t-muted: #8ea4a5;
+  --v2t-me: #3fb3d6;
+  --v2t-opp: #e2694f;
+  --v2t-hot: #f0bd4a;
+  --v2t-hand: clamp(7rem, 19dvh, 13rem);
+  display: flex; flex-direction: column; gap: .35rem; padding: .35rem; min-height: 0;
+  height: calc(100dvh - 10.75rem); background: #0b1316; color: var(--v2t-ink);
 }
-.v2-playmat .full-product-duel-table-resources:empty { display: none; }
-.v2-playmat .full-product-duel-playmat-side {
-  --v2-rune-row: clamp(60px, 10.5dvh, 120px);
-  grid-template-rows: minmax(64px, 1fr) var(--v2-rune-row);
-}
-.v2-playmat .full-product-duel-playmat-side[data-position="opponent"] {
-  --v2-rune-row: clamp(48px, 7dvh, 96px);
-  grid-template-rows: var(--v2-rune-row) minmax(64px, 1fr);
-}
-.v2-playmat .full-product-duel-mat-base,
-.v2-playmat .full-product-duel-mat-runes,
-.v2-playmat-hand { container-type: size; }
-.v2-playmat .full-product-duel-mat-base { position: relative; }
-/* The base title and score sit in a slim left column so units get the full height. */
-.v2-playmat .full-product-duel-mat-base .full-product-duel-base-head {
-  position: absolute; top: .25rem; left: .4rem; z-index: 1; width: 4.4rem;
-  flex-direction: column; align-items: flex-start; gap: .15rem;
-}
-.v2-playmat .full-product-duel-mat-base .full-product-duel-base-body { height: 100%; padding-left: 4.8rem; }
-.v2-playmat .full-product-duel-mat-base { --v2-base-face: clamp(2.6rem, calc(100cqh - .8rem), 10rem); }
-.v2-playmat .full-product-duel-mat-runes { --v2-rune-row: 100cqh; }
-
-/* Base permanents: card faces like the battlefield, not mini chips. */
-.v2-playmat .full-product-duel-mat-base .full-product-duel-unit-groups { display: flex; flex-wrap: nowrap; gap: .4rem; align-items: flex-start; overflow-x: auto; }
-.v2-playmat .full-product-duel-mat-base .full-product-duel-unit-list { display: flex; gap: .3rem; }
-/* Height is the scarce axis on the base: name and state sit beside the face. */
-.v2-playmat .full-product-duel-mat-base .full-product-duel-unit { flex-direction: row; align-items: center; gap: .3rem; width: auto; max-width: none; padding: .15rem .25rem; }
-.v2-playmat .full-product-duel-mat-base .full-product-duel-unit-thumb,
-.v2-playmat .full-product-duel-mat-base .full-product-duel-unit-thumb.is-missing { width: auto; height: var(--v2-base-face); max-height: var(--v2-base-face); }
-/* An exhausted base unit turns sideways without shrinking: the face is drawn
-   1.3x taller so its turned height still fills the row, and the margins give
-   the layout box the turned footprint (1.3 x .716 = .93 high, 1.3 wide). */
-.v2-playmat .full-product-duel-mat-base .full-product-duel-unit[data-readied="false"] .full-product-duel-unit-thumb {
-  height: calc(var(--v2-base-face) * 1.3); max-height: none; transform: rotate(90deg);
-  margin-block: calc(var(--v2-base-face) * -.185); margin-inline: calc(var(--v2-base-face) * .185);
-}
-.v2-playmat .full-product-duel-mat-base .full-product-duel-unit-details { align-items: flex-start; text-align: left; max-width: 5.5rem; font-size: .65rem; }
-.v2-playmat .full-product-duel-mat-base .full-product-duel-unit-state { display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; font-size: .6rem; }
-
-/* Runes: card tiles; the viewer's own runes are buttons. */
-.v2-playmat .full-product-duel-baserune-list { gap: .4rem; height: 100%; align-items: stretch; }
-.v2-playmat .full-product-duel-mat-runes .full-product-duel-baserune-thumb,
-.v2-playmat .v2-rune-face { height: calc(var(--v2-rune-row) - 1.7rem); width: auto; aspect-ratio: 744 / 1039; object-fit: cover; border-radius: .25rem; }
-.v2-playmat .v2-rune-face[data-missing="true"] { background: #1c2523; border: 1px dashed #42534f; }
-.v2-rune-button {
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .1rem;
-  height: 100%; padding: .15rem .3rem; border: 1px solid #42534f; border-radius: .4rem;
-  background: rgba(19, 28, 27, .6); color: inherit; font: inherit; cursor: pointer;
-  transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease;
-}
-.v2-rune-button[data-can-energy="true"]:hover, .v2-rune-button[data-can-power="true"]:hover {
-  border-color: #37c8bb; box-shadow: 0 0 0 2px rgba(55, 200, 187, .35); transform: translateY(-2px);
-}
-.v2-rune-button[aria-disabled="true"] { cursor: not-allowed; }
-.v2-rune[data-readied="false"] .v2-rune-face { transform: rotate(90deg) scale(.86); }
-.v2-playmat .v2-rune .full-product-duel-baserune-caption { align-items: center; font-size: .6rem; }
-
-/* Drag-and-drop. */
-.v2-playmat .v2-draggable { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
-.v2-playmat[data-dragging], .v2-playmat[data-dragging] * { cursor: grabbing !important; user-select: none; -webkit-user-select: none; }
-.v2-playmat [data-drop-state="legal"] { outline: 2px dashed rgba(55, 200, 187, .8); outline-offset: -2px; background-color: rgba(55, 200, 187, .06); }
-.v2-playmat [data-drop-state="over"] { outline: 3px solid #37c8bb; outline-offset: -3px; background-color: rgba(55, 200, 187, .18); }
-.v2-playmat [data-drop-state="blocked"] { opacity: .5; }
-.v2-drag-ghost { position: fixed; z-index: 60; pointer-events: none; transform: translate(-50%, -60%) rotate(-4deg); }
-.v2-drag-ghost img { display: block; height: 7.5rem; width: auto; border-radius: .4rem; box-shadow: 0 12px 32px rgba(0, 0, 0, .6); }
-.v2-drag-ghost span { display: inline-block; padding: .4rem .7rem; border-radius: .4rem; background: #1aa79b; color: #071413; font-weight: 700; }
-.v2-drag-hint {
-  position: fixed; left: 50%; bottom: 1rem; z-index: 61; transform: translateX(-50%); pointer-events: none;
-  margin: 0; padding: .4rem .9rem; border-radius: 999px; background: rgba(7, 20, 19, .92); color: #e9e5dc;
-  border: 1px solid #37c8bb; font-size: .8rem;
-}
-
-/* Hand: heading in the corner, faces fill the row. */
-.v2-playmat-hand { position: relative; }
-.v2-playmat-hand .v2-section-heading { position: absolute; top: .2rem; right: .6rem; z-index: 1; gap: .4rem; pointer-events: none; }
-.v2-playmat-hand .v2-card-row { --v2-hand-face: clamp(4rem, calc(100cqh - 2.6rem), 15rem); height: 100%; }
-.v2-playmat-hand .v2-card { padding: .2rem .25rem; gap: .1rem; }
-.v2-playmat-hand .v2-card > small:first-of-type { display: none; }
-.v2-playmat-hand .v2-card > strong { line-height: 1.1; }
-
-/* Short rune rows drop the caption (name and state stay in the button label
-   and title) so the rune face keeps the full row height. */
-@container (max-height: 84px) {
-  .v2-playmat .v2-rune .full-product-duel-baserune-caption { display: none; }
-  .v2-playmat .full-product-duel-mat-runes .full-product-duel-baserune-thumb,
-  .v2-playmat .v2-rune-face { height: calc(100cqh - .7rem); }
-}
-
-/* During a V2 match the room page's protocol toggle moves into the empty
-   middle of the app header, and the page padding shrinks, so the table gets
-   that height back. */
-.room-shell.room-page:has(> .v2-playmat) { padding-top: .5rem; padding-bottom: .5rem; gap: 0; }
-.room-shell.room-page:has(> .v2-playmat) > .match-local-controls {
+.table-shell > .v2-match-board.v2t { height: 100%; }
+.room-shell.room-page > .v2-match-board.v2t { height: calc(100dvh - 6.9rem); min-height: 34rem; }
+.room-shell.room-page:has(> .v2t) { padding-top: .5rem; padding-bottom: .5rem; gap: 0; }
+.room-shell.room-page:has(> .v2t) > .match-local-controls {
   position: fixed; top: .6rem; left: 50%; z-index: 30; transform: translateX(-50%); margin: 0;
 }
-.room-shell.room-page:has(> .v2-playmat) > .match-local-controls .button { padding: .3rem .75rem; font-size: .8rem; }
-.room-shell.room-page > .v2-match-board.v2-playmat { height: calc(100dvh - 6.9rem); }
+.room-shell.room-page:has(> .v2t) > .match-local-controls .button { padding: .3rem .75rem; font-size: .8rem; }
+.v2t .v2-zone { border: 0; border-radius: 0; padding: 0; background: transparent; min-width: 0; }
+.v2t .full-product-duel-empty { margin: 0; font-size: .65rem; color: var(--v2t-muted); }
 
-/* Battlefield units get the base treatment: the unit zone is a size
-   container, faces fill its height, owner/name/state sit beside the faces. */
-.v2-playmat .full-product-duel-battlefield > .v2-zone { container-type: size; min-height: 0; overflow: hidden; }
-.v2-playmat .full-product-duel-battlefield { --v2-base-face: clamp(2.4rem, calc(100cqh - .6rem), 10rem); }
-.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-groups { display: flex; flex-wrap: nowrap; gap: .5rem; height: 100%; overflow-x: auto; overflow-y: hidden; }
-.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-group { display: flex; flex-direction: row; justify-content: flex-start; align-items: center; gap: .25rem; height: 100%; padding: 0 .2rem; }
-.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-group-owner { margin: 0; width: auto; writing-mode: vertical-rl; font-size: .6rem; }
-.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-list { display: flex; align-items: center; gap: .3rem; height: 100%; margin: 0; padding: 0; overflow: visible; }
-.v2-playmat .full-product-duel-battlefield .full-product-duel-unit { flex-direction: row; align-items: center; gap: .3rem; width: auto; max-width: none; padding: .1rem .2rem; }
-.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-thumb,
-.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-thumb.is-missing { width: auto; height: var(--v2-base-face); max-height: var(--v2-base-face); }
-.v2-playmat .full-product-duel-battlefield .full-product-duel-unit[data-readied="false"] .full-product-duel-unit-thumb {
-  height: calc(var(--v2-base-face) * 1.3); max-height: none; transform: rotate(90deg);
-  margin-block: calc(var(--v2-base-face) * -.185); margin-inline: calc(var(--v2-base-face) * .185);
+/* Header: turn facts, the timing banner in the middle, score pips. */
+.v2t-top { display: flex; flex-wrap: nowrap; align-items: center; gap: .6rem; padding: .25rem .6rem; border-radius: .5rem;
+  background: #0b171b; border: 1px solid #1f3439; font-size: .78rem; white-space: nowrap; overflow: hidden; }
+.v2t-top .v2-playmat-score { font-size: .72rem; color: var(--v2t-muted); }
+.v2t-banner { margin: 0 auto; padding: .2rem .9rem; border-radius: 999px; font-weight: 700; font-size: .85rem; overflow: hidden; text-overflow: ellipsis; }
+.v2t-banner.is-go { background: var(--v2t-me); color: #052129; }
+.v2t-banner.is-fight { background: var(--v2t-hot); color: #3a2600; }
+.v2t-banner.is-end { background: #c79a3a; color: #2d1d00; }
+.v2t-banner.is-wait { background: #24363b; color: var(--v2t-muted); }
+.v2t-pips { display: inline-flex; flex-direction: column; gap: .15rem; }
+.v2t-pips > span { display: flex; gap: .15rem; }
+.v2t-pips i { width: .45rem; height: .45rem; border-radius: 50%; border: 1px solid #3c5359; }
+.v2t-pips .is-me i.is-on { background: var(--v2t-me); border-color: var(--v2t-me); }
+.v2t-pips .is-opp i.is-on { background: var(--v2t-opp); border-color: var(--v2t-opp); }
+.v2t-top .v2-playmat-meta { margin-left: 0; display: inline-flex; gap: .4rem; font-size: .68rem; color: var(--v2t-muted); }
+
+.v2t-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) clamp(15rem, 19vw, 19.5rem); gap: .4rem; }
+.v2t-table { position: relative; min-height: 0; display: grid; gap: .3rem; padding: .3rem; border-radius: .6rem; background: var(--v2t-felt);
+  grid-template-rows: 1.2rem minmax(0, .95fr) minmax(0, 1.15fr) minmax(0, 1fr) var(--v2t-hand); transition: grid-template-rows .3s ease; }
+/* During combat the battlefields get the height; both mats give some back. */
+.v2t-table:has(.v2m-field.is-combat) { grid-template-rows: 1.2rem minmax(0, .8fr) minmax(0, 1.75fr) minmax(0, .85fr) var(--v2t-hand); }
+.v2t-band, .v2t-fields, .v2t-hand { min-height: 0; }
+.v2t-opp-hand .full-product-duel-hidden-hand { display: flex; align-items: center; justify-content: center; gap: .5rem; height: 100%; font-size: .62rem; color: var(--v2t-muted); }
+.v2t-opp-hand .full-product-duel-hand-zone-label br { display: none; }
+.v2t-opp-hand .full-product-duel-hand-backs { display: flex; gap: .15rem; }
+.v2t-opp-hand .full-product-duel-card-back { display: inline-block; width: .7rem; height: 1rem; border-radius: 2px; background: #2d4a52; border: 1px solid #4a6870; }
+
+/* Mats. */
+.v2m-mat { height: 100%; min-height: 0; display: grid; gap: .25rem; grid-template-rows: minmax(0, 1.55fr) minmax(0, 1fr); }
+.v2m-mat-row { display: flex; gap: .25rem; min-height: 0; }
+.v2m-mat[data-position="opponent"] .v2m-mat-row { flex-direction: row-reverse; }
+.v2m-mat[data-position="opponent"] { grid-template-rows: minmax(0, 1fr) minmax(0, 1.55fr); }
+.v2m-mat[data-position="opponent"] .v2m-mat-row-base { order: 2; }
+.v2m-mat[data-position="opponent"] .v2m-mat-row-runes { order: 1; }
+.v2m-zone { position: relative; min-width: 0; min-height: 0; border: 1px solid var(--v2t-gold); border-radius: .45rem; background: var(--v2t-mat); padding: .15rem .3rem; }
+.v2m-base { flex: 1 1 auto; display: flex; flex-direction: column; }
+.v2m-zone-head { display: flex; align-items: center; gap: .4rem; height: .95rem; }
+.v2m-zone-head h4 { margin: 0; font-size: .62rem; font-weight: 500; color: #cbb67e; letter-spacing: .06em; }
+.v2m-score { font-weight: 700; font-size: .7rem; color: var(--v2t-ink); }
+.v2m-base > .v2-zone { flex: 1 1 auto; min-height: 0; container-type: size; }
+.v2m-identity { flex: 0 0 auto; container-type: size; width: clamp(6rem, 11vw, 9.5rem); }
+.v2m-identity-list { display: flex; gap: .3rem; height: 100%; margin: 0; }
+.v2m-identity-slot { flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.v2m-identity-slot dt { font-size: .55rem; color: #cbb67e; }
+.v2m-identity-slot dd { margin: 0; display: flex; flex-direction: column; align-items: center; min-height: 0; }
+.v2m-identity-art, .v2m-identity-slot .full-product-duel-card-button img { display: block; height: calc(100cqh - 1.9rem); width: auto; aspect-ratio: 744 / 1039; object-fit: cover; border-radius: .25rem; }
+.v2m-identity-slot .full-product-duel-card-button { padding: 0; border: 0; background: none; cursor: zoom-in; }
+.v2m-identity-title { font-size: .55rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v2m-pile { flex: 0 0 3.6rem; display: flex; align-items: center; justify-content: center; }
+.v2m-pile .full-product-duel-mat-pile { display: grid; justify-items: center; margin: 0; }
+.v2m-pile .full-product-duel-mat-pile dt { font-size: .55rem; color: #cbb67e; }
+.v2m-pile .full-product-duel-mat-pile dd { margin: 0; font-size: 1.1rem; font-weight: 700; }
+.v2m-runes { flex: 1 1 auto; display: flex; align-items: center; gap: .4rem; container-type: size; }
+.v2m-runes > .v2-zone { flex: 1 1 auto; min-width: 0; height: 100%; display: flex; align-items: center; overflow-x: auto; overflow-y: hidden; }
+.v2m-pool { display: grid; grid-template-columns: auto auto; gap: 0 .35rem; margin: 0; font-size: .58rem; color: var(--v2t-muted); white-space: nowrap; }
+.v2m-pool div { display: contents; }
+.v2m-pool dd { margin: 0; font-weight: 700; color: var(--v2t-ink); }
+
+/* Runes: card tiles; the viewer's own runes are buttons (left: Energy, right: Power). */
+.v2t .full-product-duel-baserune-list { display: flex; gap: .35rem; height: 100%; align-items: center; margin: 0; padding: 0; list-style: none; }
+.v2t .full-product-duel-baserune { display: flex; align-items: center; height: 100%; }
+.v2t .full-product-duel-baserune[data-readied="false"] { opacity: .6; }
+.v2t .full-product-duel-baserune-caption { display: flex; flex-direction: column; align-items: center; font-size: .52rem; line-height: 1.15; }
+.v2t .v2m-runes .full-product-duel-baserune-thumb, .v2t .v2-rune-face { height: calc(100cqh - 1.5rem); width: auto; aspect-ratio: 744 / 1039; object-fit: cover; border-radius: .25rem; }
+.v2t .v2-rune-face[data-missing="true"] { background: #1c2523; border: 1px dashed #42534f; }
+.v2t .v2m-runes .full-product-duel-card-button { padding: 0; border: 0; background: none; }
+.v2-rune-button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .05rem; height: 100%; padding: .1rem .2rem;
+  border: 1px solid #42534f; border-radius: .4rem; background: rgba(19, 28, 27, .6); color: inherit; font: inherit; cursor: pointer;
+  transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+.v2-rune-button[data-can-energy="true"]:hover, .v2-rune-button[data-can-power="true"]:hover { border-color: var(--v2t-me); transform: translateY(-2px); }
+.v2-rune-button[aria-disabled="true"] { cursor: not-allowed; }
+.v2-rune[data-readied="false"] .v2-rune-face { transform: rotate(90deg) scale(.72); }
+@container (max-height: 70px) {
+  .v2t .v2-rune .full-product-duel-baserune-caption { display: none; }
+  .v2t .v2m-runes .full-product-duel-baserune-thumb, .v2t .v2-rune-face { height: calc(100cqh - .5rem); }
 }
-.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-details { align-items: flex-start; text-align: left; max-width: 5.5rem; font-size: .65rem; }
-.v2-playmat .full-product-duel-battlefield .full-product-duel-unit-state { display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; font-size: .6rem; }
-/* One-line battlefield header (name, control, tags) leaves the height to the units. */
-.v2-playmat .full-product-duel-battlefield-head-main { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: baseline; gap: .4rem; min-width: 0; overflow: hidden; }
-.v2-playmat .full-product-duel-battlefield-head-main > * { flex: 0 0 auto; white-space: nowrap; }
-.v2-playmat .full-product-duel-battlefield-head .full-product-duel-battlefield-thumb { height: 1.4rem; width: auto; }
+
+/* Stacks: one face per group of identical permanents; rows compress (cards
+   overlap) once a zone holds more stacks than fit, hovering lifts a card. */
+.v2m-row { --v2m-h: clamp(2.2rem, calc(100cqh - .35rem), 8.5rem); --v2m-w: calc(var(--v2m-h) * .716); --v2m-gap: .45rem;
+  container-type: inline-size; flex: 1 1 auto; display: flex; align-items: center; height: 100%; min-width: 0; margin: 0; padding: 0 .4rem 0 .2rem; list-style: none; }
+.v2m-stack { position: relative; flex: 0 0 auto; z-index: 1; transition: transform .15s ease, margin .2s ease; }
+.v2m-stack + .v2m-stack { margin-left: clamp(calc(var(--v2m-w) * -.72), calc((100cqw - var(--v2m-n) * (var(--v2m-w) + var(--v2m-gap))) / max(1, var(--v2m-n) - 1)), var(--v2m-gap)); }
+/* The combat panel has width to spare: spread the stacks so damage badges never overlap. */
+.v2m-field.is-combat .v2m-row { --v2m-gap: 3.2rem; --v2m-h: clamp(2.2rem, calc(100cqh - 1.2rem), 9rem); padding-bottom: .9rem; }
+.v2m-stack:hover, .v2m-stack:focus-within { z-index: 6; transform: translateY(-.25rem) scale(1.1); }
+.v2m-stack.is-expanded { z-index: 7; transform: none; }
+.v2m-hit { position: relative; display: block; cursor: pointer; outline: none; }
+.v2m-hit:focus-visible .v2m-face { box-shadow: 0 0 0 2px var(--v2t-hot); }
+.v2m-face { position: relative; z-index: 1; display: block; width: var(--v2m-w); height: var(--v2m-h); border-radius: .3rem; background: #1b2a2e; border: 1px solid #44595e;
+  transition: box-shadow .15s ease; }
+.v2m-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: .28rem; transition: transform .2s ease; }
+.v2m-art.is-missing { background: repeating-linear-gradient(45deg, #263a34, #263a34 4px, #192a25 4px, #192a25 8px); }
+.v2m-face.is-exhausted .v2m-art { transform: rotate(90deg) scale(.716); }
+.v2m-face.is-exhausted { background: #10191b; }
+.v2m-face.is-exhausted .v2m-readied { color: #9fd0ff; }
+.v2m-name { position: absolute; left: 0; right: 0; bottom: 0; padding: .05rem .2rem; font-size: .55rem; line-height: 1.25; background: rgba(4, 10, 11, .72);
+  border-radius: 0 0 .28rem .28rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v2m-state { position: absolute; left: .1rem; right: .1rem; top: .1rem; display: flex; flex-wrap: wrap; justify-content: space-between; gap: .1rem; font-size: .5rem; line-height: 1.2; }
+.v2m-state > span { padding: 0 .2rem; border-radius: .2rem; background: rgba(4, 10, 11, .78); }
+.v2m-readied { color: var(--v2t-muted); }
+.v2m-might { color: #f2c86b; font-weight: 700; }
+.v2m-damage { color: #fff; background: #b9362a !important; }
+.v2m-layer { position: absolute; z-index: 0; inset: 0; border-radius: .3rem; background: #22353a; border: 1px solid #3a5157; transform: translate(3px, -3px); }
+.v2m-layer.is-second { transform: translate(6px, -6px); }
+.v2m-count { position: absolute; z-index: 3; top: -.35rem; right: -.45rem; padding: 0 .3rem; border-radius: 999px; background: var(--v2t-hot); color: #3a2600; font-weight: 700; font-size: .68rem; }
+.v2m-zoom { position: absolute; z-index: 4; top: .1rem; right: .1rem; width: 1.05rem; height: 1.05rem; padding: 0; border-radius: 50%; font-size: .62rem; line-height: 1;
+  color: var(--v2t-ink); background: rgba(11, 15, 15, .8); border: 1px solid #42534f; cursor: zoom-in; opacity: 0; transition: opacity .12s ease; }
+.v2m-stack.is-stacked .v2m-zoom { top: 1rem; }
+.v2m-stack:hover .v2m-zoom, .v2m-zoom:focus-visible { opacity: 1; }
+.v2m-alloc { position: absolute; z-index: 4; left: 50%; bottom: -.4rem; transform: translateX(-50%); padding: 0 .3rem; border-radius: .25rem; white-space: nowrap;
+  max-width: calc(var(--v2m-w) + 2.8rem); overflow: hidden; text-overflow: ellipsis;
+  background: var(--v2t-hot); color: #3a2600; font-weight: 700; font-size: .62rem; }
+.v2m-alloc b { display: inline-grid; place-items: center; width: .9rem; height: .9rem; margin-right: .2rem; border-radius: 50%; background: #3a2600; color: var(--v2t-hot); font-size: .55rem; }
+.v2m-alloc.is-lethal { background: #b9362a; color: #fff; }
+.v2m-alloc.is-group { bottom: -.5rem; }
+
+/* Blue background glow: something the server lets you do right now. */
+@keyframes v2t-glow { 50% { box-shadow: 0 0 0 2px var(--v2t-me), 0 0 18px 6px rgba(63, 179, 214, .45); } }
+.v2t .v2-operable .v2m-face, .v2t .v2-hand-slot.v2-operable .v2-card, .v2t .v2-rune.v2-operable .v2-rune-button {
+  box-shadow: 0 0 0 2px var(--v2t-me), 0 0 12px 3px rgba(63, 179, 214, .35); background-color: rgba(63, 179, 214, .22);
+  animation: v2t-glow 2.2s ease-in-out infinite; }
+.v2t .v2-hand-slot.is-dim .v2-card { filter: grayscale(.75) brightness(.6); }
+@media (prefers-reduced-motion: reduce) { .v2t .v2-operable .v2m-face, .v2t .v2-hand-slot.v2-operable .v2-card, .v2t .v2-rune.v2-operable .v2-rune-button { animation: none; } }
+
+/* Click modes: targets get a red reticle, chosen ones turn blue, damage targets amber. */
+@keyframes v2t-reticle { from { transform: translate(-50%, -50%) scale(.75); opacity: 1; } to { transform: translate(-50%, -50%) scale(1.45); opacity: 0; } }
+[data-mark] > .v2m-hit { cursor: crosshair; }
+[data-mark="selectable"] > .v2m-hit .v2m-face { box-shadow: 0 0 0 2px var(--v2t-opp); }
+[data-mark="selectable"] > .v2m-hit::after { content: ""; position: absolute; z-index: 5; left: 50%; top: 50%; width: 1.8rem; height: 1.8rem; border: 2px solid var(--v2t-opp);
+  border-radius: 50%; pointer-events: none; animation: v2t-reticle 1s ease-out infinite; }
+[data-mark="selected"] > .v2m-hit .v2m-face { box-shadow: 0 0 0 3px var(--v2t-me), 0 0 14px 4px rgba(63, 179, 214, .6); }
+[data-mark="damage"] > .v2m-hit .v2m-face { box-shadow: 0 0 0 2px var(--v2t-hot); }
+
+/* An expanded stack: every member, each clickable. */
+.v2m-expand { position: fixed; z-index: 80; left: 50%; top: 42%; transform: translate(-50%, -50%); width: max-content; max-width: min(46rem, 90vw);
+  padding: .5rem .6rem .7rem; border-radius: .6rem; background: rgba(8, 15, 17, .97); border: 1px solid var(--v2t-hot); box-shadow: 0 18px 48px rgba(0, 0, 0, .6); }
+.v2m-expand header { display: flex; align-items: baseline; gap: .6rem; margin-bottom: .4rem; font-size: .78rem; }
+.v2m-expand header span { color: var(--v2t-muted); }
+.v2m-expand header button { margin-left: auto; padding: .15rem .5rem; border-radius: .3rem; border: 1px solid #42534f; background: transparent; color: inherit; cursor: pointer; }
+.v2m-expand ul { --v2m-h: 5.6rem; --v2m-w: calc(var(--v2m-h) * .716); display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(var(--v2m-w) + .5rem), 1fr));
+  gap: .55rem .35rem; max-height: 60vh; overflow-y: auto; margin: 0; padding: .3rem .2rem .6rem; list-style: none; min-width: min(30rem, 80vw); }
+.v2m-member { position: relative; }
+
+/* Battlefields: lanes per side (opponent above, viewer below); the one in combat grows into the combat panel. */
+.v2t-fields { display: flex; gap: .35rem; }
+.v2m-field { position: relative; flex: 1 1 0; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); border: 1px solid rgba(184, 154, 82, .7);
+  border-radius: .6rem; background: #15302f; transition: flex-grow .35s ease, border-color .25s ease, background .25s ease; }
+.v2m-field.is-combat { flex-grow: 3.4; border-color: var(--v2t-hot); background: #26281b; box-shadow: inset 0 0 0 2px rgba(240, 189, 74, .45); }
+.v2m-field.is-aside { flex-grow: .75; }
+.v2m-field-head { display: flex; flex-wrap: nowrap; align-items: center; gap: .35rem; padding: .15rem .4rem; font-size: .66rem; white-space: nowrap; overflow: hidden; }
+.v2m-field-head .full-product-duel-card-button { padding: 0; border: 0; background: none; cursor: zoom-in; }
+.v2m-field-art, .v2m-field-head .full-product-duel-card-button img { display: block; height: 1.3rem; width: auto; aspect-ratio: 1038 / 744; object-fit: cover; border-radius: .15rem; }
+.v2m-field-title { margin: 0; font-size: .82rem; }
+.v2m-chip { padding: 0 .35rem; border-radius: .25rem; background: #24363b; color: var(--v2t-muted); font-weight: 700; }
+.v2m-chip.is-me { background: rgba(63, 179, 214, .22); color: var(--v2t-me); }
+.v2m-chip.is-opp { background: rgba(226, 105, 79, .2); color: var(--v2t-opp); }
+.v2m-chip.is-hot { background: var(--v2t-hot); color: #3a2600; }
+.v2m-versus { margin-left: auto; font-weight: 700; font-size: .85rem; color: var(--v2t-hot); }
+.v2m-versus i { margin: 0 .3rem; font-style: normal; }
+.v2m-meter { display: inline-flex; align-items: center; gap: .35rem; font-weight: 700; color: var(--v2t-ink); }
+.v2m-meter.is-waiting { color: var(--v2t-muted); font-weight: 500; }
+.v2m-meter-bar { width: 6rem; height: .4rem; border-radius: .2rem; background: #3a3a2a; overflow: hidden; }
+.v2m-meter-bar i { display: block; height: 100%; background: var(--v2t-hot); transition: width .2s ease; }
+.v2m-meter button { padding: .05rem .4rem; border-radius: .25rem; border: 1px solid #5c5a3e; background: transparent; color: inherit; font-size: .62rem; cursor: pointer; }
+.v2m-field > .v2-zone { min-height: 0; height: 100%; }
+.v2m-field > .v2-zone > .full-product-duel-empty { padding: .3rem .5rem; }
+.v2m-lanes { display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); height: 100%; }
+.v2m-lane { position: relative; display: flex; align-items: center; gap: .15rem; min-height: 0; min-width: 0; padding: 0 .3rem; container-type: size; }
+.v2m-lane.is-me { border-top: 1px dashed #2e4a4c; }
+.v2m-lane-owner { margin: 0; writing-mode: vertical-rl; font-size: .55rem; color: var(--v2t-muted); }
+.v2m-lane.is-me .v2m-lane-owner { color: var(--v2t-me); }
+.v2m-lane.is-opp .v2m-lane-owner { color: var(--v2t-opp); }
+.v2m-lane-sum { flex: 0 0 auto; font-weight: 700; font-size: .78rem; color: var(--v2t-muted); }
+.v2m-drop-preview { position: absolute; z-index: 20; right: .5rem; top: 1.8rem; margin: 0; padding: .35rem .6rem; border-radius: .45rem; font-size: .75rem;
+  background: rgba(8, 15, 17, .94); border: 1px solid var(--v2t-hot); color: var(--v2t-ink); pointer-events: none; }
+.v2m-result { position: absolute; z-index: 25; left: 50%; top: 55%; transform: translate(-50%, -50%); display: grid; gap: .15rem; padding: .6rem 1rem; border-radius: .6rem;
+  text-align: center; font-size: .75rem; background: rgba(8, 15, 17, .95); border: 1px solid var(--v2t-hot); animation: v2t-rise .3s ease; }
+.v2m-result strong { font-size: 1rem; color: var(--v2t-hot); }
+
+/* Hand: faces fill the row; playable cards glow, the selected one shows its play menu. */
+.v2t-hand { container-type: size; }
+.v2t .v2-playmat-hand { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; padding: .2rem .4rem; border: 0; border-radius: 0; background: transparent; container-type: size; }
+.v2t .v2-playmat-hand .v2-section-heading { position: absolute; top: .1rem; right: .5rem; z-index: 1; gap: .4rem; font-size: .7rem; color: var(--v2t-muted); pointer-events: none; }
+.v2t .v2-playmat-hand .v2-section-heading h3 { font-size: .75rem; color: var(--v2t-ink); }
+.v2t .v2-playmat-hand .v2-card-row { --v2-hand-face: clamp(4rem, calc(100cqh - 2.4rem), 15rem); flex: 1 1 auto; display: flex; flex-wrap: nowrap; justify-content: center;
+  gap: .35rem; height: 100%; margin: 0; padding: .2rem 0; overflow-x: auto; overflow-y: visible; align-items: flex-end; }
+.v2-hand-slot { position: relative; flex: 0 0 auto; display: flex; }
+.v2t .v2-playmat-hand .v2-card { flex: 0 0 auto; min-width: 0; width: calc(var(--v2-hand-face) * 744 / 1039 + .5rem); display: flex; flex-direction: column; align-items: center;
+  gap: .1rem; padding: .2rem .25rem; text-align: center; color: var(--v2t-ink); background: rgba(28, 34, 34, .62); border-color: #42534f; transition: transform .15s ease, border-color .12s ease; }
+.v2t .v2-playmat-hand .v2-card strong { font-size: .68rem; line-height: 1.1; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v2t .v2-playmat-hand .v2-card small { font-size: .58rem; color: var(--v2t-muted); }
+.v2t .v2-playmat-hand .v2-card > small:first-of-type { display: none; }
+.v2t .v2-hand-face { width: 100%; height: var(--v2-hand-face); max-height: var(--v2-hand-face); object-fit: contain; border-radius: 6px; }
+.v2-hand-face.is-missing { display: block; background: repeating-linear-gradient(45deg, #263a34, #263a34 4px, #192a25 4px, #192a25 8px); border: 1px solid #687f76; }
+.v2t .v2-card:not(:disabled):hover { border-color: var(--v2t-me); transform: translateY(-.6rem) scale(1.04); }
+.v2t .v2-card.is-selected { border-color: var(--v2t-me); background: rgba(63, 179, 214, .25); transform: translateY(-.8rem); }
+.v2-hand-zoom { position: absolute; top: .25rem; right: .25rem; z-index: 2; width: 1.3rem; height: 1.3rem; padding: 0; border-radius: 50%; font-size: .75rem; line-height: 1;
+  color: var(--v2t-ink); background: rgba(11, 15, 15, .75); border: 1px solid #42534f; cursor: zoom-in; }
+.v2t-play-menu { position: fixed; z-index: 70; transform: translate(-50%, calc(-100% - 1.2rem)); display: grid; gap: .25rem; min-width: 8rem;
+  padding: .3rem; border-radius: .5rem; background: rgba(8, 14, 17, .95); border: 1px solid var(--v2t-me); box-shadow: 0 10px 28px rgba(0, 0, 0, .55); }
+.v2t-play-menu button { padding: .3rem .7rem; border-radius: .4rem; border: 0; background: var(--v2t-me); color: #052129; font-weight: 700; font-size: .72rem; white-space: nowrap; cursor: pointer; }
+.v2t-play-menu button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Response prompt (Master Duel's "chain?" confirmation) and the choice overlay. */
+@keyframes v2t-rise { from { transform: translate(-50%, .8rem); opacity: 0; } }
+.v2t-prompt { position: absolute; z-index: 45; left: 50%; bottom: calc(var(--v2t-hand) + .5rem); transform: translateX(-50%); width: min(34rem, 92%);
+  display: grid; gap: .45rem; padding: .7rem .9rem; border-radius: .75rem; background: rgba(12, 24, 28, .97); border: 1px solid var(--v2t-opp);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, .55); animation: v2t-rise .25s ease; }
+.v2t-prompt h4 { margin: 0; font-size: .92rem; }
+.v2t-prompt p { margin: 0; font-size: .75rem; line-height: 1.55; color: var(--v2t-muted); }
+.v2t-prompt-actions { display: flex; justify-content: flex-end; gap: .4rem; }
+.v2t-prompt-actions button { padding: .35rem .9rem; border-radius: .4rem; border: 1px solid #42534f; background: #1b2b30; color: var(--v2t-ink); font-weight: 700; cursor: pointer; }
+.v2t-prompt-actions button.is-primary { background: var(--v2t-me); border-color: var(--v2t-me); color: #052129; }
+.v2t-choice-overlay { position: absolute; z-index: 46; left: 50%; top: 46%; transform: translate(-50%, -50%); width: min(32rem, 92%); max-height: 72%; overflow: auto;
+  border-radius: .75rem; box-shadow: 0 18px 48px rgba(0, 0, 0, .6); }
+.v2t .v2t-choice-overlay .v2-choice { margin: 0; padding: .8rem; border: 1px solid var(--v2t-me); background: rgba(12, 24, 28, .97); }
+.v2t .v2-choice .v2-section-heading { flex-wrap: wrap; }
+.v2t .v2-choice .v2-section-heading h3 { font-size: .9rem; }
+.v2t .v2-choice p, .v2t .v2-choice .v2-section-heading span { font-size: .75rem; color: var(--v2t-muted); }
+
+/* Rail: chain, log/chat, dock, drawer. */
+.v2t-rail { min-height: 0; display: flex; flex-direction: column; gap: .35rem; overflow-y: auto; font-size: .75rem; }
+.v2t .v2t-chain, .v2t-comms, .v2t-dock, .v2t-drawer, .v2t-rail > .v2-choice { flex: 0 0 auto; border: 1px solid #22383e; border-radius: .6rem; background: var(--v2t-panel); padding: .45rem .55rem; }
+.v2t .v2t-chain .v2-section-heading h3 { font-size: .85rem; }
+.v2t .v2t-chain .v2-section-heading span { font-size: .65rem; color: var(--v2t-muted); }
+.v2t-priority { margin: .3rem 0; padding: .3rem .45rem; border-radius: .4rem; font-weight: 700; font-size: .72rem; }
+.v2t .v2t-priority.is-me { background: rgba(63, 179, 214, .2); color: var(--v2t-me); }
+.v2t .v2t-priority.is-opp { background: rgba(226, 105, 79, .18); color: var(--v2t-opp); }
+.v2t .v2t-priority.is-none { background: #1a2a2f; color: var(--v2t-muted); }
+.v2t .v2t-chain .v2-muted { margin: 0; font-size: .68rem; }
+.v2t-chain-list { display: grid; gap: .3rem; margin: 0; padding: 0; list-style: none; }
+.v2t-chain-item { display: grid; grid-template-columns: 1.4rem 2rem minmax(0, 1fr); align-items: center; gap: .4rem; padding: .25rem; border-radius: .4rem;
+  background: #13252a; border-left: 3px solid var(--v2t-me); }
+.v2t-chain-item.is-opp { border-left-color: var(--v2t-opp); }
+.v2t-chain-item.is-next { background: #1e3a40; }
+.v2t-chain-item.is-resolving { background: rgba(240, 189, 74, .25); }
+.v2t-chain-n { font-weight: 700; font-size: 1.05rem; text-align: center; color: var(--v2t-hot); }
+.v2t-chain-art { width: 2rem; aspect-ratio: 744 / 1039; object-fit: cover; border-radius: .2rem; display: block; }
+.v2t-chain-art.is-missing { background: #22353a; height: 2.8rem; }
+.v2t-chain-text { min-width: 0; display: grid; }
+.v2t-chain-text b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v2t-chain-text small { color: var(--v2t-muted); font-size: .62rem; }
+.v2t-comms { flex: 1 1 6rem; min-height: 6rem; overflow: hidden; display: flex; flex-direction: column; }
+.v2t-tabs { display: flex; gap: .3rem; margin-bottom: .3rem; }
+.v2t-tabs button { padding: .15rem .6rem; border-radius: .3rem; border: 1px solid #2c4248; background: transparent; color: var(--v2t-muted); cursor: pointer; }
+.v2t-tabs button[aria-selected="true"] { background: #24363b; color: var(--v2t-ink); }
+.v2t .v2t-comms .v2-log { flex: 1 1 auto; min-height: 0; overflow-y: auto; border: 0; padding: 0; background: transparent; font-size: .68rem; }
+.v2t .v2t-comms .v2-log .v2-section-heading h3 { font-size: .78rem; }
+.v2t .v2t-comms .v2-log ol { margin: .2rem 0 0; padding-left: 0; list-style: none; display: grid; gap: .12rem; }
+.v2t .v2t-comms .v2-log li > span { color: #5d7477; }
+.v2t .v2t-comms .v2-log li > b { font-weight: 700; }
+.v2t-dock { display: grid; justify-items: center; gap: .4rem; }
+.v2t-status { display: grid; gap: .3rem; width: 100%; }
+.v2t-status:empty { display: none; }
+.v2t .v2t-status .v2-error { font-size: .7rem; padding: .4rem; }
+.v2t .v2t-status .v2-waiting, .v2t .v2t-status .v2-receipt { font-size: .66rem; padding: .3rem .45rem; margin: 0; }
+.v2t .v2t-status .v2-receipt { background: transparent; color: var(--v2t-muted); }
+.v2t .v2t-status .v2-action-panel, .v2t .v2t-status .v2-lobby { border-color: #343b3b; padding: .5rem; }
+.v2t .v2-primary-action { background: #1aa79b; border-color: #1aa79b; color: #071413; font-weight: 700; }
+.v2t-modes { display: flex; align-items: center; gap: .15rem; font-size: .62rem; color: var(--v2t-muted); }
+.v2t-modes span { margin-right: .25rem; }
+.v2t-modes button { padding: .1rem .45rem; border: 1px solid #2c4248; background: transparent; color: var(--v2t-muted); cursor: pointer; font-size: .62rem; }
+.v2t-modes button:first-of-type { border-radius: .3rem 0 0 .3rem; }
+.v2t-modes button:last-of-type { border-radius: 0 .3rem .3rem 0; }
+.v2t-modes button[aria-checked="true"] { background: #24363b; color: var(--v2t-ink); font-weight: 700; }
+@keyframes v2t-breathe { 50% { box-shadow: 0 0 0 .7rem rgba(240, 189, 74, .14); } }
+.v2t-main { width: 7.4rem; height: 7.4rem; border-radius: 50%; display: grid; place-content: center; gap: .2rem; padding: .5rem; text-align: center; border: 3px solid transparent;
+  font: inherit; font-size: 1rem; font-weight: 700; cursor: pointer; transition: background .2s ease, box-shadow .2s ease, transform .1s ease; }
+.v2t-main small { font-weight: 400; font-size: .62rem; line-height: 1.3; max-width: 6.2rem; overflow: hidden; text-overflow: ellipsis; }
+.v2t-main:active:not(:disabled) { transform: scale(.96); }
+.v2t-main.is-go { background: var(--v2t-me); color: #052129; box-shadow: 0 0 0 .35rem rgba(63, 179, 214, .22); }
+.v2t-main.is-fight { background: var(--v2t-hot); color: #3a2600; box-shadow: 0 0 0 .35rem rgba(240, 189, 74, .22); }
+.v2t-main.is-end { background: #c79a3a; color: #2d1d00; animation: v2t-breathe 1.8s ease-in-out infinite; }
+.v2t-main.is-wait, .v2t-main:disabled { background: #1b2b30; color: var(--v2t-muted); border-color: #2c4248; box-shadow: none; cursor: default; animation: none; }
+.v2t-secondary { display: flex; flex-wrap: wrap; justify-content: center; gap: .3rem; }
+.v2t .v2t-secondary button { padding: .2rem .55rem; border-radius: .35rem; border: 1px solid #2c4248; background: transparent; color: var(--v2t-muted); font-size: .68rem; cursor: pointer; }
+.v2t .v2t-secondary button:disabled { opacity: .4; cursor: not-allowed; }
+.v2t .v2t-secondary [role="group"] { display: inline-flex; align-items: center; gap: .3rem; }
+.v2t-keys { margin: 0; font-size: .6rem; color: #5d7477; }
+.v2t-drawer summary { cursor: pointer; color: var(--v2t-muted); font-size: .7rem; }
+.v2t-drawer[open] summary { margin-bottom: .4rem; }
+.v2t-actions .v2-playmat-actions { display: grid; gap: .45rem; font-size: .74rem; }
+.v2t-actions .v2-action-panel { gap: .35rem; padding: .45rem; border-radius: .45rem; border-color: #343b3b; background: rgba(28, 34, 34, .62); }
+.v2t-actions .v2-section-heading { flex-wrap: wrap; gap: .25rem; }
+.v2t-actions .v2-section-heading h3 { font-size: .8rem; }
+.v2t-actions .v2-section-heading span, .v2t-actions .v2-muted { color: var(--v2t-muted); font-size: .68rem; }
+.v2t-actions .v2-choice-options { gap: .3rem; margin-top: .15rem; }
+.v2t-actions label { display: grid; gap: .2rem; }
+.v2t .v2-choice-options button, .v2t-actions button { padding: .3rem .5rem; border-radius: .35rem; color: var(--v2t-ink); background: rgba(11, 15, 15, .6); border: 1px solid #42534f; }
+.v2t .v2-choice-options button[aria-pressed="true"] { border-color: var(--v2t-me); background: rgba(63, 179, 214, .28); color: var(--v2t-ink); }
+.v2t button:disabled { opacity: .45; cursor: not-allowed; }
+
+/* Drag-and-drop (RIFT-1144). */
+.v2t .v2-draggable { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.v2t[data-dragging], .v2t[data-dragging] * { cursor: grabbing !important; user-select: none; -webkit-user-select: none; }
+.v2t [data-drop-state="legal"] { outline: 2px dashed rgba(63, 179, 214, .85); outline-offset: -2px; background-color: rgba(63, 179, 214, .07); }
+.v2t [data-drop-state="over"] { outline: 3px solid var(--v2t-me); outline-offset: -3px; background-color: rgba(63, 179, 214, .2); }
+.v2t [data-drop-state="blocked"] { opacity: .5; }
+.v2-drag-ghost { position: fixed; z-index: 60; pointer-events: none; transform: translate(-50%, -60%) rotate(-4deg); }
+.v2-drag-ghost img { display: block; height: 7.5rem; width: auto; border-radius: .4rem; box-shadow: 0 12px 32px rgba(0, 0, 0, .6); }
+.v2-drag-ghost span { display: inline-block; padding: .4rem .7rem; border-radius: .4rem; background: var(--v2t-me, #3fb3d6); color: #071413; font-weight: 700; }
+.v2-drag-hint { position: fixed; left: 50%; bottom: 1rem; z-index: 61; transform: translateX(-50%); pointer-events: none; margin: 0; padding: .4rem .9rem; border-radius: 999px;
+  background: rgba(7, 20, 19, .92); color: #e9e5dc; border: 1px solid #3fb3d6; font-size: .8rem; }
+
+/* Narrow windows: the rail drops below the table. */
+@media (max-width: 900px) {
+  .v2t-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(30rem, 1fr) auto; overflow-y: auto; }
+  .v2t-top { flex-wrap: wrap; white-space: normal; }
+}
+
+/* Card detail (click) and docked card info (hover), Master Duel style:
+   a name bar with domain badges, a numbers band, keyword chips, type tags
+   and the official Chinese text in a framed box. */
+.v2cd { background: rgba(4, 9, 11, .84); }
+.v2cd .v2cd-body { gap: 1.1rem; padding: 1rem; border-radius: .9rem; background: #0b1519; border: 1px solid rgba(184, 154, 82, .55);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .7); grid-template-columns: auto minmax(18rem, 30rem); }
+.v2cd .v2cd-art .full-product-duel-preview-image { border: 2px solid rgba(184, 154, 82, .6); border-radius: .7rem; box-shadow: 0 10px 30px rgba(0, 0, 0, .5); }
+.v2cd .v2cd-info { gap: .55rem; }
+.v2cd-name { display: flex; align-items: center; gap: .4rem; padding: .35rem .7rem; border-radius: .35rem;
+  background: linear-gradient(90deg, #6b3a1c, #3b2412 70%, rgba(59, 36, 18, .3)); border: 1px solid rgba(232, 170, 96, .55); }
+.v2cd-name h3, .v2cd-name h4 { margin: 0 auto 0 0; color: #f6ead2; font-size: 1.15rem; font-weight: 700; text-align: left; }
+.v2cd .v2cd-name .full-product-duel-preview-title { color: #f6ead2; font-size: 1.25rem; }
+.v2cd-domain { flex: 0 0 auto; padding: .05rem .45rem; border-radius: 999px; font-size: .68rem; font-weight: 700; color: #1a1205; background: #d8c38a; }
+.v2cd-domain.is-fury { background: #e0614c; color: #2a0805; }
+.v2cd-domain.is-calm { background: #6fc58a; color: #062010; }
+.v2cd-domain.is-mind { background: #5ea6e6; color: #04182a; }
+.v2cd-domain.is-body { background: #e3913f; color: #2a1404; }
+.v2cd-domain.is-chaos { background: #a77be0; color: #1a0a2e; }
+.v2cd-domain.is-order { background: #e2c255; color: #2a2104; }
+.v2cd-stats { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem 1rem; padding: .35rem .7rem; border-radius: .35rem; background: #0f0f0f;
+  border-bottom: 2px solid #8a5a2a; }
+.v2cd-stat { display: inline-flex; align-items: center; gap: .3rem; font-size: .78rem; color: #c9c1ad; }
+.v2cd-stat i { width: .9rem; height: .9rem; border-radius: 50%; background: #c99a3c; box-shadow: inset 0 0 0 2px #0f0f0f, 0 0 0 1px #c99a3c; }
+.v2cd-stat.is-power i { background: #7a8ee0; box-shadow: inset 0 0 0 2px #0f0f0f, 0 0 0 1px #7a8ee0; border-radius: .2rem; }
+.v2cd-stat.is-might i { background: #e0614c; box-shadow: inset 0 0 0 2px #0f0f0f, 0 0 0 1px #e0614c; border-radius: .15rem; transform: rotate(45deg); }
+.v2cd-stat.is-damage i { background: #b9362a; box-shadow: none; }
+.v2cd-stat.is-state { padding: 0 .45rem; border-radius: .3rem; background: #1f3036; color: #9fd0ff; }
+.v2cd-stat b { font-size: 1.15rem; color: #fbf3df; font-variant-numeric: tabular-nums; }
+.v2cd-stat em { margin-left: .2rem; font-size: .75rem; font-style: normal; }
+.v2cd-stat em.is-up { color: #7bd88f; }
+.v2cd-stat em.is-down { color: #ff7d6b; }
+.v2cd-keywords { display: flex; flex-wrap: wrap; gap: .3rem; }
+.v2cd-keywords span { padding: .1rem .5rem; border-radius: .3rem; font-size: .75rem; font-weight: 700; color: #77d8ce; background: rgba(55, 200, 187, .12);
+  border: 1px solid rgba(55, 200, 187, .45); }
+.v2cd .v2cd-tags li { border-color: rgba(184, 154, 82, .5); background: rgba(184, 154, 82, .1); color: #e7dcc0; }
+.v2cd-text, .v2ch-text { padding: .5rem .7rem; border-radius: .35rem; background: rgba(255, 255, 255, .03); border-top: 2px solid #8a5a2a; }
+.v2cd .v2cd-text .card-text { font-size: .95rem; line-height: 1.7; max-height: 46vh; }
+.v2cd .v2cd-close { margin-top: auto; }
+
+.v2ch { position: absolute; z-index: 44; top: 2.2rem; width: clamp(14rem, 19vw, 18rem); max-height: calc(100% - var(--v2t-hand) - 2.8rem); overflow: hidden;
+  display: flex; flex-direction: column; gap: .35rem; padding: .45rem; border-radius: .6rem; pointer-events: none;
+  background: rgba(8, 14, 17, .96); border: 1px solid rgba(184, 154, 82, .6); box-shadow: 0 16px 40px rgba(0, 0, 0, .6); animation: v2t-fade .12s ease; }
+@keyframes v2t-fade { from { opacity: 0; } }
+.v2ch.is-left { left: .4rem; }
+.v2ch.is-right { right: .4rem; }
+.v2ch .v2cd-name { padding: .25rem .5rem; }
+.v2ch .v2cd-name h4 { font-size: .9rem; }
+.v2ch-top { display: grid; grid-template-columns: 5.6rem minmax(0, 1fr); gap: .45rem; align-items: start; }
+.v2ch-top img, .v2ch-missing { width: 5.6rem; aspect-ratio: 744 / 1039; object-fit: cover; border-radius: .35rem; border: 1px solid rgba(184, 154, 82, .5); display: block; }
+.v2ch-missing { background: #1c2523; }
+.v2ch .v2cd-stats { flex-direction: column; align-items: flex-start; gap: .25rem; padding: .3rem .45rem; border-bottom: 0; background: transparent; }
+.v2ch .v2cd-stat b { font-size: 1rem; }
+.v2ch .v2cd-keywords span { font-size: .66rem; }
+.v2ch-type { margin: 0; padding: .2rem .45rem; border-radius: .25rem; font-size: .66rem; color: #f6ead2; background: #5a3418; }
+.v2ch-text { min-height: 0; overflow: hidden; }
+.v2ch .card-text { font-size: .74rem; line-height: 1.6; max-height: none; overflow: hidden; }
 
 /* RIFT-1148: in-match issue report entry in the board header. */
 .v2-playmat-report {
@@ -260,3 +439,4 @@
   background: rgba(19, 28, 27, .7); color: #e9e5dc; font: inherit; font-size: .78rem; cursor: pointer;
 }
 .v2-playmat-report:hover { border-color: #37c8bb; }
+.v2t-top .v2-playmat-report { flex: 0 0 auto; margin-left: 0; padding: .15rem .6rem; font-size: .72rem; }

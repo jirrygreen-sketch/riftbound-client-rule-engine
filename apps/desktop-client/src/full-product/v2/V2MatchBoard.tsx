@@ -37,21 +37,37 @@ import {
   type CardNameIndex
 } from "./card-names";
 import { DEFAULT_HTTP_SERVER_URL, DEFAULT_WS_SERVER_URL } from "../../net/server-defaults";
-import { DuelTableLayout } from "../components/DuelTableLayout";
 import {
   buildV2CardLookup,
   playerName as v2PlayerName,
   V2BattlefieldCard,
+  V2CardHoverPanel,
   V2CardPreview,
+  v2HoverProps,
   V2OpponentHand,
   V2PlaymatSide,
   v2PlaymatCards,
-  V2ScoreRail,
-  type V2BoardInteraction
+  type V2BoardInteraction,
+  type V2ObjectMark,
+  type V2PlaymatCards
 } from "./V2Playmat";
+import {
+  v2AssignDamage,
+  v2ChainKindLabel,
+  v2ChainStatusLabel,
+  v2EventHidden,
+  v2EventLabel,
+  v2LethalNeed,
+  v2MightAt,
+  v2OrderedDamageDrafts,
+  v2PlannedDamage,
+  v2UnassignDamage,
+  type V2DamagePlan
+} from "./unit-groups";
 import {
   useV2PointerDrag,
   v2MoveDropTargets,
+  v2LocationKey,
   v2PlayDropTargets,
   v2PlayNeedsSelection,
   v2ResolveDrop,
@@ -295,6 +311,22 @@ export function V2MatchBoard({
   const [combatDamageDrafts, setCombatDamageDrafts] = useState<Readonly<Record<string, string>>>(initialCombatDamageDrafts);
   const [concedeConfirmationOpen, setConcedeConfirmationOpen] = useState(initialConcedeConfirmationOpen);
   const [commandError, setCommandError] = useState<string | null>(null);
+  // RIFT-1146 table state: the order damage was clicked in, the one expanded
+  // stack, the dismissed response prompt, the viewer's prompt preference, the
+  // log/chat tab and the summary of the combat that just ended.
+  const [combatDamageOrder, setCombatDamageOrder] = useState<readonly string[]>([]);
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+  const [promptDismissedScene, setPromptDismissedScene] = useState<string | null>(null);
+  const [responseMode, setResponseMode] = useState<V2ResponseMode>("auto");
+  const [commTab, setCommTab] = useState<"log" | "chat">("log");
+  const [combatResult, setCombatResult] = useState<V2CombatResult | null>(null);
+  // The card under the pointer, shown in the docked info panel (left unless the card is on the left).
+  const [hoverCard, setHoverCard] = useState<{ readonly cardId: string; readonly side: "left" | "right"; readonly objectId?: string } | null>(null);
+  const [previewObjectId, setPreviewObjectId] = useState<string | null>(null);
+  // Where the selected hand card sits on screen: its play menu is drawn above it.
+  const [menuAnchor, setMenuAnchor] = useState<{ readonly x: number; readonly y: number } | null>(null);
+  const combatWatchRef = useRef<{ readonly battlefieldId: string; readonly fromSeq: number; readonly contested: boolean } | null>(null);
+  const mainActionRef = useRef<(() => void) | null>(null);
   const cardNames = useMemo(() => buildCardNameIndex(catalogCards), [catalogCards]);
   const cardLookup = useMemo(() => buildV2CardLookup(catalogCards), [catalogCards]);
   // Read-only card preview on the playmat; it never selects or plays a card.
@@ -324,11 +356,53 @@ export function V2MatchBoard({
     setSelectedDestination("");
     setSelectedPlayDestination("");
     setCombatDamageDrafts({});
+    setCombatDamageOrder([]);
+    setExpandedGroup(null);
     setConcedeConfirmationOpen(false);
     setCommandError(null);
     setDragNotice(null);
     cancelDrag();
   }, [sceneKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Space runs the one main action; Esc drops a half-made selection.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, button, summary") ?? false) return;
+      if (event.key === " " && mainActionRef.current !== null) {
+        event.preventDefault();
+        mainActionRef.current();
+      }
+      if (event.key === "Escape") {
+        setSelectedCardId(null);
+        setSelectedPlayTargets({});
+        setExpandedGroup(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // When a combat ends, summarise what died from the public event stream and
+  // show it on that battlefield for a few seconds.
+  const combatStatus = projection?.combat?.status ?? "none";
+  const combatField = projection?.combat?.status === "active" ? projection.combat.battlefieldId ?? null : null;
+  useEffect(() => {
+    if (projection === null) return undefined;
+    if (combatStatus === "active" && combatField !== null) {
+      if (combatWatchRef.current?.battlefieldId !== combatField) {
+        combatWatchRef.current = { battlefieldId: combatField, fromSeq: projection.eventSeq,
+          contested: projection.combat?.status === "active" && projection.combat.defenderPlayerId !== undefined };
+      }
+      return undefined;
+    }
+    const watched = combatWatchRef.current;
+    if (watched === null) return undefined;
+    combatWatchRef.current = null;
+    setCombatResult(v2CombatResult(projection, [...projection.events, ...state.events], watched, buildCardNameIndex(catalogCards)));
+    const timer = setTimeout(() => setCombatResult(null), 6000);
+    return () => clearTimeout(timer);
+  }, [combatStatus, combatField]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (room === null || catalogStatus !== "idle") return;
@@ -556,9 +630,11 @@ export function V2MatchBoard({
     label: objectLabel(target),
     allowLocation: target.visibility === "public"
   })), cardNames);
+  // Only units that were given damage are sent, in the order they were
+  // clicked: a small budget never has to cover every enemy (RIFT-1146).
+  const damagePlan: V2DamagePlan = { drafts: combatDamageDrafts, order: combatDamageOrder };
   const combatDamageCommand = combatDamage === null || projection.combat?.combatId === undefined || combatDamageBudget === null ? null :
-    buildV2CombatDamageCommand(projection.combat.combatId, combatDamageBudget,
-      combatDamageTargets.map(target => ({ unitObjectId: target.objectId, amount: combatDamageDrafts[target.objectId] ?? "" })));
+    buildV2CombatDamageCommand(projection.combat.combatId, combatDamageBudget, v2OrderedDamageDrafts(damagePlan, combatDamageTargets));
   const canSubmitCombatDamage = canAct && choiceOpen && !choiceExpired && combatDamageCommand !== null;
   const waitingForOpponentDamage = projection.combat?.status === "active" &&
     projection.combat.step === "damage" && projection.combat.damage !== undefined &&
@@ -574,7 +650,24 @@ export function V2MatchBoard({
   const scoreLine = projection.players.map(player => `${player.name} ${score(player.playerId)}`).join(" : ");
 
   const playmatCards = v2PlaymatCards(projection, cardNames, cardLookup);
-  const inspectCard = (cardId: string): void => setPreviewCardId(cardId);
+  const inspectCard = (cardId: string, objectId?: string): void => {
+    setPreviewCardId(cardId);
+    setPreviewObjectId(objectId ?? null);
+  };
+  const playTargetsFromSelection = (option: V2PlayOption): V2Target[] => option.targetRequirements !== undefined
+    ? selectedPlayTargetRefs.map(ref => ({ kind: "object", objectId: ref.objectId, zoneEntryId: ref.zoneEntryId }))
+    : selectedTarget ? [{ kind: "object", objectId: selectedTarget.objectId,
+      ...(selectedTarget.zoneEntryId === undefined ? {} : { zoneEntryId: selectedTarget.zoneEntryId }) }] : [];
+  const togglePlayTarget = (requirementId: string, max: number, refKey: string): void => setSelectedPlayTargets(current => {
+    const selectedForGroup = current[requirementId] ?? [];
+    const selected = selectedForGroup.includes(refKey);
+    const next = selected ? selectedForGroup.filter(id => id !== refKey)
+      : selectedForGroup.length >= max
+        ? [...selectedForGroup.slice(-(max - 1)), refKey]
+        : [...selectedForGroup, refKey];
+    return { ...current, [requirementId]: next };
+  });
+  const optionRefKey = (option: V2ChoiceOption): string => `${option.objectRef?.objectId}:${String(option.objectRef?.zoneEntryId)}`;
   dropHandlerRef.current = (source, dropKey) => {
     const result = v2ResolveDrop(projection, source, dropKey);
     if (result.kind === "illegal") {
@@ -600,12 +693,42 @@ export function V2MatchBoard({
     // Targets are still needed: keep the drop as the chosen card and placement.
     setSelectedCardId(source.objectId);
     if (option.requiresDestination !== false && dropKey !== null) setSelectedPlayDestination(dropKey);
-    setDragNotice(`已选好 ${source.label} 的落点，请在右侧选择目标后点「打出手牌」`);
+    setDragNotice(`已选好 ${source.label} 的落点，请在牌桌上点选带准星的目标`);
   };
   const dragTargets: ReadonlyMap<string, unknown> | null = drag === null || !drag.active ? null :
     drag.source.kind === "play" ? v2PlayDropTargets(projection, drag.source.objectId) :
       v2MoveDropTargets(projection, drag.source.objectId);
   const movableIds = new Set(movableUnits.map(unit => unit.objectId));
+  const viewerId = projection.viewerPlayerId;
+  const hoverHandler = (cardId: string | null, clientX?: number, object?: V2ProjectedObject): void => setHoverCard(cardId === null ? null :
+    { cardId, side: clientX !== undefined && typeof window !== "undefined" && clientX < window.innerWidth * .32 ? "right" : "left",
+      ...(object === undefined ? {} : { objectId: object.objectId }) });
+  const controllerId = (object: V2ProjectedObject): string => object.controllerPlayerId ?? object.ownerPlayerId;
+
+  // Board clicks (RIFT-1146): damage while allocating, else play targets
+  // while a selected card needs them, else the pending object choice.
+  const combatTargetIds = new Set(combatDamageTargets.map(target => target.objectId));
+  const plannedDamage = v2PlannedDamage(damagePlan);
+  const targetingRequirements = !setup && canPlay && selectedCard !== null ? playTargetRequirements : [];
+  const pendingChoiceState = state.choice.choice;
+  const choiceMine = pendingChoiceState.status === "pending" && state.choice.answerable && !choiceExpired;
+  const boardChoiceOptions = choiceMine && pendingChoiceState.status === "pending" &&
+    (pendingChoiceState.kind === "select-objects" || pendingChoiceState.kind === "order")
+    ? (pendingChoiceState.options ?? []).filter(option => option.objectRef !== undefined) : [];
+  const toggleBoardChoice = (optionId: string): void => setSelectedChoiceIds(current =>
+    current.includes(optionId) ? current.filter(item => item !== optionId)
+      : pendingChoiceState.status === "pending" && pendingChoiceState.kind !== "order" && pendingChoiceState.max === 1
+        ? [optionId] : [...current, optionId]);
+  const markFor = (object: V2ProjectedObject): V2ObjectMark | null => {
+    if (combatDamage !== null && combatTargetIds.has(object.objectId)) return "damage";
+    for (const requirement of targetingRequirements) {
+      const option = requirement.options.find(candidate => candidate.objectRef?.objectId === object.objectId);
+      if (option !== undefined) return (selectedPlayTargets[requirement.id] ?? []).includes(optionRefKey(option)) ? "selected" : "selectable";
+    }
+    const choice = boardChoiceOptions.find(option => option.objectRef?.objectId === object.objectId);
+    if (choice !== undefined) return selectedChoiceIds.includes(choice.id) ? "selected" : "selectable";
+    return null;
+  };
   const boardInteraction: V2BoardInteraction = {
     dropStateFor: dropKey => dragTargets === null ? null : !dragTargets.has(dropKey) ? "blocked" :
       drag?.overKey === dropKey ? "over" : "legal",
@@ -616,19 +739,173 @@ export function V2MatchBoard({
       enabled: !setup && canAct,
       onEnergy: rune => submit(buildV2RuneCommand("rune-energy", rune)),
       onPower: rune => submit(buildV2RuneCommand("rune-power", rune))
-    }
+    },
+    operable: object => !setup && canAct && combatDamage === null && targetingRequirements.length === 0 && movableIds.has(object.objectId),
+    markFor,
+    onObjectClick: objects => {
+      if (consumeDragClick()) return true;
+      if (combatDamage !== null && combatDamageBudget !== null && objects.length > 0 &&
+          objects.every(object => combatTargetIds.has(object.objectId))) {
+        if (!canAct) return true;
+        const next = v2AssignDamage(damagePlan, objects, combatDamageBudget, combatDamageTargets);
+        setCombatDamageDrafts(next.drafts);
+        setCombatDamageOrder(next.order);
+        return true;
+      }
+      for (const requirement of targetingRequirements) {
+        const options = objects.flatMap(object => {
+          const option = requirement.options.find(candidate => candidate.objectRef?.objectId === object.objectId);
+          return option === undefined ? [] : [option];
+        });
+        if (options.length === 0) continue;
+        const selected = selectedPlayTargets[requirement.id] ?? [];
+        const option = options.find(candidate => !selected.includes(optionRefKey(candidate))) ?? options[0]!;
+        togglePlayTarget(requirement.id, requirement.max, optionRefKey(option));
+        return true;
+      }
+      const choices = objects.flatMap(object => {
+        const option = boardChoiceOptions.find(candidate => candidate.objectRef?.objectId === object.objectId);
+        return option === undefined ? [] : [option];
+      });
+      if (choices.length > 0) {
+        toggleBoardChoice((choices.find(option => !selectedChoiceIds.includes(option.id)) ?? choices[0]!).id);
+        return true;
+      }
+      return false;
+    },
+    onObjectContext: objects => {
+      if (combatDamage === null || !objects.every(object => combatTargetIds.has(object.objectId))) return false;
+      const next = v2UnassignDamage(damagePlan, objects);
+      setCombatDamageDrafts(next.drafts);
+      setCombatDamageOrder(next.order);
+      return true;
+    },
+    allocationFor: object => {
+      if (combatDamage === null || !combatTargetIds.has(object.objectId)) return null;
+      const amount = Number(combatDamageDrafts[object.objectId] ?? "");
+      if (!Number.isSafeInteger(amount) || amount <= 0) return null;
+      const order = combatDamageOrder.indexOf(object.objectId);
+      return { amount, lethal: amount >= v2LethalNeed(object), order: order < 0 ? null : order + 1 };
+    },
+    expandedKey: expandedGroup,
+    onExpand: setExpandedGroup,
+    onHover: hoverHandler,
+    dropPreviewFor: dropKey => {
+      if (drag === null || !drag.active || drag.source.kind !== "move" || drag.overKey !== dropKey ||
+          dragTargets?.has(dropKey) !== true || !dropKey.startsWith("battlefield:") || viewerId === null) return null;
+      const battlefieldId = dropKey.slice("battlefield:".length);
+      const moving = objectById(drag.source.objectId);
+      const enemies = projection.objects.filter(object => object.location?.kind === "battlefield" &&
+        object.location.battlefieldId === battlefieldId && controllerId(object) !== viewerId && object.might !== undefined);
+      const name = projection.objects.find(object => object.objectId === battlefieldId);
+      const title = name === undefined ? battlefieldId : objectLabel(name);
+      if (enemies.length === 0) {
+        const controlled = projection.battlefields?.find(field => field.battlefieldId === battlefieldId)?.controllerPlayerId === viewerId;
+        return controlled ? `移动到 ${title}` : `移动到 ${title}：无人防守，可占领（预估）`;
+      }
+      const mine = v2MightAt(projection, battlefieldId, viewerId) + (moving?.might ?? 0);
+      const theirs = enemies.reduce((sum, object) => sum + (object.might ?? 0), 0);
+      const owner = v2PlayerName(projection, controllerId(enemies[0]!));
+      return `进攻 ${title}：你 ${mine} : ${theirs} ${owner}（预估，进入后会先对决）`;
+    },
+    combatHeader: battlefieldId => combatDamage !== null && combatDamageBudget !== null && projection.combat?.battlefieldId === battlefieldId ? (
+      <span className="v2m-meter" aria-label="伤害分配进度">
+        分配 {plannedDamage} / {combatDamageBudget}
+        <span className="v2m-meter-bar"><i style={{ width: `${Math.min(100, combatDamageBudget === 0 ? 100 : plannedDamage / combatDamageBudget * 100)}%` }} /></span>
+        <button type="button" disabled={plannedDamage === 0} onClick={() => { setCombatDamageDrafts({}); setCombatDamageOrder([]); }}>清空分配</button>
+      </span>
+    ) : waitingForOpponentDamage && projection.combat?.battlefieldId === battlefieldId ? (
+      <span className="v2m-meter is-waiting">等待 {v2PlayerName(projection, projection.combat.damage?.expectedPlayerId)} 分配伤害</span>
+    ) : null,
+    resultFor: battlefieldId => combatResult?.battlefieldId === battlefieldId ? (
+      <><strong>{combatResult.title}</strong>{combatResult.lines.map(line => <span key={line}>{line}</span>)}</>
+    ) : null
   };
+
   const viewerSide = viewer ?? projection.players[0] ?? null;
   const opponentSide = viewer === null ? projection.players[1] ?? null : opponent;
   const sideBase = (playerId: string) => baseObjects.filter(object => baseOwnerOf(object) === playerId);
   const sideRunes = (playerId: string) => runeObjects.filter(object => object.ownerPlayerId === playerId);
+
+  // Timing at a glance: who holds priority, what is on the chain, what to do.
+  const chainItems = projection.chain.items;
+  const topChain = chainItems.length === 0 ? null : chainItems[chainItems.length - 1]!;
+  const chainSourceName = (item: typeof chainItems[number]): string =>
+    item.sourceObjectId === undefined ? v2ChainKindLabel(item.kind) : objectName(item.sourceObjectId);
+  const showdown = projection.priority.window === "showdown";
+  const activeCombatFieldId = projection.combat?.status === "active" ? projection.combat.battlefieldId ?? null : null;
+  const activeCombatField = activeCombatFieldId === null ? undefined : objectById(activeCombatFieldId);
+  const combatFieldName = activeCombatField === undefined ? activeCombatFieldId ?? "" : objectLabel(activeCombatField);
+  const playableIds = new Set((projection.actionOptions?.plays ?? []).map(option => option.cardObjectId));
+  const playableCount = canPlay ? ownHand.filter(card => playableIds.has(card.objectId)).length : 0;
+  const nameOrYou = (playerId: string | null | undefined): string =>
+    playerId === viewerId ? "你" : v2PlayerName(projection, playerId);
+  const readyPlayCommand = !canPlay || selectedCard === null || selectedPlayOption === null ? null :
+    buildProjectedV2PlayCommand(projection, selectedCard.objectId,
+      selectedPlayOption.requiresDestination === false ? undefined : selectedPlayOption.destination,
+      playTargetsFromSelection(selectedPlayOption));
+  const submitChoice = (): void => {
+    const answer = buildV2ChoiceAnswer(state.choice.choice, selectedChoiceIds, numberAnswer, optionalChoiceAnswer);
+    if (answer === null) return;
+    const command = buildV2ChooseCommand(state.choice, answer, `desktop-v2-choose-${state.choice.choice.status === "pending" ? `${state.choice.choice.choiceId}-${state.choice.choice.stateVersion}` : "none"}`);
+    if (command) submit(command);
+  };
+  const submitDamage = (): void => {
+    if (combatDamageCommand === null) return;
+    submit(combatDamageCommand);
+    setCombatDamageDrafts({});
+    setCombatDamageOrder([]);
+  };
+  const anythingOperable = playableCount > 0 || movableUnits.length > 0 ||
+    ownRunes.some(rune => v2RuneCanAddEnergy(rune));
+  const waitingOn = pendingChoiceState.status === "pending" && !state.choice.answerable ? pendingChoiceState.ownerPlayerId :
+    waitingForOpponentDamage ? projection.combat?.damage?.expectedPlayerId ?? null : projection.priority.playerId;
+  const main: V2MainAction = matchEnded ? { label: "对局结束", detail: winner === null ? "" : `胜者：${winner.name}`, tone: "wait", run: null }
+    : setup ? { label: "换牌", detail: mulliganOpen ? "在手牌中点选要换掉的牌" : "等待对手换牌", tone: "wait", run: null }
+    : busy ? { label: "处理中…", detail: "等待服务端回执", tone: "wait", run: null }
+    : choiceMine ? { label: "确认选择", detail: "完成选择请求", tone: "go",
+      run: canAct && buildV2ChoiceAnswer(state.choice.choice, selectedChoiceIds, numberAnswer, optionalChoiceAnswer) !== null ? submitChoice : null }
+    : combatDamage !== null ? { label: "确认伤害", detail: `${plannedDamage} / ${combatDamageBudget ?? 0}`, tone: "fight",
+      run: canSubmitCombatDamage ? submitDamage : null }
+    : readyPlayCommand !== null && selectedCard !== null ? { label: `打出 ${objectLabel(selectedCard)}`, detail: "确认打出", tone: "go",
+      run: () => submit(readyPlayCommand) }
+    : canPass && (topChain !== null || showdown) ? { label: "让过",
+      detail: topChain !== null ? `结算 ${chainItems.length} ${chainSourceName(topChain)}` : "对决中不再出牌",
+      tone: showdown || projection.combat?.status === "active" ? "fight" : "go", run: () => submit(buildV2PassCommand()) }
+    : canAdvance ? { label: "推进", detail: projection.combat?.status === "active" ? "进入下一战斗步骤" : "继续结算", tone: "fight",
+      run: () => submit(buildV2AdvanceCommand()) }
+    : canEndTurn ? { label: "结束回合", detail: "空格", tone: anythingOperable ? "go" : "end", run: () => submit(buildV2EndTurnCommand()) }
+    : canPass ? { label: "让过", detail: "交出优先权", tone: "go", run: () => submit(buildV2PassCommand()) }
+    : { label: waitingOn === null ? "等待" : `等待 ${v2PlayerName(projection, waitingOn)}`, detail: "对手行动中", tone: "wait", run: null };
+  mainActionRef.current = main.run;
+
+  const banner: { readonly text: string; readonly tone: V2MainAction["tone"] } =
+    matchEnded ? { text: winner === null ? "对局结束" : winner.playerId === viewerId ? "你获胜" : "你落败", tone: "wait" }
+    : setup ? { text: "换牌阶段", tone: "wait" }
+    : combatDamage !== null ? { text: `分配 ${combatDamageBudget ?? 0} 点伤害：点击${combatFieldName}的敌方单位`, tone: "fight" }
+    : targetingRequirements.length > 0 ? { text: `选择目标：点击带准星的单位（${targetingRequirements.map(requirement =>
+      requirement.min === requirement.max ? String(requirement.min) : `${requirement.min}-${requirement.max}`).join(" / ")} 个）`, tone: "fight" }
+    : choiceMine ? { text: "请完成选择请求", tone: "go" }
+    : showdown ? { text: `${combatFieldName || "战场"} · 对决 — 焦点：${nameOrYou(projection.priority.focusPlayerId ?? projection.priority.playerId)}`, tone: "fight" }
+    : waitingForOpponentDamage ? { text: `等待 ${v2PlayerName(projection, projection.combat?.damage?.expectedPlayerId)} 分配伤害`, tone: "wait" }
+    : projection.combat?.status === "active" ? { text: canAdvance ? `${combatFieldName || "战场"}战斗：按「推进」进入下一步` : `${combatFieldName || "战场"}战斗中`, tone: "fight" }
+    : topChain !== null ? (hasPriority ? { text: "轮到你响应", tone: "go" } : { text: `等待 ${v2PlayerName(projection, projection.priority.playerId)} 响应`, tone: "wait" })
+    : projection.activePlayerId === viewerId ? { text: "你的回合", tone: "go" }
+    : { text: `${v2PlayerName(projection, projection.activePlayerId)} 的回合`, tone: "wait" };
+
+  const promptOpen = !setup && !matchEnded && canPass && choiceOpen && !choiceExpired && (topChain !== null || showdown) &&
+    responseMode !== "off" && (responseMode === "on" || playableCount > 0) && promptDismissedScene !== sceneKey &&
+    selectedCardId === null && combatDamage === null;
+
   const playmatHeader = (
-    <div className="full-product-duel-header v2-playmat-header">
+    <div className="full-product-duel-header v2-playmat-header v2t-top">
       <span className="full-product-duel-header-matchup">{viewerSide?.name ?? "—"} vs {opponentSide?.name ?? "—"}</span>
       <span className="full-product-duel-header-round" aria-label="回合">第 {projection.turnNumber} 回合</span>
       <span className="full-product-duel-header-phase" aria-label="阶段">{phaseLabel(projection.phase)}</span>
       <span className="full-product-duel-header-turn" aria-label="行动玩家">行动：{v2PlayerName(projection, projection.activePlayerId)}</span>
+      <span className={`v2t-banner is-${banner.tone}`} role="status" aria-label="当前时点">{banner.text}</span>
       <span className="v2-playmat-score" aria-label="比分">比分 {scoreLine}</span>
+      <V2ScorePips projection={projection} />
       <span className="v2-playmat-meta"><ConnectionState state={state.connectionStatus} /><span>状态 {projection.stateVersion}</span><span>事件 {projection.eventSeq}</span></span>
       {onReportIssue ? (
         <button type="button" className="v2-playmat-report" onClick={onReportIssue} title="提交问题描述和本局日志">问题上报</button>
@@ -639,36 +916,66 @@ export function V2MatchBoard({
     <section className="v2-hand v2-playmat-hand" aria-label="我的手牌">
           <div className="v2-section-heading"><h3>我的手牌</h3><span>{ownHand.length} / {viewer?.handCount ?? ownHand.length}</span></div>
           {ownHand.length === 0 ? <p className="v2-muted">手牌为空</p> : (
-            <div className="v2-card-row">{ownHand.map(card => <div key={card.objectId} className="v2-hand-slot"><button type="button"
-              className={`v2-card${selectedMulliganIds.includes(card.objectId) || selectedCardId === card.objectId ? " is-selected" : ""}${
-                !setup && canPlay && v2PlayDropTargets(projection, card.objectId).size > 0 ? " v2-draggable" : ""}`}
+            <div className="v2-card-row">{ownHand.map(card => {
+              const playable = !setup && canPlay && v2PlayDropTargets(projection, card.objectId).size > 0;
+              const dim = !setup && !playable;
+              const reason = dim ? (!canAct ? "现在不能操作" : !hasPriority ? "现在没有优先权" : !choiceOpen ? "请先完成选择请求" :
+                topChain !== null || showdown ? "当前时点不能打出这张牌" : "现在没有这张牌的打出选项（费用、时机或目标不满足）") : null;
+              const selected = selectedMulliganIds.includes(card.objectId) || selectedCardId === card.objectId;
+              return <div key={card.objectId} className={`v2-hand-slot${playable ? " v2-operable" : ""}${dim ? " is-dim" : ""}`}
+                {...(reason === null ? {} : { title: reason })} {...v2HoverProps(hoverHandler, card.cardId, card)}><button type="button"
+              className={`v2-card${selected ? " is-selected" : ""}${playable ? " v2-draggable" : ""}`}
               disabled={setup ? !canChooseMulligan : !canPlay}
-              onPointerDown={!setup && canPlay && v2PlayDropTargets(projection, card.objectId).size > 0
+              onPointerDown={playable
                 ? beginDrag({ kind: "play", objectId: card.objectId, label: objectLabel(card),
                   ...(card.cardId === undefined ? {} : { cardId: card.cardId }) }) : undefined}
-              onClick={() => {
+              onClick={event => {
                 if (consumeDragClick()) return;
                 if (setup) {
                   const choice = mulliganSelection;
                   if (!choice || choice.status !== "pending") return;
-                  const selected = choice.options?.find(option =>
+                  const selectedOption = choice.options?.find(option =>
                     option.objectRef?.objectId === card.objectId &&
                     option.objectRef.zoneEntryId === (card.zoneEntryId ?? 0));
-                  if (!selected) return;
-                  setSelectedMulliganIds(current => current.includes(selected.id) ? current.filter(id => id !== selected.id) :
-                    current.length < (choice.max ?? 2) ? [...current, selected.id] : current);
+                  if (!selectedOption) return;
+                  setSelectedMulliganIds(current => current.includes(selectedOption.id) ? current.filter(id => id !== selectedOption.id) :
+                    current.length < (choice.max ?? 2) ? [...current, selectedOption.id] : current);
                 }
-                else setSelectedCardId(current => current === card.objectId ? null : card.objectId);
+                else {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  setMenuAnchor({ x: rect.left + rect.width / 2, y: rect.top });
+                  setSelectedCardId(current => current === card.objectId ? null : card.objectId);
+                  setSelectedPlayTargets({});
+                  setSelectedPlayDestination("");
+                }
               }} title={card.name ?? card.cardId} aria-label={setup ? `选择调度 ${objectLabel(card)}` : `选择打出 ${objectLabel(card)}`}>
               {card.cardId !== undefined && playmatCards.image(card.cardId) !== null ? <img className="v2-hand-face" src={playmatCards.image(card.cardId)!} alt="" draggable={false} /> : <span className="v2-hand-face is-missing" aria-hidden="true" />}
               <strong>{objectLabel(card)}</strong><small>{card.faceDown ? "牌面朝下" : card.zone}</small>{card.might !== undefined ? <small>战力 {card.might}</small> : null}
             </button>{card.cardId !== undefined ? <button type="button" className="v2-hand-zoom" aria-label={`查看大图：${objectLabel(card)}`}
-              title="查看大图" onClick={() => setPreviewCardId(card.cardId!)}>⤢</button> : null}</div>)}</div>
+              title="查看大图" onClick={() => setPreviewCardId(card.cardId!)}>⤢</button> : null}
+            </div>;
+            })}</div>
           )}
     </section>
   );
-  const actionPanel = (
-    <div className="v2-playmat-actions">
+  const selectedPlays = selectedCard !== null && canPlay && targetingRequirements.length === 0
+    ? projection.actionOptions.plays.filter(option => option.cardObjectId === selectedCard.objectId) : [];
+  const playMenu = selectedCard !== null && selectedPlays.length > 0 && menuAnchor !== null ? (
+    <PlayMenu card={selectedCard} plays={selectedPlays} label={objectLabel(selectedCard)} disabled={!canPlay} anchor={menuAnchor}
+      destinationLabel={destination => locationLabel(projection, cardNames, destination)}
+      onPlay={option => {
+        if (v2PlayNeedsSelection(option)) {
+          if (option.requiresDestination !== false) setSelectedPlayDestination(v2LocationKey(option.destination));
+          setDragNotice(`请在牌桌上点选 ${objectLabel(selectedCard)} 的目标`);
+          return;
+        }
+        const command = buildProjectedV2PlayCommand(projection, selectedCard.objectId,
+          option.requiresDestination === false ? undefined : option.destination);
+        if (command !== null) submit(command);
+      }} />
+  ) : null;
+  const statusArea = (
+    <div className="v2t-status">
         {dragNotice ? <p className="v2-waiting" role="status" aria-label="拖动提示">{dragNotice}</p> : null}
         {busy ? (
           <p className="v2-waiting" role="status" aria-live="polite" aria-label="命令处理中">
@@ -702,6 +1009,7 @@ export function V2MatchBoard({
             本地选择提示已到期；等待服务端提供新的 choice 状态，当前动作已停用。
           </p>
         ) : null}
+        {waitingForOpponentDamage ? <p className="v2-waiting" role="status">等待对方分配伤害</p> : null}
         {setup ? <div className="v2-action-panel" aria-label="起手换牌">
           <p className="v2-muted">{mulliganOpen ? "选择至多 2 张换掉；不选择即保留全部起手。" : "等待服务端开放你的换牌窗口。"}</p>
           <button type="button" className="v2-primary-action" disabled={!canAct || !mulliganOpen ||
@@ -715,6 +1023,45 @@ export function V2MatchBoard({
             {selectedMulliganIds.length === 0 ? "保留起手" : `换掉 ${selectedMulliganIds.length} 张`}
           </button>
         </div> : null}
+    </div>
+  );
+  const dock = (
+    <div className="v2t-dock">
+      {statusArea}
+      {!setup ? <div className="v2t-modes" role="radiogroup" aria-label="响应提示">
+        <span>响应提示</span>
+        {(["on", "auto", "off"] as const).map(mode => (
+          <button key={mode} type="button" role="radio" aria-checked={responseMode === mode}
+            title={mode === "on" ? "链上有东西或对决时总是询问" : mode === "auto" ? "只有你有牌可打时才询问" : "不弹询问框，用主按钮操作"}
+            onClick={() => setResponseMode(mode)}>{mode === "on" ? "开" : mode === "auto" ? "自动" : "关"}</button>
+        ))}
+      </div> : null}
+      <button type="button" className={`v2t-main is-${main.run === null ? "wait" : main.tone}`} disabled={main.run === null}
+        aria-label={`主操作：${main.label}`} onClick={() => main.run?.()}>
+        <span>{main.label}</span>{main.detail ? <small>{main.detail}</small> : null}
+      </button>
+      {!setup ? <section className="v2-action-row v2t-secondary" aria-label="对局操作">
+          <button type="button" disabled={setup || !canPass} onClick={() => submit(buildV2PassCommand())}>Pass</button>
+          <button type="button" disabled={setup || !canAdvance} onClick={() => submit(buildV2AdvanceCommand())}>推进</button>
+          <button type="button" disabled={setup || !canEndTurn} onClick={() => submit(buildV2EndTurnCommand())}>结束回合</button>
+          {matchEnded ? null : concedeConfirmationOpen ? (
+            <span role="group" aria-label="认输确认">
+              <span>确认认输？</span>
+              <button type="button" disabled={!canAct} onClick={() => {
+                setConcedeConfirmationOpen(false);
+                submit({ type: "concede" });
+              }}>确认认输</button>
+              <button type="button" onClick={() => setConcedeConfirmationOpen(false)}>取消</button>
+            </span>
+          ) : (
+            <button type="button" disabled={setup || !canAct} onClick={() => setConcedeConfirmationOpen(true)}>认输</button>
+          )}
+        </section> : null}
+      <p className="v2t-keys">空格 = 主操作 · Esc = 取消选择</p>
+    </div>
+  );
+  const actionPanel = (
+    <div className="v2-playmat-actions">
         {!setup ? <section className="v2-action-panel" aria-label="出牌目标" data-v2-ui-hook="play-card-placement-and-target-candidates">
           <div className="v2-section-heading"><h3>出牌</h3><span>{selectedCard === null ? "先选择手牌" : objectLabel(selectedCard)}</span></div>
           {playDestinationOptions.length === 0 ? null : <label>永久物落点
@@ -734,18 +1081,8 @@ export function V2MatchBoard({
             return <fieldset key={requirement.id} disabled={!canPlay}><legend>{requirement.label}（{requirement.min === requirement.max ? requirement.min : `${requirement.min}-${requirement.max}`}）</legend>
               <div className="v2-choice-options">{requirement.options.map(option => <button key={option.id} type="button"
                 aria-label={`选择${requirement.label}：${displayOption(option)}`}
-                aria-pressed={(selectedPlayTargets[requirement.id] ?? []).includes(
-                  `${option.objectRef?.objectId}:${String(option.objectRef?.zoneEntryId)}`)}
-                onClick={() => setSelectedPlayTargets(current => {
-                  const refKey = `${option.objectRef?.objectId}:${String(option.objectRef?.zoneEntryId)}`;
-                  const selectedForGroup = current[requirement.id] ?? [];
-                  const selected = selectedForGroup.includes(refKey);
-                  const next = selected ? selectedForGroup.filter(id => id !== refKey)
-                    : selectedForGroup.length >= requirement.max
-                      ? [...selectedForGroup.slice(-(requirement.max - 1)), refKey]
-                      : [...selectedForGroup, refKey];
-                  return { ...current, [requirement.id]: next };
-                })}>{displayOption(option)}</button>)}</div>
+                aria-pressed={(selectedPlayTargets[requirement.id] ?? []).includes(optionRefKey(option))}
+                onClick={() => togglePlayTarget(requirement.id, requirement.max, optionRefKey(option))}>{displayOption(option)}</button>)}</div>
             </fieldset>;
           })}
           </div> : targetCandidates.length > 0 ? <div className="v2-choice-options" aria-label="服务端投影候选目标">{
@@ -762,12 +1099,8 @@ export function V2MatchBoard({
             if (!selectedCard) return;
             const option = selectedPlayOption;
             if (!option) return;
-            const targets: V2Target[] = option.targetRequirements !== undefined
-              ? selectedPlayTargetRefs.map(ref => ({ kind: "object", objectId: ref.objectId, zoneEntryId: ref.zoneEntryId }))
-              : selectedTarget ? [{ kind: "object", objectId: selectedTarget.objectId,
-                ...(selectedTarget.zoneEntryId === undefined ? {} : { zoneEntryId: selectedTarget.zoneEntryId }) }] : [];
             const command = buildProjectedV2PlayCommand(projection, selectedCard.objectId,
-              option.requiresDestination === false ? undefined : option.destination, targets);
+              option.requiresDestination === false ? undefined : option.destination, playTargetsFromSelection(option));
             if (command !== null) submit(command);
           }}>打出手牌</button>
         </section> : null}
@@ -777,14 +1110,12 @@ export function V2MatchBoard({
         </section> : null}
         {!setup ? <section className="v2-action-panel" aria-label="战斗推进与伤害操作" data-v2-ui-hook="combat-advance-and-damage">
           <div className="v2-section-heading"><h3>战斗</h3><span>{projection.combat?.status === "active" ? `${projection.combat.step ?? "active"}${combatDamageSide === null ? "" : ` · ${combatDamageSide}`}` : "无进行中的战斗"}</span></div>
-          <button type="button" disabled={setup || !canAdvance} onClick={() => submit(buildV2AdvanceCommand())}>推进</button>
           {combatDamage === null ? null : <div aria-label="战斗伤害分配">
-            <p>需分配 {combatDamageBudget} 点伤害；各目标金额合计必须相等。</p>
+            <p>需分配 {combatDamageBudget} 点伤害；也可以直接在战场上点击敌方单位分配。</p>
             {combatDamageTargets.length === 0 ? <p className="v2-muted">服务端未投影本场战斗的公开目标。</p> :
-              <div className="v2-choice-options">{(() => {
-                return combatDamageTargets.map(target => {
-                  const label = combatDamageTargetLabels.get(target.objectId) ?? objectLabel(target);
-                  return <label key={target.objectId}>
+              <div className="v2-choice-options">{combatDamageTargets.map(target => {
+                const label = combatDamageTargetLabels.get(target.objectId) ?? objectLabel(target);
+                return <label key={target.objectId}>
                 {label}
                 <input aria-label={`${label} 伤害`} type="number" min="0" step="1"
                   value={combatDamageDrafts[target.objectId] ?? ""}
@@ -793,17 +1124,13 @@ export function V2MatchBoard({
                     // the updater, which crashed the board on the first keystroke.
                     const amount = event.currentTarget.value;
                     setCombatDamageDrafts(current => ({ ...current, [target.objectId]: amount }));
+                    setCombatDamageOrder(current => amount === "" ? current.filter(id => id !== target.objectId) :
+                      current.includes(target.objectId) ? current : [...current, target.objectId]);
                   }} />
               </label>;
-                });
-              })()}</div>}
-            <button type="button" className="v2-primary-action" disabled={!canSubmitCombatDamage} onClick={() => {
-              if (combatDamageCommand === null) return;
-              submit(combatDamageCommand);
-              setCombatDamageDrafts({});
-            }}>提交战斗伤害</button>
+              })}</div>}
+            <button type="button" className="v2-primary-action" disabled={!canSubmitCombatDamage} onClick={submitDamage}>提交战斗伤害</button>
           </div>}
-          {waitingForOpponentDamage ? <p className="v2-waiting" role="status">等待对方分配伤害</p> : null}
         </section> : null}
         {!setup ? <section className="v2-action-panel" aria-label="移动操作">
           <div className="v2-section-heading"><h3>移动</h3><span>{selectedUnitId === null ? "选择单位与目的地" :
@@ -816,63 +1143,78 @@ export function V2MatchBoard({
             if (destination) submit(buildV2MoveCommand(selectedUnitId!, destination.value));
           }}>移动单位</button>
         </section> : null}
-        {!setup ? <section className="v2-action-row" aria-label="对局操作">
-          <button type="button" disabled={setup || !canPass} onClick={() => submit(buildV2PassCommand())}>Pass</button>
-          <button type="button" disabled={setup || !canEndTurn} onClick={() => submit(buildV2EndTurnCommand())}>结束回合</button>
-          {matchEnded ? null : concedeConfirmationOpen ? (
-            <span role="group" aria-label="认输确认">
-              <span>确认认输？</span>
-              <button type="button" disabled={!canAct} onClick={() => {
-                setConcedeConfirmationOpen(false);
-                submit({ type: "concede" });
-              }}>确认认输</button>
-              <button type="button" onClick={() => setConcedeConfirmationOpen(false)}>取消</button>
-            </span>
-          ) : (
-            <button type="button" disabled={setup || !canAct} onClick={() => setConcedeConfirmationOpen(true)}>认输</button>
-          )}
-        </section> : null}
-        {!setup ? <ChoicePanel cardNames={cardNames} projection={projection} choice={state.choice} selectedIds={selectedChoiceIds} numberAnswer={numberAnswer} optionalAnswer={optionalChoiceAnswer} disabled={!canAct}
-          onNumberChange={setNumberAnswer}
-          onOptionalAnswerChange={setOptionalChoiceAnswer}
-          onToggle={id => setSelectedChoiceIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id])}
-          onSubmit={() => {
-            const answer = buildV2ChoiceAnswer(state.choice.choice, selectedChoiceIds, numberAnswer, optionalChoiceAnswer);
-            if (answer === null) return;
-            const command = buildV2ChooseCommand(state.choice, answer, `desktop-v2-choose-${state.choice.choice.status === "pending" ? `${state.choice.choice.choiceId}-${state.choice.choice.stateVersion}` : "none"}`);
-            if (command) submit(command);
-          }} /> : null}
-      <ChainPanel cardNames={cardNames} projection={projection} />
     </div>
   );
+  const choicePanel = !setup ? <ChoicePanel cardNames={cardNames} projection={projection} choice={state.choice} selectedIds={selectedChoiceIds} numberAnswer={numberAnswer} optionalAnswer={optionalChoiceAnswer} disabled={!canAct}
+    onNumberChange={setNumberAnswer}
+    onOptionalAnswerChange={setOptionalChoiceAnswer}
+    onToggle={id => setSelectedChoiceIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id])}
+    onSubmit={submitChoice} /> : null;
+  const prompt = promptOpen ? (
+    <div className="v2t-prompt" role="dialog" aria-label="响应确认">
+      <h4>{topChain !== null
+        ? `${nameOrYou(topChain.controllerPlayerId)}的${v2ChainKindLabel(topChain.kind)}【${chainSourceName(topChain)}】在链上（第 ${chainItems.length} 项）`
+        : `${combatFieldName || "战场"} 对决 · 焦点在你`}</h4>
+      <p>{playableCount > 0 ? `你有 ${playableCount} 张牌可以响应：亮起蓝光的手牌可直接拖动或点选打出。` : "你没有可以打出的牌。"}
+        {topChain !== null ? ` 让过后，若对手也让过，将从第 ${chainItems.length} 项开始结算。` : " 双方都让过后进入下一步。"}</p>
+      <div className="v2t-prompt-actions">
+        <button type="button" onClick={() => setPromptDismissedScene(sceneKey)}>{playableCount > 0 ? "我要响应" : "先看看牌桌"}</button>
+        <button type="button" className="is-primary" disabled={!canPass} onClick={() => submit(buildV2PassCommand())}>让过</button>
+      </div>
+    </div>
+  ) : null;
 
   return (
-    <section className="v2-match-board v2-playmat full-product-duel-match" aria-label="协议 v2 对局"
+    <section className="v2-match-board v2-playmat full-product-duel-match v2t" aria-label="协议 v2 对局"
       {...(drag?.active ? { "data-dragging": drag.source.kind } : {})}>
-      <DuelTableLayout
-        header={playmatHeader}
-        scoreboard={<V2ScoreRail projection={projection} />}
-        controls={controls}
-        opponentHand={<V2OpponentHand player={opponentSide} />}
-        opponentBase={opponentSide === null ? null : <V2PlaymatSide projection={projection} player={opponentSide} position="opponent"
-          baseObjects={sideBase(opponentSide.playerId)} runes={sideRunes(opponentSide.playerId)} cards={playmatCards} onInspect={inspectCard}
-          interaction={boardInteraction} />}
-        battlefields={<div className="full-product-duel-fields">
-          {projection.scoring.battlefieldLocationIds.map(battlefieldId => (
-            <V2BattlefieldCard key={battlefieldId} projection={projection} battlefieldId={battlefieldId} cards={playmatCards} onInspect={inspectCard}
-              interaction={boardInteraction}
-              objects={battlefieldPanels.find(panel => panel.battlefieldId === battlefieldId)?.objects ?? []} />
-          ))}
-        </div>}
-        playerBase={viewerSide === null ? null : <V2PlaymatSide projection={projection} player={viewerSide} position="player"
-          baseObjects={sideBase(viewerSide.playerId)} runes={sideRunes(viewerSide.playerId)} cards={playmatCards} onInspect={inspectCard}
-          interaction={boardInteraction} />}
-        hand={handPanel}
-        actionPanel={actionPanel}
-        chat={chat}
-        activityLog={<LogPanel cardNames={cardNames} projection={projection} events={state.events} />}
-      />
-      <V2CardPreview cardId={previewCardId} cards={playmatCards} onClose={() => setPreviewCardId(null)} />
+      {playmatHeader}
+      <div className="v2t-body">
+        <div className="v2t-table" role="region" aria-label="对局桌面">
+          <div className="v2t-opp-hand" role="region" aria-label="对手手牌"><V2OpponentHand player={opponentSide} /></div>
+          <div className="v2t-band is-opponent" role="region" aria-label="对手基地">
+            {opponentSide === null ? null : <V2PlaymatSide projection={projection} player={opponentSide} position="opponent"
+              baseObjects={sideBase(opponentSide.playerId)} runes={sideRunes(opponentSide.playerId)} cards={playmatCards} onInspect={inspectCard}
+              interaction={boardInteraction} />}
+          </div>
+          <div className="v2t-fields" role="region" aria-label="中央战场">
+            {projection.scoring.battlefieldLocationIds.map(battlefieldId => (
+              <V2BattlefieldCard key={battlefieldId} projection={projection} battlefieldId={battlefieldId} cards={playmatCards} onInspect={inspectCard}
+                interaction={boardInteraction}
+                objects={battlefieldPanels.find(panel => panel.battlefieldId === battlefieldId)?.objects ?? []} />
+            ))}
+          </div>
+          <div className="v2t-band is-player" role="region" aria-label="我方基地">
+            {viewerSide === null ? null : <V2PlaymatSide projection={projection} player={viewerSide} position="player"
+              baseObjects={sideBase(viewerSide.playerId)} runes={sideRunes(viewerSide.playerId)} cards={playmatCards} onInspect={inspectCard}
+              interaction={boardInteraction} />}
+          </div>
+          <div className="v2t-hand" role="region" aria-label="手牌">{handPanel}</div>
+          {prompt}
+          {playMenu}
+          {drag?.active ? null : <V2CardHoverPanel cardId={hoverCard?.cardId ?? null} side={hoverCard?.side ?? "left"} cards={playmatCards}
+            object={hoverCard?.objectId === undefined ? undefined : objectById(hoverCard.objectId)} />}
+          {choicePanel !== null && choiceMine ? <div className="v2t-choice-overlay">{choicePanel}</div> : null}
+        </div>
+        <aside className="v2t-rail">
+          <ChainRail cardNames={cardNames} projection={projection} cards={playmatCards} onHover={hoverHandler} />
+          <div className="v2t-comms">
+            {chat ? <div className="v2t-tabs" role="tablist" aria-label="聊天与日志">
+              <button type="button" role="tab" aria-selected={commTab === "log"} onClick={() => setCommTab("log")}>记录</button>
+              <button type="button" role="tab" aria-selected={commTab === "chat"} onClick={() => setCommTab("chat")}>聊天</button>
+            </div> : null}
+            {chat && commTab === "chat" ? chat : <LogPanel cardNames={cardNames} projection={projection} events={state.events} />}
+          </div>
+          {choicePanel !== null && !choiceMine ? choicePanel : null}
+          {dock}
+          <details className="v2t-drawer">
+            <summary>辅助操作：出牌 / 符文 / 战斗 / 移动表单</summary>
+            {controls}
+            <div className="v2t-actions" role="region" aria-label="操作面板">{actionPanel}</div>
+          </details>
+        </aside>
+      </div>
+      <V2CardPreview cardId={previewCardId} cards={playmatCards} onClose={() => setPreviewCardId(null)}
+        object={previewObjectId === null ? undefined : objectById(previewObjectId)} />
       {drag?.active ? (
         <div className="v2-drag-ghost" style={{ left: drag.x, top: drag.y }} aria-hidden="true">
           {drag.source.cardId !== undefined && playmatCards.image(drag.source.cardId) !== null
@@ -882,10 +1224,111 @@ export function V2MatchBoard({
       ) : null}
       {drag?.active ? (
         <p className="v2-drag-hint" role="status">
-          {drag.source.kind === "play" ? "拖到高亮的基地或战场松开即可打出" : "拖到高亮的位置松开即可移动"}，按 Esc 取消
+          {drag.source.kind === "play" ? "拖到高亮的基地或战场松开即可打出" : "拖到高亮的位置松开即可移动；拖到有敌人的战场即发起进攻"}，按 Esc 取消
         </p>
       ) : null}
     </section>
+  );
+}
+
+type V2ResponseMode = "on" | "auto" | "off";
+
+interface V2MainAction {
+  readonly label: string;
+  readonly detail: string;
+  readonly tone: "go" | "fight" | "end" | "wait";
+  readonly run: (() => void) | null;
+}
+
+export interface V2CombatResult {
+  readonly battlefieldId: string;
+  readonly title: string;
+  readonly lines: readonly string[];
+}
+
+/**
+ * What a finished combat did, read only from public events after it began:
+ * who was killed on each side and who controls the battlefield now.
+ */
+export function v2CombatResult(
+  projection: V2Projection,
+  events: readonly { readonly eventSeq: number; readonly timingPoint: string; readonly payload: V2EventPayload }[],
+  watched: { readonly battlefieldId: string; readonly fromSeq: number; readonly contested?: boolean },
+  cardNames: CardNameIndex
+): V2CombatResult {
+  const seen = new Set<number>();
+  const killed: { readonly name: string; readonly mine: boolean }[] = [];
+  for (const event of events) {
+    if (event.eventSeq <= watched.fromSeq || seen.has(event.eventSeq) || event.timingPoint !== "object-killed") continue;
+    seen.add(event.eventSeq);
+    const objectField = event.payload.objectId;
+    const playerField = event.payload.playerId;
+    const objectId = objectField !== undefined && "value" in objectField && typeof objectField.value === "string" ? objectField.value : null;
+    const playerId = playerField !== undefined && "value" in playerField && typeof playerField.value === "string" ? playerField.value : null;
+    if (objectId === null) continue;
+    const object = projection.objects.find(candidate => candidate.objectId === objectId);
+    const name = object === undefined ? cardNames.localizedById.get(objectId) ?? objectId : projectedObjectCardName(cardNames, object, objectId);
+    const owner = object === undefined ? playerId : object.controllerPlayerId ?? object.ownerPlayerId;
+    killed.push({ name, mine: owner === projection.viewerPlayerId });
+  }
+  const controller = projection.battlefields?.find(field => field.battlefieldId === watched.battlefieldId)?.controllerPlayerId ?? null;
+  const field = projection.objects.find(object => object.objectId === watched.battlefieldId);
+  const fieldName = field === undefined ? watched.battlefieldId : projectedObjectCardName(cardNames, field, watched.battlefieldId);
+  const list = (mine: boolean): string => {
+    const counts = new Map<string, number>();
+    for (const entry of killed.filter(value => value.mine === mine)) counts.set(entry.name, (counts.get(entry.name) ?? 0) + 1);
+    return [...counts].map(([name, count]) => count > 1 ? `${name} ×${count}` : name).join("、") || "无";
+  };
+  if (watched.contested === false && killed.length === 0) {
+    const who = controller === projection.viewerPlayerId ? "你" :
+      projection.players.find(player => player.playerId === controller)?.name ?? "无人";
+    return { battlefieldId: watched.battlefieldId, title: controller === null ? `${fieldName}：无人占领` : `${who}占领了${fieldName}`, lines: [] };
+  }
+  const title = controller === projection.viewerPlayerId ? `你赢得${fieldName}之战` :
+    controller === null ? `${fieldName}之战结束：无人控制` :
+      `${fieldName}之战结束：${projection.players.find(player => player.playerId === controller)?.name ?? "对手"} 控制`;
+  return { battlefieldId: watched.battlefieldId, title, lines: [`击杀：${list(false)}`, `损失：${list(true)}`] };
+}
+
+/** One hand card's play choices, shown above it when selected (Master Duel style). */
+function PlayMenu({ card, plays, label, disabled, anchor, destinationLabel, onPlay }: {
+  readonly card: V2ProjectedObject;
+  readonly anchor: { readonly x: number; readonly y: number };
+  readonly plays: readonly V2PlayOption[];
+  readonly label: string;
+  readonly disabled: boolean;
+  readonly destinationLabel: (destination: V2PlayOption["destination"]) => string;
+  readonly onPlay: (option: V2PlayOption) => void;
+}) {
+  const unique = new Map<string, V2PlayOption>();
+  for (const option of plays) {
+    const key = option.requiresDestination === false ? "none" : v2LocationKey(option.destination);
+    if (!unique.has(key)) unique.set(key, option);
+  }
+  return (
+    <div className="v2t-play-menu" role="menu" aria-label={`${label} 的打出方式`} data-object-id={card.objectId}
+      style={{ left: anchor.x, top: anchor.y }}>
+      {[...unique.values()].map(option => (
+        <button key={option.requiresDestination === false ? "none" : v2LocationKey(option.destination)} type="button" role="menuitem"
+          disabled={disabled} onClick={() => onPlay(option)}>
+          {v2PlayNeedsSelection(option) ? "选择目标" : "打出"}{option.requiresDestination === false ? "" : ` · ${destinationLabel(option.destination)}`}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Both players' victory tracks as pips (the official mat prints 1–8 along its edge). */
+function V2ScorePips({ projection }: { readonly projection: V2Projection }) {
+  const target = projection.scoring.victoryScore;
+  return (
+    <span className="v2t-pips" aria-hidden="true">
+      {projection.scoring.players.map(player => (
+        <span key={player.playerId} className={player.playerId === projection.viewerPlayerId ? "is-me" : "is-opp"}>
+          {Array.from({ length: target }, (_, index) => <i key={index} className={index < player.points ? "is-on" : ""} />)}
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -1054,14 +1497,44 @@ function choiceKindLabel(kind: Extract<V2PendingChoice, { status: "pending" }>["
   return { optional: "可选效果", mode: "模式", "select-objects": "选择对象", order: "排序", number: "数值" }[kind];
 }
 
-function ChainPanel({ cardNames, projection }: { readonly cardNames: CardNameIndex; readonly projection: V2Projection }) {
+function ChainRail({ cardNames, projection, cards, onHover }: {
+  readonly cardNames: CardNameIndex;
+  readonly projection: V2Projection;
+  readonly cards: V2PlaymatCards;
+  readonly onHover?: (cardId: string | null, clientX?: number) => void;
+}) {
   const playerName = (playerId: string): string =>
     projection.players.find(player => player.playerId === playerId)?.name ?? playerId;
+  const sourceObject = (objectId: string | undefined): V2ProjectedObject | undefined =>
+    objectId === undefined ? undefined : projection.objects.find(candidate => candidate.objectId === objectId);
   const sourceName = (objectId: string): string => {
-    const object = projection.objects.find(candidate => candidate.objectId === objectId);
+    const object = sourceObject(objectId);
     return object === undefined ? objectId : projectedObjectCardName(cardNames, object, objectId);
   };
-  return <section className="v2-chain" aria-label="链与优先权"><div className="v2-section-heading"><h3>链 / 优先权</h3><span>{projection.priority.playerId ? `优先权：${playerName(projection.priority.playerId)}` : "无优先权"}</span></div><p>链状态：{projection.chain.status} · 阶段：{projection.chain.phase} · 窗口：{projection.priority.window} · Focus：{projection.priority.focusPlayerId ? playerName(projection.priority.focusPlayerId) : "无"}</p>{projection.chain.items.length === 0 ? <p className="v2-muted">链为空</p> : <ol>{projection.chain.items.map(item => <li key={item.itemId}>{item.kind} · {item.status}{item.sourceObjectId ? ` · ${sourceName(item.sourceObjectId)}` : ""}</li>)}</ol>}</section>;
+  const viewerId = projection.viewerPlayerId;
+  const priorityId = projection.priority.playerId;
+  const items = projection.chain.items.map((item, index) => ({ item, n: index + 1 })).reverse();
+  const focusId = projection.priority.focusPlayerId;
+  return <section className="v2-chain v2t-chain" aria-label="链与优先权">
+    <div className="v2-section-heading"><h3>链</h3><span>{items.length === 0 ? "" : `${items.length} 项 · 最上方先结算`}</span></div>
+    <p className={`v2t-priority ${priorityId === null ? "is-none" : priorityId === viewerId ? "is-me" : "is-opp"}`}>
+      {priorityId ? `优先权：${playerName(priorityId)}` : "无优先权"}
+      {priorityId === null ? "" : priorityId === viewerId ? " · 你可以行动" : " · 等待其行动"}
+      {projection.priority.window === "showdown" && focusId ? ` · 对决焦点：${playerName(focusId)}` : ""}
+    </p>
+    {items.length === 0 ? <p className="v2-muted">链为空。出牌、触发和能力会按顺序叠在这里。</p> :
+      <ol className="v2t-chain-list">{items.map(({ item, n }, index) => {
+        const source = sourceObject(item.sourceObjectId);
+        const image = source?.cardId === undefined ? null : cards.image(source.cardId);
+        return <li key={item.itemId} {...v2HoverProps(onHover, source?.cardId)} className={`v2t-chain-item${item.controllerPlayerId === viewerId ? " is-me" : " is-opp"}${
+          index === 0 ? " is-next" : ""}${item.status === "resolving" ? " is-resolving" : ""}`}>
+          <span className="v2t-chain-n">{n}</span>
+          {image === null ? <span className="v2t-chain-art is-missing" aria-hidden="true" /> : <img className="v2t-chain-art" src={image} alt="" draggable={false} />}
+          <span className="v2t-chain-text"><b>{item.sourceObjectId ? sourceName(item.sourceObjectId) : v2ChainKindLabel(item.kind)}</b>
+            <small>{playerName(item.controllerPlayerId)} · {v2ChainKindLabel(item.kind)} · {v2ChainStatusLabel(item.status)}{index === 0 ? " · 下一个结算" : ""}</small></span>
+        </li>;
+      })}</ol>}
+  </section>;
 }
 
 function LogPanel({ cardNames, projection, events }: { readonly cardNames: CardNameIndex; readonly projection: V2Projection; readonly events: V2ClientState["events"] }) {
@@ -1071,11 +1544,14 @@ function LogPanel({ cardNames, projection, events }: { readonly cardNames: CardN
     for (const event of events) bySeq.set(event.eventSeq, event);
     return [...bySeq.values()].sort((left, right) => left.eventSeq - right.eventSeq);
   }, [events, projection.events]);
-  return <section className="v2-log" aria-label="对局日志"><div className="v2-section-heading"><h3>对局日志</h3><span>{allEvents.length}</span></div>{allEvents.length === 0 ? <p className="v2-muted">暂无事件</p> : <ol>{allEvents.map(event => <li key={event.eventSeq}><span>#{event.eventSeq}</span> {event.timingPoint} <small>{eventSummary(event.payload, projection, cardNames)}</small></li>)}</ol>}</section>;
+  // Housekeeping steps are hidden; the newest entries come last.
+  const shown = allEvents.filter(event => !v2EventHidden(event.timingPoint));
+  return <section className="v2-log" aria-label="对局日志"><div className="v2-section-heading"><h3>对局记录</h3><span>{shown.length}</span></div>{shown.length === 0 ? <p className="v2-muted">暂无事件</p> : <ol>{shown.slice(-60).map(event => <li key={event.eventSeq}><span>#{event.eventSeq}</span> <b>{v2EventLabel(event.timingPoint)}</b> <small>{eventSummary(event.payload, projection, cardNames)}</small></li>)}</ol>}</section>;
 }
 
 function eventSummary(payload: V2EventPayload, projection: V2Projection, cardNames: CardNameIndex): string {
-  return Object.entries(payload).flatMap(([key, field]) => "value" in field ? [
+  // `reason` repeats the timing point the entry is already titled with.
+  return Object.entries(payload).flatMap(([key, field]) => key !== "reason" && "value" in field ? [
     `${key}: ${eventFieldValue(key, field.value, projection, cardNames)}`
   ] : []).join(" · ");
 }

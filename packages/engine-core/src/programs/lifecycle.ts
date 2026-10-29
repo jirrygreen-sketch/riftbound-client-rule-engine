@@ -9,6 +9,9 @@ import { triggerRegistrations, unregisterProgramTriggers } from './triggers.js';
 import { expandProgram } from './keywords.js';
 import { ProgramBindingError } from './errors.js';
 import { bindPrintedDeathknellBodies } from '../effects/keywords/Deathknell.js';
+import { bindAuthoritativeHistory } from '../effects/interpreter/history.js';
+import { evaluateExpression } from '../effects/interpreter/expr.js';
+import { deriveConfirmedDeathLeaveEmissions, isBoardLeaveTiming } from '../events/producers/zone-change.js';
 
 export interface ProgramLifecycleHandle { readonly detach: () => void; }
 
@@ -67,10 +70,12 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   const effectiveBinder = binder ?? createEngineStaticBinder(engine);
   const bindReplacementOnChain = binder === undefined;
   const pipeline = engine.pipeline;
+  const refKey = (source: ObjectSnapshot) => `${source.ref.id}:${source.ref.zoneEntryId}`;
   const bindings = new Map<string, Binding>();
   const handPlayLocationHandles = new Map<string, StaticBindingHandle[]>();
   const playFollowers = new Set<string>();
   const pendingExits = new Map<string, ObjectSnapshot>();
+  const preDeathLeaveScans = new Set<string>();
   const undoStack: Undo[][] = [];
   const originalEmitBatch = pipeline.emitBatch.bind(pipeline);
   const originalCommit = pipeline.commit.bind(pipeline);
@@ -79,6 +84,11 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   const originalOnEvent = pipeline.onEvent;
   const originalRouteAction = pipeline.routeAction;
   const originalHostObjects = pipeline.host.objects.bind(pipeline.host);
+  const originalHostContext = pipeline.host.context.bind(pipeline.host);
+  const originalDeathBoundary = pipeline.host.deathBoundary;
+  const deathBoundaryPublisher = new WeakMap<object, (
+    context: import('../events/pipeline-types.js').PipelineDeathBoundaryContext,
+  ) => void>();
   let completedObjectView: readonly ObjectSnapshot[] = engine.layers.objectsView();
   let objectViewDepth = 0;
   let depth = 0;
@@ -101,8 +111,52 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       objectViewDepth--;
     }
   };
+  // Authored "this turn" conditions read the transactionally published event
+  // log, never the live object set. The bind is on the same host used by static
+  // layers, replacement conditions, and Finalize, so transaction rollback and
+  // turn boundaries stay authoritative (CR 383.2, 420.4.b, 812.1.c).
+  pipeline.host.context = (source, controller, timingPoint) => {
+    const original = originalHostContext(source, controller, timingPoint);
+    const history = bindAuthoritativeHistory(original, pipeline);
+    return new Proxy(history, { get(target, key) {
+      if (key === 'evaluate') return (expr: import('../effects/contract.js').Expr) =>
+        evaluateExpression(expr, {
+          context: target,
+          host: source.ref,
+          event: { source, object: source, timingPoint },
+          linked: id => target.linked(id),
+          canLookBack: () => true,
+          isIgnored: () => false,
+          query: filter => target.query(filter),
+        });
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    } });
+  };
+  const deathLeaveKey = (source: ObjectSnapshot, batchId: string | undefined, timingPoint: string) =>
+    `${batchId ?? 'event'}:${refKey(source)}:${timingPoint}`;
+  if (originalDeathBoundary !== undefined) {
+    const augment = (
+      boundary: (context: import('../events/pipeline-types.js').PipelineDeathBoundaryContext) => void,
+    ): ((context: import('../events/pipeline-types.js').PipelineDeathBoundaryContext) => void) => context => {
+      withStableLayersOf(engine, () => { for (const source of context.before) ensure(source); });
+      const leaves = context.before.flatMap(source => deriveConfirmedDeathLeaveEmissions(source, {
+        actionId: context.batchId, batchId: context.batchId, player: source.controller,
+      }));
+      for (const source of context.before) for (const emission of leaves) {
+        if (emission.object?.ref.id === source.ref.id) preDeathLeaveScans.add(deathLeaveKey(source, context.batchId, emission.timingPoint));
+      }
+      deathBoundaryPublisher.set(pipeline, boundary);
+      try { boundary({ ...context, emissions: [...context.emissions, ...leaves] }); }
+      finally { deathBoundaryPublisher.delete(pipeline); }
+    };
+    pipeline.host.deathBoundary = {
+      version: originalDeathBoundary.version,
+      execute: (action, boundary) => originalDeathBoundary.execute(action, augment(boundary)),
+      executeContract: (action, boundary) => originalDeathBoundary.executeContract(action, augment(boundary)),
+    };
+  }
 
-  const refKey = (source: ObjectSnapshot) => `${source.ref.id}:${source.ref.zoneEntryId}`;
   // A same-incarnation Move changes only its location. Static filters bind a
   // live source anchor, so rebuilding the registration here would reset its
   // sequence/timestamp and can duplicate a public aura during the transition.
@@ -541,15 +595,26 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   };
 
   const observe = (emissions: readonly TimingEmission[], run: () => readonly PipelineEvent[]) => transaction(() => {
+    const outsideBoundary = deathBoundaryPublisher.get(pipeline) !== undefined;
+    const published = emissions.filter(emission => {
+      if (outsideBoundary) return true;
+      if (emission.details?.deathBoundary === 'confirmed-kill') return true;
+      if (!emission.object || !isBoardLeaveTiming(emission.timingPoint)) return true;
+      const key = deathLeaveKey(emission.object, emission.batchId, emission.timingPoint);
+      if (!preDeathLeaveScans.has(key)) return true;
+      preDeathLeaveScans.delete(key);
+      return false;
+    });
     // A lifecycle attached after initial setup can encounter a pre-existing
     // Board source in its first real event. Resolve only the emitted objects,
     // never the entire derived host view; entries install before publication,
     // and exits retain their registration through the suspended scan wave.
     withStableLayersOf(engine, () => {
-      for (const emission of emissions) if (emission.object && isEntry(emission)) ensure(emission.object, true);
+      for (const emission of published) if (emission.object && isEntry(emission)) ensure(emission.object, true);
     });
-    const events = run();
-    for (const emission of emissions) if (emission.object && isExit(emission)) queueExit(emission.object);
+    if (published.length === 0) return [];
+    const events = published.length === emissions.length ? run() : originalEmitBatch(published);
+    for (const emission of published) if (emission.object && isExit(emission) && emission.details?.deathBoundary !== 'confirmed-kill') queueExit(emission.object);
     return events;
   });
 
@@ -656,7 +721,10 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
       pipeline.deferTriggerScan = originalDeferTriggerScan;
       pipeline.routeAction = originalRouteAction;
       pipeline.host.objects = originalHostObjects;
+      pipeline.host.context = originalHostContext;
+      if (originalDeathBoundary !== undefined) pipeline.host.deathBoundary = originalDeathBoundary;
       pendingExits.clear();
+      preDeathLeaveScans.clear();
       playFollowers.clear();
       handPlayLocationHandles.clear();
       for (const binding of [...bindings.values()]) detach(binding.source);
