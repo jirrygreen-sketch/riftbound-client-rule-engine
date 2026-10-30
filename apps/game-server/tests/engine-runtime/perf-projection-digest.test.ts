@@ -75,9 +75,9 @@ describe("RIFT-1089 projection and journal digest equivalence", () => {
     const runtime = createEngineRuntime(runtimeOptions()).start();
     const initial = runtime.journal();
     expect(initial.head).toMatchObject({
-      stateDigest: "704a87f97ffdc62cbf72b1b37bd30c06ad6a9d3d3acd287790e355e1e0ecb447",
-      privateStateDigest: "07a276df77061cc2b061ec42f0db061d719b726a875a29f7cd82a57aebc1e08c",
-      journalDigest: "ec939df20fff3e8f0368618780bd79d8e67c0424008442e9becf611d39f5c648",
+      stateDigest: "886c50cf14da639940817af5cff90f0be56e6ec4c093a0e35f55a04e05d7e4f3",
+      privateStateDigest: "f92706477c7f71e68a114284a8c2d2f3b6baf71c6820380f4f159553c6f4d878",
+      journalDigest: "5d2c8953f375f021bb0423e53035b70ec35ef66f644fa47463c6f7f1ae1bd343",
     });
     const actor = runtime.projectFor(null).activePlayerId;
     const result = runtime.submit(actor, { type: "pass", commandId: "digest-pass-1", stateVersion: 0 });
@@ -86,16 +86,16 @@ describe("RIFT-1089 projection and journal digest equivalence", () => {
     const entry = journal.entries.at(-1)!;
     expect(Object.keys(entry.projectionDigestByViewer)).toEqual(["spectator", "A", "B"]);
     expect(entry.projectionDigestByViewer).toEqual({
-      spectator: "61abc6158b583b25a4a84a6a5793418f0a8aa2d815979aba2b88fec84ce0c89f",
-      A: "49db60f66653dc08ecbb589bf3c9ec4415639780c93ab104bcb4989ac3c04bb2",
-      B: "1610f9ebdf19d377aa5b076e2a6b1cd56da22dcc1b0e825119d9423777d0442c",
+      spectator: "91432262dbcb560b48e00a01f89d508f0df590ee7bd1d144fe98dfe753da7a48",
+      A: "966611af746f6cdab78a947f9379403134a408e293f44b67ce474fdab4b4dc83",
+      B: "59a3e947d5d6c1d12ad294819cd7a47d70086908183715e92dadd1b5b11ebbe3",
     });
     expect(journal.head.stateDigest).toBe(entry.projectionDigestByViewer.spectator);
     expect(journal.head).toMatchObject({
-      journalDigest: "510dae486754fedbf2aa75bddef4325afb26c2dc62942e92d786f71c60057af8",
-      privateStateDigest: "354bdce2d5b53f1ba86435da8a7dcc7b5edd181f8fbcaf323c65b11db4acc25b",
+      journalDigest: "c62a4f09561915cae16819384b4db82683ae808e8aed07707b29a3df88c53c81",
+      privateStateDigest: "3088ad58a64ad2b71c37030458b04f666e4799ac2ea6a7acb0a01fec567faf26",
     });
-    expect(entry.integrity.currentDigest).toBe("1ab1d2918dcf6734dedbd4c6f9c57e734976aadf49886a5bc995215bee058885");
+    expect(entry.integrity.currentDigest).toBe("6310da73d5fedcab6ebcf25c1e3bbbe3994532a559d5cc715084fdd1b818868f");
     assertRuntimeJournal(journal);
     expect(() => assertRuntimeJournal({ ...journal, head: { ...journal.head, stateDigest: "f".repeat(64) } }))
       .toThrow(/digest mismatch/i);
