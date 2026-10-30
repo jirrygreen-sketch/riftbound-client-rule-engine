@@ -162,6 +162,31 @@ describe("V2 slow command receipts", () => {
     }
   });
 
+  // RIFT-1157 / RIFT-1159: a mulligan rejected with a server error kept being
+  // resent with backoff for two minutes ("换牌服务一直超时").
+  it("stops resending a command the server rejected with an error and shows the reason", async () => {
+    vi.useFakeTimers();
+    try {
+      const { controller, sockets } = connected({ commandTimeoutMs: 5_000, commandGiveUpMs: 120_000 });
+      const pending = controller.sendCommand({ type: "mulligan", selectedObjectIds: ["token:86"] } as never);
+      const outcome = pending.then(() => "resolved", (error: Error) => error.message);
+      const commandId = commandsSent(sockets[0]!)[0].command.commandId;
+      sockets[0]!.receive({ type: "error", code: "command-rejected", requestId: commandId,
+        message: "Mulligan cards must be in that player's hand" });
+      expect(await outcome).toBe("Mulligan cards must be in that player's hand");
+      expect(controller.snapshot.pendingCommandIds).toEqual([]);
+      expect(controller.snapshot.pendingCommandSince).toBeNull();
+      expect(controller.snapshot.error).toBe("Mulligan cards must be in that player's hand");
+      vi.advanceTimersByTime(130_000);
+      // No resend and no give-up reconnect after the rejection.
+      expect(commandsSent(sockets[0]!)).toHaveLength(1);
+      expect(sockets).toHaveLength(1);
+      controller.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("gives up only after the total wait and reconnects to resync instead of keeping a stale state", async () => {
     vi.useFakeTimers();
     try {
