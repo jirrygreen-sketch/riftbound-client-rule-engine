@@ -1,5 +1,5 @@
 import type { ObjectFilter, ObjectRef } from "@riftbound/card-dsl";
-import { matchesObjectPredicates, type FilterMatchContext } from "../effects/filters/predicates.js";
+import { matchesAnchorFreePredicates, matchesObjectPredicates, type FilterMatchContext } from "../effects/filters/predicates.js";
 import type { LayeredObjectSnapshot } from "./types.js";
 import { isRelativeLocation } from "./relative/location.js";
 import type { RelativeFilterAnchor } from "./relative/types.js";
@@ -108,6 +108,12 @@ export function matchesObjectFilter(
     : contextOrAnchor ?? { anchor: contextOrAnchor };
   const resolveAnchor = filterAnchor(filter);
   if (resolveAnchor !== undefined) {
+    // RIFT-1160: resolving the live host reads its layered snapshot. Inside a
+    // layer evaluation that read is a dependency edge, so a Deck card tested
+    // against "your Mechs" joined the Legend's dependency group although its
+    // zone alone already rejects it. Reject on the anchor-free predicates
+    // first; the full match below repeats them.
+    if (!matchesAnchorFreePredicates(filter, object)) return false;
     const anchor = resolveAnchor();
     if (anchor === null) return false;
     context = { ...context, anchor, controller: anchor.controller };

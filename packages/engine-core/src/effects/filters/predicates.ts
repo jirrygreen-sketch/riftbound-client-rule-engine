@@ -344,6 +344,30 @@ function characteristicsMatch(value: unknown, object: SnapshotLike, context: Fil
   });
 }
 
+const ANCHOR_FREE_FIELDS = ["zone", "type", "types", "tags", "tag"] as const;
+
+/**
+ * RIFT-1160: the zone, type and tag predicates of matchesObjectPredicates
+ * read neither a relative anchor nor the query context. A caller holding a
+ * bound filter can reject a target with them before it resolves the live
+ * host, and the full matcher repeats them, so the boolean result is
+ * unchanged. Only own enumerable data fields are read (the anchored matcher
+ * may re-spread the filter): a filter that spells one of them any other way
+ * is left entirely to the full matcher.
+ */
+export function matchesAnchorFreePredicates(filter: object, object: ObjectSnapshot): boolean {
+  const value: AnyRecord = {};
+  for (const key of ANCHOR_FREE_FIELDS) {
+    if (!(key in filter)) continue;
+    const descriptor = Object.getOwnPropertyDescriptor(filter, key);
+    if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) return true;
+    value[key] = descriptor.value;
+  }
+  const objectLike = object as SnapshotLike;
+  return zoneMatches(value.zone, objectLike) && typeMatches(value.type ?? value.types, objectLike) &&
+    tagsMatch(value.tags ?? value.tag, objectLike);
+}
+
 /** Shared strict matcher for both layer snapshots and interpreter query snapshots. */
 export function matchesObjectPredicates(filter: ObjectFilter | Record<string, unknown>, object: ObjectSnapshot, context: FilterMatchContext = {}): boolean {
   if (!filter || typeof filter !== "object") return true;

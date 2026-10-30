@@ -13,6 +13,7 @@ import { additionalMightReductions } from "../effects/modifiers/query.js";
 import { getTimingPoint, type TimingPointId } from "../events/timing-points.js";
 import type { DuelDerivedMightEvaluatorV2 } from "../combat/derived-might.js";
 import { matchesObjectFilter, objectRefFrom } from "./filter.js";
+import { filterIncarnation } from "./relative/filter.js";
 import { ContinuousEffectRegistry } from "./duration.js";
 import { copyCharacteristics } from "./copy.js";
 import { EQUIPMENT_MIGHT_BONUS_EFFECT_KIND, isAttachedEquipmentBonus } from "./ops/index.js";
@@ -184,7 +185,7 @@ function cloneSnapshot(source: ObjectSnapshot): FrozenSnapshot {
   const empty = source.types.length === 0 && source.tags.length === 0 && source.keywords.length === 0 &&
     source.power !== null && source.power.length === 0 && actionTimings.length === 0 &&
     permissions === EMPTY_MOVEMENT;
-  return Object.freeze({
+  return recordLiteralFreeze(Object.freeze({
     ...source,
     cardId,
     types: empty ? EMPTY_SNAPSHOT_FIELDS.types : frozen ? frozenInput.types : rawFields?.types ?? array(source.types),
@@ -197,7 +198,7 @@ function cloneSnapshot(source: ObjectSnapshot): FrozenSnapshot {
     movement: empty ? EMPTY_SNAPSHOT_FIELDS.movement : frozen ? permissions : rawFields?.movement ?? movement(permissions),
     text: input.text === undefined ? null : input.text as string | null,
     effectText: input.effectText === undefined ? (input.text as string | null | undefined) ?? null : input.effectText as string | null,
-  }) as unknown as FrozenSnapshot;
+  })) as unknown as FrozenSnapshot;
 }
 
 /** Freeze nested fields reused by cached and detached snapshot wrappers. */
@@ -509,6 +510,44 @@ function deeplyFrozen(value: unknown, visiting = new Set<object>()): boolean {
   DEEPLY_FROZEN.set(object, result);
   return result;
 }
+const ATTACHMENT_FACTS = new WeakMap<ObjectSnapshot, string>();
+function attachmentFacts(object: ObjectSnapshot): string {
+  const cached = ATTACHMENT_FACTS.get(object);
+  if (cached !== undefined) return cached;
+  const facts = JSON.stringify([refKey(object.ref), object.types, object.tags, object.zone, object.might,
+    object.buffs, object.attachedTo]);
+  if (deeplyFrozen(object)) ATTACHMENT_FACTS.set(object, facts);
+  return facts;
+}
+// RIFT-1160: normalized copies of deeply frozen host objects, per reuse mode.
+const IMMUTABLE_SNAPSHOTS = new Map([true, false].map(enabled => [enabled, {
+  base: new WeakMap<ObjectSnapshot, FrozenSnapshot>(),
+  unchanged: new WeakMap<ObjectSnapshot, FrozenSnapshot>(),
+}] as const));
+// RIFT-1160: every group partitioned the same frozen effect list by layer.
+const EFFECTS_BY_LAYER = new WeakMap<readonly RegisteredContinuousEffect[], ReadonlyMap<string, readonly RegisteredContinuousEffect[]>>();
+function effectsByLayer(effects: readonly RegisteredContinuousEffect[]): ReadonlyMap<string, readonly RegisteredContinuousEffect[]> {
+  let partition = Object.isFrozen(effects) ? EFFECTS_BY_LAYER.get(effects) : undefined;
+  if (partition === undefined) {
+    partition = new Map(LAYER_ORDER.map(layer => [layer, Object.freeze(effects.filter(entry => entry.effect.layer === layer))] as const));
+    if (Object.isFrozen(effects)) EFFECTS_BY_LAYER.set(effects, partition);
+  }
+  return partition;
+}
+/** Only for a frozen object whose every own value is already deeply frozen. */
+function markDeeplyFrozen<T extends object>(value: T): T {
+  DEEPLY_FROZEN.set(value, true);
+  return value;
+}
+/**
+ * RIFT-1160: every own property of a freshly frozen object literal is a data
+ * property, so its deep-frozen fact is decided by its values alone. Record it
+ * at construction; a later public copy then needs no descriptor walk.
+ */
+function recordLiteralFreeze<T extends object>(value: T): T {
+  DEEPLY_FROZEN.set(value, Reflect.ownKeys(value).every(key => deeplyFrozen((value as Record<PropertyKey, unknown>)[key])));
+  return value;
+}
 /**
  * Exact immutable host generation. Frozen identities are stable; a mutable
  * fixture always produces a fresh authority and therefore fails closed.
@@ -745,7 +784,10 @@ export class LayerEngine {
     const input = source as Partial<LayeredObjectSnapshot>;
     if (this.immutableSnapshotReuseEnabled && input.printed !== undefined && input.movement !== undefined &&
         (input.actionTimings !== undefined || input.availableTimings !== undefined) && deeplyFrozen(source)) {
-      return Object.freeze({ ...source }) as unknown as FrozenSnapshot;
+      // RIFT-1160: the detached wrapper shares only deeply frozen values, so
+      // it is deeply frozen as well. Record that once instead of re-walking
+      // every field when the wrapper itself is copied again.
+      return markDeeplyFrozen(Object.freeze({ ...source })) as unknown as FrozenSnapshot;
     }
     return cloneSnapshot(source);
   }
@@ -760,7 +802,13 @@ export class LayerEngine {
   private baseSnapshot(source: ObjectSnapshot): FrozenSnapshot {
     const cached = this.baseSnapshots.get(source);
     if (cached !== undefined) return cached;
-    const normalized = this.copySnapshot(source);
+    // RIFT-1160: invalidation drops `baseSnapshots` because a mutable fixture
+    // may change in place. A deeply frozen host object cannot, and its
+    // normalized copy depends only on it and the reuse mode, so it survives
+    // every pass and every engine.
+    const immutable = deeplyFrozen(source) ? IMMUTABLE_SNAPSHOTS.get(this.immutableSnapshotReuseEnabled)!.base : undefined;
+    const normalized = immutable?.get(source) ?? this.copySnapshot(source);
+    immutable?.set(source, normalized);
     this.baseSnapshots.set(source, normalized);
     return normalized;
   }
@@ -816,6 +864,11 @@ export class LayerEngine {
       const source = entry.effect.source === undefined ? null : this.resolve(entry.effect.source);
       return source !== null && isAttachedEquipmentBonus(source, target);
     }
+    // RIFT-1160: such a registration's condition rejects every other object
+    // after reading the live source. Reject first, so that read does not make
+    // each tested object depend on the source.
+    const incarnation = filterIncarnation(entry.effect.filter);
+    if (incarnation !== undefined && !sameRef(incarnation, target.ref)) return false;
     const source = entry.effect.source === undefined ? target : this.raw(entry.effect.source);
     if (!matchesObjectFilter(entry.effect.filter, target, { controller: source?.controller, anchor: source ?? undefined })) return false;
     const effect = record(entry.effect.effect);
@@ -1134,8 +1187,20 @@ export class LayerEngine {
     for (const key of keys) this.groupView.set(key, this.copySnapshot(current.get(key)!));
   }
 
-  private finishGroup(key: string, source: MutableSnapshot): void {
-    let result = this.copySnapshot(source);
+  private finishGroup(key: string, source: MutableSnapshot, unchanged?: ObjectSnapshot): void {
+    // RIFT-1160: with no applied effect the working copy is still the spread
+    // of its normalized base. For a deeply frozen host object that copy is a
+    // function of the object alone, so it is made once and then reused.
+    let pristine: FrozenSnapshot | undefined;
+    if (unchanged !== undefined && deeplyFrozen(unchanged)) {
+      const results = IMMUTABLE_SNAPSHOTS.get(this.immutableSnapshotReuseEnabled)!.unchanged;
+      pristine = results.get(unchanged);
+      if (pristine === undefined) {
+        pristine = this.copySnapshot(source);
+        results.set(unchanged, pristine);
+      }
+    }
+    let result = pristine ?? this.copySnapshot(source);
     if (result.might !== null && result.might < 0) result = this.copySnapshot({ ...result, might: 0 });
     if (this.derivedMight !== undefined) {
       const derived = this.derivedMight(result);
@@ -1161,10 +1226,7 @@ export class LayerEngine {
       this.count("dependencyCycleGroups");
     }
     const effects = this.arithmeticEffects();
-    const candidatesByLayer = new Map<string, RegisteredContinuousEffect[]>();
-    for (const layer of LAYER_ORDER) {
-      candidatesByLayer.set(layer, effects.filter(entry => entry.effect.layer === layer));
-    }
+    const candidatesByLayer = effectsByLayer(effects);
     const current = new Map<string, MutableSnapshot>();
     const base = new Map<string, FrozenSnapshot>();
     const applied = new Map<string, Map<string, AppliedEffect>>();
@@ -1267,7 +1329,7 @@ export class LayerEngine {
         // current object marked so it reads this group's partial snapshot even
         // when no active effect reached the layer loop (singleton empty set).
         this.currentObject = key;
-        this.finishGroup(key, current.get(key)!);
+        this.finishGroup(key, current.get(key)!, applied.get(key)!.size === 0 ? this.objects.get(key) : undefined);
       }
     } finally {
       this.currentObject = previousObject;
@@ -1305,6 +1367,14 @@ export class LayerEngine {
   }
 
   evaluate(ref: ObjectRef): LayeredObjectSnapshot | null {
+    return this.evaluateObject(ref, true);
+  }
+
+  /**
+   * RIFT-1160: `detach` is false only for evaluateAll, which copies its whole
+   * completed view once on return; detaching each object first copied it twice.
+   */
+  private evaluateObject(ref: ObjectRef, detach: boolean): LayeredObjectSnapshot | null {
     this.count("evaluateCalls");
     if (this.depth > 0) return this.evaluateDependency(ref);
     this.syncRegistry();
@@ -1328,7 +1398,7 @@ export class LayerEngine {
       const planned = this.commandPlan.view.find(snapshot => refKey(snapshot.ref) === key);
       if (planned !== undefined) {
         this.count("planCacheReferenceHits");
-        return this.publicSnapshot(planned);
+        return detach ? this.publicSnapshot(planned) : planned;
       }
     }
     this.depth++;
@@ -1340,7 +1410,7 @@ export class LayerEngine {
           // Production binders catch condition errors. A discovered dependency
           // must still restart even if that wrapper swallowed the sentinel.
           if (this.restartRequested) throw new LayerDependencyRestart();
-          return result === null ? null : this.publicSnapshot(result);
+          return result === null || !detach ? result : this.publicSnapshot(result);
         }
         catch (error) {
           if (!(error instanceof LayerDependencyRestart)) throw error;
@@ -1362,8 +1432,9 @@ export class LayerEngine {
    */
   private attachmentSignature(): string {
     this.count("attachmentSignatureCalls");
-    return JSON.stringify([...this.objects.values()].map(object => [refKey(object.ref), object.types,
-      object.tags, object.zone, object.might, object.buffs, object.attachedTo]));
+    // RIFT-1160: the JSON of an array is its elements' JSON joined by commas,
+    // and a deeply frozen object's element never changes, so reuse it.
+    return `[${[...this.objects.values()].map(attachmentFacts).join(",")}]`;
   }
 
   /**
@@ -1519,12 +1590,12 @@ export class LayerEngine {
       // batch's identities now so replacing the live Map cannot restart its
       // iterator or omit a newly inserted incarnation.
       for (const object of objects) {
-        const snapshot = this.evaluate(object.ref);
+        const snapshot = this.evaluateObject(object.ref, false);
         if (snapshot !== null) snapshots.push(snapshot);
       }
     } else {
       for (const object of [...this.objects.values()]) {
-        const snapshot = this.evaluate(object.ref);
+        const snapshot = this.evaluateObject(object.ref, false);
         if (snapshot !== null) snapshots.push(snapshot);
       }
     }
