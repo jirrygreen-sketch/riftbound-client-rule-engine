@@ -15,6 +15,7 @@ const { triggerRegistrations } = await import(new URL("programs/triggers.js", en
 const { matchesTriggerEvent } = await import(new URL("events/pipeline-match.js", engineCore));
 const { createProgramBinding } = await import(new URL("programs/index.js", engineCore));
 const { bindResolveContext, createActionPipelineHost } = await import(new URL("events/action-adapter.js", engineCore));
+const { AwaitChoice } = await import(new URL("effects/contract.js", engineCore));
 const { TurnFlow } = await import(new URL("turn/flow.js", engineCore));
 const { productionPlay } = await import("../../fixtures/production-play.mjs");
 
@@ -842,11 +843,17 @@ test(PRODUCTION_TEST_NAMES.unpayableEquip, () => {
       payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["Fury"] }]
     } }
   };
+  let paymentAnswer;
+  let paymentRequest;
   const f = productionPlay({
     programs: [program],
     answers: {
       "target:weaponmaster-equipment": ["sword"],
-      "weaponmaster-choice/weaponmaster-pay/weaponmaster%3Apay": () => "放弃装配"
+      "weaponmaster-choice/weaponmaster-pay/weaponmaster%3Apay": (_kernel, request) => {
+        paymentRequest = request;
+        if (paymentAnswer === undefined) throw new AwaitChoice(request);
+        return paymentAnswer;
+      }
     },
     build: (w) => w.player("A", { energy: 3 }).player("B")
       .unit("old-host", {
@@ -866,9 +873,28 @@ test(PRODUCTION_TEST_NAMES.unpayableEquip, () => {
   const oldHost = f.kernel.ref("old-host");
   assert.deepEqual(f.kernel.getObject("sword").attachedTo, oldHost);
 
-  f.play("lucian");
+  assert.throws(() => f.play("lucian"), error => {
+    assert.ok(error instanceof AwaitChoice);
+    assert.equal(error.request, paymentRequest);
+    return true;
+  });
   assert.equal(f.targetRequests().filter((request) => request.id === "target:weaponmaster-equipment").length, 1,
     "the target is locked once during Finalize");
+  assert.equal(paymentRequest.type, "mode");
+  assert.equal(paymentRequest.chooser, "A");
+  assert.deepEqual(paymentRequest.options, ["支付", "放弃装配"]);
+  assert.match(paymentRequest.prompt,
+    /^Test Equipment的装配费用：1 点炽烈符能，当前不足。可先横置或回收符文补足，再选择支付；或放弃装配。$/u);
+  assert.equal(f.kernel.player("A").energy, 0, "the pending choice leaves only the Unit play cost paid");
+  assert.deepEqual(f.kernel.player("A").power, [], "the pending choice has not paid the Equip Power");
+  assert.deepEqual(f.kernel.getObject("sword").attachedTo, oldHost,
+    "the pending choice preserves the existing attachment");
+  assert.equal(f.engine.items.length, 1, "the finalized trigger remains while payment is pending");
+  assert.equal(f.engine.items[0].id, "trigger:1");
+  assert.equal(f.engine.items[0].status, "finalized");
+
+  paymentAnswer = "放弃装配";
+  f.settle();
   assert.equal(f.kernel.player("A").energy, 0, "only the Unit play cost was paid");
   assert.deepEqual(f.kernel.player("A").power, [], "Energy funded the Unit cost; the unsupported Equip Power is not invented");
   assert.deepEqual(f.kernel.getObject("sword").attachedTo, oldHost,
@@ -894,11 +920,17 @@ test("production boundary: unpayable Equip rolls back every attempted resource a
       ]
     } }
   };
+  let paymentAnswer;
+  let paymentRequest;
   const f = productionPlay({
     programs: [program],
     answers: {
       "target:weaponmaster-equipment": ["sword"],
-      "weaponmaster-choice/weaponmaster-pay/weaponmaster%3Apay": () => "放弃装配"
+      "weaponmaster-choice/weaponmaster-pay/weaponmaster%3Apay": (_kernel, request) => {
+        paymentRequest = request;
+        if (paymentAnswer === undefined) throw new AwaitChoice(request);
+        return paymentAnswer;
+      }
     },
     build: (w) => w.player("A", { energy: 4, power: ["Fury"] }).player("B")
       .object("lucian", {
@@ -908,7 +940,28 @@ test("production boundary: unpayable Equip rolls back every attempted resource a
       })
       .object("sword", weaponmasterEquipment(equip))
   });
-  f.play("lucian");
+  assert.throws(() => f.play("lucian"), error => {
+    assert.ok(error instanceof AwaitChoice);
+    assert.equal(error.request, paymentRequest);
+    return true;
+  });
+  assert.equal(paymentRequest.type, "mode");
+  assert.equal(paymentRequest.chooser, "A");
+  assert.deepEqual(paymentRequest.options, ["支付", "放弃装配"]);
+  assert.match(paymentRequest.prompt,
+    /^Test Equipment的装配费用：1 点能量、2 点炽烈符能，当前不足。可先横置或回收符文补足，再选择支付；或放弃装配。$/u);
+  assert.equal(f.kernel.player("A").energy, 1,
+    "the pending choice leaves only the Unit play cost paid");
+  assert.deepEqual(f.kernel.player("A").power, ["Fury"],
+    "the pending choice has attempted no partial Equip payment");
+  assert.equal(f.kernel.getObject("sword").attachedTo, null,
+    "the pending choice has not attached the Equipment");
+  assert.equal(f.engine.items.length, 1, "the finalized trigger remains while payment is pending");
+  assert.equal(f.engine.items[0].id, "trigger:1");
+  assert.equal(f.engine.items[0].status, "finalized");
+
+  paymentAnswer = "放弃装配";
+  f.settle();
   assert.equal(f.kernel.player("A").energy, 1,
     "the Unit play's 3 Energy remains paid while the failed Equip's attempted 1 Energy rolls back");
   assert.deepEqual(f.kernel.player("A").power, ["Fury"],

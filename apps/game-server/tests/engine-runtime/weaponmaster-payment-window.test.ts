@@ -140,6 +140,58 @@ function nextOwnMain(runtime: ReturnType<typeof createEngineRuntime>): V2Project
   return view;
 }
 
+function reachWeaponmasterPayment(runtime: ReturnType<typeof createEngineRuntime>, matchId: string): V2Projection {
+  let view = openMain(runtime);
+  const sword = hand(view).find(object => object.cardId === BF_SWORD);
+  expect(sword, JSON.stringify(hand(view))).toBeDefined();
+  const playedSword = runtime.submit("A", command("play", "play-bf-sword", view.stateVersion, {
+    cardObjectId: sword!.objectId, destination: { kind: "base", playerId: "A" },
+  }));
+  expect(playedSword.receipt.status, JSON.stringify(playedSword.receipt)).toBe("accepted");
+  view = playedSword.projection;
+  while (view.chain.items.length > 0) {
+    const actor = view.chain.priorityPlayerId;
+    expect(actor).not.toBeNull();
+    const passed = runtime.submit(actor!, command("pass", `settle-sword-${view.stateVersion}`, view.stateVersion, {}));
+    expect(passed.receipt.status, JSON.stringify(passed.receipt)).toBe("accepted");
+    view = passed.projection;
+  }
+  view = nextOwnMain(runtime);
+  for (const [index, rune] of readyRunes(view, "").filter(rune => rune.exhausted === false).entries()) {
+    const result = runtime.submit("A", command("rune-energy", `rune-energy-${index}`, view.stateVersion, {
+      runeObjectId: rune.objectId, zoneEntryId: rune.zoneEntryId!,
+    }));
+    expect(result.receipt.status, JSON.stringify(result.receipt)).toBe("accepted");
+    view = result.projection;
+  }
+  const lucianNow = hand(view).find(object => object.cardId === LUCIAN);
+  expect(lucianNow).toBeDefined();
+  const pending = runtime.submit("A", command("play", "play-lucian", view.stateVersion, {
+    cardObjectId: lucianNow!.objectId,
+  }));
+  expect(pending.receipt.status, JSON.stringify(pending.receipt)).toBe("pending");
+  view = runtime.projectFor("A");
+  if (view.pendingChoice.status !== "pending" || view.pendingChoice.kind !== "select-objects") {
+    throw new Error(`${matchId}: Weaponmaster target choice missing`);
+  }
+  const targetOption = view.pendingChoice.options?.find(option => option.objectRef?.objectId === sword!.objectId);
+  expect(targetOption).toBeDefined();
+  const targeted = runtime.submit("A", command("choose", "target-bf-sword", view.stateVersion, {
+    choiceId: view.pendingChoice.choiceId, answer: [targetOption!.objectRef!],
+  }));
+  expect(targeted.receipt.status, JSON.stringify(targeted.receipt)).toBe("accepted");
+  view = runtime.projectFor("A");
+  while (view.chain.items.length > 0 && view.pendingChoice.status === "none") {
+    const actor = view.chain.priorityPlayerId;
+    expect(actor).not.toBeNull();
+    const passed = runtime.submit(actor!, command("pass", `reach-payment-${view.stateVersion}`, view.stateVersion, {}));
+    expect(["accepted", "pending"], JSON.stringify(passed.receipt)).toContain(passed.receipt.status);
+    view = passed.projection;
+  }
+  expect(view.pendingChoice).toMatchObject({ status: "pending", kind: "mode", ownerPlayerId: "A" });
+  return view;
+}
+
 describe("RIFT-1150 real Weaponmaster payment window", () => {
   it("exposes the payer's prompt, accepts a Rune Add, pays and attaches, and restores the journal", () => {
     const runtime = setupOpening("zira-2");
@@ -284,5 +336,24 @@ describe("RIFT-1150 real Weaponmaster payment window", () => {
     expect(restored.projectFor("A")).toEqual(runtime.projectFor("A"));
     expect(restored.projectFor("B")).toEqual(runtime.projectFor("B"));
     expect(restored.projectFor(null)).toEqual(runtime.projectFor(null));
+  }, 30_000);
+
+  it.each([
+    ["chooser", "A", "B"],
+    ["opponent", "B", "A"],
+  ] as const)("preserves concede dispatch while the %s concedes in the payment window", (_, conceder, winner) => {
+    const matchId = `zira-concede-${conceder}`;
+    const runtime = setupOpening(matchId);
+    const payment = reachWeaponmasterPayment(runtime, matchId);
+    expect(payment.pendingChoice).toMatchObject({ status: "pending", kind: "mode", ownerPlayerId: "A" });
+    const conceded = runtime.submit(conceder, command("concede", `concede-${conceder}`, payment.stateVersion, {}));
+    expect(conceded.receipt.status, JSON.stringify(conceded.receipt)).toBe("accepted");
+    expect(conceded.receipt.result).toMatchObject({ winnerPlayerId: winner });
+    expect(conceded.projection).toMatchObject({ phase: "ended", winnerPlayerId: winner });
+    expect(conceded.projection.stateVersion).toBe(payment.stateVersion + 1);
+    expect(conceded.projection.pendingChoice).toMatchObject({
+      status: "pending", choiceId: payment.pendingChoice.status === "pending" ? payment.pendingChoice.choiceId : "",
+      ownerPlayerId: "A", kind: "mode", stateVersion: payment.stateVersion + 1,
+    });
   }, 30_000);
 });

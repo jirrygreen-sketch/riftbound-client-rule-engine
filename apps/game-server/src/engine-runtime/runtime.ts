@@ -770,9 +770,8 @@ class MatchRuntime implements EngineRuntime {
     }
     if (command.stateVersion !== this.stateVersion) return this.rejected(command, playerId, `stateVersion mismatch: expected ${this.stateVersion}, received ${command.stateVersion}`);
     const weaponmasterPayment = this.weaponmasterPaymentChoice();
-    if (weaponmasterPayment !== null && command.type !== "choose" &&
-        (playerId !== this.pending!.request.chooser ||
-          (command.type !== "rune-energy" && command.type !== "rune-power"))) {
+    if (weaponmasterPayment !== null && (command.type === "rune-energy" || command.type === "rune-power") &&
+        playerId !== this.pending!.request.chooser) {
       return this.rejected(command, playerId,
         "Only the Weaponmaster payment choice owner may submit Rune resource commands");
     }
