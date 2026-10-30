@@ -232,15 +232,15 @@ describe("RIFT-837 production runtime primitives", () => {
     const current = state.objects().find(object => object.ref.id === hiddenCard.id)!;
     expect(current).toMatchObject({ faceDown: true, facedownLocation: { type: "battlefield", id: field.id } });
     const controllerView = projectRuntime({ flow: {
-      chain: { items: [], priority: null, focus: null },
+      chain: { items: [], priority: null, focus: null, turnState: "neutral-open", canAct: () => false },
       battlefields: [{ id: field.id, controller: "A", contestedBy: null, staged: "none", cardId: null }],
-      victoryScore: 8, scored: () => [], turn: 1, turnPlayer: "A", phase: "main", winner: null,
+      victoryScore: 8, scored: () => [], turn: 1, turnPlayer: "A", phase: "main", winner: null, combat: { current: null, active: false },
     } as never, events: () => [], result: () => ({ winner: null, turnNumber: 1 }) } as never, state, "m", "A", 0, null);
     expect(controllerView.objects.find(object => object.zone === "facedown")?.cardId).toBeUndefined();
     const fakeFlow = {
-      chain: { items: [], priority: null, focus: null },
+      chain: { items: [], priority: null, focus: null, turnState: "neutral-open", canAct: () => false },
       battlefields: [{ id: field.id, controller: null, contestedBy: null, staged: "none", cardId: null }],
-      victoryScore: 8, scored: () => [], turn: 1, turnPlayer: "A", phase: "main", winner: null,
+      victoryScore: 8, scored: () => [], turn: 1, turnPlayer: "A", phase: "main", winner: null, combat: { current: null, active: false },
     } as never;
     const view = projectRuntime({ flow: fakeFlow, events: () => [], result: () => ({ winner: null, turnNumber: 1 }) } as never, state, "m", "B", 0, null);
     expect(view.objects.find(object => object.zone === "facedown")).toMatchObject({ faceDown: true });

@@ -15,7 +15,7 @@ import {
   DUEL_READY_LABEL
 } from "../duel/duel-board-model";
 import { CardArt, closeOnBackdropClick, DuelScoreRail, HiddenHand, PlaymatPile } from "../duel/DuelBoardComponents";
-import { CardText } from "../duel/card-text";
+import { CardText, isOfficialLocalizedStatus } from "../duel/card-text";
 import type { CardTextData } from "../duel/card-text";
 import { projectedObjectCardName, type CardNameIndex } from "./card-names";
 import { v2RuneCanAddEnergy, v2RuneCanAddPower } from "./playmat-interactions";
@@ -566,8 +566,7 @@ function domainClass(domain: string): string {
 
 /** Keyword boxes such as [强攻 2], read only from the official Chinese text. */
 export function v2CardKeywords(card: CatalogCard | undefined): readonly string[] {
-  if (card === undefined || (card.localizedAbilityStatus !== "official-structured" &&
-      card.localizedAbilityStatus !== "official-accessibility-supplemented")) return [];
+  if (card === undefined || !isOfficialLocalizedStatus(card.localizedAbilityStatus)) return [];
   const text = `${card.localizedAbilityRulesText ?? ""}\n${card.localizedAbilityEffectText ?? ""}`.replace(/<[^>]*>/gu, " ");
   const found: string[] = [];
   for (const match of text.matchAll(/\[([^\]\r\n]{1,40})\]/gu)) {
