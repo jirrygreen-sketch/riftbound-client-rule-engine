@@ -28,7 +28,8 @@ export default defineConfig({
     // Real room/replay tests transform the same Core source and can contend
     // heavily when file workers run together. Keep the original per-test limits.
     fileParallelism: false,
-    include: ["tests/**/*.test.ts"],
+    // RIFT-1153 follow-up: co-located src/**/__tests__ suites belong to the full run too.
+    include: ["tests/**/*.test.ts", "src/**/__tests__/**/*.test.ts"],
     testTimeout: 10_000,
     hookTimeout: 10_000
   },
