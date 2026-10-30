@@ -310,6 +310,12 @@ export function createLiveRuleFilter(
   condition?: unknown,
 ): ObjectFilter {
   const normalized = normalizeStaticFilter(filter);
+  // RIFT-1156: a filter anchored only to the source itself can match nothing
+  // but the bound incarnation. Scanning the host for it re-entered a complete
+  // layered pass from inside every layer read, which made each board object
+  // depend on every other one and grew one artificial dependency group.
+  const sourceOnly = Object.keys(normalized).length > 0 && Object.entries(normalized).every(([key, value]) =>
+    (key === 'object' || key === 'source') && sourceSelector(value));
   const output = Object.fromEntries(Object.entries(baseLayerFilter(normalized)).filter(([key]) =>
     key !== 'object' && key !== 'source' && key !== 'exclude' && key !== 'sameLocationAs' &&
     key !== 'differentLocationFrom' && key !== 'attachedTo' && key !== 'relation')) as AnyRecord;
@@ -323,6 +329,7 @@ export function createLiveRuleFilter(
       const bound = bindingSource(engine, source);
       if (bound === null) return [];
       if (!staticConditionMatches(engine, bound, condition)) return [];
+      if (sourceOnly) return staticObjectMatches(normalized, bound, bound) ? bound.ref.id : [];
       const objectIds = engine.pipeline.host.objects()
         .filter(object => staticObjectMatches(normalized, object, bound))
         .map(object => object.ref.id);
