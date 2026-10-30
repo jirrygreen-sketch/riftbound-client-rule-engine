@@ -25,6 +25,7 @@ export type LocalizedAbilityLanguage = "zh-CN" | "en-US";
 export type LocalizedAbilityStatus =
   | "official-structured"
   | "official-accessibility-supplemented"
+  | "official-structured-sibling"
   | "english-fallback"
   | "no-effect"
   | "missing";
@@ -60,6 +61,8 @@ export interface CatalogCard {
   readonly localizedAbilityLanguage?: LocalizedAbilityLanguage;
   readonly localizedAbilityStatus?: LocalizedAbilityStatus;
   readonly localizedAbilitySource?: LocalizedAbilitySource;
+  /** The same-canonical printing whose official zh-CN fields supplied this projection. */
+  readonly localizedFromPrintingId?: string;
 }
 
 export interface PublicCatalogCard extends CatalogCard {
@@ -223,6 +226,7 @@ function isLocalizedAbilityLanguage(
 function isLocalizedAbilityStatus(value: unknown): value is LocalizedAbilityStatus {
   return value === "official-structured" ||
     value === "official-accessibility-supplemented" ||
+    value === "official-structured-sibling" ||
     value === "english-fallback" ||
     value === "no-effect" ||
     value === "missing";
@@ -353,7 +357,8 @@ function isCatalogCard(value: unknown): value is CatalogCard {
     "localizedAbilityEffectText",
     "localizedAbilityLanguage",
     "localizedAbilityStatus",
-    "localizedAbilitySource"
+    "localizedAbilitySource",
+    "localizedFromPrintingId"
   ] as const;
   const knownFields = new Set<string>([...requiredFields, ...optionalFields]);
   if (!Object.keys(value).every(key => knownFields.has(key))) return false;
@@ -448,8 +453,129 @@ function publicCard(
             syncedAt: card.localizedAbilitySource.syncedAt
           }
         }),
+    ...(card.localizedFromPrintingId === undefined
+      ? {}
+      : { localizedFromPrintingId: card.localizedFromPrintingId }),
     ...policy
   };
+}
+
+const HAN_TEXT_PATTERN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/u;
+
+function hasOfficialChineseName(card: CatalogCard): boolean {
+  return card.localizedName !== undefined && HAN_TEXT_PATTERN.test(card.localizedName);
+}
+
+function hasOfficialChineseSubtitle(card: CatalogCard): boolean {
+  return card.subtitle === undefined ||
+    (card.localizedSubtitle !== undefined && HAN_TEXT_PATTERN.test(card.localizedSubtitle));
+}
+
+function hasOfficialChineseAbility(card: CatalogCard): boolean {
+  if (card.ability.trim() === "") return true;
+  return hasOfficialChineseAbilitySource(card);
+}
+
+function hasOfficialChineseAbilitySource(card: CatalogCard): boolean {
+  return card.ability.trim() !== "" &&
+    ((card.localizedAbilityRulesText?.trim().length ?? 0) > 0 ||
+      (card.localizedAbilityEffectText?.trim().length ?? 0) > 0) &&
+    (card.localizedAbilityStatus === "official-structured" ||
+      card.localizedAbilityStatus === "official-accessibility-supplemented");
+}
+
+function hasAnyOfficialChineseDisplay(card: CatalogCard): boolean {
+  return hasOfficialChineseName(card) ||
+    (card.subtitle !== undefined && hasOfficialChineseSubtitle(card)) ||
+    hasOfficialChineseAbilitySource(card);
+}
+
+function isCompleteOfficialChinesePrinting(card: CatalogCard): boolean {
+  return hasOfficialChineseName(card) &&
+    hasOfficialChineseSubtitle(card) &&
+    hasOfficialChineseAbility(card) &&
+    // A previous sibling merge is never used as a source for another printing.
+    card.localizedFromPrintingId === undefined;
+}
+
+/**
+ * Fill a printing's missing zh-CN display fields from the same canonical card.
+ * Each field is copied only when the source has official Chinese data for it.
+ * In particular, an English fallback is never a Chinese source.
+ */
+function withOfficialSiblingLocalization(cards: readonly CatalogCard[]): CatalogCard[] {
+  const byCanonical = new Map<string, CatalogCard[]>();
+  for (const card of cards) {
+    const siblings = byCanonical.get(card.canonicalCardId);
+    if (siblings === undefined) byCanonical.set(card.canonicalCardId, [card]);
+    else siblings.push(card);
+  }
+
+  return cards.map(card => {
+    if (isCompleteOfficialChinesePrinting(card)) return card;
+    const candidates = (byCanonical.get(card.canonicalCardId) ?? [])
+      .filter(candidate => candidate.id !== card.id)
+      .filter(hasAnyOfficialChineseDisplay)
+      .filter(candidate => candidate.localizedFromPrintingId === undefined)
+      // Canonical identities can span printings whose English rules changed.
+      // Never attach a different edition's wording to this printing.
+      .filter(candidate => candidate.fullName === card.fullName &&
+        candidate.cardType === card.cardType &&
+        candidate.ability === card.ability);
+    if (candidates.length === 0) return card;
+
+    const sameSet = candidates.filter(candidate => candidate.setCode === card.setCode);
+    const preferredStandard = (sameSet.length === 0 ? candidates : sameSet)
+      .filter(candidate => candidate.variant === "standard");
+    const source = preferredStandard.find(candidate => candidate.subtitle === card.subtitle)
+      ?? candidates.find(candidate => candidate.subtitle === card.subtitle)
+      ?? (sameSet.length === 0 ? candidates : sameSet)[0]
+      ?? preferredStandard[0]
+      ?? candidates[0]!;
+    const needsName = !hasOfficialChineseName(card);
+    const needsSubtitle = !hasOfficialChineseSubtitle(card);
+    const needsAbility = !hasOfficialChineseAbility(card);
+    const localizedName = needsName && hasOfficialChineseName(source)
+      ? source.localizedName
+      : card.localizedName;
+    const localizedSubtitle = needsSubtitle
+      ? hasOfficialChineseSubtitle(source) ? source.localizedSubtitle : card.localizedSubtitle
+      : card.localizedSubtitle;
+    const localizedAbilityRulesText = needsAbility
+      ? hasOfficialChineseAbilitySource(source) ? source.localizedAbilityRulesText : card.localizedAbilityRulesText
+      : card.localizedAbilityRulesText;
+    const localizedAbilityEffectText = needsAbility
+      ? hasOfficialChineseAbilitySource(source) ? source.localizedAbilityEffectText : card.localizedAbilityEffectText
+      : card.localizedAbilityEffectText;
+    const replacedAbility = needsAbility && hasOfficialChineseAbilitySource(source);
+    const replacedDisplay = (needsName && localizedName !== undefined) ||
+      (needsSubtitle && localizedSubtitle !== undefined) ||
+      replacedAbility;
+    if (!replacedDisplay) return card;
+    return {
+      ...card,
+      ...(localizedName === undefined ? {} : { localizedName }),
+      ...(localizedSubtitle === undefined
+        ? {}
+        : { localizedSubtitle }),
+      ...(localizedAbilityRulesText === undefined
+        ? {}
+        : { localizedAbilityRulesText }),
+      ...(localizedAbilityEffectText === undefined
+        ? {}
+        : { localizedAbilityEffectText }),
+      ...(replacedAbility
+        ? {
+            localizedAbilityLanguage: "zh-CN" as const,
+            localizedAbilityStatus: "official-structured-sibling" as const
+          }
+        : {}),
+      ...(!replacedAbility || source.localizedAbilitySource === undefined
+        ? {}
+        : { localizedAbilitySource: { ...source.localizedAbilitySource } }),
+      localizedFromPrintingId: source.id
+    };
+  });
 }
 
 function allowedZonesFor(
@@ -498,6 +624,7 @@ function normalizeCardCatalogRuntime(
     cards.push(item);
   }
   const cardsById = new Map(cards.map(card => [card.id, card]));
+  const localizedCards = withOfficialSiblingLocalization(cards);
 
   // `domains`/`tags` are already present on the catalog cards; forwarding them
   // only feeds the server-private identity lookup. The public catalog schema and
@@ -513,7 +640,7 @@ function normalizeCardCatalogRuntime(
     name: card.name
   })), "standard", policyOptions);
 
-  const policyCards = cards.map(card => {
+  const policyCards = localizedCards.map(card => {
     const policy = getConstructedCardPolicy(
       constructed.policy,
       card.canonicalCardId

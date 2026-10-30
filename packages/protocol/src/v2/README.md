@@ -23,7 +23,7 @@ The version and contract tags are `PROTOCOL_V2_VERSION` (`2.0.0`),
 | `V2ActivateCommand` | `activate` with ability id, source, cost, targets, and picks | source and choices are owner-only when hidden |
 | `V2PassCommand` | `pass` | public action receipt |
 | `V2ChooseCommand` | `choose` answering a suspended choice request | owner-only; the answer is replayed by `choiceId` |
-| `V2MoveCommand` | `move` with object and destination | only visible object identities may be named |
+| `V2MoveCommand` | `move` with object, optional `additionalObjectIds` moving together as one Standard Move, and destination | only visible object identities may be named; the whole group is accepted or rejected together |
 | `V2DeclareAttackCommand` | `declare-attack` with battlefield and attackers | public combat declaration |
 | `V2DeclareDefenseCommand` | `declare-defense` with battlefield and defenders | public combat declaration |
 | `V2ConcedeCommand` | `concede` | public game result |

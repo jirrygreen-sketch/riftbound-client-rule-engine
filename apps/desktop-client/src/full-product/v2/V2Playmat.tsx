@@ -64,8 +64,12 @@ export interface V2BoardInteraction {
   readonly operable?: (object: V2ProjectedObject) => boolean;
   /** Target/choice/damage marking while the board is waiting for a click. */
   readonly markFor?: (object: V2ProjectedObject) => V2ObjectMark | null;
-  /** A left click on a stack or one of its members; returns true when the board used it. */
-  readonly onObjectClick?: (objects: readonly V2ProjectedObject[]) => boolean;
+  /**
+   * A left click on a stack or one of its members; returns true when the board
+   * used it. `multi` is a Shift/Ctrl/⌘ click, which selects units that move
+   * together (RIFT-1154).
+   */
+  readonly onObjectClick?: (objects: readonly V2ProjectedObject[], multi?: boolean) => boolean;
   /** A right click on a stack or one of its members; returns true when the board used it. */
   readonly onObjectContext?: (objects: readonly V2ProjectedObject[]) => boolean;
   readonly allocationFor?: (object: V2ProjectedObject) => V2UnitAllocation | null;
@@ -221,8 +225,8 @@ function UnitStack({ group, cards, onInspect, interaction }: {
   }, { amount: 0, lethal: 0 });
   const groupAllocation: V2UnitAllocation | null = count === 1 ? interaction?.allocationFor?.(first) ?? null :
     totals.amount === 0 ? null : { amount: totals.amount, lethal: false, order: null };
-  const click = (members: readonly V2ProjectedObject[]): void => {
-    if (interaction?.onObjectClick?.(members) === true) return;
+  const click = (members: readonly V2ProjectedObject[], multi = false): void => {
+    if (interaction?.onObjectClick?.(members, multi) === true) return;
     if (members.length > 1) interaction?.onExpand?.(expanded ? null : group.key);
     else if (members[0]?.cardId !== undefined && !members[0].faceDown && count === 1) onInspect(members[0].cardId, members[0].objectId);
   };
@@ -239,9 +243,9 @@ function UnitStack({ group, cards, onInspect, interaction }: {
       <span role="button" tabIndex={0} className="v2m-hit"
         {...v2HoverProps(interaction?.onHover, first.faceDown ? null : first.cardId, first)}
         aria-label={count > 1 ? `${name} ×${count}` : name}
-        title={onDragStart ? `${name}：拖动到其他位置即可移动` : name}
+        title={onDragStart ? `${name}：拖动到其他位置即可移动；按住 Shift 点选多个单位可一起移动` : name}
         {...(onDragStart ? { onPointerDown: onDragStart } : {})}
-        onClick={() => click(objects)}
+        onClick={event => click(objects, event.shiftKey || event.ctrlKey || event.metaKey)}
         onContextMenu={event => context(event, objects)}
         onKeyDown={event => { if (event.key === "Enter") click(objects); }}>
         {count > 1 ? <><span className="v2m-layer" aria-hidden="true" /><span className="v2m-layer is-second" aria-hidden="true" /></> : null}
@@ -266,7 +270,8 @@ function UnitStack({ group, cards, onInspect, interaction }: {
                 <li key={object.objectId} className="v2m-member" data-object-id={object.objectId}
                   {...(memberMark === null ? {} : { "data-mark": memberMark })}>
                   <span role="button" tabIndex={0} className="v2m-hit" aria-label={`${name} #${objects.indexOf(object) + 1}`}
-                    onClick={() => click([object])} onContextMenu={event => context(event, [object])}
+                    onClick={event => click([object], event.shiftKey || event.ctrlKey || event.metaKey)}
+                    onContextMenu={event => context(event, [object])}
                     onKeyDown={event => { if (event.key === "Enter") click([object]); }}>
                     <UnitFace object={object} cards={cards} allocation={interaction?.allocationFor?.(object) ?? null} />
                   </span>

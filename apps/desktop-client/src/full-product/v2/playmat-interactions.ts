@@ -47,6 +47,49 @@ export function v2MoveDropTargets(projection: V2Projection, objectId: string): R
   return targets;
 }
 
+/**
+ * Legal drop zones for moving a group of units together (RIFT-1154): only
+ * destinations the server lists for every member, so one Standard Move can
+ * carry the whole group.
+ */
+export function v2GroupMoveDropTargets(projection: V2Projection, objectIds: readonly string[]): ReadonlyMap<string, V2Location> {
+  const [lead, ...rest] = objectIds;
+  if (lead === undefined) return new Map();
+  const targets = new Map(v2MoveDropTargets(projection, lead));
+  for (const objectId of rest) {
+    const allowed = v2MoveDropTargets(projection, objectId);
+    for (const key of [...targets.keys()]) if (!allowed.has(key)) targets.delete(key);
+  }
+  return targets;
+}
+
+/** Where a unit stands, as a drop zone key; null when it is not on the board. */
+function v2UnitLocationKey(object: V2ProjectedObject): string | null {
+  return object.location === undefined ? null : v2LocationKey(object.location);
+}
+
+/**
+ * Modifier-click selection of units that move together (RIFT-1154). Only
+ * units with a listed move are taken; the group always shares one location,
+ * so clicking a unit elsewhere starts a new group. Clicking units that are
+ * all already selected removes them.
+ */
+export function v2ToggleMoveGroup(projection: V2Projection, group: readonly string[],
+  clicked: readonly V2ProjectedObject[]): readonly string[] {
+  const movable = new Set((projection.actionOptions?.moves ?? []).map(move => move.objectId));
+  const picked = clicked.filter(object => movable.has(object.objectId));
+  if (picked.length === 0) return group;
+  if (picked.every(object => group.includes(object.objectId))) {
+    return group.filter(objectId => !picked.some(object => object.objectId === objectId));
+  }
+  const where = v2UnitLocationKey(picked[0]!);
+  const same = picked.filter(object => v2UnitLocationKey(object) === where).map(object => object.objectId);
+  const groupWhere = group.length === 0 ? null :
+    v2UnitLocationKey(projection.objects.find(object => object.objectId === group[0]) ?? picked[0]!);
+  const kept = groupWhere === where ? group : [];
+  return [...kept, ...same.filter(objectId => !kept.includes(objectId))];
+}
+
 /** Whether a dropped play can be sent at once or still needs target selection in the side panel. */
 export function v2PlayNeedsSelection(option: V2PlayOption): boolean {
   return option.targetRequirements !== undefined && option.targetRequirements.length > 0;
@@ -63,9 +106,12 @@ export type V2DropResult =
  */
 export function v2ResolveDrop(projection: V2Projection, source: V2DragSource, dropKey: string | null): V2DropResult {
   if (source.kind === "move") {
-    const destination = dropKey === null ? undefined : v2MoveDropTargets(projection, source.objectId).get(dropKey);
+    const group = source.groupObjectIds ?? [];
+    const targets = group.length === 0 ? v2MoveDropTargets(projection, source.objectId)
+      : v2GroupMoveDropTargets(projection, [source.objectId, ...group]);
+    const destination = dropKey === null ? undefined : targets.get(dropKey);
     return destination === undefined
-      ? { kind: "illegal", notice: `${source.label} 不能移动到这里` }
+      ? { kind: "illegal", notice: group.length === 0 ? `${source.label} 不能移动到这里` : `${source.label} 不能一起移动到这里` }
       : { kind: "move", destination };
   }
   const option = dropKey === null ? undefined : v2PlayDropTargets(projection, source.objectId).get(dropKey);
@@ -89,6 +135,8 @@ export interface V2DragSource {
   readonly objectId: string;
   readonly cardId?: string;
   readonly label: string;
+  /** Further selected units that move together with `objectId` (RIFT-1154). */
+  readonly groupObjectIds?: readonly string[];
 }
 
 export interface V2DragState {
