@@ -204,8 +204,10 @@ function transitionPayload(
 ): Record<string, unknown> {
   if (action.type !== 'move-location' || before === undefined || after === undefined) return {};
   return {
+    fromZone: locationKind(before.location) ?? before.zone,
     fromKind: locationKind(before.location),
     fromLocationId: locationId(before.location),
+    toZone: locationKind(after.location) ?? after.zone,
     toKind: locationKind(after.location),
     toLocationId: locationId(after.location),
     cause: context.cause ?? 'move',
@@ -229,6 +231,11 @@ function visibilityPayload(action: GameAction, objects: readonly ObjectSnapshot[
   }
   if (action.type === 'show-off') return { objectIds: objects.map(object => object.ref.id) };
   return {};
+}
+
+function objectCollectionPayload(objects: readonly ObjectSnapshot[]): Record<string, unknown> {
+  if (objects.length === 0) return {};
+  return { objectIds: objects.map(object => object.ref.id), objectCount: objects.length };
 }
 
 function actionSpecificPayload(
@@ -469,11 +476,14 @@ export function createActionPipelineHost(port: ActionStatePort): ContractActionP
         object: structuredClone(after),
         source: active?.source,
         player: active?.controller ?? before.controller,
+        fromZone: locationKind(before.location) ?? before.zone,
+        toZone: locationKind(after.location) ?? after.zone,
         simultaneousGroup: batchId,
       }, {
+        ...objectCollectionPayload([after]),
         ...actionPayload(leaf, before, after, stepContext),
         ...transitionPayload(leaf, before, after, stepContext),
-      }, { before, after }));
+      }, { before, after, objects: [after] }));
     }
     return { outcome, emissions };
   };
@@ -596,7 +606,15 @@ export function createActionPipelineHost(port: ActionStatePort): ContractActionP
       const cause = port.cause?.(action) ?? actionHint(action, 'cause') ??
         (action.type === 'move-location' ? 'move' : action.type === 'mill' ? 'burn' : action.type);
       const effectController = active?.controller ?? port.effectController?.(action);
-      const context = payloadContext(actionId, batchId, active, source, player, cause, effectController);
+      // A primitive such as Stun carries no player field. The affected object's
+      // controller is not the player responsible for the action (CR 412.4-
+      // 412.5); the captured effect actor is the only authoritative fallback.
+      const responsiblePlayer = 'player' in action ? player : effectController;
+      const context = payloadContext(
+        actionId, batchId, active, source,
+        'player' in action ? player : responsiblePlayer,
+        cause, effectController,
+      );
       const emissions: TimingEmission[] = [];
 
       emissions.push(...deriveZoneChangeEmissions(beforeList, afterList, {
@@ -610,6 +628,9 @@ export function createActionPipelineHost(port: ActionStatePort): ContractActionP
       }));
 
       const objects = actionObjects(action, outcome, before, after);
+      // A Stun is one committed state transition even though its GameAction has
+      // no player field. The action's responsibility belongs to the effect
+      // controller captured while Resolve was running (CR 412.4-.5).
       const visibility = visibilityPayload(action, objects);
       const timed = ACTION_TIMINGS[action.type];
       if (timed !== undefined) {
@@ -643,9 +664,10 @@ export function createActionPipelineHost(port: ActionStatePort): ContractActionP
               player,
               simultaneousGroup: batchId,
             }, {
+              ...visibility,
+              ...(action.type === 'look' ? objectCollectionPayload(objects) : {}),
               ...actionPayload(action, previous, after.get(first.ref.id) ?? first, context),
               ...actionSpecificPayload(action, previous, after.get(first.ref.id) ?? first, objects),
-              ...visibility,
             }, { before: previous, after: after.get(first.ref.id) ?? first, objects }));
           }
         } else if (actionHasStateTransition(action, old, next, outcome.result)) {
@@ -661,14 +683,22 @@ export function createActionPipelineHost(port: ActionStatePort): ContractActionP
               object: eventObject,
               target: action.type === 'damage' ? eventAfter : undefined,
               source,
-              player,
+              player: action.type === 'stun'
+                ? responsiblePlayer
+                : responsiblePlayer ?? eventObject?.controller,
               amount: actualAmount,
               simultaneousGroup: batchId,
             }, {
               ...actionPayload(action, eventBefore, eventAfter, context),
-              ...transitionPayload(action, eventBefore, eventAfter, context),
+              ...(action.type === 'move-location'
+                ? { ...objectCollectionPayload(eventAfter === undefined ? [] : [eventAfter]),
+                  ...transitionPayload(action, eventBefore, eventAfter, context) }
+                : {}),
               ...actionSpecificPayload(action, eventBefore, eventAfter, eventObject === undefined ? [] : [eventObject]),
-            }, { before: eventBefore, after: eventAfter });
+            }, { before: eventBefore, after: eventAfter,
+              ...(action.type === 'move-location' && eventAfter !== undefined
+                ? { objects: [eventAfter] }
+                : {}) });
             if (action.type === 'kill') {
               const firstEntry = emissions.findIndex(event => event.timingPoint === 'object-enters-zone');
               if (firstEntry >= 0) emissions.splice(firstEntry, 0, actionEmission);

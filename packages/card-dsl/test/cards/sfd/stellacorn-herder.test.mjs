@@ -112,7 +112,7 @@ test("sfd-048-221 Stellacorn Herder: the translated object-moved filter is accep
   assert.doesNotThrow(() => assertTriggerSpec({ at: "object-moved", filter: translated }));
 });
 
-test("sfd-048-221 Stellacorn Herder: a real Move publishes its origin and destination payload", () => {
+test("sfd-048-221 Stellacorn Herder: a real Move publishes its Origin, Destination, and object set", () => {
   // 449.1/449.2: object-moved now carries both LocationRefs so a trigger can
   // distinguish the Move from a Recall and evaluate destination restrictions.
   const kernel = world().player("A").player("B")
@@ -146,10 +146,12 @@ test("sfd-048-221 Stellacorn Herder: a real Move publishes its origin and destin
     [event.details?.toKind, event.details?.toLocationId],
     ["battlefield", "bf2"]
   );
-  assert.equal(event.fromZone, undefined);
-  assert.equal(event.toZone, undefined);
-  // This layer derives the Move event alone: the object-leaves-*/object-enters-*
-  // emissions that do describe the Locations come from the turn driver, so the
-  // Move event itself stays unreadable for a "when I move" filter.
+  assert.deepEqual(
+    [event.fromZone, event.toZone, event.details?.objectIds, event.details?.objectCount],
+    ["battlefield", "battlefield", ["mover"], 1]
+  );
+  // This layer publishes only object-moved; the turn driver produces separate
+  // location-entry/exit timings. The object-moved payload itself contains both
+  // endpoints and the moved object set used by a "when I move" filter.
   assert.deepEqual(moved.emissions.map((emission) => emission.timingPoint), ["object-moved"]);
 });

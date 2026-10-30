@@ -4,12 +4,14 @@ import { canonicalEventPatternType, type EventPattern, type ObjectFilter, type P
 import type { PipelineEvent } from './pipeline-types.js';
 
 const list = <T>(value: T | readonly T[]): readonly T[] => Array.isArray(value) ? value as readonly T[] : [value as T];
-const EVENT_NAMES: Readonly<Record<string, string>> = {
-  'zone-entered': 'object-entered-zone', 'zone-left': 'object-left-zone', 'object-targeted': 'became-target',
-  'showdown-opened': 'showdown-open', 'showdown-closed': 'showdown-close', 'combat-ended': 'combat-end',
-  'chain-item-finalized': 'chain-item-finalize', 'chain-item-resolved': 'chain-item-resolve',
-  conquered: 'conquer', held: 'hold', scored: 'score'
-};
+function eventObjectCollection(event: PipelineEvent): readonly ObjectSnapshot[] {
+  const value = (event as PipelineEvent & { readonly objects?: readonly ObjectSnapshot[] }).objects;
+  return Array.isArray(value) ? value : [];
+}
+/** Compare event aliases by their single physical timing identity. */
+function eventName(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : canonicalEventPatternType(value as never);
+}
 function playerMatches(selector: PlayerSelector | undefined, player: string | undefined, controller: string): boolean {
   if (selector === undefined || selector === 'any') return true;
   if (player === undefined) return false;
@@ -82,7 +84,7 @@ export function matchesTriggerEvent(
   }
   const kind = pattern.event ?? pattern.type ?? pattern.kind;
   const actual = event.kind ?? event.timingPoint;
-  if (kind !== undefined && (EVENT_NAMES[kind] ?? kind) !== (EVENT_NAMES[actual] ?? actual)) return false;
+  if (kind !== undefined && eventName(kind) !== eventName(actual)) return false;
   const field = eventBattlefieldId(event);
   if (pattern.here !== undefined) {
     if (pattern.here !== true || field === null || battlefieldLocationOf(source) !== field) return false;
@@ -90,7 +92,12 @@ export function matchesTriggerEvent(
   if ((pattern.object?.here === true || pattern.it?.here === true) &&
       (field === null || battlefieldLocationOf(source) !== field)) return false;
   for (const key of ['object', 'source', 'target'] as const) {
-    if (pattern[key] && !matchesTriggerObject(pattern[key], event[key], controller, source, field)) return false;
+    if (!pattern[key]) continue;
+    const matches = (key === 'object'
+      ? [event.object, ...eventObjectCollection(event)].filter((object): object is ObjectSnapshot => object !== undefined)
+      : [event[key]])
+      .some(object => matchesTriggerObject(pattern[key]!, object, controller, source, field));
+    if (!matches) return false;
   }
   if (pattern.it && (!event.it || !matchesTriggerObject(pattern.it, event.it, controller, source, field))) return false;
   const hasDetailsMightyTransition = pattern.details !== undefined && Object.hasOwn(pattern.details, 'becomesMighty');
@@ -109,7 +116,10 @@ export function matchesTriggerEvent(
         event.it.ref.id !== after!.ref.id || event.it.ref.zoneEntryId !== after!.ref.zoneEntryId) return false;
   }
   if (!playerMatches(pattern.player, event.player, controller)) return false;
-  if (pattern.fromZone !== undefined && pattern.fromZone !== event.fromZone || pattern.toZone !== undefined && pattern.toZone !== event.toZone) return false;
+  const eventFromZone = event.fromZone ?? (event.details as { readonly fromZone?: string } | undefined)?.fromZone;
+  const eventToZone = event.toZone ?? (event.details as { readonly toZone?: string } | undefined)?.toZone;
+  if (pattern.fromZone !== undefined && pattern.fromZone !== eventFromZone ||
+      pattern.toZone !== undefined && pattern.toZone !== eventToZone) return false;
   if (pattern.amount !== undefined) {
     if (event.amount === undefined) return false;
     const matcher = pattern.amount;
