@@ -172,7 +172,7 @@ export function AppView({
       {v2UiEnabled ? "切换回旧对局界面" : "使用协议 v2 对局界面"}
     </button>
     <MatchControls settings={displaySettings} onChange={changeDisplaySettings}
-      onGoHome={() => setActiveTab("home")} onGoRoom={() => setActiveTab("room")}
+      onGoHome={() => navigate("home")} onGoRoom={() => setActiveTab("room")}
       onIssueReport={() => setActiveTab("issue-report")}
       onConcede={duelProjection === null && projection !== null ? concede : undefined}
       canConcede={concedeAllowance.enabled} />
