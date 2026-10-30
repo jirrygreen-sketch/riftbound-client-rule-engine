@@ -567,6 +567,16 @@ export class V2MatchSessionController {
           this.pendingRequests.delete(packet.requestId);
           pending.reject(new Error(packet.message));
         }
+        // A rejected game command comes back as an error carrying its
+        // commandId. It is final: resending it only repeated the rejection
+        // until the give-up time (RIFT-1157 / RIFT-1159).
+        const command = this.pendingCommands.get(packet.requestId);
+        if (command) {
+          clearTimeout(command.timer);
+          this.pendingCommands.delete(packet.requestId);
+          for (const waiter of command.waiters) waiter.reject(new Error(packet.message));
+          this.emit();
+        }
       }
       if (!packet.requestId && this.session !== null &&
           (packet.code === "invalid-token" || packet.code === "room-not-found")) {
