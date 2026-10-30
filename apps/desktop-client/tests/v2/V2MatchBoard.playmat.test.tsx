@@ -1,16 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server.node";
-import { V2MatchBoard } from "../../src/full-product/v2/V2MatchBoard";
+import { buildV2MoveCommand, V2MatchBoard } from "../../src/full-product/v2/V2MatchBoard";
 import { buildV2CardLookup, V2CardPreview, v2CardDetails, v2PlaymatCards } from "../../src/full-product/v2/V2Playmat";
 import {
   V2_DRAG_THRESHOLD_PX,
   v2DragReducer,
+  v2GroupMoveDropTargets,
   v2MoveDropTargets,
   v2PlayDropTargets,
   v2PlayNeedsSelection,
   v2ResolveDrop,
   v2RuneCanAddEnergy,
   v2RuneCanAddPower,
+  v2ToggleMoveGroup,
   type V2DragState
 } from "../../src/full-product/v2/playmat-interactions";
 import { CardPreviewOverlay, closeOnBackdropClick } from "../../src/full-product/duel/DuelOverlays";
@@ -388,5 +390,62 @@ describe("RIFT-1148 slow command feedback and in-match issue report", () => {
     const html = renderToStaticMarkup(<V2MatchBoard state={state(projection())} initialCatalogCards={catalog}
       onReportIssue={vi.fn()} onCommand={vi.fn()} />);
     expect(html).toMatch(/<button type="button" class="v2-playmat-report"[^>]*>问题上报<\/button>/);
+  });
+});
+
+describe("RIFT-1154 moving several units together", () => {
+  // Two own units in the base and one already on field-2; field-1 is legal for both base units, field-2 only for one.
+  function grouped(): V2Projection {
+    const base = projection();
+    const extra = object("unit-3", "sfd-026", "Rumble", "board", "alice",
+      { controllerPlayerId: "alice", location: { kind: "base", playerId: "alice" }, might: 2 });
+    const away = object("unit-4", "sfd-026", "Rumble", "board", "alice",
+      { controllerPlayerId: "alice", location: { kind: "battlefield", battlefieldId: "field-2" }, might: 1 });
+    return { ...base, objects: [...base.objects, extra, away], actionOptions: { ...base.actionOptions, moves: [
+      { objectId: "unit-1", destination: { kind: "battlefield", battlefieldId: "field-1" } },
+      { objectId: "unit-1", destination: { kind: "battlefield", battlefieldId: "field-2" } },
+      { objectId: "unit-3", destination: { kind: "battlefield", battlefieldId: "field-1" } },
+      { objectId: "unit-4", destination: { kind: "base", playerId: "alice" } }
+    ] } };
+  }
+  const byId = (value: V2Projection, id: string) => value.objects.find(item => item.objectId === id)!;
+
+  it("offers only the destinations every member of the group can reach", () => {
+    const value = grouped();
+    expect([...v2GroupMoveDropTargets(value, ["unit-1", "unit-3"]).keys()]).toEqual(["battlefield:field-1"]);
+    expect([...v2GroupMoveDropTargets(value, ["unit-1"]).keys()]).toEqual(["battlefield:field-1", "battlefield:field-2"]);
+    expect(v2GroupMoveDropTargets(value, []).size).toBe(0);
+  });
+
+  it("toggles units into one same-location group and starts over at another location", () => {
+    const value = grouped();
+    const one = v2ToggleMoveGroup(value, [], [byId(value, "unit-1")]);
+    expect(one).toEqual(["unit-1"]);
+    const two = v2ToggleMoveGroup(value, one, [byId(value, "unit-3")]);
+    expect(two).toEqual(["unit-1", "unit-3"]);
+    // Clicking a selected unit again removes it.
+    expect(v2ToggleMoveGroup(value, two, [byId(value, "unit-3")])).toEqual(["unit-1"]);
+    // A unit at another location starts a new group; units without a listed move are ignored.
+    expect(v2ToggleMoveGroup(value, two, [byId(value, "unit-4")])).toEqual(["unit-4"]);
+    expect(v2ToggleMoveGroup(value, two, [byId(value, "unit-2")])).toEqual(two);
+  });
+
+  it("resolves a group drop only where all members may go and sends one move with the rest of the group", () => {
+    const value = grouped();
+    const source = { kind: "move", objectId: "unit-1", label: "兰博 等 2 个单位", groupObjectIds: ["unit-3"] } as const;
+    expect(v2ResolveDrop(value, source, "battlefield:field-1")).toEqual({
+      kind: "move", destination: { kind: "battlefield", battlefieldId: "field-1" } });
+    expect(v2ResolveDrop(value, source, "battlefield:field-2")).toEqual({
+      kind: "illegal", notice: "兰博 等 2 个单位 不能一起移动到这里" });
+    expect(buildV2MoveCommand("unit-1", { kind: "battlefield", battlefieldId: "field-1" }, ["unit-3"])).toEqual({
+      type: "move", objectId: "unit-1", additionalObjectIds: ["unit-3"], to: { zone: "battlefield", locationId: "field-1" } });
+    // A single unit keeps the old command shape for older servers.
+    expect(buildV2MoveCommand("unit-1", { kind: "battlefield", battlefieldId: "field-1" })).toEqual({
+      type: "move", objectId: "unit-1", to: { zone: "battlefield", locationId: "field-1" } });
+  });
+
+  it("tells the player how to pick several units once more than one can move", () => {
+    expect(render(catalog, grouped())).toContain("按住 Shift（或 Ctrl / ⌘）点选多个单位，可以一起移动进攻。");
+    expect(render()).not.toContain("按住 Shift");
   });
 });
