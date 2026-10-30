@@ -259,7 +259,7 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
   };
   if (!chain.items.length) {
     for (const source of objects) {
-      if (source.controller !== viewer || source.zone !== "hand" || source.cardId === null ||
+      if (source.controller !== viewer || (source.zone !== "hand" && source.zone !== "champion") || source.cardId === null ||
           !canPay(source) ||
           (!waitingForFutureCommand && !chain.canAct(viewer, source.types.includes("spell") || source.types.includes("gear") ? "action" : "normal", source.ref, source))) continue;
       const requirements = targetRequirements(source);
