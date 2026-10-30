@@ -160,8 +160,10 @@ test("unl-127-219 Mister Root golden: a real move-location carries no from/to zo
   });
   const [moved] = f.engine.pipeline.events.filter(event => event.timingPoint === "object-moved");
   assert.ok(moved, "move-location must publish the object-moved timing point");
-  assert.equal(moved.fromZone, undefined);
-  assert.equal(moved.toZone, undefined);
+  assert.deepEqual(
+    [moved.fromZone, moved.toZone, moved.objectIds, moved.objectCount],
+    ["battlefield", "battlefield", ["root"], 1]
+  );
   assert.equal(f.kernel.getObject("root").location.id, "bf-2");
 });
 

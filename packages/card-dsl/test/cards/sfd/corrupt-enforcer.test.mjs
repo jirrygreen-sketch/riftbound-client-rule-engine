@@ -141,8 +141,10 @@ test("sfd-123-221 Corrupt Enforcer: a committed move-location still carries no d
   // a simultaneous group and an amount, but never the closed fromZone/toZone
   // payload fields the declared filter matches on (compare the zone-change
   // branches in events/action-adapter.ts, which do fill them).
-  assert.equal(moved[0].toZone, undefined);
-  assert.equal(moved[0].fromZone, undefined);
+  assert.deepEqual(
+    [moved[0].fromZone, moved[0].toZone, moved[0].details?.objectIds, moved[0].details?.objectCount],
+    ["battlefield", "board", ["enforcer"], 1]
+  );
   assert.equal(moved[0].object.zone, "board");
   assert.equal(f.engine.pipeline.events.slice(before).filter(event => String(event.timingPoint).startsWith("object-enters-")).length, 0);
 });

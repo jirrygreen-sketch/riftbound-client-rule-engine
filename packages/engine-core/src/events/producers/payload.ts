@@ -23,6 +23,8 @@ export interface ActionPayload {
   readonly unitId?: string;
   readonly controllerId?: PlayerId;
   readonly ownerId?: PlayerId;
+  /** The OBJECT collection observed after one committed action. */
+  readonly objectIds?: readonly string[];
   readonly fromKind?: LocationRef['type'];
   readonly fromLocationId?: string;
   readonly toKind?: LocationRef['type'];
@@ -31,7 +33,6 @@ export interface ActionPayload {
   readonly previousMight?: number | null;
   readonly currentMight?: number | null;
   readonly cardIds?: readonly string[];
-  readonly objectIds?: readonly string[];
   readonly visibility?: PlayerId | 'all' | readonly PlayerId[];
   readonly [key: string]: unknown;
 }
@@ -93,8 +94,13 @@ export function actionPayload(
 ): ActionPayload {
   const subject = after ?? before;
   const source = context.source ?? ('source' in action && before?.ref.id === action.source.id ? before : undefined);
-  const player = 'player' in action ? action.player : context.player ?? before?.controller;
-  const responsible = context.effectController ?? player;
+  // `playerId` keeps its established legacy fallback for consumers that used
+  // it as the affected object's controller. Responsibility never uses that
+  // fallback: it is the action actor or captured effect controller (CR 412.4-
+  // .5), and remains absent when neither is authoritative.
+  const actor = 'player' in action ? action.player : context.player;
+  const player = actor ?? before?.controller;
+  const responsible = context.effectController ?? actor;
   const affected = subject?.controller ?? ('player' in action ? action.player : undefined);
   return compact({
     actionId: context.actionId,

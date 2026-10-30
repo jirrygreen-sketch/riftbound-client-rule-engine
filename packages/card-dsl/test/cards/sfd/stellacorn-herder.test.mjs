@@ -146,8 +146,10 @@ test("sfd-048-221 Stellacorn Herder: a real Move publishes its origin and destin
     [event.details?.toKind, event.details?.toLocationId],
     ["battlefield", "bf2"]
   );
-  assert.equal(event.fromZone, undefined);
-  assert.equal(event.toZone, undefined);
+  assert.deepEqual(
+    [event.fromZone, event.toZone, event.details?.objectIds, event.details?.objectCount],
+    ["battlefield", "battlefield", ["mover"], 1]
+  );
   // This layer derives the Move event alone: the object-leaves-*/object-enters-*
   // emissions that do describe the Locations come from the turn driver, so the
   // Move event itself stays unreadable for a "when I move" filter.

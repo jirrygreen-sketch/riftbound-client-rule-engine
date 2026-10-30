@@ -371,6 +371,7 @@ const timingPoints = [
     descriptionZh: "对象被消灭并将送入 Trash；自身死亡触发在替代处理后、实际换区前收集，替代掉死亡则不触发。",
     emittedBy: "events",
     payloadType: "object",
+    payloadFields: ["actionId", "batchId", "playerId", "responsiblePlayerId", "affectedPlayerId", "objectId", "controllerId", "ownerId", "cause"],
     ruleRefs: ["429.1", "429.2", "808.1.d", "808.1.d.1", "808.1.d.2"],
     ruleRefVersion: V15
   },
@@ -491,6 +492,7 @@ const timingPoints = [
     descriptionZh: "一个 Battlefield 发生 Conquer。",
     emittedBy: "scoring",
     payloadType: "scoring",
+    payloadFields: ["batchId", "playerId", "battlefieldId", "objectId", "participatingUnits", "battlefieldControllerBefore"],
     ruleRefs: ["468.5.d", "471.1", "473.2.a"],
     ruleRefVersion: V15
   },
@@ -499,6 +501,7 @@ const timingPoints = [
     descriptionZh: "回合玩家在 Beginning 的计分步骤中固守 Battlefield。",
     emittedBy: "scoring",
     payloadType: "scoring",
+    payloadFields: ["batchId", "playerId", "battlefieldId", "objectId", "participatingUnits"],
     ruleRefs: ["315.2.b.2", "471.2", "473.2.b"],
     ruleRefVersion: V15
   },
@@ -523,7 +526,7 @@ const timingPoints = [
     descriptionZh: "成功完成 Move；用起止地点种类及 id 区分基地到战场、战场到基地、战场到战场。Recall、入场和 Attach 不算 Move。",
     emittedBy: "events",
     payloadType: "movement",
-    payloadFields: ["actionId", "batchId", "playerId", "objectId", "controllerId", "fromKind", "fromLocationId", "toKind", "toLocationId", "cause"],
+    payloadFields: ["actionId", "batchId", "playerId", "responsiblePlayerId", "objectId", "controllerId", "objectIds", "fromZone", "toZone", "fromKind", "fromLocationId", "toKind", "toLocationId", "cause"],
     ruleRefs: ["421.1", "449.1", "449.2", "458", "435.4.a"],
     ruleRefVersion: V15
   },
@@ -559,7 +562,7 @@ const timingPoints = [
     descriptionZh: "单位从未 Stunned 变为 Stunned；对已 Stunned 的单位再次执行 Stun 不发出。",
     emittedBy: "events",
     payloadType: "stun",
-    payloadFields: ["actionId", "batchId", "playerId", "sourceId", "unitId", "controllerId"],
+    payloadFields: ["actionId", "batchId", "playerId", "responsiblePlayerId", "effectControllerPlayerId", "affectedPlayerId", "sourceId", "unitId", "controllerId"],
     ruleRefs: ["424.1", "424.1.a.1"],
     ruleRefVersion: V15
   },
@@ -678,7 +681,7 @@ const timingPoints = [
     descriptionZh: "效果允许指定玩家查看卡牌后记录可见对象；不向其他玩家披露私有卡牌信息，也不隐含 Reveal。",
     emittedBy: "events",
     payloadType: "card-look",
-    payloadFields: ["actionId", "playerId", "cardIds", "zone", "visibility"],
+    payloadFields: ["actionId", "batchId", "playerId", "objectIds", "objectCount", "cardIds", "zone", "visibility"],
     ruleRefs: ["128.4", "383.2.c", "432.1.c"],
     ruleRefVersion: V15
   },

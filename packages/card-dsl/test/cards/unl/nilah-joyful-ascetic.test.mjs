@@ -176,8 +176,10 @@ test("unl-115-219 Nilah, Joyful Ascetic golden: a real move-location publishes o
   });
   const [moved] = f.engine.pipeline.events.filter(event => event.timingPoint === "object-moved");
   assert.ok(moved);
-  assert.equal(moved.fromZone, undefined);
-  assert.equal(moved.toZone, undefined);
+  assert.deepEqual(
+    [moved.fromZone, moved.toZone, moved.objectIds, moved.objectCount],
+    ["battlefield", "battlefield", ["nilah"], 1]
+  );
   assert.equal(f.kernel.getObject("nilah").location.id, "bf-2");
   assert.equal(f.kernel.player("A").xp, 0);
 });
