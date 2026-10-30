@@ -15,7 +15,7 @@ import {
   DUEL_READY_LABEL
 } from "../duel/duel-board-model";
 import { CardArt, closeOnBackdropClick, DuelScoreRail, HiddenHand, PlaymatPile } from "../duel/DuelBoardComponents";
-import { CardText } from "../duel/card-text";
+import { CardText, isOfficialLocalizedStatus } from "../duel/card-text";
 import type { CardTextData } from "../duel/card-text";
 import { projectedObjectCardName, type CardNameIndex } from "./card-names";
 import { v2RuneCanAddEnergy, v2RuneCanAddPower } from "./playmat-interactions";
@@ -64,8 +64,12 @@ export interface V2BoardInteraction {
   readonly operable?: (object: V2ProjectedObject) => boolean;
   /** Target/choice/damage marking while the board is waiting for a click. */
   readonly markFor?: (object: V2ProjectedObject) => V2ObjectMark | null;
-  /** A left click on a stack or one of its members; returns true when the board used it. */
-  readonly onObjectClick?: (objects: readonly V2ProjectedObject[]) => boolean;
+  /**
+   * A left click on a stack or one of its members; returns true when the board
+   * used it. `multi` is a Shift/Ctrl/⌘ click, which selects units that move
+   * together (RIFT-1154).
+   */
+  readonly onObjectClick?: (objects: readonly V2ProjectedObject[], multi?: boolean) => boolean;
   /** A right click on a stack or one of its members; returns true when the board used it. */
   readonly onObjectContext?: (objects: readonly V2ProjectedObject[]) => boolean;
   readonly allocationFor?: (object: V2ProjectedObject) => V2UnitAllocation | null;
@@ -80,6 +84,19 @@ export interface V2BoardInteraction {
   readonly resultFor?: (battlefieldId: string) => ReactNode;
   /** Pointer over a card face: shows the docked card info (with the live object when on the board); null when it leaves. */
   readonly onHover?: (cardId: string | null, clientX?: number, object?: V2ProjectedObject) => void;
+  /**
+   * RIFT-1152: the viewer's Chosen Champion is played from the Champion Zone
+   * like a hand card, only while the server lists a play for it.
+   */
+  readonly championPlay?: {
+    readonly playable: (object: V2ProjectedObject) => boolean;
+    readonly selected: (object: V2ProjectedObject) => boolean;
+    readonly dragHandlerFor: (object: V2ProjectedObject) => ((event: PointerEvent<HTMLElement>) => void) | null;
+    /** Opens the play menu above the given point. */
+    readonly onSelect: (object: V2ProjectedObject, anchor: { readonly x: number; readonly y: number }) => void;
+    /** True once when the last pointer press was a drag, so its click is swallowed. */
+    readonly consumeDragClick: () => boolean;
+  };
 }
 
 /** Hover props for any card face: report the card on enter, clear on leave. */
@@ -221,8 +238,8 @@ function UnitStack({ group, cards, onInspect, interaction }: {
   }, { amount: 0, lethal: 0 });
   const groupAllocation: V2UnitAllocation | null = count === 1 ? interaction?.allocationFor?.(first) ?? null :
     totals.amount === 0 ? null : { amount: totals.amount, lethal: false, order: null };
-  const click = (members: readonly V2ProjectedObject[]): void => {
-    if (interaction?.onObjectClick?.(members) === true) return;
+  const click = (members: readonly V2ProjectedObject[], multi = false): void => {
+    if (interaction?.onObjectClick?.(members, multi) === true) return;
     if (members.length > 1) interaction?.onExpand?.(expanded ? null : group.key);
     else if (members[0]?.cardId !== undefined && !members[0].faceDown && count === 1) onInspect(members[0].cardId, members[0].objectId);
   };
@@ -239,9 +256,9 @@ function UnitStack({ group, cards, onInspect, interaction }: {
       <span role="button" tabIndex={0} className="v2m-hit"
         {...v2HoverProps(interaction?.onHover, first.faceDown ? null : first.cardId, first)}
         aria-label={count > 1 ? `${name} ×${count}` : name}
-        title={onDragStart ? `${name}：拖动到其他位置即可移动` : name}
+        title={onDragStart ? `${name}：拖动到其他位置即可移动；按住 Shift 点选多个单位可一起移动` : name}
         {...(onDragStart ? { onPointerDown: onDragStart } : {})}
-        onClick={() => click(objects)}
+        onClick={event => click(objects, event.shiftKey || event.ctrlKey || event.metaKey)}
         onContextMenu={event => context(event, objects)}
         onKeyDown={event => { if (event.key === "Enter") click(objects); }}>
         {count > 1 ? <><span className="v2m-layer" aria-hidden="true" /><span className="v2m-layer is-second" aria-hidden="true" /></> : null}
@@ -266,7 +283,8 @@ function UnitStack({ group, cards, onInspect, interaction }: {
                 <li key={object.objectId} className="v2m-member" data-object-id={object.objectId}
                   {...(memberMark === null ? {} : { "data-mark": memberMark })}>
                   <span role="button" tabIndex={0} className="v2m-hit" aria-label={`${name} #${objects.indexOf(object) + 1}`}
-                    onClick={() => click([object])} onContextMenu={event => context(event, [object])}
+                    onClick={event => click([object], event.shiftKey || event.ctrlKey || event.metaKey)}
+                    onContextMenu={event => context(event, [object])}
                     onKeyDown={event => { if (event.key === "Enter") click([object]); }}>
                     <UnitFace object={object} cards={cards} allocation={interaction?.allocationFor?.(object) ?? null} />
                   </span>
@@ -297,22 +315,39 @@ function StackRow({ objects, cards, onInspect, interaction, label }: {
   );
 }
 
-function IdentitySlot({ role, object, cards, onInspect, onHover }: {
+function IdentitySlot({ role, object, cards, onInspect, onHover, play }: {
   readonly role: string;
   readonly object: V2ProjectedObject | undefined;
   readonly cards: V2PlaymatCards;
   readonly onInspect: (cardId: string) => void;
   readonly onHover?: V2BoardInteraction["onHover"];
+  readonly play?: V2BoardInteraction["championPlay"];
 }) {
+  const playable = object !== undefined && play?.playable(object) === true;
+  const onDragStart = playable ? play!.dragHandlerFor(object!) : null;
+  const name = object === undefined ? "未入场" : cards.objectName(object);
   return (
-    <div className="v2m-identity-slot" {...v2HoverProps(onHover, object?.cardId, object)}>
+    <div className={`v2m-identity-slot${playable ? " v2-operable" : ""}${onDragStart ? " v2-draggable" : ""}${
+      playable && play!.selected(object!) ? " is-selected" : ""}`}
+      {...(object === undefined ? {} : { "data-object-id": object.objectId })}
+      {...(onDragStart ? { onPointerDown: onDragStart } : {})}
+      {...v2HoverProps(onHover, object?.cardId, object)}>
       <dt>{role}</dt>
       <dd>
         {object?.cardId !== undefined ? (
           <CardArt cardId={object.cardId} resolveCardTitle={cards.title} resolveCardImage={cards.image}
-            className="v2m-identity-art" onInspect={onInspect} />
+            className="v2m-identity-art" onInspect={cardId => { if (play?.consumeDragClick() !== true) onInspect(cardId); }} />
         ) : null}
-        <span className="v2m-identity-title">{object === undefined ? "未入场" : cards.objectName(object)}</span>
+        <span className="v2m-identity-title">{name}</span>
+        {playable ? (
+          <button type="button" className="v2m-identity-play" aria-label={`从英雄区打出 ${name}`}
+            title="拖到基地或战场即可打出，或点此选择落点"
+            onClick={event => {
+              if (play!.consumeDragClick()) return;
+              const rect = event.currentTarget.getBoundingClientRect();
+              play!.onSelect(object!, { x: rect.left + rect.width / 2, y: rect.top });
+            }}>打出</button>
+        ) : null}
       </dd>
     </div>
   );
@@ -415,7 +450,8 @@ export function V2PlaymatSide({ projection, player, position, baseObjects, runes
         <div className="v2m-zone v2m-identity" role="group" aria-label={`${name} 传奇与英雄`}>
           <dl className="v2m-identity-list">
             <IdentitySlot role="传奇" object={legend} cards={cards} onInspect={onInspect} onHover={interaction?.onHover} />
-            <IdentitySlot role="英雄" object={champion} cards={cards} onInspect={onInspect} onHover={interaction?.onHover} />
+            <IdentitySlot role="英雄" object={champion} cards={cards} onInspect={onInspect} onHover={interaction?.onHover}
+              play={isViewer ? interaction?.championPlay : undefined} />
           </dl>
         </div>
       </div>
@@ -566,8 +602,7 @@ function domainClass(domain: string): string {
 
 /** Keyword boxes such as [强攻 2], read only from the official Chinese text. */
 export function v2CardKeywords(card: CatalogCard | undefined): readonly string[] {
-  if (card === undefined || (card.localizedAbilityStatus !== "official-structured" &&
-      card.localizedAbilityStatus !== "official-accessibility-supplemented")) return [];
+  if (card === undefined || !isOfficialLocalizedStatus(card.localizedAbilityStatus)) return [];
   const text = `${card.localizedAbilityRulesText ?? ""}\n${card.localizedAbilityEffectText ?? ""}`.replace(/<[^>]*>/gu, " ");
   const found: string[] = [];
   for (const match of text.matchAll(/\[([^\]\r\n]{1,40})\]/gu)) {

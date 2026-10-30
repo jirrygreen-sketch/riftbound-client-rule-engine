@@ -251,11 +251,9 @@ function createToken(
   host: MatchHost,
   player: PlayerId,
   token: ReturnType<typeof tokenCard>,
-  destination: 'chain' | 'legend' = 'chain',
+  destination: 'chain' | 'legend' | 'champion' = 'chain',
 ): string {
-  const outcome = execute(host, destination === 'legend'
-    ? { type: 'create-token', player, token, to: 'legend' }
-    : { type: 'create-token', player, token, to: 'chain' });
+  const outcome = execute(host, { type: 'create-token', player, token, to: destination });
   const created = outcome.status === 'done' && 'result' in outcome ? outcome.result as { id: string } | undefined : undefined;
   if (!created || typeof created.id !== 'string') {
     throw new Error('Match setup token was not created');
@@ -333,7 +331,11 @@ function objectPower(card: MatchCard): readonly Domain[] | null {
 
 function tokenCard(card: MatchCard, types: readonly string[], championLegend = false) {
   const normalizedTypes = types.map(type => type.trim().toLowerCase());
-  if (normalizedTypes.includes('legend') || normalizedTypes.includes('champion')) {
+  // A Chosen Champion is a physical Unit card even though setup places it in
+  // the Champion Zone (CR 103.3, 108.3, 112). Its printed Unit characteristics
+  // and canonical card id are the same as any copy in the Main Deck; only the
+  // Legend setup card lacks a playable card face.
+  if (normalizedTypes.includes('legend')) {
     return {
       cardId: card.canonicalCardId ?? card.cardId ?? null,
       name: card.name ?? card.id,
@@ -596,7 +598,7 @@ export function createMatch(options: MatchOptions): Match {
   for (const seat of [{ id: 'A', deck: deckA! }, { id: 'B', deck: deckB! }] as const) {
     createToken(host, seat.id, tokenCard(seat.deck.championLegend, ['legend'], true), 'legend');
     report.legendZone[seat.id] = [seat.deck.championLegend.cardId ?? seat.deck.championLegend.id];
-    createToken(host, seat.id, tokenCard(seat.deck.chosenChampion, ['champion']));
+    createToken(host, seat.id, tokenCard(seat.deck.chosenChampion, ['champion']), 'champion');
     report.championZone[seat.id] = [seat.deck.chosenChampion.cardId ?? seat.deck.chosenChampion.id];
   }
   // CR 113/487.5: three set aside, one enters the Battlefield Zone, two removed.

@@ -179,9 +179,11 @@ export function isV2ChooseCommand(value: unknown): value is Extract<V2Command, {
 }
 
 export function isV2MoveCommand(value: unknown): value is V2MoveCommand {
-  return data(value) && base(value, "move", ["objectId", "to"]) &&
-    exact(value, ["type", "commandId", "stateVersion", "objectId", "to"]) &&
-    text(value.objectId) && destination(value.to);
+  return data(value) && base(value, "move", ["objectId", "to", "additionalObjectIds"]) &&
+    exact(value, ["type", "commandId", "stateVersion", "objectId", "to"], ["additionalObjectIds"]) &&
+    text(value.objectId) && destination(value.to) &&
+    (value.additionalObjectIds === undefined || listRefs(value.additionalObjectIds) &&
+      value.additionalObjectIds.length > 0 && !value.additionalObjectIds.includes(value.objectId));
 }
 
 export function isV2DeclareAttackCommand(value: unknown): value is V2DeclareAttackCommand {

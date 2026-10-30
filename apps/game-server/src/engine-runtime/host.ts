@@ -847,7 +847,7 @@ export class EngineRuntimeHost {
     if (action.cost !== undefined && action.cost.finalized !== true) return this.impossible();
     const hiddenSource = this.hiddenEntry(object);
     if (object.types.some(type => type.toLowerCase() === "spell") && hiddenSource === null && action.location !== undefined) return this.impossible();
-    if (hiddenSource === null && object.zone !== "hand" && object.zone !== "banishment" && object.zone !== "chain") return this.impossible();
+    if (hiddenSource === null && object.zone !== "hand" && object.zone !== "champion" && object.zone !== "banishment" && object.zone !== "chain") return this.impossible();
     if (hiddenSource !== null && object.zone !== "board" && (object.zone as string) !== "battlefield") return this.impossible();
     if (object.controller !== action.player) return this.impossible();
     if (action.location?.type === "base" && action.location.player !== action.player) return this.impossible();
@@ -981,12 +981,13 @@ export class EngineRuntimeHost {
   private moveLocation(ref: ObjectRef, location: LocationRef): ActionOutcome { const object = this.requireObject(ref); object.location = location; return this.done(objectRef(object)); }
   private setExhausted(ref: ObjectRef, exhausted: boolean): ActionOutcome { const object = this.requireObject(ref); object.exhausted = exhausted; return this.done(); }
 
-  private createToken(player: PlayerId, token: TokenSpec, to: "board" | "chain" | "legend", location?: LocationRef): ActionOutcome {
+  private createToken(player: PlayerId, token: TokenSpec, to: "board" | "chain" | "legend" | "champion", location?: LocationRef): ActionOutcome {
     if (to !== "legend" && token.championLegend === true) return this.prevented();
     if ((to === "legend") !== token.types.some(type => type.toLowerCase() === "legend")) return this.prevented();
     const id = `token:${this.nextToken++}`;
-    const ref = this.addCard(player, { id, cardId: token.cardId, name: token.name, types: token.types, tags: token.tags, keywords: token.keywords, might: token.might, energy: token.energy, power: token.power }, to);
-    const object = this.objectMap.get(id)!; object.isToken = true; object.faceDown = false; object.location = to === "legend" || to === "chain" ? null : location ?? null;
+    const types = to === "champion" ? ["unit"] : token.types;
+    const ref = this.addCard(player, { id, cardId: token.cardId, name: token.name, types, tags: token.tags, keywords: token.keywords, might: token.might, energy: token.energy, power: token.power }, to);
+    const object = this.objectMap.get(id)!; object.isToken = to !== "champion"; object.faceDown = false; object.location = to === "legend" || to === "chain" || to === "champion" ? null : location ?? null;
     if (to === "legend" && token.championLegend === true) {
       object.championLegend = true;
       this.championLegends.add(refKey(ref));

@@ -144,7 +144,7 @@ function settleChain(runtime: EngineRuntime, owner: string, prefix: string): voi
   void owner;
 }
 
-function advanceAuthorizationRuntime(): EngineRuntime {
+function advanceAuthorizationRuntime(started = true): EngineRuntime {
   const deck = (seat: "A" | "B"): EngineRuntimeDeck => ({
     mainDeck: Array.from({ length: 12 }, (_, index) => ({
       id: `${seat}:unit:${index}`, cardId: `${seat}:unit-card`, name: `${seat} Unit`,
@@ -177,9 +177,9 @@ function advanceAuthorizationRuntime(): EngineRuntime {
       sourceText: "fixture", abilities: [] })),
   ]);
   const decks = [deck("A"), deck("B")] as const;
-  return createEngineRuntime({ matchId: "v2-advance-authorization", roomId: "v2-advance-authorization",
-    decks, seed: "RIFT-924-advance-authorization", firstPlayer: "A", battlefieldChoice: [0, 0], programs })
-    .start();
+  const runtime = createEngineRuntime({ matchId: "v2-advance-authorization", roomId: "v2-advance-authorization",
+    decks, seed: "RIFT-924-advance-authorization", firstPlayer: "A", battlefieldChoice: [0, 0], programs });
+  return started ? runtime.start() : runtime;
 }
 
 function playUnit(runtime: EngineRuntime, playerId: "A" | "B", commandId: string): string {
@@ -480,5 +480,48 @@ describe("RIFT-924 protocol v2 playable turn runtime", () => {
     expect(receipt.error).toMatch(/No Combat is active/);
     expect(runtime.projectFor(null).stateVersion).toBe(before.stateVersion);
     expect(view.actionOptions).toMatchObject({ canEndTurn: true });
+  }, 120_000);
+
+  it("RIFT-1154 moves a group of units together as one Standard Move and rejects a group with any illegal unit", () => {
+    const runtime = advanceAuthorizationRuntime();
+    const first = playUnit(runtime, "A", "group-play-a-1");
+    const second = playUnit(runtime, "A", "group-play-a-2");
+    endCurrentTurn(runtime, "group-end-a-1");
+    const opponent = playUnit(runtime, "B", "group-play-b");
+    endCurrentTurn(runtime, "group-end-b-1");
+
+    const view = runtime.projectFor("A");
+    const options = view.actionOptions.moves.filter(option => option.destination.kind === "battlefield");
+    const field = options.find(option => option.objectId === first)?.destination;
+    expect(field?.kind).toBe("battlefield");
+    const battlefieldId = field!.kind === "battlefield" ? field!.battlefieldId : "";
+    expect(options.some(option => option.objectId === second &&
+      option.destination.kind === "battlefield" && option.destination.battlefieldId === battlefieldId)).toBe(true);
+
+    // One unit the actor does not control makes the whole group illegal; nothing moves.
+    const before = runtime.projectFor(null);
+    const mixed = submit(runtime, "A", {
+      type: "move", commandId: "group-move-mixed", stateVersion: view.stateVersion,
+      objectId: first, additionalObjectIds: [second, opponent], to: { zone: "battlefield", locationId: battlefieldId },
+    });
+    expect(mixed.status).toBe("rejected");
+    expect(runtime.projectFor(null)).toEqual(before);
+
+    const moved = submit(runtime, "A", {
+      type: "move", commandId: "group-move", stateVersion: view.stateVersion,
+      objectId: first, additionalObjectIds: [second], to: { zone: "battlefield", locationId: battlefieldId },
+    });
+    expect(moved.status, moved.error).toBe("accepted");
+    const after = runtime.projectFor(null);
+    for (const objectId of [first, second]) {
+      const unit = after.objects.find(object => object.objectId === objectId);
+      expect(unit, objectId).toMatchObject({ zone: "board", location: { kind: "battlefield", battlefieldId } });
+    }
+    // Both units arrived in the same move: the journal holds a single move entry for the pair.
+    const entries = runtime.journal().entries.filter(entry =>
+      (entry as { command?: { type?: string } }).command?.type === "move");
+    expect(entries).toHaveLength(1);
+    const restored = advanceAuthorizationRuntime(false).restore(runtime.journal());
+    expect(restored.projectFor("A")).toEqual(runtime.projectFor("A"));
   }, 120_000);
 });

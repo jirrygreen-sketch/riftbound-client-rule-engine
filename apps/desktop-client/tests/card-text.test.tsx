@@ -211,6 +211,16 @@ describe("CardText", () => {
     expect(missing).not.toContain("When I attack");
   });
 
+  it("shows a sibling printing's official Chinese text with a note naming that printing (RIFT-1153)", () => {
+    const sibling = card({ localizedAbilityStatus: "official-structured-sibling", localizedFromPrintingId: "sfd-233-221" });
+    const html = render(createElement(CardText, { card: sibling }));
+    expect(html).toContain('aria-label="官方中文卡牌文本"');
+    expect(html).toContain("取自同一张牌的 sfd-233-221 版本的官方中文");
+    expect(html).toContain("本回合内");
+    expect(cardTextSearchValues(sibling)).toEqual([sibling.localizedAbilityRulesText, sibling.localizedAbilityEffectText]);
+    expect(render(createElement(CardText, { card: card() }))).not.toContain("取自同一张牌");
+  });
+
   it("does not fabricate text when localization metadata is absent", () => {
     const html = render(createElement(CardText, { card: { ability: "Old English text." } }));
     expect(html).toContain(MISSING_ZH_TEXT_NOTICE);

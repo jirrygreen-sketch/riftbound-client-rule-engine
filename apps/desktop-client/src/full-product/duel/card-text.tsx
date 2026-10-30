@@ -115,7 +115,18 @@ export type CardTextData = Pick<
   | "localizedAbilityLanguage"
   | "localizedAbilityStatus"
   | "localizedAbilitySource"
+  | "localizedFromPrintingId"
 >;
+
+/**
+ * Official Chinese text: the printing's own, or (RIFT-1153) the same card's
+ * official text borrowed from a sibling printing, which is labelled as such.
+ */
+export function isOfficialLocalizedStatus(status: CardTextData["localizedAbilityStatus"]): boolean {
+  return status === "official-structured" ||
+    status === "official-structured-sibling" ||
+    status === "official-accessibility-supplemented";
+}
 
 export const ENGLISH_FALLBACK_NOTICE = "官方中文正文不可用，以下为英文";
 export const MISSING_ZH_TEXT_NOTICE = "官方中文正文不可用";
@@ -196,8 +207,7 @@ export function CardText({ card }: { readonly card: CardTextData }) {
     );
   }
 
-  if (status !== "official-structured" &&
-      status !== "official-accessibility-supplemented") {
+  if (!isOfficialLocalizedStatus(status)) {
     return (
       <section {...common} aria-label="官方中文正文缺失">
         <p className="card-text-missing">{MISSING_ZH_TEXT_NOTICE}</p>
@@ -207,6 +217,12 @@ export function CardText({ card }: { readonly card: CardTextData }) {
 
   return (
     <section {...common} aria-label="官方中文卡牌文本">
+      {status === "official-structured-sibling" ? (
+        <p className="card-text-sibling" role="note">
+          此版本在官方中文图库中暂无正文，以下取自同一张牌{card.localizedFromPrintingId === undefined
+            ? "的其他版本" : `的 ${card.localizedFromPrintingId} 版本`}的官方中文。
+        </p>
+      ) : null}
       {renderTextSection("规则文本", card.localizedAbilityRulesText)}
       {renderTextSection("效果文本", card.localizedAbilityEffectText)}
     </section>
@@ -370,8 +386,7 @@ function safeCodePoint(value: number, fallback: string): string {
  * Missing or fallback text retains the existing English search behavior.
  */
 export function cardTextSearchValues(card: CardTextData): readonly string[] {
-  if (card.localizedAbilityStatus === "official-structured" ||
-      card.localizedAbilityStatus === "official-accessibility-supplemented") {
+  if (isOfficialLocalizedStatus(card.localizedAbilityStatus)) {
     return [
       card.localizedAbilityRulesText ?? "",
       card.localizedAbilityEffectText ?? ""
