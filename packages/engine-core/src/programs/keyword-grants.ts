@@ -8,6 +8,7 @@ import { queryObjects } from '../effects/interpreter/selectors.js';
 import { ContinuousEffectRegistry } from '../layers/duration.js';
 import { LayerEngine, bumpDerivedLayerEpoch } from '../layers/engine.js';
 import { matchesObjectFilter } from '../layers/filter.js';
+import { filterAnchor } from '../layers/relative/filter.js';
 import { refKey, sameRef, type LayeredObjectSnapshot, type RegisteredContinuousEffect, type TimingEvent } from '../layers/types.js';
 import { ProgramBindingError } from './errors.js';
 import { expandProgram } from './keywords.js';
@@ -201,6 +202,12 @@ export interface KeywordGrantLayerOptions {
   readonly lifecycleKeywords?: readonly string[];
 }
 
+/** A plain `{}` with no own fields and no bound host (RIFT-1162). */
+function isEmptyFilter(filter: unknown): boolean {
+  return typeof filter === 'object' && filter !== null && Object.getPrototypeOf(filter) === Object.prototype &&
+    Reflect.ownKeys(filter).length === 0 && filterAnchor(filter) === undefined;
+}
+
 /**
  * Injectable through ChainEngineOptions.layers. This adapter owns keyword
  * expansion; callers must not also bind printed keyword expansions through
@@ -232,6 +239,9 @@ export class KeywordGrantLayerEngine extends LayerEngine {
     super(objects, options.registry);
     this.lifecycleKeywords = new Set(options.lifecycleKeywords?.map(keyword => keyword.toLowerCase()));
   }
+
+  /** Its view is the derived keyword-grant state itself (RIFT-1162). */
+  override get readsDerivedLayerState(): boolean { return true; }
 
   /** Current source for an exact host-bound condition. */
   private sourceSnapshot(ref: ObjectRef): ObjectSnapshot | null {
@@ -296,7 +306,12 @@ export class KeywordGrantLayerEngine extends LayerEngine {
         return this.view.get(refKey(ref)) ?? null;
       };
       if (key === 'query') return (filter: Parameters<ResolveContext['query']>[0]) => {
-        return [...this.view.values()].filter(object =>
+        const objects = [...this.view.values()];
+        // RIFT-1162: queryObjects asks for the whole visible set with a fresh
+        // `{}` for every grant tested on every object. Every predicate of an
+        // empty, unbound filter is vacuous, so it matches every object.
+        if (isEmptyFilter(filter)) return objects;
+        return objects.filter(object =>
           matchesObjectFilter(filter, object, { controller: source.controller, anchor: source }));
       };
       const value = Reflect.get(target, key);

@@ -778,8 +778,10 @@ export class ChainEngine {
    * layer pass instead of one per object. A registry write (a static bound
    * during the sweep) or a host write (an effect resolving inside an event
    * handler) invalidates the view immediately, and so does any change to
-   * derived keyword-grant state (derivedLayerEpoch), which this view reads
-   * while a keyword refresh is in progress.
+   * derived keyword-grant state (derivedLayerEpoch) when these layers read it
+   * (RIFT-1162: only a keyword-grant layer engine does; a plain one sees
+   * grants through its registry revision, so a keyword refresh in a separate
+   * engine no longer discards this view for every condition it tests).
    * Target planning and Resolve-time target revalidation use the same window:
    * enumerating legal candidates reads each candidate through the host but
    * changes neither objects nor registry.
@@ -805,14 +807,15 @@ export class ChainEngine {
     // pre-memo reentrant semantics.
     if (this.layers.inEvaluation) return this.freshLayerObjects();
     const stable = this.stableLayerDepth > 0 ? this.stableLayerView : undefined;
+    const epoch = () => this.layers.readsDerivedLayerState ? derivedLayerEpoch() : 0;
     if (stable !== undefined && stable.revision === this.layers.registry.revision &&
-        stable.mutations === hostWriteEpoch && stable.epoch === derivedLayerEpoch()) {
+        stable.mutations === hostWriteEpoch && stable.epoch === epoch()) {
       if (layerMemoCheck()) assertSameLayerView('stable', stable.view, this.freshLayerObjects());
       return stable.view;
     }
     const view = this.freshLayerObjects();
     if (this.stableLayerDepth > 0) {
-      this.stableLayerView = { revision: this.layers.registry.revision, mutations: hostWriteEpoch, epoch: derivedLayerEpoch(), view };
+      this.stableLayerView = { revision: this.layers.registry.revision, mutations: hostWriteEpoch, epoch: epoch(), view };
     }
     return view;
   }
