@@ -167,6 +167,20 @@ export function buildV2MoveCommand(
   };
 }
 
+/**
+ * Picking a card to play (a hand card or the Chosen Champion, RIFT-1152):
+ * clicking the selected card again clears it, and any pick drops the targets
+ * and placement chosen for the previous card so they never leak into the new
+ * card's play command.
+ */
+export function v2PlayCardSelection(current: string | null, objectId: string): {
+  readonly selectedCardId: string | null;
+  readonly playTargets: Readonly<Record<string, readonly string[]>>;
+  readonly playDestination: string;
+} {
+  return { selectedCardId: current === objectId ? null : objectId, playTargets: {}, playDestination: "" };
+}
+
 export function buildV2EndTurnCommand(): V2CommandRequest {
   return { type: "end-turn" };
 }
@@ -680,6 +694,13 @@ export function V2MatchBoard({
         : [...selectedForGroup, refKey];
     return { ...current, [requirementId]: next };
   });
+  const selectPlayCard = (objectId: string, anchor: { readonly x: number; readonly y: number }): void => {
+    const next = v2PlayCardSelection(selectedCardId, objectId);
+    setMenuAnchor(anchor);
+    setSelectedCardId(next.selectedCardId);
+    setSelectedPlayTargets(next.playTargets);
+    setSelectedPlayDestination(next.playDestination);
+  };
   const optionRefKey = (option: V2ChoiceOption): string => `${option.objectRef?.objectId}:${String(option.objectRef?.zoneEntryId)}`;
   dropHandlerRef.current = (source, dropKey) => {
     const result = v2ResolveDrop(projection, source, dropKey);
@@ -827,10 +848,7 @@ export function V2MatchBoard({
       dragHandlerFor: object => setup || !canPlay || v2PlayDropTargets(projection, object.objectId).size === 0 ? null :
         beginDrag({ kind: "play", objectId: object.objectId, label: objectLabel(object),
           ...(object.cardId === undefined ? {} : { cardId: object.cardId }) }),
-      onSelect: (object, anchor) => {
-        setMenuAnchor(anchor);
-        setSelectedCardId(current => current === object.objectId ? null : object.objectId);
-      },
+      onSelect: (object, anchor) => selectPlayCard(object.objectId, anchor),
       consumeDragClick
     },
     dropPreviewFor: dropKey => {
@@ -987,10 +1005,7 @@ export function V2MatchBoard({
                 }
                 else {
                   const rect = event.currentTarget.getBoundingClientRect();
-                  setMenuAnchor({ x: rect.left + rect.width / 2, y: rect.top });
-                  setSelectedCardId(current => current === card.objectId ? null : card.objectId);
-                  setSelectedPlayTargets({});
-                  setSelectedPlayDestination("");
+                  selectPlayCard(card.objectId, { x: rect.left + rect.width / 2, y: rect.top });
                 }
               }} title={card.name ?? card.cardId} aria-label={setup ? `选择调度 ${objectLabel(card)}` : `选择打出 ${objectLabel(card)}`}>
               {card.cardId !== undefined && playmatCards.image(card.cardId) !== null ? <img className="v2-hand-face" src={playmatCards.image(card.cardId)!} alt="" draggable={false} /> : <span className="v2-hand-face is-missing" aria-hidden="true" />}

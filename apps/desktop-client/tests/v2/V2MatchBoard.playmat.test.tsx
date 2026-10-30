@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server.node";
-import { buildV2MoveCommand, V2MatchBoard } from "../../src/full-product/v2/V2MatchBoard";
+import { buildV2MoveCommand, V2MatchBoard, v2PlayCardSelection } from "../../src/full-product/v2/V2MatchBoard";
 import { buildV2CardLookup, V2CardPreview, v2CardDetails, v2PlaymatCards } from "../../src/full-product/v2/V2Playmat";
 import {
   V2_DRAG_THRESHOLD_PX,
@@ -465,6 +465,14 @@ describe("RIFT-1152 playing the Chosen Champion from the Champion Zone", () => {
     const html = render(catalog, withChampions(false));
     expect(region(html, "Alice 传奇与英雄")).toContain('data-object-id="champ-a"');
     expect(region(html, "Bob 传奇与英雄")).toContain('data-object-id="champ-b"');
+  });
+
+  it("drops the previous card's targets and placement when the champion (or any card) is picked", () => {
+    // A hand card with chosen targets, then the champion: nothing carries over.
+    expect(v2PlayCardSelection("hand-1", "champ-a")).toEqual({ selectedCardId: "champ-a", playTargets: {}, playDestination: "" });
+    // Picking the selected card again clears the pick, and its targets too.
+    expect(v2PlayCardSelection("champ-a", "champ-a")).toEqual({ selectedCardId: null, playTargets: {}, playDestination: "" });
+    expect(v2PlayCardSelection(null, "hand-1")).toEqual({ selectedCardId: "hand-1", playTargets: {}, playDestination: "" });
   });
 
   it("offers a play button and drag only for the viewer's champion while the server lists a play", () => {
