@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server.node";
-import { buildV2MoveCommand, V2MatchBoard, v2PlayCardSelection } from "../../src/full-product/v2/V2MatchBoard";
+import { buildV2MoveCommand, V2MatchBoard, v2DropAction, v2PlayCardSelection } from "../../src/full-product/v2/V2MatchBoard";
 import { buildV2CardLookup, V2CardPreview, v2CardDetails, v2PlaymatCards } from "../../src/full-product/v2/V2Playmat";
 import {
   V2_DRAG_THRESHOLD_PX,
@@ -473,6 +473,24 @@ describe("RIFT-1152 playing the Chosen Champion from the Champion Zone", () => {
     // Picking the selected card again clears the pick, and its targets too.
     expect(v2PlayCardSelection("champ-a", "champ-a")).toEqual({ selectedCardId: null, playTargets: {}, playDestination: "" });
     expect(v2PlayCardSelection(null, "hand-1")).toEqual({ selectedCardId: "hand-1", playTargets: {}, playDestination: "" });
+  });
+
+  it("a champion dropped where it still needs targets becomes the pick with only this drop's placement", () => {
+    const value = withChampions(false);
+    const needsTarget = { ...value, actionOptions: { ...value.actionOptions, plays: [...value.actionOptions.plays,
+      { cardObjectId: "champ-a", destination: { kind: "base", playerId: "alice" } as const, requiresDestination: true,
+        targetRequirements: [{ id: "t", label: "目标", min: 1, max: 1, options: [] }] }] } };
+    const source = { kind: "play", objectId: "champ-a", label: "兰博" } as const;
+    // Whatever the previous card had picked, the drop starts the champion from empty targets.
+    const action = v2DropAction(needsTarget, source, "base:alice");
+    expect(action).toEqual({ kind: "pick", notice: "已选好 兰博 的落点，请在牌桌上点选带准星的目标",
+      pick: { selectedCardId: "champ-a", playTargets: {}, playDestination: "base:alice" } });
+    // Dropping the already-picked card again keeps it picked rather than toggling it off.
+    expect(v2DropAction(needsTarget, source, "base:alice")).toEqual(action);
+    expect(v2DropAction(needsTarget, source, "battlefield:field-2")).toEqual({ kind: "notice", notice: "兰博 不能打出到这里" });
+    // A champion play that needs no targets is sent straight away.
+    expect(v2DropAction(withChampions(true), source, "base:alice")).toMatchObject({ kind: "submit", clearMoveGroup: false,
+      command: { type: "play", cardObjectId: "champ-a" } });
   });
 
   it("offers a play button and drag only for the viewer's champion while the server lists a play", () => {

@@ -173,12 +173,41 @@ export function buildV2MoveCommand(
  * and placement chosen for the previous card so they never leak into the new
  * card's play command.
  */
-export function v2PlayCardSelection(current: string | null, objectId: string): {
+export interface V2PlayCardPick {
   readonly selectedCardId: string | null;
   readonly playTargets: Readonly<Record<string, readonly string[]>>;
   readonly playDestination: string;
-} {
+}
+
+export function v2PlayCardSelection(current: string | null, objectId: string): V2PlayCardPick {
   return { selectedCardId: current === objectId ? null : objectId, playTargets: {}, playDestination: "" };
+}
+
+/** What a released drag does to the board (RIFT-1144 / 1152 / 1154), kept pure so every branch is testable. */
+export type V2DropAction =
+  | { readonly kind: "notice"; readonly notice: string }
+  | { readonly kind: "submit"; readonly command: V2CommandRequest; readonly clearMoveGroup: boolean }
+  /** The card still needs targets: it becomes the picked card with only this drop's placement. */
+  | { readonly kind: "pick"; readonly pick: V2PlayCardPick; readonly notice: string };
+
+export function v2DropAction(projection: V2Projection, source: V2DragSource, dropKey: string | null): V2DropAction {
+  const result = v2ResolveDrop(projection, source, dropKey);
+  if (result.kind === "illegal") return { kind: "notice", notice: result.notice };
+  if (result.kind === "move") {
+    const destination = result.destination;
+    return { kind: "submit", clearMoveGroup: true, command: buildV2MoveCommand(source.objectId, destination.kind === "base"
+      ? { kind: "base", playerId: destination.playerId }
+      : { kind: "battlefield", battlefieldId: destination.battlefieldId }, source.groupObjectIds) };
+  }
+  const option = result.option;
+  const command = v2PlayNeedsSelection(option) ? null : buildProjectedV2PlayCommand(projection, source.objectId,
+    option.requiresDestination === false ? undefined : option.destination);
+  if (command !== null) return { kind: "submit", clearMoveGroup: false, command };
+  // A drop always picks the dropped card (never toggles it off) and starts its
+  // targets from empty, so a previous card's targets cannot leak in.
+  return { kind: "pick", notice: `已选好 ${source.label} 的落点，请在牌桌上点选带准星的目标`, pick: {
+    selectedCardId: source.objectId, playTargets: {},
+    playDestination: option.requiresDestination !== false && dropKey !== null ? dropKey : "" } };
 }
 
 export function buildV2EndTurnCommand(): V2CommandRequest {
@@ -694,41 +723,30 @@ export function V2MatchBoard({
         : [...selectedForGroup, refKey];
     return { ...current, [requirementId]: next };
   });
-  const selectPlayCard = (objectId: string, anchor: { readonly x: number; readonly y: number }): void => {
-    const next = v2PlayCardSelection(selectedCardId, objectId);
-    setMenuAnchor(anchor);
+  const applyPlayCardPick = (next: V2PlayCardPick): void => {
     setSelectedCardId(next.selectedCardId);
     setSelectedPlayTargets(next.playTargets);
     setSelectedPlayDestination(next.playDestination);
   };
+  const selectPlayCard = (objectId: string, anchor: { readonly x: number; readonly y: number }): void => {
+    setMenuAnchor(anchor);
+    applyPlayCardPick(v2PlayCardSelection(selectedCardId, objectId));
+  };
   const optionRefKey = (option: V2ChoiceOption): string => `${option.objectRef?.objectId}:${String(option.objectRef?.zoneEntryId)}`;
   dropHandlerRef.current = (source, dropKey) => {
-    const result = v2ResolveDrop(projection, source, dropKey);
-    if (result.kind === "illegal") {
-      setDragNotice(result.notice);
+    const action = v2DropAction(projection, source, dropKey);
+    if (action.kind === "notice") {
+      setDragNotice(action.notice);
       return;
     }
-    if (result.kind === "move") {
-      const destination = result.destination;
+    if (action.kind === "submit") {
       setDragNotice(null);
-      setMoveGroup([]);
-      submit(buildV2MoveCommand(source.objectId, destination.kind === "base"
-        ? { kind: "base", playerId: destination.playerId }
-        : { kind: "battlefield", battlefieldId: destination.battlefieldId }, source.groupObjectIds));
+      if (action.clearMoveGroup) setMoveGroup([]);
+      submit(action.command);
       return;
     }
-    const option = result.option;
-    const command = v2PlayNeedsSelection(option) ? null : buildProjectedV2PlayCommand(projection, source.objectId,
-      option.requiresDestination === false ? undefined : option.destination);
-    if (command !== null) {
-      setDragNotice(null);
-      submit(command);
-      return;
-    }
-    // Targets are still needed: keep the drop as the chosen card and placement.
-    setSelectedCardId(source.objectId);
-    if (option.requiresDestination !== false && dropKey !== null) setSelectedPlayDestination(dropKey);
-    setDragNotice(`已选好 ${source.label} 的落点，请在牌桌上点选带准星的目标`);
+    applyPlayCardPick(action.pick);
+    setDragNotice(action.notice);
   };
   const dragTargets: ReadonlyMap<string, unknown> | null = drag === null || !drag.active ? null :
     drag.source.kind === "play" ? v2PlayDropTargets(projection, drag.source.objectId) :
