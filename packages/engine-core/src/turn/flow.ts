@@ -1,4 +1,5 @@
 import { ChainEngine, type ChainDraft } from '../chain/engine.js';
+import { releaseEffectActor } from '../events/effect-actor.js';
 import type { GameAction, ObjectRef, ObjectSnapshot, PlayerId, PlayerSnapshot } from '../effects/contract.js';
 import type { PipelineHost, TimingEmission } from '../events/pipeline-types.js';
 import { CombatFlow, type BattlefieldState } from '../combat/flow.js';
@@ -593,6 +594,9 @@ export class TurnFlow {
   }
   private insert(tasks: Task[]): void { this.tasks.splice(this.executingTask ? 1 : 0, 0, ...tasks); }
   private commit(action: GameAction): void {
+    // A turn-based action is performed by the game's procedures (CR 412.2),
+    // never by an effect that resolved earlier.
+    releaseEffectActor();
     const outcome = this.chain.commit(action);
     if (outcome.status === 'impossible') throw new TurnCombatBlockedError('impossible-rules-action', `Required action is impossible: ${action.type}`);
   }

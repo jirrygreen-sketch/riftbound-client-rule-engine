@@ -1,5 +1,6 @@
 import type { ActionOutcome, ContractGameAction, GameAction, HistoryQuery, ObjectFilter, ObjectRef, ObjectSnapshot, PlayerId, ResolveContext } from '../effects/contract.js';
 import { getTimingPoint } from './timing-points.js';
+import { readOnlyContext } from './effect-actor.js';
 import { matchesTriggerEvent } from './pipeline-match.js';
 import { assertTriggerSpec } from './trigger-spec.js';
 import type { ActionExecution, NamedTriggerActivation, PipelineClock, PipelineEvent, PipelineHost, RegisteredTrigger, ReplacementCostEvidence, ReplacementMatchContext, ReplacementRegistration, TimingEmission, TriggerRegistration, TriggerRule, TriggerRuleContext, TriggerSnapshot } from './pipeline-types.js';
@@ -87,12 +88,12 @@ function participatingUnitQuery(
   }
   return filter => {
     if (raw === undefined) {
-      return host.context(event.source ?? event.object!, controller, event.timingPoint).query(filter);
+      return readOnlyContext(() => host.context(event.source ?? event.object!, controller, event.timingPoint).query(filter));
     }
     const source = host.objects().find(object => object.ref.id === triggerSource.ref.id &&
       object.ref.zoneEntryId === triggerSource.ref.zoneEntryId) ?? triggerSource;
     const candidates = refs.flatMap(ref => {
-      const object = host.context(source ?? event.object!, controller, event.timingPoint).object(ref);
+      const object = readOnlyContext(() => host.context(source ?? event.object!, controller, event.timingPoint).object(ref));
       return object === null ? [] : [object];
     });
     return candidates.filter(object => matchesObjectFilter(filter, object as LayeredObjectSnapshot, {
@@ -113,7 +114,7 @@ function evaluateTriggerCondition(
   const condition = registration.spec.condition;
   const conditionHistory = registration.spec.conditionHistory;
   if (condition === undefined && conditionHistory === undefined) return true;
-  const base = host.context(source, controller, event.timingPoint);
+  const base = readOnlyContext(() => host.context(source, controller, event.timingPoint));
   const eventSource = event.object?.ref.id === source.ref.id &&
     event.object.ref.zoneEntryId === source.ref.zoneEntryId &&
     (event.timingPoint === 'object-killed' || event.timingPoint.startsWith('object-leaves-'))

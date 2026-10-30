@@ -1,4 +1,5 @@
 import type { Condition } from '@riftbound/card-dsl';
+import { performingEffect } from '../events/effect-actor.js';
 import type { LocationFilter } from '@riftbound/card-dsl';
 import type { ActionOutcome, ContractGameAction, GameAction, Instruction, ObjectRef, ObjectSnapshot, PlayerId, PowerPaymentSource, ResolveContext, Value } from '../effects/contract.js';
 import { AwaitChoice } from '../effects/contract.js';
@@ -1200,6 +1201,7 @@ export class ChainEngine {
   ): ResolveContext {
     const source = item.trigger?.source ?? item.source;
     const base = this.options.host.context(source, item.controller, at);
+    const actor = { source, controller: item.controller, timingPoint: at };
     const answers = choicePlan === undefined ? undefined : choicePlanAnswers(choicePlan);
     const answerPrefix = this.finalizeAnswerPrefix(item);
     const targets = new Map<string, ObjectRef[]>();
@@ -1226,7 +1228,7 @@ export class ChainEngine {
       ...(item.trigger === undefined ? {} : { eventObject: (role: 'it') => triggerEventObjectBinding(item.trigger!, role) }),
       contractActions: {
         version: CONTRACT_ACTION_CAPABILITY_VERSION,
-        perform: (action: ContractGameAction) => this.pipeline.commitContract(action),
+        perform: (action: ContractGameAction) => performingEffect(actor, () => this.pipeline.commitContract(action)),
       },
       targets: id => targets.get(id) ?? [],
       picks: id => lockedOrderedPicks((item as Partial<ChainItem>).pickPlans ?? [], id) ?? base.picks(id),
@@ -1239,7 +1241,8 @@ export class ChainEngine {
           return matchesObjectFilter({ ...normalized, ...(normalized.controller === 'opponent' ? { controller: 'any' } : {}), ...(normalized.owner === 'opponent' ? { owner: 'any' } : {}) }, object);
         });
       }),
-      perform: action => this.commit(action.type === 'create-token' && action.to === undefined ? { ...action, to: 'board' } : action),
+      perform: action => performingEffect(actor, () =>
+        this.commit(action.type === 'create-token' && action.to === undefined ? { ...action, to: 'board' } : action)),
       addContinuous: (effect, duration) => { this.layers.addContinuous(effect, duration); this.requestCleanup('continuous-effect'); },
       registerDelayedTrigger: (spec, body) => this.pipeline.registerTrigger({ id: `delayed:${++this.delayedSequence}`, source, controller: item.controller, spec: spec as unknown as TriggerSnapshot['registration']['spec'], body, delayed: true })
     };
