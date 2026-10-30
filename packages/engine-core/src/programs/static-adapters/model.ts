@@ -5,6 +5,7 @@ import { evaluateCondition } from '../../effects/interpreter/condition.js';
 import { MissingInformation } from '../../effects/interpreter/values.js';
 import { matchesObjectFilter } from '../../layers/filter.js';
 import { bindFilterIncarnation } from '../../layers/relative/filter.js';
+import { isObservedCondition, markObservedCondition, noteEventSensitiveRead } from '../../layers/observed-reads.js';
 import { resolveContinuousDuration } from '../../layers/ops/index.js';
 import { readOnlyContext } from '../../events/effect-actor.js';
 import { ProgramBindingError } from '../errors.js';
@@ -360,12 +361,16 @@ export function effectCondition(engine: ChainEngine, ability: Extract<Ability, {
   const condition = ability.condition;
   const normalized = filter === undefined ? undefined : normalizeStaticFilter(filter);
   if (condition === undefined && normalized === undefined) return undefined;
-  return (object: ObjectSnapshot): boolean => {
+  // RIFT-1163: besides object reads, this condition reads only through the
+  // host ResolveContext that abilityEnvironment creates, which records every
+  // event-sensitive read. A function ability condition is opaque.
+  return markObservedCondition((object: ObjectSnapshot): boolean => {
     const current = bindingSource(engine, source);
     if (current === null) return false;
     if (normalized !== undefined && !staticObjectMatches(normalized, object, current)) return false;
+    if (typeof condition === 'function' && !isObservedCondition(condition)) noteEventSensitiveRead();
     return staticConditionMatches(engine, current, condition);
-  };
+  });
 }
 
 export function layerSpec(

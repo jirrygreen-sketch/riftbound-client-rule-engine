@@ -44,6 +44,7 @@ import type {
 } from "../../effects/contract.js";
 import type { ContinuousEffect } from "@riftbound/card-dsl";
 import { isTimingPointId } from "../../events/timing-points.js";
+import { markObservedCondition } from "../observed-reads.js";
 
 /**
  * Whether one Equipment currently attached to `host` contributes its bonus.
@@ -187,7 +188,9 @@ export function targetFilter(target: OpsTarget): ContinuousEffectSpec["filter"] 
 }
 
 function targetCondition(target: OpsTarget): (object: ObjectSnapshot) => boolean {
-  return object => object.ref.id === target.ref.id && object.ref.zoneEntryId === target.ref.zoneEntryId;
+  // RIFT-1163: a pure incarnation comparison reads nothing an event can change.
+  return markObservedCondition((object: ObjectSnapshot) =>
+    object.ref.id === target.ref.id && object.ref.zoneEntryId === target.ref.zoneEntryId);
 }
 
 export interface MightEffect {

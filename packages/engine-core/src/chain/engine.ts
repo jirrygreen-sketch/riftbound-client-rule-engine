@@ -10,7 +10,7 @@ import { buildCostPlan } from '../cost/cost-plan.js';
 import { assessCostPayment, payCostPlan } from '../cost/payment.js';
 import { CostPlanError, type CostComponentInput, type CostPlan, type CostPlanInput, type CostPaymentReceipt } from '../cost/plan-types.js';
 import { finalizeTargetPlan, resolveTargetPlan, TargetSelectionError, type TargetFinalizeOptions, type TargetPlan, type TargetRequirement } from '../target/target-plan.js';
-import { LayerEngine, derivedLayerEpoch, hostObjectGeneration } from '../layers/engine.js';
+import { LayerEngine, derivedLayerEpoch, hostObjectGeneration, layerEvaluationActive, noteEventSensitiveRead } from '../layers/engine.js';
 import { matchesObjectFilter } from '../layers/filter.js';
 import { actionTimings, canAct as canActByRules, playLocations, restrictions as ruleRestrictions } from '../layers/rules/query.js';
 import type { RegisteredContinuousEffect } from '../layers/types.js';
@@ -504,6 +504,30 @@ function hostWrite<T>(write: () => T): T {
   try { return write(); } finally { hostWriteEpoch++; }
 }
 
+/**
+ * RIFT-1163: inside a layer evaluation, any read of a host context beyond its
+ * object reads (timing point, history, players, last-known information, ...)
+ * marks the pass event-sensitive, so its command plan keeps the per-event
+ * invalidation. Object reads are covered by the plan's host generation.
+ */
+const OBJECT_CONTEXT_READS = new Set<PropertyKey>(['object', 'query', 'source', 'controller']);
+function recordEventSensitiveReads(context: ResolveContext): ResolveContext {
+  return new Proxy(context, {
+    get: (target, key) => {
+      if (!OBJECT_CONTEXT_READS.has(key)) noteEventSensitiveRead();
+      const value = Reflect.get(target, key);
+      if (typeof value !== 'function') return value;
+      const descriptor = Reflect.getOwnPropertyDescriptor(target, key);
+      return descriptor !== undefined && !descriptor.configurable && descriptor.writable === false ? value : value.bind(target);
+    },
+    has: (target, key) => {
+      if (!OBJECT_CONTEXT_READS.has(key)) noteEventSensitiveRead();
+      return Reflect.has(target, key);
+    },
+    ownKeys: target => { noteEventSensitiveRead(); return Reflect.ownKeys(target); },
+  });
+}
+
 /** Route a host-provided ResolveContext's direct writes through hostWrite. */
 function countHostWrites(context: ResolveContext): ResolveContext {
   return new Proxy(context, { get: (target, key) => {
@@ -657,7 +681,15 @@ export class ChainEngine {
       if (event.timingPoint === 'turn-start') this.finalizedPlaysThisTurn = [];
       this.observeCombatRoleEvent(event);
       this.observeBattlefieldControl(event);
-      this.layers.setObjects(this.hostObjects());
+      // RIFT-1163: a completed plan that read nothing an event can change
+      // survives this boundary when the host generation is unchanged, exactly
+      // as a later layered pass over the same generation would reuse it.
+      if (this.layers.commandPlanSurvivesEvents) {
+        this.installCommandAuthority(this.hostReadSnapshot ?? this.options.host.objects());
+        this.layers.setObjects(this.hostObjects(), true);
+      } else {
+        this.layers.setObjects(this.hostObjects());
+      }
       this.layers.advance({ id: event.timingPoint, player: event.player });
       this.record({ step: 'event', timingPoint: event.timingPoint });
     };
@@ -697,6 +729,10 @@ export class ChainEngine {
   }
   /** Give every ResolveContext object read the same read-only designation view. */
   private hostObjectContext(source: ObjectSnapshot, controller: PlayerId, at: TimingPointId): ResolveContext {
+    const context = this.combatRoleContext(source, controller, at);
+    return layerEvaluationActive() ? recordEventSensitiveReads(context) : context;
+  }
+  private combatRoleContext(source: ObjectSnapshot, controller: PlayerId, at: TimingPointId): ResolveContext {
     const base = countHostWrites(source.combatRole === null || source.combatRole === undefined
       ? this.options.host.context(source, controller, at)
       : bindResolveContext(this.options.host.context(source, controller, at), { source }));
@@ -766,7 +802,8 @@ export class ChainEngine {
   private stableLayerDepth = 0;
   private hostViewAuthority?: { readonly objects: readonly ObjectSnapshot[]; readonly epoch: number; readonly ids: string };
   private stableLayerView: {
-    readonly revision: number; readonly mutations: number; readonly epoch: number; readonly view: readonly ObjectSnapshot[];
+    readonly revision: number; readonly mutations: number; readonly epoch: number; readonly derived: boolean;
+    readonly view: readonly ObjectSnapshot[];
   } | undefined;
 
   /**
@@ -807,15 +844,18 @@ export class ChainEngine {
     // pre-memo reentrant semantics.
     if (this.layers.inEvaluation) return this.freshLayerObjects();
     const stable = this.stableLayerDepth > 0 ? this.stableLayerView : undefined;
-    const epoch = () => this.layers.readsDerivedLayerState ? derivedLayerEpoch() : 0;
     if (stable !== undefined && stable.revision === this.layers.registry.revision &&
-        stable.mutations === hostWriteEpoch && stable.epoch === epoch()) {
+        stable.mutations === hostWriteEpoch && stable.epoch === (stable.derived ? derivedLayerEpoch() : 0)) {
       if (layerMemoCheck()) assertSameLayerView('stable', stable.view, this.freshLayerObjects());
       return stable.view;
     }
     const view = this.freshLayerObjects();
     if (this.stableLayerDepth > 0) {
-      this.stableLayerView = { revision: this.layers.registry.revision, mutations: hostWriteEpoch, epoch: epoch(), view };
+      // A pass that read a keyword-grant derived view keys on its epoch even
+      // when these layers do not declare that state.
+      const derived = this.layers.readsDerivedLayerState || this.layers.viewReadDerivedLayerState;
+      this.stableLayerView = { revision: this.layers.registry.revision, mutations: hostWriteEpoch,
+        epoch: derived ? derivedLayerEpoch() : 0, derived, view };
     }
     return view;
   }
@@ -839,12 +879,7 @@ export class ChainEngine {
     // built. A fresh `setObjects` and full pass must occur before the key can
     // be compared, while a later pass over the same generation may reuse it.
     try {
-      const prior = this.hostViewAuthority;
-      const sameHostGeneration = prior !== undefined && !prior.ids.startsWith('mutable:') && prior.epoch === hostWriteEpoch &&
-        prior.objects.length === hostView.length && prior.objects.every((object, index) => object === hostView[index]);
-      const authority = sameHostGeneration ? prior.ids : this.commandAuthority(hostView);
-      if (!sameHostGeneration) this.hostViewAuthority = { objects: Object.freeze([...hostView]), epoch: hostWriteEpoch, ids: authority };
-      this.layers.setCommandPlanAuthority(authority);
+      this.installCommandAuthority(hostView);
       this.layers.rearmCommandPlan();
       this.layers.setObjects(mappedView, true);
       return read();
@@ -852,6 +887,14 @@ export class ChainEngine {
       this.layerPassInFlight = false;
       this.hostReadSnapshot = undefined;
     }
+  }
+  private installCommandAuthority(hostView: readonly ObjectSnapshot[]): void {
+    const prior = this.hostViewAuthority;
+    const sameHostGeneration = prior !== undefined && !prior.ids.startsWith('mutable:') && prior.epoch === hostWriteEpoch &&
+      prior.objects.length === hostView.length && prior.objects.every((object, index) => object === hostView[index]);
+    const authority = sameHostGeneration ? prior.ids : this.commandAuthority(hostView);
+    if (!sameHostGeneration) this.hostViewAuthority = { objects: Object.freeze([...hostView]), epoch: hostWriteEpoch, ids: authority };
+    this.layers.setCommandPlanAuthority(authority);
   }
   private commandAuthority(hostView: readonly ObjectSnapshot[]): string {
     // Production hosts retain one deeply frozen object identity per write.
