@@ -478,6 +478,8 @@ function hasOfficialChineseAbility(card: CatalogCard): boolean {
 
 function hasOfficialChineseAbilitySource(card: CatalogCard): boolean {
   return card.ability.trim() !== "" &&
+    ((card.localizedAbilityRulesText?.trim().length ?? 0) > 0 ||
+      (card.localizedAbilityEffectText?.trim().length ?? 0) > 0) &&
     (card.localizedAbilityStatus === "official-structured" ||
       card.localizedAbilityStatus === "official-accessibility-supplemented");
 }
@@ -514,6 +516,7 @@ function withOfficialSiblingLocalization(cards: readonly CatalogCard[]): Catalog
     const candidates = (byCanonical.get(card.canonicalCardId) ?? [])
       .filter(candidate => candidate.id !== card.id)
       .filter(hasAnyOfficialChineseDisplay)
+      .filter(candidate => candidate.localizedFromPrintingId === undefined)
       // Canonical identities can span printings whose English rules changed.
       // Never attach a different edition's wording to this printing.
       .filter(candidate => candidate.fullName === card.fullName &&
@@ -570,7 +573,7 @@ function withOfficialSiblingLocalization(cards: readonly CatalogCard[]): Catalog
       ...(!replacedAbility || source.localizedAbilitySource === undefined
         ? {}
         : { localizedAbilitySource: { ...source.localizedAbilitySource } }),
-      localizedFromPrintingId: source.id,
+      localizedFromPrintingId: source.id
     };
   });
 }

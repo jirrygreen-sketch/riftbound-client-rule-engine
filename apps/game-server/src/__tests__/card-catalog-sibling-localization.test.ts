@@ -196,6 +196,59 @@ describe("RIFT-1153 sibling localization", () => {
     });
     expect(output.cards[1]).not.toHaveProperty("localizedFromPrintingId");
   });
+
+  it("does not reuse a source that was itself marked as a sibling fallback", () => {
+    const chainedSource = card({
+      id: "fixture-chained-source",
+      canonicalCardId: "fixture-chain-canonical",
+      name: "Fixture",
+      fullName: "Fixture",
+      localizedName: "夹具",
+      localizedAbilityRulesText: "<p>官方中文效果</p>",
+      localizedAbilityLanguage: "zh-CN",
+      localizedAbilityStatus: "official-structured",
+      localizedAbilitySource: officialSource,
+      localizedFromPrintingId: "fixture-original-source"
+    });
+    const target = card({
+      id: "fixture-target",
+      canonicalCardId: "fixture-chain-canonical",
+      name: "Fixture",
+      fullName: "Fixture",
+      localizedName: "Fixture"
+    });
+    const output = normalizeCardCatalog(catalog([chainedSource, target]));
+    expect(output.cards[1]).toMatchObject({ id: "fixture-target", localizedName: "Fixture" });
+    expect(output.cards[1]).not.toHaveProperty("localizedFromPrintingId");
+  });
+
+  it("requires actual Chinese effect text before accepting an official source status", () => {
+    const sourceWithoutText = card({
+      id: "fixture-source-without-text",
+      canonicalCardId: "fixture-source-text-canonical",
+      name: "Fixture",
+      fullName: "Fixture",
+      localizedName: "夹具",
+      localizedSubtitle: "副标题",
+      localizedAbilityLanguage: "zh-CN",
+      localizedAbilityStatus: "official-structured"
+    });
+    const target = card({
+      id: "fixture-target-without-text",
+      canonicalCardId: "fixture-source-text-canonical",
+      name: "Fixture",
+      fullName: "Fixture",
+      localizedName: "Fixture"
+    });
+    const output = normalizeCardCatalog(catalog([sourceWithoutText, target]));
+    expect(output.cards[1]).toMatchObject({
+      id: "fixture-target-without-text",
+      localizedName: "夹具",
+      localizedFromPrintingId: "fixture-source-without-text"
+    });
+    expect(output.cards[1]).not.toHaveProperty("localizedAbilityStatus");
+    expect(output.cards[1]).not.toHaveProperty("localizedAbilityRulesText");
+  });
 });
 
 describe("RIFT-1153 HTTP projection", () => {
