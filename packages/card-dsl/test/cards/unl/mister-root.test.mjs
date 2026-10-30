@@ -141,10 +141,9 @@ test("unl-127-219 Mister Root: the move trigger registers through the translated
   assert.ok(f.engine.pipeline.triggers.size > 0);
 });
 
-test("unl-127-219 Mister Root golden: a real move-location carries no from/to zone payload", async () => {
-  // events/action-adapter.ts maps move-location onto the object-moved timing
-  // point but publishes neither fromZone nor toZone (timing-points.ts declares
-  // them as payloadFields), so 449.1/449.2 cannot be evaluated.
+test("unl-127-219 Mister Root golden: a real Move publishes both zones and the root object set", async () => {
+  // CR 449.1/449.2: the production object-moved event carries the battlefield
+  // Origin and Destination zones plus the exact Mister Root object collection.
   const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
   const f = fixture({ cards: [{ id: "root", types: ["unit"], energy: 2, power: [], might: 1 }] });
   f.engine.commit({
