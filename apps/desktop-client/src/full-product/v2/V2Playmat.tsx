@@ -84,6 +84,19 @@ export interface V2BoardInteraction {
   readonly resultFor?: (battlefieldId: string) => ReactNode;
   /** Pointer over a card face: shows the docked card info (with the live object when on the board); null when it leaves. */
   readonly onHover?: (cardId: string | null, clientX?: number, object?: V2ProjectedObject) => void;
+  /**
+   * RIFT-1152: the viewer's Chosen Champion is played from the Champion Zone
+   * like a hand card, only while the server lists a play for it.
+   */
+  readonly championPlay?: {
+    readonly playable: (object: V2ProjectedObject) => boolean;
+    readonly selected: (object: V2ProjectedObject) => boolean;
+    readonly dragHandlerFor: (object: V2ProjectedObject) => ((event: PointerEvent<HTMLElement>) => void) | null;
+    /** Opens the play menu above the given point. */
+    readonly onSelect: (object: V2ProjectedObject, anchor: { readonly x: number; readonly y: number }) => void;
+    /** True once when the last pointer press was a drag, so its click is swallowed. */
+    readonly consumeDragClick: () => boolean;
+  };
 }
 
 /** Hover props for any card face: report the card on enter, clear on leave. */
@@ -302,22 +315,39 @@ function StackRow({ objects, cards, onInspect, interaction, label }: {
   );
 }
 
-function IdentitySlot({ role, object, cards, onInspect, onHover }: {
+function IdentitySlot({ role, object, cards, onInspect, onHover, play }: {
   readonly role: string;
   readonly object: V2ProjectedObject | undefined;
   readonly cards: V2PlaymatCards;
   readonly onInspect: (cardId: string) => void;
   readonly onHover?: V2BoardInteraction["onHover"];
+  readonly play?: V2BoardInteraction["championPlay"];
 }) {
+  const playable = object !== undefined && play?.playable(object) === true;
+  const onDragStart = playable ? play!.dragHandlerFor(object!) : null;
+  const name = object === undefined ? "未入场" : cards.objectName(object);
   return (
-    <div className="v2m-identity-slot" {...v2HoverProps(onHover, object?.cardId, object)}>
+    <div className={`v2m-identity-slot${playable ? " v2-operable" : ""}${onDragStart ? " v2-draggable" : ""}${
+      playable && play!.selected(object!) ? " is-selected" : ""}`}
+      {...(object === undefined ? {} : { "data-object-id": object.objectId })}
+      {...(onDragStart ? { onPointerDown: onDragStart } : {})}
+      {...v2HoverProps(onHover, object?.cardId, object)}>
       <dt>{role}</dt>
       <dd>
         {object?.cardId !== undefined ? (
           <CardArt cardId={object.cardId} resolveCardTitle={cards.title} resolveCardImage={cards.image}
-            className="v2m-identity-art" onInspect={onInspect} />
+            className="v2m-identity-art" onInspect={cardId => { if (play?.consumeDragClick() !== true) onInspect(cardId); }} />
         ) : null}
-        <span className="v2m-identity-title">{object === undefined ? "未入场" : cards.objectName(object)}</span>
+        <span className="v2m-identity-title">{name}</span>
+        {playable ? (
+          <button type="button" className="v2m-identity-play" aria-label={`从英雄区打出 ${name}`}
+            title="拖到基地或战场即可打出，或点此选择落点"
+            onClick={event => {
+              if (play!.consumeDragClick()) return;
+              const rect = event.currentTarget.getBoundingClientRect();
+              play!.onSelect(object!, { x: rect.left + rect.width / 2, y: rect.top });
+            }}>打出</button>
+        ) : null}
       </dd>
     </div>
   );
@@ -420,7 +450,8 @@ export function V2PlaymatSide({ projection, player, position, baseObjects, runes
         <div className="v2m-zone v2m-identity" role="group" aria-label={`${name} 传奇与英雄`}>
           <dl className="v2m-identity-list">
             <IdentitySlot role="传奇" object={legend} cards={cards} onInspect={onInspect} onHover={interaction?.onHover} />
-            <IdentitySlot role="英雄" object={champion} cards={cards} onInspect={onInspect} onHover={interaction?.onHover} />
+            <IdentitySlot role="英雄" object={champion} cards={cards} onInspect={onInspect} onHover={interaction?.onHover}
+              play={isViewer ? interaction?.championPlay : undefined} />
           </dl>
         </div>
       </div>

@@ -521,6 +521,9 @@ export function V2MatchBoard({
   const opponent = projection.players.find(player => player.playerId !== projection.viewerPlayerId) ?? null;
   const ownHand = projection.zones.find(zone => zone.zone === "hand" && zone.ownerPlayerId === projection.viewerPlayerId)?.objects ??
     projection.objects.filter(object => object.zone === "hand" && object.ownerPlayerId === projection.viewerPlayerId);
+  // RIFT-1152: the Chosen Champion waits in the Champion Zone and is played from there like a hand card.
+  const ownChampion = projection.objects.find(object => object.zone === "champion" &&
+    object.ownerPlayerId === projection.viewerPlayerId) ?? null;
   // Permanents sit in the "board" zone wherever they are; where they are comes
   // from `location`, so units and gear in a base must not be listed as being on
   // a battlefield (found in a real two-browser M1 run, RIFT-1055).
@@ -648,7 +651,8 @@ export function V2MatchBoard({
   const waitingForOpponentDamage = projection.combat?.status === "active" &&
     projection.combat.step === "damage" && projection.combat.damage !== undefined &&
     projection.combat.damage.expectedPlayerId !== projection.viewerPlayerId;
-  const selectedCard = ownHand.find(card => card.objectId === selectedCardId) ?? null;
+  const selectedCard = ownHand.find(card => card.objectId === selectedCardId) ??
+    (ownChampion !== null && ownChampion.objectId === selectedCardId ? ownChampion : null);
   const selectedTarget = targetCandidates.find(object => object.objectId === selectedTargetId) ?? null;
   const winner = projection.winnerPlayerId === null ? null :
     projection.players.find(player => player.playerId === projection.winnerPlayerId) ?? null;
@@ -817,6 +821,18 @@ export function V2MatchBoard({
     expandedKey: expandedGroup,
     onExpand: setExpandedGroup,
     onHover: hoverHandler,
+    championPlay: {
+      playable: object => !setup && canPlay && v2PlayDropTargets(projection, object.objectId).size > 0,
+      selected: object => selectedCardId === object.objectId,
+      dragHandlerFor: object => setup || !canPlay || v2PlayDropTargets(projection, object.objectId).size === 0 ? null :
+        beginDrag({ kind: "play", objectId: object.objectId, label: objectLabel(object),
+          ...(object.cardId === undefined ? {} : { cardId: object.cardId }) }),
+      onSelect: (object, anchor) => {
+        setMenuAnchor(anchor);
+        setSelectedCardId(current => current === object.objectId ? null : object.objectId);
+      },
+      consumeDragClick
+    },
     dropPreviewFor: dropKey => {
       if (drag === null || !drag.active || drag.source.kind !== "move" || drag.overKey !== dropKey ||
           dragTargets?.has(dropKey) !== true || !dropKey.startsWith("battlefield:") || viewerId === null) return null;

@@ -449,3 +449,32 @@ describe("RIFT-1154 moving several units together", () => {
     expect(render()).not.toContain("按住 Shift");
   });
 });
+
+describe("RIFT-1152 playing the Chosen Champion from the Champion Zone", () => {
+  function withChampions(listed: boolean): V2Projection {
+    const base = projection();
+    const mine = object("champ-a", "sfd-026", "Rumble", "champion", "alice");
+    const theirs = object("champ-b", "sfd-110", "Fiora", "champion", "bob");
+    return { ...base, objects: [...base.objects, mine, theirs], actionOptions: { ...base.actionOptions,
+      plays: [...base.actionOptions.plays, ...(listed
+        ? [{ cardObjectId: "champ-a", destination: { kind: "base", playerId: "alice" } as const, requiresDestination: true }]
+        : [])] } };
+  }
+
+  it("shows both Chosen Champions in their identity slots", () => {
+    const html = render(catalog, withChampions(false));
+    expect(region(html, "Alice 传奇与英雄")).toContain('data-object-id="champ-a"');
+    expect(region(html, "Bob 传奇与英雄")).toContain('data-object-id="champ-b"');
+  });
+
+  it("offers a play button and drag only for the viewer's champion while the server lists a play", () => {
+    const listed = render(catalog, withChampions(true));
+    expect(region(listed, "Alice 传奇与英雄")).toContain('aria-label="从英雄区打出 兰博"');
+    expect(region(listed, "Alice 传奇与英雄")).toMatch(/class="v2m-identity-slot v2-operable v2-draggable"/);
+    expect(region(listed, "Bob 传奇与英雄")).not.toContain("从英雄区打出");
+    expect(v2PlayDropTargets(withChampions(true), "champ-a").has("base:alice")).toBe(true);
+    const unlisted = render(catalog, withChampions(false));
+    expect(unlisted).not.toContain("从英雄区打出");
+    expect(unlisted).toContain('<div class="v2m-identity-slot" data-object-id="champ-a">');
+  });
+});
