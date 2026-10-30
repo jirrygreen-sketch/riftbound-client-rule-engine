@@ -4,6 +4,10 @@ import test from 'node:test';
 import { world } from '../../dist/effects/testing/test-kernel.js';
 import { bindResolveContext, createActionPipelineHost } from '../../dist/events/action-adapter.js';
 import { createMatch } from '../../dist/game/lifecycle.js';
+import {
+  executeBasicRuneResourcePlan,
+  planBasicRuneResourceActivation,
+} from '../../dist/runes/index.js';
 
 // Core Rules v1.5, published 2026-10-09 and effective 2026-10-16:
 // https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
@@ -31,16 +35,23 @@ const program = Object.freeze({
   })]),
 });
 
+const FURY_RUNE = Object.freeze({
+  cardId: 'card.hash-30497c69657abd1d3abf17f9b3766e7d064817473a88828ca2ef4ab9b51f7902',
+  canonicalCardId: 'card.hash-30497c69657abd1d3abf17f9b3766e7d064817473a88828ca2ef4ab9b51f7902',
+  domain: 'Fury',
+});
+
 function card(id, zone, cardType = 'Unit') {
   const champion = zone === 'champion' ? cardType === 'Champion' : false;
+  const rune = cardType === 'Rune';
   return {
     id,
-    cardId: champion ? 'printing:' + program.canonicalCardId : `printing:${zone}:${id}`,
-    canonicalCardId: champion ? program.canonicalCardId : `canonical:${zone}:${id}`,
-    name: champion ? 'Champion Zone Unit' : `${cardType} ${id}`,
+    cardId: champion ? 'printing:' + program.canonicalCardId : rune ? FURY_RUNE.cardId : `printing:${zone}:${id}`,
+    canonicalCardId: champion ? program.canonicalCardId : rune ? FURY_RUNE.canonicalCardId : `canonical:${zone}:${id}`,
+    name: champion ? 'Champion Zone Unit' : rune ? 'Fury Rune' : `${cardType} ${id}`,
     cardType,
     types: [zone === 'champion' ? 'champion' : cardType.toLowerCase()],
-    tags: champion ? ['Champion Tag'] : [],
+    tags: champion ? ['Champion Tag'] : rune ? ['Basic'] : [],
     domains: ['Fury'],
     energy: zone === 'champion' ? 2 : cardType === 'Unit' ? 0 : null,
     power: zone === 'champion' ? 1 : cardType === 'Unit' ? 0 : null,
@@ -88,6 +99,26 @@ function makeMatch() {
   return { match, kernel };
 }
 
+function activateRune(match, kernel, id, type) {
+  const source = kernel.objectsInZone('A', 'rune-zone')
+    .map(ref => kernel.getObject(ref.id))
+    .filter(object => object.cardId === FURY_RUNE.canonicalCardId)
+    .find(object => type === 'rune-power' || !object.exhausted);
+  assert.ok(source, `A has a legal ${type} Rune source`);
+  const activation = planBasicRuneResourceActivation({
+    chain: match.flow.chain,
+    state: { objects: () => kernel.objects, player: player => kernel.player(player) },
+    resolveIdentity: cardId => cardId === FURY_RUNE.cardId || cardId === FURY_RUNE.canonicalCardId ? FURY_RUNE : null,
+    request: {
+      actor: 'A',
+      activationId: `RIFT-1152:${id}`,
+      intent: { type, runeObjectId: source.ref.id, zoneEntryId: source.ref.zoneEntryId },
+      window: { kind: 'priority' },
+    },
+  });
+  executeBasicRuneResourcePlan(activation);
+}
+
 test('RIFT-1152 setup places the Chosen Champion as a printable Unit card in its Champion Zone', () => {
   const { match, kernel } = makeMatch();
   assert.deepEqual(match.setup.championZone.A, ['printing:card.hash-champion-zone-unit']);
@@ -122,11 +153,34 @@ test('RIFT-1152 a Chosen Champion is played from Champion Zone through the real 
   const champion = kernel.getObject(championRef.id);
   assert.ok(champion);
   const base = { type: 'base', player: 'A' };
-  kernel.addPlayer('A', { energy: 2, power: ['Fury'] });
+
+  // Both Channel Phases reached through the real turn driver: A channels 2,
+  // B channels 3, then A channels 2 more. No resource is written by the test.
+  assert.equal(kernel.objectsInZone('A', 'rune-zone').length, 2);
+  match.flow.endTurn('A');
+  assert.equal(match.flow.turnPlayer, 'B');
+  assert.equal(kernel.objectsInZone('B', 'rune-zone').length, 3);
+  match.flow.endTurn('B');
+  assert.equal(match.flow.turnPlayer, 'A');
+  assert.equal(kernel.objectsInZone('A', 'rune-zone').length, 4);
+  assert.equal(match.flow.phase, 'main');
+  assert.deepEqual(kernel.objectsInZone('A', 'rune-zone').map(ref => {
+    const rune = kernel.getObject(ref.id);
+    return { cardId: rune.cardId, exhausted: rune.exhausted };
+  }), Array.from({ length: 4 }, () => ({ cardId: FURY_RUNE.canonicalCardId, exhausted: false })));
+
+  activateRune(match, kernel, 'energy-1', 'rune-energy');
+  activateRune(match, kernel, 'energy-2', 'rune-energy');
+  activateRune(match, kernel, 'power-1', 'rune-power');
+  assert.equal(kernel.player('A').energy, 2);
+  assert.deepEqual(kernel.player('A').power, ['Fury']);
+
   const draft = match.programBinding.describePlay({
     type: 'play', object: champion.ref, player: 'A', location: base,
   }, champion);
   match.flow.execute(draft);
+  assert.equal(kernel.player('A').energy, 0, 'the played card consumed the Channeled Energy');
+  assert.deepEqual(kernel.player('A').power, [], 'the played card consumed the recycled Fury Rune Power');
   assert.deepEqual(kernel.objectsInZone('A', 'champion'), [], 'Champion Zone is empty after Play');
   assert.ok(match.events().some(event => event.timingPoint === 'object-leaves-zone' &&
     event.object?.ref.id === champion.ref.id && event.object.zone === 'champion'),
