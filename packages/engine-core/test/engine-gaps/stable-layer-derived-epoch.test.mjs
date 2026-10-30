@@ -128,12 +128,24 @@ test('RIFT-1162: a keyword-grant query with an empty filter returns the whole vi
     registry: new LayerEngine([]).registry,
     context: source => bindResolveContext(kernel, { source, controller: source.controller, timingPoint: 'cleanup-start', choose }),
   });
-  const view = layers.evaluateAll();
-  const query = layers.environment(view.find(object => object.ref.id === 'mine')).context.query;
+  layers.evaluateAll();
+  // Watch every field read of the derived view's objects: the empty-filter
+  // fast path hands the view out as is, while matching reads each object.
+  let reads = 0;
+  const watched = [...layers.viewState].map(([key, object]) =>
+    [key, new Proxy(object, { get: (target, field, receiver) => { reads++; return Reflect.get(target, field, receiver); } })]);
+  layers.viewState = new Map(watched);
+  const view = watched.map(([, object]) => object);
+  const query = layers.environment(view.find(object => Reflect.get(object, 'ref').id === 'mine')).context.query;
+  reads = 0;
+  const all = query({});
+  assert.equal(reads, 0, 'an empty filter matches no object one by one');
+  assert.equal(all.length, view.length);
+  all.forEach((object, index) => assert.strictEqual(object, view[index], `the same view object, in view order, at ${index}`));
   const ids = objects => objects.map(object => object.ref.id).sort();
-  assert.deepEqual(ids(query({})), ids(view));
   assert.deepEqual(ids(query({ zone: 'deck' })), ['deck']);
   assert.deepEqual(ids(query({ controller: 'B' })), ['theirs']);
+  assert.ok(reads > 0, 'a non-empty filter still matches each object');
   // A bound `{}` still resolves its host: one that is gone matches nothing.
   assert.deepEqual(query(bindFilterAnchor({}, () => null)), []);
 });
