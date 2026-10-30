@@ -118,11 +118,10 @@ test("sfd-123-221 Corrupt Enforcer: both declared subscriptions are accepted by 
   );
 });
 
-test("sfd-123-221 Corrupt Enforcer: a committed move-location still carries no destination zone", () => {
-  // 449.1/449.2 / 458: even with the vocabulary merged, the emission has to name
-  // where the object went. The merged action adapter emits the timing point
-  // without fromZone/toZone, so toZone: "battlefield" could never match and a
-  // Recall could not be told apart from a Move.
+test("sfd-123-221 Corrupt Enforcer: a committed battlefield Move publishes both endpoints and the object set", () => {
+  // CR 449.1/449.2: the production object-moved event for this Board-internal
+  // Move names its Origin (bf-1) and Destination (bf-2) zones, while the object
+  // collection reports the single Enforcer that moved.
   const f = fixture({ cards: [{ id: "enforcer", cardId: CANONICAL, types: ["unit"] }] });
   assert.equal(f.engine.commit({
     type: "move-zone", object: f.kernel.ref("enforcer"), to: "board",
@@ -137,10 +136,8 @@ test("sfd-123-221 Corrupt Enforcer: a committed move-location still carries no d
 
   const moved = f.engine.pipeline.events.slice(before).filter(event => event.timingPoint === "object-moved");
   assert.equal(moved.length, 1);
-  // The production event derivation publishes the timing point with an object,
-  // a simultaneous group and an amount, but never the closed fromZone/toZone
-  // payload fields the declared filter matches on (compare the zone-change
-  // branches in events/action-adapter.ts, which do fill them).
+  // The production event derivation publishes the object, both endpoint zones,
+  // and the exact object collection in one object-moved payload.
   assert.deepEqual(
     [moved[0].fromZone, moved[0].toZone, moved[0].details?.objectIds, moved[0].details?.objectCount],
     ["battlefield", "board", ["enforcer"], 1]

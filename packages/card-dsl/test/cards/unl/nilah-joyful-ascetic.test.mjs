@@ -62,7 +62,7 @@ test("unl-115-219 Nilah, Joyful Ascetic: 'When I move' subscribes to object-move
   assert.equal(moveTrigger.kind, "triggered");
   assert.equal(moveTrigger.trigger.at, "object-moved");
   // 458.1: Recall is not a Move, so the filter must stay scoped to genuine Moves
-  // of this source (the payload gap is recorded in the judgeReason).
+  // of this source; the golden case below verifies the production payload.
   assert.deepEqual(moveTrigger.trigger.filter, {
     event: "object-moved",
     filter: { source: "self" }
@@ -115,9 +115,8 @@ test.todo(
 );
 
 test.todo(
-  "unl-115-219 Nilah, Joyful Ascetic: register the 'When I move' subscription (CR 421.1/449.1) — the move " +
-    "payload needs the object-moved timing in the closed EventPattern vocabulary, its from/to location fields, " +
-    "and the 458.1 Recall exclusion"
+  "unl-115-219 Nilah, Joyful Ascetic: prove the 458.1 Recall exclusion for the registered 'When I move' " +
+    "subscription; object-moved, its Origin/Destination fields, the object collection, and registration are implemented"
 );
 
 test("unl-115-219 Nilah, Joyful Ascetic: the 'When I move' trigger registers", async () => {
@@ -155,12 +154,9 @@ test("unl-115-219 Nilah, Joyful Ascetic: the 'When I move' trigger registers", a
   assert.ok(ids.length > 0);
 });
 
-test("unl-115-219 Nilah, Joyful Ascetic golden: a real move-location publishes object-moved without from/to zones", async () => {
-  // events/action-adapter.ts maps move-location onto object-moved but fills
-  // neither fromZone nor toZone (timing-points.ts declares them as
-  // payloadFields), and no trigger can subscribe while the vocabulary lacks the
-  // event name — so 449.2's endpoints and 458.1's Recall exclusion cannot be
-  // evaluated.
+test("unl-115-219 Nilah, Joyful Ascetic golden: a real Move publishes both zones and the Nilah object set", async () => {
+  // CR 449.1/449.2: the production object-moved event carries the battlefield
+  // Origin and Destination zones plus the exact Nilah object collection.
   const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
   const f = fixture({ cards: [{ id: "nilah", types: ["unit"], energy: 3, power: [], might: 4 }] });
   f.engine.commit({
