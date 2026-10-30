@@ -1,4 +1,5 @@
 import type { Ability, EventPattern, Instruction } from '@riftbound/card-dsl';
+import { readOnlyContext } from '../events/effect-actor.js';
 import type { ObjectFilter } from '@riftbound/card-dsl';
 import type { ChainEngine } from '../chain/engine.js';
 import { withStableLayersOf } from './stable-layers.js';
@@ -274,7 +275,8 @@ function installKeywordReexpansion(engine: ChainEngine): void {
   };
   const lifecycleKeywords = ['Vision', 'Ganking', 'Deflect', 'Assault', 'Shield'] as const;
   const exp: KeywordGrantLayerEngine = new KeywordGrantLayerEngine(engine.pipeline.host.objects(), {
-    context: source => engine.pipeline.host.context(source, source.controller, engine.layers.currentTimingPoint ?? 'cleanup-start'),
+    context: source => readOnlyContext(() =>
+      engine.pipeline.host.context(source, source.controller, engine.layers.currentTimingPoint ?? 'cleanup-start')),
     registry: engine.layers.registry,
     grantedOnly: true,
     includeAllKeywordAbilities: true,
@@ -284,7 +286,8 @@ function installKeywordReexpansion(engine: ChainEngine): void {
     onKeywordAbilities: () => {},
   });
   const keywordEngine = new KeywordGrantLayerEngine(engine.pipeline.host.objects(), {
-    context: source => engine.pipeline.host.context(source, source.controller, engine.layers.currentTimingPoint ?? 'cleanup-start'),
+    context: source => readOnlyContext(() =>
+      engine.pipeline.host.context(source, source.controller, engine.layers.currentTimingPoint ?? 'cleanup-start')),
     registry: engine.layers.registry,
     grantedOnly: true,
     includeAllKeywordAbilities: true,

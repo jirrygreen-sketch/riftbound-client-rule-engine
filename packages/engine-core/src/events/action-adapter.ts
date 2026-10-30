@@ -17,6 +17,7 @@ import {
 import { type TimingPointId } from './timing-points.js';
 import { deriveMightChangedEmissions } from './producers/might-change.js';
 import { deriveZoneChangeEmissions } from './producers/zone-change.js';
+import { effectActorGeneration, inReadOnlyContext, performingEffectActor } from './effect-actor.js';
 import {
   actionObjectRef,
   actionPayload,
@@ -357,6 +358,20 @@ function postKillEmissions(
 export function createActionPipelineHost(port: ActionStatePort): ContractActionPipelineHost {
   let sequence = 0;
   let active: ActiveEffectContext | undefined;
+  let activeGeneration = effectActorGeneration();
+  /** Use the performing Resolve's context, and drop an actor a procedure released. */
+  const currentActive = () => {
+    const performing = performingEffectActor();
+    if (performing !== undefined) {
+      if (active === undefined || active.controller !== performing.controller ||
+          active.timingPoint !== performing.timingPoint || active.source.ref.id !== performing.source.ref.id ||
+          active.source.ref.zoneEntryId !== performing.source.ref.zoneEntryId) {
+        active = { source: structuredClone(performing.source), controller: performing.controller,
+          timingPoint: performing.timingPoint };
+      }
+      activeGeneration = effectActorGeneration();
+    } else if (active !== undefined && activeGeneration !== effectActorGeneration()) active = undefined;
+  };
 
   const checkpoint = () => ({
     __actionAdapterCheckpoint: true,
@@ -371,6 +386,7 @@ export function createActionPipelineHost(port: ActionStatePort): ContractActionP
       active = record(value.active) && typeof value.active.controller === 'string' && typeof value.active.timingPoint === 'string'
         ? value.active as unknown as ActiveEffectContext
         : undefined;
+      activeGeneration = effectActorGeneration();
       return;
     }
     // Preserve compatibility with callers that pass a checkpoint captured
@@ -517,6 +533,7 @@ export function createActionPipelineHost(port: ActionStatePort): ContractActionP
           version: PIPELINE_DEATH_BOUNDARY_VERSION,
           execute(action, boundary) {
             if (action.type !== 'kill') return { outcome: { status: 'impossible', events: [] }, emissions: [] };
+            currentActive();
             if (port.performWithDeathBoundary === undefined) {
               throw new Error('Confirmed Kill boundary execution is unavailable');
             }
@@ -532,6 +549,7 @@ export function createActionPipelineHost(port: ActionStatePort): ContractActionP
             return { outcome, emissions: postKillEmissions(beforeList, afterList, batchId, active) };
           },
           executeContract(action, boundary) {
+            currentActive();
             if (action.type === 'kill') return deathBoundary!.execute(action, boundary);
             if (action.type === 'batch' && action.actions.length > 0 && action.actions.every(leaf => leaf.type === 'kill')) {
               if (port.performKillBatchWithDeathBoundary === undefined) {
@@ -559,7 +577,10 @@ export function createActionPipelineHost(port: ActionStatePort): ContractActionP
     restore,
     objects: () => port.objects(),
     context: (source, controller, at) => {
-      active = { source: structuredClone(source), controller, timingPoint: at };
+      if (!inReadOnlyContext()) {
+        active = { source: structuredClone(source), controller, timingPoint: at };
+        activeGeneration = effectActorGeneration();
+      }
       const context = port.context(source, controller, at);
       return new Proxy(context, {
         get(target, key) {
@@ -573,11 +594,13 @@ export function createActionPipelineHost(port: ActionStatePort): ContractActionP
     testTrigger: port.testTrigger ? (registration, event, source) => port.testTrigger!(registration, event, source) : undefined,
     ...(deathBoundary === undefined ? {} : { deathBoundary }),
     executeContract(action) {
+      currentActive();
       const actionId = contractActionId(action, ++sequence);
       const batchId = action.type === 'batch' ? action.transactionId ?? actionId : actionId;
       return executeContract(action, actionId, batchId);
     },
     execute(action) {
+      currentActive();
       const beforeList = port.objects();
       const contractAction = action as unknown as import('../effects/contract.js').ContractGameAction;
       const contract = isContractAction(action)

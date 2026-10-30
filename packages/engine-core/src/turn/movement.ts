@@ -7,6 +7,7 @@ import type { ActionOutcome, ActionReceipt, GameAction, LocationRef, ObjectRef, 
 import { EventPipeline } from '../events/pipeline.js';
 import type { DuelBoard } from '../duel/battlefields.js';
 import { createActionPipelineHost } from '../events/action-adapter.js';
+import { releaseEffectActor } from '../events/effect-actor.js';
 import {
   assertDuelStandardMoveUnitStillLegal,
   inspectDuelStandardMove,
@@ -177,6 +178,9 @@ export function commitStandardMoveBatch(host: StandardMoveBatchHost): StandardMo
     },
   };
 
+  // The moving player performs a Standard Move (CR 412.1); an effect that
+  // resolved earlier is not its actor.
+  releaseEffectActor();
   try {
     return host.pipeline.deferTriggerScan(() => {
       for (const unitId of plan.unitIds) {

@@ -41,6 +41,10 @@ test('triggers-hold-point-replaced-still-triggers (383.4.d.2.c)', () => {
   assert.equal(drawEvents.length, 3, 'one normal Draw, one replacement Draw, and the trigger body Draw');
   assert.equal(eventsAt(f, 'card-drawn').length, drawsBefore + 3);
   assert.equal(f.kernel.player('A').handCount, 3);
-  assert.equal(drawEvents.at(-1).source?.ref.id, 'u1', 'the resolved trigger Draw comes from the holding Unit');
+  // Order: the replacement Draw, the trigger body Draw, then the Draw Step.
+  assert.equal(drawEvents[1].source?.ref.id, 'u1', 'the resolved trigger Draw comes from the holding Unit');
+  // RIFT-1156: the Draw Step is a turn-based action (CR 412.2); it no longer
+  // inherits the trigger that resolved before it.
+  assert.equal(drawEvents[2].source, undefined, 'the Draw Step has no effect source');
   assert.equal(eventsAt(f, 'hold')[0].object?.ref.id, 'u1');
 });
