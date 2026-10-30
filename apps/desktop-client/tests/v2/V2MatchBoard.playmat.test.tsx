@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server.node";
-import { buildV2MoveCommand, V2MatchBoard } from "../../src/full-product/v2/V2MatchBoard";
+import { buildV2MoveCommand, V2MatchBoard, v2DropAction, v2PlayCardSelection } from "../../src/full-product/v2/V2MatchBoard";
 import { buildV2CardLookup, V2CardPreview, v2CardDetails, v2PlaymatCards } from "../../src/full-product/v2/V2Playmat";
 import {
   V2_DRAG_THRESHOLD_PX,
@@ -447,5 +447,60 @@ describe("RIFT-1154 moving several units together", () => {
   it("tells the player how to pick several units once more than one can move", () => {
     expect(render(catalog, grouped())).toContain("按住 Shift（或 Ctrl / ⌘）点选多个单位，可以一起移动进攻。");
     expect(render()).not.toContain("按住 Shift");
+  });
+});
+
+describe("RIFT-1152 playing the Chosen Champion from the Champion Zone", () => {
+  function withChampions(listed: boolean): V2Projection {
+    const base = projection();
+    const mine = object("champ-a", "sfd-026", "Rumble", "champion", "alice");
+    const theirs = object("champ-b", "sfd-110", "Fiora", "champion", "bob");
+    return { ...base, objects: [...base.objects, mine, theirs], actionOptions: { ...base.actionOptions,
+      plays: [...base.actionOptions.plays, ...(listed
+        ? [{ cardObjectId: "champ-a", destination: { kind: "base", playerId: "alice" } as const, requiresDestination: true }]
+        : [])] } };
+  }
+
+  it("shows both Chosen Champions in their identity slots", () => {
+    const html = render(catalog, withChampions(false));
+    expect(region(html, "Alice 传奇与英雄")).toContain('data-object-id="champ-a"');
+    expect(region(html, "Bob 传奇与英雄")).toContain('data-object-id="champ-b"');
+  });
+
+  it("drops the previous card's targets and placement when the champion (or any card) is picked", () => {
+    // A hand card with chosen targets, then the champion: nothing carries over.
+    expect(v2PlayCardSelection("hand-1", "champ-a")).toEqual({ selectedCardId: "champ-a", playTargets: {}, playDestination: "" });
+    // Picking the selected card again clears the pick, and its targets too.
+    expect(v2PlayCardSelection("champ-a", "champ-a")).toEqual({ selectedCardId: null, playTargets: {}, playDestination: "" });
+    expect(v2PlayCardSelection(null, "hand-1")).toEqual({ selectedCardId: "hand-1", playTargets: {}, playDestination: "" });
+  });
+
+  it("a champion dropped where it still needs targets becomes the pick with only this drop's placement", () => {
+    const value = withChampions(false);
+    const needsTarget = { ...value, actionOptions: { ...value.actionOptions, plays: [...value.actionOptions.plays,
+      { cardObjectId: "champ-a", destination: { kind: "base", playerId: "alice" } as const, requiresDestination: true,
+        targetRequirements: [{ id: "t", label: "目标", min: 1, max: 1, options: [] }] }] } };
+    const source = { kind: "play", objectId: "champ-a", label: "兰博" } as const;
+    // Whatever the previous card had picked, the drop starts the champion from empty targets.
+    const action = v2DropAction(needsTarget, source, "base:alice");
+    expect(action).toEqual({ kind: "pick", notice: "已选好 兰博 的落点，请在牌桌上点选带准星的目标",
+      pick: { selectedCardId: "champ-a", playTargets: {}, playDestination: "base:alice" } });
+    // Dropping the already-picked card again keeps it picked rather than toggling it off.
+    expect(v2DropAction(needsTarget, source, "base:alice")).toEqual(action);
+    expect(v2DropAction(needsTarget, source, "battlefield:field-2")).toEqual({ kind: "notice", notice: "兰博 不能打出到这里" });
+    // A champion play that needs no targets is sent straight away.
+    expect(v2DropAction(withChampions(true), source, "base:alice")).toMatchObject({ kind: "submit", clearMoveGroup: false,
+      command: { type: "play", cardObjectId: "champ-a" } });
+  });
+
+  it("offers a play button and drag only for the viewer's champion while the server lists a play", () => {
+    const listed = render(catalog, withChampions(true));
+    expect(region(listed, "Alice 传奇与英雄")).toContain('aria-label="从英雄区打出 兰博"');
+    expect(region(listed, "Alice 传奇与英雄")).toMatch(/class="v2m-identity-slot v2-operable v2-draggable"/);
+    expect(region(listed, "Bob 传奇与英雄")).not.toContain("从英雄区打出");
+    expect(v2PlayDropTargets(withChampions(true), "champ-a").has("base:alice")).toBe(true);
+    const unlisted = render(catalog, withChampions(false));
+    expect(unlisted).not.toContain("从英雄区打出");
+    expect(unlisted).toContain('<div class="v2m-identity-slot" data-object-id="champ-a">');
   });
 });
