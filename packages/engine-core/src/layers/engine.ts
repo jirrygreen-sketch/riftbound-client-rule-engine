@@ -606,6 +606,12 @@ export class LayerEngine {
   private depth = 0;
   /** True while this engine is inside evaluate/evaluateAll (reentrant reads). */
   get inEvaluation(): boolean { return this.depth > 0; }
+  /**
+   * RIFT-1162: whether this engine's own view reads derived keyword-grant
+   * state (derivedLayerEpoch). A plain engine sees grants only through its
+   * registry, whose revision callers already key on.
+   */
+  get readsDerivedLayerState(): boolean { return false; }
   get diagnostics(): LayerDiagnostics { return Object.freeze({ ...this.diagnosticsState }); }
   /** Reset counters without changing cached semantic state. */
   resetDiagnostics(): void {
