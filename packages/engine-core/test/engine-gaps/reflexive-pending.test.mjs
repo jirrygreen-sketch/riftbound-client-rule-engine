@@ -28,6 +28,7 @@ import forgottenRelic from "../../../card-dsl/dist/cards/ven/forgotten-relic.js"
 import { AwaitChoice } from "../../dist/effects/contract.js";
 import { world } from "../../dist/effects/testing/index.js";
 import {
+  hasReflexivePendingRuntime,
   installReflexivePendingRuntime,
 } from "../../dist/effects/reflexive/runtime.js";
 import { ChainEngine } from "../../dist/chain/engine.js";
@@ -54,7 +55,7 @@ function responseProgram(id, body) {
   };
 }
 
-function runtime({ deck = ["burned"], burnedTypes = ["unit"], might = 3, responseBody } = {}) {
+function runtime({ deck = ["burned"], burnedTypes = ["unit"], might = 3, responseBody, install = "after" } = {}) {
   const program = executable(forgottenRelic);
   const builder = world().player("A", { energy: 5 }).player("B");
   builder.unit("relic", {
@@ -103,9 +104,14 @@ function runtime({ deck = ["burned"], burnedTypes = ["unit"], might = 3, respons
     turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false,
     describePlay: binding.describePlay,
   });
+  // install: "after" (explicit call after the lifecycle), "before" (caller
+  // installs first and keeps ownership) or "none" (default assembly only).
+  const preinstalled = install === "before" ? installReflexivePendingRuntime(engine) : undefined;
   const lifecycle = binding.attachLifecycle(engine, error => { throw error; });
-  const pendingRuntime = installReflexivePendingRuntime(engine);
-  assert.equal(installReflexivePendingRuntime(engine), pendingRuntime, "install is idempotent per Chain");
+  const pendingRuntime = install === "after" ? installReflexivePendingRuntime(engine) : preinstalled;
+  if (pendingRuntime !== undefined) {
+    assert.equal(installReflexivePendingRuntime(engine), pendingRuntime, "install is idempotent per Chain");
+  }
   // Setup predates lifecycle attachment. Bind this exact Board incarnation's
   // normal trigger surface before the first rules event, as a match host does.
   binding.registerProgramTriggers(engine, kernel.getObject("relic"));
@@ -165,6 +171,65 @@ test("RIFT-1140 Forgotten Relic creates an ordered Reflexive Pending item from t
   })), [{ kind: "continuous.might", amount: 3, duration: { type: "end-of-turn" } }]);
   f.lifecycle.detach();
   f.pendingRuntime.detach();
+});
+
+test("RIFT-1145 the default program lifecycle installs Reflexive Pending without an explicit call", () => {
+  const f = runtime({ install: "none" });
+  assert.equal(hasReflexivePendingRuntime(f.engine), true, "attachLifecycle installs the runtime");
+  beginTurn(f);
+
+  const childId = "reflexive:trigger:1:forgotten-relic.burned-card:1";
+  assert.deepEqual(f.engine.items.map(item => [item.id, item.status]), [[childId, "finalized"]]);
+  f.engine.pass("A");
+  f.engine.pass("B");
+  assert.equal(f.engine.items.length, 0);
+  assert.equal(mightOf(f, "friend"), 5);
+
+  f.lifecycle.detach();
+  assert.equal(hasReflexivePendingRuntime(f.engine), false, "detaching the lifecycle removes the runtime it installed");
+});
+
+test("RIFT-1145 a Reflexive runtime installed before the lifecycle stays installed after lifecycle detach", () => {
+  const f = runtime({ install: "before" });
+  f.lifecycle.detach();
+  assert.equal(hasReflexivePendingRuntime(f.engine), true, "the caller still owns its runtime");
+  f.pendingRuntime.detach();
+  assert.equal(hasReflexivePendingRuntime(f.engine), false);
+});
+
+test("RIFT-1145 two lifecycle handles on one Chain keep the runtime until the last one detaches", () => {
+  const f = runtime({ install: "none" });
+  const second = f.binding.attachLifecycle(f.engine, error => { throw error; });
+  f.lifecycle.detach();
+  assert.equal(hasReflexivePendingRuntime(f.engine), true, "the second handle still holds the runtime");
+  f.lifecycle.detach();
+  assert.equal(hasReflexivePendingRuntime(f.engine), true, "detaching the first handle again is a no-op");
+  second.detach();
+  assert.equal(hasReflexivePendingRuntime(f.engine), false, "the last handle removes the runtime");
+});
+
+test("RIFT-1145 a detached lifecycle handle never removes a runtime the caller installs later", () => {
+  const f = runtime({ install: "none" });
+  f.lifecycle.detach();
+  assert.equal(hasReflexivePendingRuntime(f.engine), false);
+  const callerRuntime = installReflexivePendingRuntime(f.engine);
+  f.lifecycle.detach();
+  assert.equal(hasReflexivePendingRuntime(f.engine), true, "the stale lifecycle handle leaves the caller's runtime");
+  callerRuntime.detach();
+  assert.equal(hasReflexivePendingRuntime(f.engine), false);
+});
+
+test("RIFT-1145 an old runtime handle detached again leaves a newer installation in place", () => {
+  const f = runtime({ install: "none" });
+  f.lifecycle.detach();
+  const first = installReflexivePendingRuntime(f.engine);
+  first.detach();
+  const second = installReflexivePendingRuntime(f.engine);
+  assert.notEqual(second, first);
+  first.detach();
+  assert.equal(hasReflexivePendingRuntime(f.engine), true, "the old handle no longer owns the Chain's installation");
+  second.detach();
+  assert.equal(hasReflexivePendingRuntime(f.engine), false);
 });
 
 test("RIFT-1140 an empty Burn creates no Reflexive Pending item", () => {

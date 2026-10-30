@@ -1,5 +1,6 @@
 import type { CatalogCard } from "../../net/CardCatalogClient";
 import type { V2ProjectedObject } from "../../../../../packages/protocol/src/v2/index.js";
+import { officialTokenName } from "./token-names";
 
 /** Official display names indexed by stable catalog identities. */
 export interface CardNameIndex {
@@ -13,6 +14,8 @@ function nonEmpty(value: string | undefined): string | undefined {
   const trimmed = value.trim();
   return trimmed.length === 0 ? undefined : trimmed;
 }
+
+const HAN_TEXT_PATTERN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/u;
 
 function setUnique(
   values: Map<string, string>,
@@ -39,7 +42,7 @@ export function buildCardNameIndex(cards: readonly CatalogCard[]): CardNameIndex
   const ambiguousEnglishNames = new Set<string>();
   for (const card of cards) {
     const localizedName = nonEmpty(card.localizedName);
-    if (localizedName === undefined) continue;
+    if (localizedName === undefined || !HAN_TEXT_PATTERN.test(localizedName)) continue;
     setUnique(localizedById, ambiguousIds, card.id, localizedName);
     setUnique(localizedById, ambiguousIds, card.canonicalCardId, localizedName);
     setUnique(localizedByEnglishName, ambiguousEnglishNames, card.name, localizedName);
@@ -68,11 +71,21 @@ export function projectedObjectCardName(
   object: V2ProjectedObject,
   fallback?: string
 ): string {
-  return resolveCardName(index, {
+  // A resolved catalog identity wins. Effect-created tokens are represented by
+  // their English projection label, which can be matched only against names
+  // attested in official zh-CN card text.
+  const projectedName = resolveCardName(index, {
     cardId: object.cardId,
     englishName: object.name,
     fallback: fallback ?? object.objectId
   })!;
+  // Catalog identity and an unambiguous official catalog label take priority.
+  // The attestation map is consulted only when both return the projected
+  // English label (an effect-created token normally has no catalog identity).
+  const englishName = nonEmpty(object.name);
+  return object.cardId === undefined && englishName !== undefined && projectedName === englishName
+    ? officialTokenName(englishName) ?? projectedName
+    : projectedName;
 }
 
 /** Translate only a reference known to be a card source; ordinary UI text must bypass this helper. */
@@ -84,5 +97,6 @@ export function cardReferenceName(
 ): string | undefined {
   const idName = objectId === undefined ? undefined : index.localizedById.get(objectId);
   const name = englishName === undefined ? undefined : index.localizedByEnglishName.get(englishName);
-  return idName ?? name ?? nonEmpty(englishName) ?? nonEmpty(objectId) ?? nonEmpty(fallback);
+  const tokenName = name === undefined ? officialTokenName(nonEmpty(englishName)) : undefined;
+  return idName ?? name ?? tokenName ?? nonEmpty(englishName) ?? nonEmpty(objectId) ?? nonEmpty(fallback);
 }
