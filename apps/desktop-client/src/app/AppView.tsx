@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -11,6 +11,8 @@ import {
 import { AppShell } from "../navigation/AppShell";
 import { HomePage } from "../navigation/HomePage";
 import { exitDesktopClient } from "../navigation/native-exit";
+import { MatchExitDialog } from "../navigation/MatchExitDialog";
+import { concedeAndLeave, v2MatchInProgress } from "../navigation/match-exit";
 import { RoomLobby } from "../components/RoomLobby";
 import { RoomChatPanel } from "../chat/RoomChatPanel";
 import { ProfilePage } from "../profile/ProfilePage";
@@ -188,6 +190,36 @@ export function AppView({
     v2Match.leaveRoom();
     setActiveTab("room");
   };
+  // RIFT-1161: going home or closing the client during a running V2 match
+  // asks first, then concedes and drops the room, so the next connection
+  // does not resume the abandoned match (RIFT-1146).
+  const v2Running = v2UiEnabled && v2MatchInProgress(v2Match.room, v2Match.state.projection);
+  const [matchExit, setMatchExit] = useState<"home" | "exit" | null>(null);
+  const [matchExitBusy, setMatchExitBusy] = useState(false);
+  const navigate = (page: typeof activeTab): void => {
+    if (page === "home" && v2Running) setMatchExit("home");
+    else setActiveTab(page);
+  };
+  const requestExit = (): void => {
+    if (v2Running) setMatchExit("exit");
+    else exit();
+  };
+  const confirmMatchExit = async (): Promise<void> => {
+    const target = matchExit;
+    setMatchExitBusy(true);
+    const outcome = await concedeAndLeave({
+      concede: () => v2Match.sendCommand({ type: "concede" }),
+      leave: () => {
+        clearV2Session(preferenceStorage);
+        v2Match.leaveRoom();
+      }
+    });
+    setMatchExitBusy(false);
+    setMatchExit(null);
+    if (outcome.notice !== null) setExitError(outcome.notice);
+    if (target === "exit") exit();
+    else setActiveTab("home");
+  };
   const rememberV2PlayerName = (name: string): void => {
     const normalized = name.trim();
     if (!normalized) return;
@@ -211,15 +243,19 @@ export function AppView({
   };
 
   return (
-    <AppShell page={activeTab} onNavigate={setActiveTab} onExit={exit}
+    <AppShell page={activeTab} onNavigate={navigate} onExit={requestExit}
       playerName={profile.name}
       connected={v2UiEnabled ? v2Connected : status === "connected" && handshakeReady}
       inMatch={inMatch}>
     <div className="app-content" data-card-scale={displaySettings.cardScale}
       data-reduced-motion={displaySettings.reducedMotion} data-show-card-names={displaySettings.showCardNames}>
       {exitError ? <p role="alert">{exitError}</p> : null}
+      {matchExit !== null ? (
+        <MatchExitDialog busy={matchExitBusy} onConfirm={() => { void confirmMatchExit(); }}
+          onCancel={() => setMatchExit(null)} />
+      ) : null}
       {activeTab === "home" ? (
-        <HomePage onNavigate={setActiveTab} onExit={exit} playerName={profile.name}
+        <HomePage onNavigate={navigate} onExit={requestExit} playerName={profile.name}
           connected={v2UiEnabled ? v2Connected : status === "connected" && handshakeReady} inMatch={inMatch}
           roomId={roomId ?? v2Match.room?.roomId ?? null} deckCount={library.decks.length} />
       ) : activeTab === "profile" ? (
