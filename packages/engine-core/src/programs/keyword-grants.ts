@@ -9,7 +9,7 @@ import { ContinuousEffectRegistry } from '../layers/duration.js';
 import { LayerEngine, bumpDerivedLayerEpoch } from '../layers/engine.js';
 import { matchesObjectFilter } from '../layers/filter.js';
 import { filterAnchor } from '../layers/relative/filter.js';
-import { isObservedCondition, markObservedCondition, noteEventSensitiveRead } from '../layers/observed-reads.js';
+import { isObservedCondition, markObservedCondition, noteDerivedLayerRead, noteEventSensitiveRead } from '../layers/observed-reads.js';
 import { refKey, sameRef, type LayeredObjectSnapshot, type RegisteredContinuousEffect, type TimingEvent } from '../layers/types.js';
 import { ProgramBindingError } from './errors.js';
 import { expandProgram } from './keywords.js';
@@ -308,10 +308,14 @@ export class KeywordGrantLayerEngine extends LayerEngine {
       // the host generation of a layer pass that reads it.
       if (key === 'source') { noteEventSensitiveRead(); return source; }
       if (key === 'controller') { noteEventSensitiveRead(); return source.controller; }
+      // A read of this derived view inside another engine's layer pass makes
+      // that pass depend on the derived epoch (RIFT-1162 premise).
       if (key === 'object') return (ref: ObjectRef) => {
+        noteDerivedLayerRead();
         return this.view.get(refKey(ref)) ?? null;
       };
       if (key === 'query') return (filter: Parameters<ResolveContext['query']>[0]) => {
+        noteDerivedLayerRead();
         const objects = [...this.view.values()];
         // RIFT-1162: queryObjects asks for the whole visible set with a fresh
         // `{}` for every grant tested on every object. Every predicate of an

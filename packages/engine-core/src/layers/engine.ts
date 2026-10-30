@@ -649,6 +649,14 @@ export class LayerEngine {
   get readsDerivedLayerState(): boolean { return false; }
   /** Internal hook for noteEventSensitiveRead (RIFT-1163). */
   markEventSensitiveRead(): void { this.cacheEventSensitive = true; }
+  /** Internal hook for noteDerivedLayerRead. */
+  markDerivedLayerRead(): void { this.cacheReadDerived = true; }
+  /**
+   * The last evaluateAll result read derived keyword-grant state although this
+   * engine does not declare it, so a view cached from it must be keyed on
+   * derivedLayerEpoch exactly like one from a keyword-grant engine.
+   */
+  get viewReadDerivedLayerState(): boolean { return this.lastViewReadDerived; }
   /**
    * RIFT-1163: the completed command plan made no event-sensitive read, so an
    * event boundary that leaves its other key components unchanged keeps it.
@@ -733,9 +741,14 @@ export class LayerEngine {
     readonly attachmentRevision: string;
     /** RIFT-1163: the pass made a read that an event or timing change can alter. */
     readonly eventSensitive: boolean;
+    /** The pass read a keyword-grant engine's derived view. */
+    readonly readDerived: boolean;
   };
   /** RIFT-1163: the current caches were built with an event-sensitive read. */
   private cacheEventSensitive = false;
+  /** The current caches were built with a read of a keyword-grant derived view. */
+  private cacheReadDerived = false;
+  private lastViewReadDerived = false;
   constructor(
     objects: readonly ObjectSnapshot[] | ReadonlyMap<string, ObjectSnapshot>,
     registry = new ContinuousEffectRegistry(),
@@ -830,6 +843,7 @@ export class LayerEngine {
       this.groups.clear();
       this.copyGroups.clear();
       this.cacheEventSensitive = false;
+      this.cacheReadDerived = false;
     }
     if (!preserveCommandPlan) this.invalidateCommandPlan();
   }
@@ -1674,6 +1688,7 @@ export class LayerEngine {
       if (key !== undefined && key === this.commandPlan.key && this.commandPlan.view !== undefined) {
         this.count("planCacheHits");
         if (planCheck()) assertSamePlanSnapshots(this.commandPlan.view, this.freshPlanCheckPass());
+        this.lastViewReadDerived = this.lastCompletedPlan?.readDerived ?? true;
         return Object.freeze(this.commandPlan.view.map(snapshot => this.copySnapshot(snapshot)));
       }
       this.count(key === undefined ? "planCacheBypasses" : "planCacheMisses");
@@ -1714,11 +1729,12 @@ export class LayerEngine {
         registryRevision: this.registryRevision, derivedEpoch: derivedLayerEpoch(),
         timingPoint: this.timingPoint ?? null, attachmentRevision: this.immutableAttachmentObjects
           ? this.attachmentRevision!
-          : this.attachmentSignature(), eventSensitive: this.cacheEventSensitive };
+          : this.attachmentSignature(), eventSensitive: this.cacheEventSensitive, readDerived: this.cacheReadDerived };
       this.commandPlan.lastCompletedKey = this.completedPlanKey();
       this.commandPlan.key = this.commandPlan.lastCompletedKey;
     }
     const snapshotView = Object.freeze(view.map(snapshot => this.copySnapshot(snapshot)));
+    this.lastViewReadDerived = this.cacheReadDerived;
     return snapshotView;
   }
 

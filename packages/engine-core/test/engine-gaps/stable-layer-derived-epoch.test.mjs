@@ -5,7 +5,7 @@ import { ChainEngine } from '../../dist/chain/engine.js';
 import { createProgramBinding } from '../../dist/programs/index.js';
 import { KeywordGrantLayerEngine } from '../../dist/programs/keyword-grants.js';
 import { world } from '../../dist/effects/testing/index.js';
-import { LayerEngine, bumpDerivedLayerEpoch } from '../../dist/layers/engine.js';
+import { LayerEngine, bumpDerivedLayerEpoch, markObservedCondition } from '../../dist/layers/engine.js';
 import { bindFilterAnchor } from '../../dist/layers/relative/filter.js';
 
 // RIFT-1162: every write to a KeywordGrantLayerEngine's derived state bumps a
@@ -148,4 +148,35 @@ test('RIFT-1162: a keyword-grant query with an empty filter returns the whole vi
   assert.ok(reads > 0, 'a non-empty filter still matches each object');
   // A bound `{}` still resolves its host: one that is gone matches nothing.
   assert.deepEqual(query(bindFilterAnchor({}, () => null)), []);
+});
+
+test('RIFT-1163: a pass that reads a keyword-grant derived view keys its stable view on that epoch', () => {
+  // The 1162 premise is that a plain engine never reads derived keyword-grant
+  // state. A granted condition naming another object would read it, so such a
+  // pass must fail closed to the derived epoch instead of serving a stale view.
+  const { engine, kernel } = setup();
+  const choose = request => { throw new Error(`Unexpected choice ${request.id}`); };
+  const keywordLayers = new KeywordGrantLayerEngine(kernel.objects, {
+    registry: new LayerEngine([]).registry,
+    context: source => bindResolveContext(kernel, { source, controller: source.controller, timingPoint: 'cleanup-start', choose }),
+  });
+  keywordLayers.evaluateAll();
+  const other = kernel.getObject('other').ref;
+  const mech = kernel.getObject('mech').ref;
+  engine.layers.addContinuous({
+    id: 'synthetic:rift-1163:derived-read', layer: 'arithmetic', source: mech, filter: { objectId: 'mech' },
+    effect: { kind: 'increase', amount: c(1), condition: markObservedCondition(object =>
+      (keywordLayers.environment(object).context.object(other)?.might ?? 0) >= 5) },
+  }, { type: 'permanent' });
+  const mightOf = view => view.find(object => object.ref.id === 'mech').might;
+  engine.withStableLayers(() => {
+    const before = engine.pipeline.host.objects();
+    assert.equal(mightOf(before), 2);
+    assert.equal(engine.layers.viewReadDerivedLayerState, true);
+    keywordLayers.setObjects(kernel.objects.map(object => object.ref.id === 'other' ? { ...object, might: 9 } : object));
+    keywordLayers.evaluateAll();
+    const after = engine.pipeline.host.objects();
+    assert.notStrictEqual(after, before, 'the derived write discards the view');
+    assert.equal(mightOf(after), 3);
+  });
 });

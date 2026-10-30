@@ -802,7 +802,8 @@ export class ChainEngine {
   private stableLayerDepth = 0;
   private hostViewAuthority?: { readonly objects: readonly ObjectSnapshot[]; readonly epoch: number; readonly ids: string };
   private stableLayerView: {
-    readonly revision: number; readonly mutations: number; readonly epoch: number; readonly view: readonly ObjectSnapshot[];
+    readonly revision: number; readonly mutations: number; readonly epoch: number; readonly derived: boolean;
+    readonly view: readonly ObjectSnapshot[];
   } | undefined;
 
   /**
@@ -843,15 +844,18 @@ export class ChainEngine {
     // pre-memo reentrant semantics.
     if (this.layers.inEvaluation) return this.freshLayerObjects();
     const stable = this.stableLayerDepth > 0 ? this.stableLayerView : undefined;
-    const epoch = () => this.layers.readsDerivedLayerState ? derivedLayerEpoch() : 0;
     if (stable !== undefined && stable.revision === this.layers.registry.revision &&
-        stable.mutations === hostWriteEpoch && stable.epoch === epoch()) {
+        stable.mutations === hostWriteEpoch && stable.epoch === (stable.derived ? derivedLayerEpoch() : 0)) {
       if (layerMemoCheck()) assertSameLayerView('stable', stable.view, this.freshLayerObjects());
       return stable.view;
     }
     const view = this.freshLayerObjects();
     if (this.stableLayerDepth > 0) {
-      this.stableLayerView = { revision: this.layers.registry.revision, mutations: hostWriteEpoch, epoch: epoch(), view };
+      // A pass that read a keyword-grant derived view keys on its epoch even
+      // when these layers do not declare that state.
+      const derived = this.layers.readsDerivedLayerState || this.layers.viewReadDerivedLayerState;
+      this.stableLayerView = { revision: this.layers.registry.revision, mutations: hostWriteEpoch,
+        epoch: derived ? derivedLayerEpoch() : 0, derived, view };
     }
     return view;
   }

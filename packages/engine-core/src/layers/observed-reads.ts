@@ -9,6 +9,7 @@
  */
 export interface EventSensitiveReader {
   markEventSensitiveRead(): void;
+  markDerivedLayerRead(): void;
 }
 
 const EVALUATING: EventSensitiveReader[] = [];
@@ -29,6 +30,16 @@ export function layerEvaluationActive(): boolean {
 
 export function noteEventSensitiveRead(): void {
   for (const engine of EVALUATING) engine.markEventSensitiveRead();
+}
+
+/**
+ * RIFT-1162 premise: a plain layer engine sees keyword grants only through its
+ * registry. A read of a keyword-grant engine's derived view during its pass
+ * (a granted condition naming another object) makes that pass depend on the
+ * derived epoch after all, so callers must key its result on that epoch.
+ */
+export function noteDerivedLayerRead(): void {
+  for (const engine of EVALUATING) engine.markDerivedLayerRead();
 }
 
 export function enterLayerEvaluation(engine: EventSensitiveReader): void {
