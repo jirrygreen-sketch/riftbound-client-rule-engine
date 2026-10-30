@@ -117,8 +117,9 @@ test('setup-legend-and-champion-zones-populated', () => {
   assert.equal(legend.zone, 'legend');
   assert.deepEqual(legend.types, ['legend']);
   const champion = kernel.objects.find(object => object.cardId === 'card:champion-A' && object.owner === 'A');
-  assert.equal(champion.zone, 'chain');
-  assert.deepEqual(champion.types, ['champion']);
+  assert.equal(champion.zone, 'champion');
+  assert.deepEqual(champion.types, ['unit']);
+  assert.equal(champion.isToken, false);
 });
 
 test('setup-carries-printed-card-characteristics into every created object', () => {

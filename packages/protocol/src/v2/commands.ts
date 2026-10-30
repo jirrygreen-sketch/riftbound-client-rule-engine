@@ -95,6 +95,12 @@ export interface V2ChooseCommand extends V2CommandBase {
 export interface V2MoveCommand extends V2CommandBase {
   readonly type: "move";
   readonly objectId: V2ObjectId;
+  /**
+   * Further units that move together with `objectId` as one Standard Move
+   * (CR 144 / 810). Omitted for a single-unit move; when present it is
+   * non-empty, unique and never repeats `objectId`.
+   */
+  readonly additionalObjectIds?: readonly V2ObjectId[];
   readonly to: V2MoveDestination;
 }
 

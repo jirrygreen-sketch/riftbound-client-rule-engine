@@ -957,10 +957,15 @@ class MatchRuntime implements EngineRuntime {
     if (command.type === "mulligan") throw new Error("Mulligan is supplied to start(); setup is already complete");
     if (command.type === "choose") throw new Error("Choice commands are handled by the runtime boundary");
     if (command.type === "move") {
-      const ref = this.resolveObjectRef(command.objectId, command.stateVersion);
-      this.assertCanControl(playerId, ref);
+      // RIFT-1154: further units travel with the lead as one Standard Move
+      // (CR 144 / 810); every unit is checked here and the engine validates the
+      // whole group before any cost, so one illegal unit rejects the move.
+      const objectIds = [command.objectId, ...(command.additionalObjectIds ?? [])];
+      for (const objectId of objectIds) {
+        this.assertCanControl(playerId, this.resolveObjectRef(objectId, command.stateVersion));
+      }
       const execution = moveUnits({ match, stateVersion: this.stateVersion }, playerId,
-        [command.objectId], command.to);
+        objectIds, command.to);
       return {
         accepted: true,
         objectId: command.objectId,

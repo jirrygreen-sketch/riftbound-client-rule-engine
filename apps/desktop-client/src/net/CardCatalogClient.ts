@@ -46,10 +46,13 @@ export interface CatalogCard {
   readonly localizedAbilityLanguage?: "zh-CN" | "en-US";
   readonly localizedAbilityStatus?: LocalizedAbilityStatus;
   readonly localizedAbilitySource?: LocalizedAbilitySource;
+  /** Printing whose official Chinese text this printing borrows (status official-structured-sibling). */
+  readonly localizedFromPrintingId?: string;
 }
 
 export type LocalizedAbilityStatus =
   | "official-structured"
+  | "official-structured-sibling"
   | "official-accessibility-supplemented"
   | "english-fallback"
   | "no-effect"
@@ -350,6 +353,7 @@ function withValidLocalizedAbilityFields(
     localizedAbilityLanguage: _language,
     localizedAbilityStatus: _status,
     localizedAbilitySource: _source,
+    localizedFromPrintingId: _fromPrinting,
     ...catalogFields
   } = card;
   const source = isLocalizedAbilitySource(card.localizedAbilitySource)
@@ -367,6 +371,9 @@ function withValidLocalizedAbilityFields(
   const localizedAbilityStatus = isLocalizedAbilityStatus(
     card.localizedAbilityStatus
   ) ? card.localizedAbilityStatus : undefined;
+  const localizedFromPrintingId = isOptionalNonEmptyString(
+    card.localizedFromPrintingId
+  ) ? card.localizedFromPrintingId : undefined;
 
   return {
     ...catalogFields,
@@ -382,7 +389,8 @@ function withValidLocalizedAbilityFields(
     ...(localizedAbilityStatus === undefined
       ? {}
       : { localizedAbilityStatus }),
-    ...(source === undefined ? {} : { localizedAbilitySource: source })
+    ...(source === undefined ? {} : { localizedAbilitySource: source }),
+    ...(localizedFromPrintingId === undefined ? {} : { localizedFromPrintingId })
   };
 }
 
@@ -519,6 +527,7 @@ function isLocalizedAbilityStatus(
   value: unknown
 ): value is LocalizedAbilityStatus {
   return value === "official-structured" ||
+    value === "official-structured-sibling" ||
     value === "official-accessibility-supplemented" ||
     value === "english-fallback" ||
     value === "no-effect" ||

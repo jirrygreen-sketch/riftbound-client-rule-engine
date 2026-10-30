@@ -157,6 +157,42 @@ describe("CardCatalogClient", () => {
     });
   });
 
+  it("keeps the sibling-printing official Chinese status and its source printing (RIFT-1153)", async () => {
+    const source = {
+      url: "https://content.example/riftbound_gallery_cards?locale=zh_CN",
+      locale: "zh-CN",
+      updatedAt: "2026-10-28T14:49:37Z",
+      syncedAt: "2026-10-28T15:00:00Z"
+    };
+    const siblingCatalog = {
+      ...catalog,
+      cards: [{
+        ...catalog.cards[0],
+        localizedAbilityRulesText: "<p>[百炼]</p>",
+        localizedAbilityLanguage: "zh-CN",
+        localizedAbilityStatus: "official-structured-sibling",
+        localizedAbilitySource: source,
+        localizedFromPrintingId: "sfd-233-221"
+      }]
+    };
+    const client = new CardCatalogClient({
+      fetchImpl: vi.fn().mockResolvedValue(jsonResponse(siblingCatalog))
+    });
+
+    const result = await client.loadCatalog(DEFAULT_CARD_SERVER_URL);
+
+    expect(result.cards[0]).toMatchObject({
+      localizedAbilityRulesText: "<p>[百炼]</p>",
+      localizedAbilityStatus: "official-structured-sibling",
+      localizedFromPrintingId: "sfd-233-221"
+    });
+    const malformed = await new CardCatalogClient({
+      fetchImpl: vi.fn().mockResolvedValue(jsonResponse({ ...siblingCatalog,
+        cards: [{ ...siblingCatalog.cards[0], localizedFromPrintingId: 7 }] }))
+    }).loadCatalog(DEFAULT_CARD_SERVER_URL);
+    expect(malformed.cards[0]).not.toHaveProperty("localizedFromPrintingId");
+  });
+
   it("drops malformed optional Chinese fields without rejecting the catalog", async () => {
     const localizedCatalog = {
       ...catalog,

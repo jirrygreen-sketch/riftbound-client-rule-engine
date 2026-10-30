@@ -47,7 +47,7 @@ export interface LocationPermissionContext {
 }
 
 const ZONES = new Set<ZoneId>([
-  "hand", "deck", "rune-deck", "trash", "banishment", "board", "rune-zone", "chain",
+  "hand", "deck", "rune-deck", "trash", "banishment", "board", "rune-zone", "chain", "champion",
 ]);
 
 function record(value: unknown): AnyRecord | null {

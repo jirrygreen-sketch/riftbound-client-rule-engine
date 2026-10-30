@@ -66,6 +66,7 @@ import {
 } from "./unit-groups";
 import {
   useV2PointerDrag,
+  v2GroupMoveDropTargets,
   v2MoveDropTargets,
   v2LocationKey,
   v2PlayDropTargets,
@@ -73,6 +74,7 @@ import {
   v2ResolveDrop,
   v2RuneCanAddEnergy,
   v2RuneCanAddPower,
+  v2ToggleMoveGroup,
   type V2DragSource
 } from "./playmat-interactions";
 import "./V2MatchBoard.css";
@@ -151,15 +153,61 @@ export function buildV2RuneCommand(
 export function buildV2MoveCommand(
   objectId: string,
   destination: { readonly kind: "base"; readonly playerId: string } |
-    { readonly kind: "battlefield"; readonly battlefieldId: string }
+    { readonly kind: "battlefield"; readonly battlefieldId: string },
+  additionalObjectIds: readonly string[] = []
 ): V2CommandRequest {
   return {
     type: "move",
     objectId,
+    // RIFT-1154: the rest of a selected group moves in the same Standard Move.
+    ...(additionalObjectIds.length === 0 ? {} : { additionalObjectIds: [...additionalObjectIds] }),
     to: destination.kind === "base"
       ? { zone: "base", playerId: destination.playerId }
       : { zone: "battlefield", locationId: destination.battlefieldId }
   };
+}
+
+/**
+ * Picking a card to play (a hand card or the Chosen Champion, RIFT-1152):
+ * clicking the selected card again clears it, and any pick drops the targets
+ * and placement chosen for the previous card so they never leak into the new
+ * card's play command.
+ */
+export interface V2PlayCardPick {
+  readonly selectedCardId: string | null;
+  readonly playTargets: Readonly<Record<string, readonly string[]>>;
+  readonly playDestination: string;
+}
+
+export function v2PlayCardSelection(current: string | null, objectId: string): V2PlayCardPick {
+  return { selectedCardId: current === objectId ? null : objectId, playTargets: {}, playDestination: "" };
+}
+
+/** What a released drag does to the board (RIFT-1144 / 1152 / 1154), kept pure so every branch is testable. */
+export type V2DropAction =
+  | { readonly kind: "notice"; readonly notice: string }
+  | { readonly kind: "submit"; readonly command: V2CommandRequest; readonly clearMoveGroup: boolean }
+  /** The card still needs targets: it becomes the picked card with only this drop's placement. */
+  | { readonly kind: "pick"; readonly pick: V2PlayCardPick; readonly notice: string };
+
+export function v2DropAction(projection: V2Projection, source: V2DragSource, dropKey: string | null): V2DropAction {
+  const result = v2ResolveDrop(projection, source, dropKey);
+  if (result.kind === "illegal") return { kind: "notice", notice: result.notice };
+  if (result.kind === "move") {
+    const destination = result.destination;
+    return { kind: "submit", clearMoveGroup: true, command: buildV2MoveCommand(source.objectId, destination.kind === "base"
+      ? { kind: "base", playerId: destination.playerId }
+      : { kind: "battlefield", battlefieldId: destination.battlefieldId }, source.groupObjectIds) };
+  }
+  const option = result.option;
+  const command = v2PlayNeedsSelection(option) ? null : buildProjectedV2PlayCommand(projection, source.objectId,
+    option.requiresDestination === false ? undefined : option.destination);
+  if (command !== null) return { kind: "submit", clearMoveGroup: false, command };
+  // A drop always picks the dropped card (never toggles it off) and starts its
+  // targets from empty, so a previous card's targets cannot leak in.
+  return { kind: "pick", notice: `已选好 ${source.label} 的落点，请在牌桌上点选带准星的目标`, pick: {
+    selectedCardId: source.objectId, playTargets: {},
+    playDestination: option.requiresDestination !== false && dropKey !== null ? dropKey : "" } };
 }
 
 export function buildV2EndTurnCommand(): V2CommandRequest {
@@ -306,6 +354,8 @@ export function V2MatchBoard({
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [selectedPlayTargets, setSelectedPlayTargets] = useState<Readonly<Record<string, readonly string[]>>>({});
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
+  // Units picked with Shift/Ctrl/⌘ click that move together (RIFT-1154).
+  const [moveGroup, setMoveGroup] = useState<readonly string[]>([]);
   const [selectedDestination, setSelectedDestination] = useState<string>("");
   const [selectedPlayDestination, setSelectedPlayDestination] = useState<string>("");
   const [combatDamageDrafts, setCombatDamageDrafts] = useState<Readonly<Record<string, string>>>(initialCombatDamageDrafts);
@@ -353,6 +403,7 @@ export function V2MatchBoard({
     setSelectedTargetId(null);
     setSelectedPlayTargets({});
     setSelectedUnitId(null);
+    setMoveGroup([]);
     setSelectedDestination("");
     setSelectedPlayDestination("");
     setCombatDamageDrafts({});
@@ -377,6 +428,7 @@ export function V2MatchBoard({
         setSelectedCardId(null);
         setSelectedPlayTargets({});
         setExpandedGroup(null);
+        setMoveGroup([]);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -512,6 +564,9 @@ export function V2MatchBoard({
   const opponent = projection.players.find(player => player.playerId !== projection.viewerPlayerId) ?? null;
   const ownHand = projection.zones.find(zone => zone.zone === "hand" && zone.ownerPlayerId === projection.viewerPlayerId)?.objects ??
     projection.objects.filter(object => object.zone === "hand" && object.ownerPlayerId === projection.viewerPlayerId);
+  // RIFT-1152: the Chosen Champion waits in the Champion Zone and is played from there like a hand card.
+  const ownChampion = projection.objects.find(object => object.zone === "champion" &&
+    object.ownerPlayerId === projection.viewerPlayerId) ?? null;
   // Permanents sit in the "board" zone wherever they are; where they are comes
   // from `location`, so units and gear in a base must not be listed as being on
   // a battlefield (found in a real two-browser M1 run, RIFT-1055).
@@ -639,7 +694,8 @@ export function V2MatchBoard({
   const waitingForOpponentDamage = projection.combat?.status === "active" &&
     projection.combat.step === "damage" && projection.combat.damage !== undefined &&
     projection.combat.damage.expectedPlayerId !== projection.viewerPlayerId;
-  const selectedCard = ownHand.find(card => card.objectId === selectedCardId) ?? null;
+  const selectedCard = ownHand.find(card => card.objectId === selectedCardId) ??
+    (ownChampion !== null && ownChampion.objectId === selectedCardId ? ownChampion : null);
   const selectedTarget = targetCandidates.find(object => object.objectId === selectedTargetId) ?? null;
   const winner = projection.winnerPlayerId === null ? null :
     projection.players.find(player => player.playerId === projection.winnerPlayerId) ?? null;
@@ -667,38 +723,39 @@ export function V2MatchBoard({
         : [...selectedForGroup, refKey];
     return { ...current, [requirementId]: next };
   });
+  const applyPlayCardPick = (next: V2PlayCardPick): void => {
+    setSelectedCardId(next.selectedCardId);
+    setSelectedPlayTargets(next.playTargets);
+    setSelectedPlayDestination(next.playDestination);
+  };
+  const selectPlayCard = (objectId: string, anchor: { readonly x: number; readonly y: number }): void => {
+    setMenuAnchor(anchor);
+    applyPlayCardPick(v2PlayCardSelection(selectedCardId, objectId));
+  };
   const optionRefKey = (option: V2ChoiceOption): string => `${option.objectRef?.objectId}:${String(option.objectRef?.zoneEntryId)}`;
   dropHandlerRef.current = (source, dropKey) => {
-    const result = v2ResolveDrop(projection, source, dropKey);
-    if (result.kind === "illegal") {
-      setDragNotice(result.notice);
+    const action = v2DropAction(projection, source, dropKey);
+    if (action.kind === "notice") {
+      setDragNotice(action.notice);
       return;
     }
-    if (result.kind === "move") {
-      const destination = result.destination;
+    if (action.kind === "submit") {
       setDragNotice(null);
-      submit(buildV2MoveCommand(source.objectId, destination.kind === "base"
-        ? { kind: "base", playerId: destination.playerId }
-        : { kind: "battlefield", battlefieldId: destination.battlefieldId }));
+      if (action.clearMoveGroup) setMoveGroup([]);
+      submit(action.command);
       return;
     }
-    const option = result.option;
-    const command = v2PlayNeedsSelection(option) ? null : buildProjectedV2PlayCommand(projection, source.objectId,
-      option.requiresDestination === false ? undefined : option.destination);
-    if (command !== null) {
-      setDragNotice(null);
-      submit(command);
-      return;
-    }
-    // Targets are still needed: keep the drop as the chosen card and placement.
-    setSelectedCardId(source.objectId);
-    if (option.requiresDestination !== false && dropKey !== null) setSelectedPlayDestination(dropKey);
-    setDragNotice(`已选好 ${source.label} 的落点，请在牌桌上点选带准星的目标`);
+    applyPlayCardPick(action.pick);
+    setDragNotice(action.notice);
   };
   const dragTargets: ReadonlyMap<string, unknown> | null = drag === null || !drag.active ? null :
     drag.source.kind === "play" ? v2PlayDropTargets(projection, drag.source.objectId) :
-      v2MoveDropTargets(projection, drag.source.objectId);
+      drag.source.groupObjectIds !== undefined && drag.source.groupObjectIds.length > 0
+        ? v2GroupMoveDropTargets(projection, [drag.source.objectId, ...drag.source.groupObjectIds])
+        : v2MoveDropTargets(projection, drag.source.objectId);
   const movableIds = new Set(movableUnits.map(unit => unit.objectId));
+  // A group only keeps units that can still move; a lone pick is an ordinary drag.
+  const activeMoveGroup = moveGroup.filter(objectId => movableIds.has(objectId));
   const viewerId = projection.viewerPlayerId;
   const hoverHandler = (cardId: string | null, clientX?: number, object?: V2ProjectedObject): void => setHoverCard(cardId === null ? null :
     { cardId, side: clientX !== undefined && typeof window !== "undefined" && clientX < window.innerWidth * .32 ? "right" : "left",
@@ -727,14 +784,22 @@ export function V2MatchBoard({
     }
     const choice = boardChoiceOptions.find(option => option.objectRef?.objectId === object.objectId);
     if (choice !== undefined) return selectedChoiceIds.includes(choice.id) ? "selected" : "selectable";
+    if (activeMoveGroup.includes(object.objectId)) return "selected";
     return null;
   };
   const boardInteraction: V2BoardInteraction = {
     dropStateFor: dropKey => dragTargets === null ? null : !dragTargets.has(dropKey) ? "blocked" :
       drag?.overKey === dropKey ? "over" : "legal",
-    dragHandlerFor: object => setup || !canAct || !movableIds.has(object.objectId) ? null :
-      beginDrag({ kind: "move", objectId: object.objectId, label: objectLabel(object),
-        ...(object.cardId === undefined ? {} : { cardId: object.cardId }) }),
+    dragHandlerFor: object => {
+      if (setup || !canAct || !movableIds.has(object.objectId)) return null;
+      // Dragging a member of a selected group carries the whole group.
+      const rest = activeMoveGroup.length > 1 && activeMoveGroup.includes(object.objectId)
+        ? activeMoveGroup.filter(objectId => objectId !== object.objectId) : [];
+      return beginDrag({ kind: "move", objectId: object.objectId,
+        label: rest.length === 0 ? objectLabel(object) : `${objectLabel(object)} 等 ${rest.length + 1} 个单位`,
+        ...(object.cardId === undefined ? {} : { cardId: object.cardId }),
+        ...(rest.length === 0 ? {} : { groupObjectIds: rest }) });
+    },
     rune: {
       enabled: !setup && canAct,
       onEnergy: rune => submit(buildV2RuneCommand("rune-energy", rune)),
@@ -742,7 +807,7 @@ export function V2MatchBoard({
     },
     operable: object => !setup && canAct && combatDamage === null && targetingRequirements.length === 0 && movableIds.has(object.objectId),
     markFor,
-    onObjectClick: objects => {
+    onObjectClick: (objects, multi) => {
       if (consumeDragClick()) return true;
       if (combatDamage !== null && combatDamageBudget !== null && objects.length > 0 &&
           objects.every(object => combatTargetIds.has(object.objectId))) {
@@ -771,6 +836,11 @@ export function V2MatchBoard({
         toggleBoardChoice((choices.find(option => !selectedChoiceIds.includes(option.id)) ?? choices[0]!).id);
         return true;
       }
+      // Shift/Ctrl/⌘ click picks own units to move together; a plain click still opens the card.
+      if (multi === true && !setup && canAct && combatDamage === null && objects.some(object => movableIds.has(object.objectId))) {
+        setMoveGroup(v2ToggleMoveGroup(projection, activeMoveGroup, objects));
+        return true;
+      }
       return false;
     },
     onObjectContext: objects => {
@@ -790,11 +860,20 @@ export function V2MatchBoard({
     expandedKey: expandedGroup,
     onExpand: setExpandedGroup,
     onHover: hoverHandler,
+    championPlay: {
+      playable: object => !setup && canPlay && v2PlayDropTargets(projection, object.objectId).size > 0,
+      selected: object => selectedCardId === object.objectId,
+      dragHandlerFor: object => setup || !canPlay || v2PlayDropTargets(projection, object.objectId).size === 0 ? null :
+        beginDrag({ kind: "play", objectId: object.objectId, label: objectLabel(object),
+          ...(object.cardId === undefined ? {} : { cardId: object.cardId }) }),
+      onSelect: (object, anchor) => selectPlayCard(object.objectId, anchor),
+      consumeDragClick
+    },
     dropPreviewFor: dropKey => {
       if (drag === null || !drag.active || drag.source.kind !== "move" || drag.overKey !== dropKey ||
           dragTargets?.has(dropKey) !== true || !dropKey.startsWith("battlefield:") || viewerId === null) return null;
       const battlefieldId = dropKey.slice("battlefield:".length);
-      const moving = objectById(drag.source.objectId);
+      const movingIds = [drag.source.objectId, ...(drag.source.groupObjectIds ?? [])];
       const enemies = projection.objects.filter(object => object.location?.kind === "battlefield" &&
         object.location.battlefieldId === battlefieldId && controllerId(object) !== viewerId && object.might !== undefined);
       const name = projection.objects.find(object => object.objectId === battlefieldId);
@@ -803,7 +882,8 @@ export function V2MatchBoard({
         const controlled = projection.battlefields?.find(field => field.battlefieldId === battlefieldId)?.controllerPlayerId === viewerId;
         return controlled ? `移动到 ${title}` : `移动到 ${title}：无人防守，可占领（预估）`;
       }
-      const mine = v2MightAt(projection, battlefieldId, viewerId) + (moving?.might ?? 0);
+      const mine = v2MightAt(projection, battlefieldId, viewerId) +
+        movingIds.reduce((sum, objectId) => sum + (objectById(objectId)?.might ?? 0), 0);
       const theirs = enemies.reduce((sum, object) => sum + (object.might ?? 0), 0);
       const owner = v2PlayerName(projection, controllerId(enemies[0]!));
       return `进攻 ${title}：你 ${mine} : ${theirs} ${owner}（预估，进入后会先对决）`;
@@ -943,10 +1023,7 @@ export function V2MatchBoard({
                 }
                 else {
                   const rect = event.currentTarget.getBoundingClientRect();
-                  setMenuAnchor({ x: rect.left + rect.width / 2, y: rect.top });
-                  setSelectedCardId(current => current === card.objectId ? null : card.objectId);
-                  setSelectedPlayTargets({});
-                  setSelectedPlayDestination("");
+                  selectPlayCard(card.objectId, { x: rect.left + rect.width / 2, y: rect.top });
                 }
               }} title={card.name ?? card.cardId} aria-label={setup ? `选择调度 ${objectLabel(card)}` : `选择打出 ${objectLabel(card)}`}>
               {card.cardId !== undefined && playmatCards.image(card.cardId) !== null ? <img className="v2-hand-face" src={playmatCards.image(card.cardId)!} alt="" draggable={false} /> : <span className="v2-hand-face is-missing" aria-hidden="true" />}
@@ -977,6 +1054,14 @@ export function V2MatchBoard({
   const statusArea = (
     <div className="v2t-status">
         {dragNotice ? <p className="v2-waiting" role="status" aria-label="拖动提示">{dragNotice}</p> : null}
+        {activeMoveGroup.length > 1 ? (
+          <p className="v2-waiting" role="status" aria-label="同行单位">
+            已选 {activeMoveGroup.length} 个单位一起移动：拖动其中任意一张到目的地。
+            <button type="button" onClick={() => setMoveGroup([])}>取消选择</button>
+          </p>
+        ) : movableUnits.length > 1 && !setup ? (
+          <p className="v2-muted" aria-label="多选提示">按住 Shift（或 Ctrl / ⌘）点选多个单位，可以一起移动进攻。</p>
+        ) : null}
         {busy ? (
           <p className="v2-waiting" role="status" aria-live="polite" aria-label="命令处理中">
             {waitedSeconds >= 5

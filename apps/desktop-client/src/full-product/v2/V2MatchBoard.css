@@ -113,6 +113,11 @@
 .v2m-identity-art, .v2m-identity-slot .full-product-duel-card-button img { display: block; height: calc(100cqh - 1.9rem); width: auto; aspect-ratio: 744 / 1039; object-fit: cover; border-radius: .25rem; }
 .v2m-identity-slot .full-product-duel-card-button { padding: 0; border: 0; background: none; cursor: zoom-in; }
 .v2m-identity-title { font-size: .55rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* RIFT-1152: the Chosen Champion can be played from the Champion Zone. */
+.v2m-identity-slot.v2-operable .v2m-identity-art { box-shadow: 0 0 0 2px #4da3ff, 0 0 10px #4da3ffaa; }
+.v2m-identity-slot.is-selected .v2m-identity-art { box-shadow: 0 0 0 2px #ffd36b, 0 0 10px #ffd36baa; }
+.v2m-identity-play { margin-top: .1rem; padding: .05rem .5rem; font-size: .6rem; border: 1px solid #4da3ff; border-radius: .25rem;
+  background: #10243d; color: #d8ecff; cursor: pointer; }
 .v2m-pile { flex: 0 0 3.6rem; display: flex; align-items: center; justify-content: center; }
 .v2m-pile .full-product-duel-mat-pile { display: grid; justify-items: center; margin: 0; }
 .v2m-pile .full-product-duel-mat-pile dt { font-size: .55rem; color: #cbb67e; }
