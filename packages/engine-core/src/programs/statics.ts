@@ -94,10 +94,12 @@ function bridgeLifecycleOnEvent(engine: ChainEngine): void {
   const eventPipeline = pipeline;
   const originalOnEvent = pipeline.onEvent;
   pipeline.onEvent = event => {
-    const exactObject = event.object === undefined ? undefined : liveSource(engine, event.object.ref) ?? undefined;
     const timingPoint = event.timingPoint;
     if (timingPoint === 'object-enters-board' || timingPoint === 'object-enters-chain' ||
         timingPoint === 'object-leaves-board' || timingPoint === 'object-killed') {
+      // RIFT-1160: only these lifecycle events use the live object. Resolving
+      // it for every other event cost a complete layered pass and was unused.
+      const exactObject = event.object === undefined ? undefined : liveSource(engine, event.object.ref) ?? undefined;
       const lifecycle = KEYWORD_LIFECYCLE_BINDINGS.get(engine);
       if (exactObject === undefined) { /* no source to bind */ }
       else if (timingPoint === 'object-leaves-board' || timingPoint === 'object-killed') lifecycle?.sync(exactObject.ref);

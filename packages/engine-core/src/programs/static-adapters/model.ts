@@ -4,6 +4,7 @@ import type { ContinuousEffectSpec, Duration, ObjectSnapshot } from '../../effec
 import { evaluateCondition } from '../../effects/interpreter/condition.js';
 import { MissingInformation } from '../../effects/interpreter/values.js';
 import { matchesObjectFilter } from '../../layers/filter.js';
+import { bindFilterIncarnation } from '../../layers/relative/filter.js';
 import { resolveContinuousDuration } from '../../layers/ops/index.js';
 import { readOnlyContext } from '../../events/effect-actor.js';
 import { ProgramBindingError } from '../errors.js';
@@ -300,6 +301,12 @@ export function throwStaticConditionDefect(engine: ChainEngine, source: ObjectSn
   catch (error) { if (!(error instanceof MissingInformation)) throw error; }
 }
 
+/** A normalized static filter that names only the source itself. */
+function sourceOnlyFilter(normalized: AnyRecord): boolean {
+  return Object.keys(normalized).length > 0 && Object.entries(normalized).every(([key, value]) =>
+    (key === 'object' || key === 'source') && sourceSelector(value));
+}
+
 /**
  * Rule consumers receive absolute object identities for the current query.
  * The getter is evaluated after control/location/keyword changes, so a single
@@ -316,8 +323,7 @@ export function createLiveRuleFilter(
   // but the bound incarnation. Scanning the host for it re-entered a complete
   // layered pass from inside every layer read, which made each board object
   // depend on every other one and grew one artificial dependency group.
-  const sourceOnly = Object.keys(normalized).length > 0 && Object.entries(normalized).every(([key, value]) =>
-    (key === 'object' || key === 'source') && sourceSelector(value));
+  const sourceOnly = sourceOnlyFilter(normalized);
   const output = Object.fromEntries(Object.entries(baseLayerFilter(normalized)).filter(([key]) =>
     key !== 'object' && key !== 'source' && key !== 'exclude' && key !== 'sameLocationAs' &&
     key !== 'differentLocationFrom' && key !== 'attachedTo' && key !== 'relation')) as AnyRecord;
@@ -372,12 +378,16 @@ export function layerSpec(
   effect: AnyRecord,
 ): { readonly spec: ContinuousEffectSpec; readonly duration: Duration } {
   const condition = effectCondition(engine, ability, source, filter);
+  const layerFilter = baseLayerFilter(filter);
+  // RIFT-1160: the source-only restriction lives in the condition above,
+  // which can match only the registered incarnation.
+  if (sourceOnlyFilter(normalizeStaticFilter(filter))) bindFilterIncarnation(layerFilter, source.ref);
   return {
     spec: {
       id,
       layer,
       source: source.ref,
-      filter: baseLayerFilter(filter) as ObjectFilter,
+      filter: layerFilter as ObjectFilter,
       effect: { ...effect, ...(condition === undefined ? {} : { condition }) } as ContinuousEffectSpec['effect'],
     },
     duration: staticEffectDuration(effect, source.ref),

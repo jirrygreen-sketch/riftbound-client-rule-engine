@@ -222,11 +222,14 @@ export class CombatFlow {
       return role === undefined ? object : this.withRole(object, role);
     });
   }
-  private units(field: string): readonly ObjectSnapshot[] {
-    this.chain.layers.setObjects(this.layerObjects());
-    return this.chain.layers.evaluateAll().filter(object => object.zone === 'board' && object.types.includes('unit') &&
+  private units(field: string, layered = this.layeredObjects()): readonly ObjectSnapshot[] {
+    return layered.filter(object => object.zone === 'board' && object.types.includes('unit') &&
       object.location?.type === 'battlefield' && object.location.id === field)
       .map(object => this.withRole(object, this.role(object)));
+  }
+  private layeredObjects(): readonly ObjectSnapshot[] {
+    this.chain.layers.setObjects(this.layerObjects());
+    return this.chain.layers.evaluateAll();
   }
   private emit(timingPoint: Parameters<ChainEngine['emit']>[0]['timingPoint'], field: string, player?: string, object?: ObjectSnapshot): void {
     this.chain.emit({ timingPoint, player, object, details: { battlefieldId: field } });
@@ -564,9 +567,16 @@ export class CombatFlow {
       });
       changed ||= refreshed.changed || refreshed.emissions.length > 0;
     }
+    // RIFT-1160: each Battlefield used to install the host view and run a
+    // complete layered pass of its own. A Battlefield step that changed
+    // nothing leaves every input of that pass as it was, so the next
+    // Battlefield reads the same view; any change discards it.
+    let layered: readonly ObjectSnapshot[] | undefined;
     for (const field of this.fields) {
       if (field.id === active?.field) continue;
-      const units = this.units(field.id);
+      const before = changed;
+      changed = false;
+      const units = this.units(field.id, layered ??= this.layeredObjects());
       if (this.chain.turnState.endsWith('-open') && field.controller &&
           !units.some(unit => unit.controller === field.controller)) {
         const old = field.controller;
@@ -587,6 +597,8 @@ export class CombatFlow {
       if (controllers.size > 2) throw new TurnCombatBlockedError('contested-origin', 'A Battlefield cannot stage a multi-player Combat');
       const staged = !field.contestedBy ? 'none' : controllers.size === 2 ? 'combat' : 'showdown';
       if (field.staged !== staged) { field.staged = staged; changed = true; }
+      if (changed) layered = undefined;
+      changed ||= before;
     }
     return changed;
   }

@@ -18,6 +18,20 @@ export function filterAnchor(filter: object): (() => RelativeFilterAnchor | null
   return anchors.get(filter);
 }
 
+// RIFT-1160: a static registration whose authored filter names only its own
+// source keeps that restriction in its condition, so its layer filter is empty.
+// The adapter records the one incarnation such a registration can affect.
+const incarnations = new WeakMap<object, ObjectRef>();
+
+export function bindFilterIncarnation<T extends object>(filter: T, ref: ObjectRef): T {
+  incarnations.set(filter, ref);
+  return filter;
+}
+
+export function filterIncarnation(filter: object): ObjectRef | undefined {
+  return incarnations.get(filter);
+}
+
 function sameRef(left: ObjectRef | null | undefined, right: ObjectRef | null | undefined): boolean {
   return left?.id === right?.id && left?.zoneEntryId === right?.zoneEntryId;
 }
