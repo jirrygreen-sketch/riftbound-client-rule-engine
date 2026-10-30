@@ -112,6 +112,11 @@ function readyRunes(view: V2Projection, name: string) {
     .filter(rune => (name === "" || rune.name === name) && rune.zoneEntryId !== undefined);
 }
 
+function playerRunes(view: V2Projection, playerId: "A" | "B", name = "") {
+  return (view.zones.find(zone => zone.zone === "rune-zone" && zone.ownerPlayerId === playerId)?.objects ?? [])
+    .filter(rune => (name === "" || rune.name === name) && rune.zoneEntryId !== undefined);
+}
+
 function openMain(runtime: ReturnType<typeof createEngineRuntime>): V2Projection {
   let view = runtime.projectFor("A");
   for (let guard = 0; view.phase !== "main" && guard < 8; guard += 1) {
@@ -206,17 +211,27 @@ describe("RIFT-1150 real Weaponmaster payment window", () => {
     expect(opponentView.pendingChoice).toMatchObject({ status: "pending", kind: "mode", ownerPlayerId: "A" });
     expect(opponentView.pendingChoice).not.toHaveProperty("prompt");
     expect(opponentView.pendingChoice).not.toHaveProperty("options");
+    const opponentStateVersion = opponentView.stateVersion;
+    const opponentPending = structuredClone(opponentView.pendingChoice);
+    const opponentPower = structuredClone(opponentView.players.find(player => player.playerId === "B")!.power);
+    const opponentRune = playerRunes(opponentView, "B", "Order Rune")[0];
+    expect(opponentRune, JSON.stringify(playerRunes(opponentView, "B", "Order Rune"))).toBeDefined();
 
     const orderRunes = readyRunes(view, "Order Rune");
     expect(orderRunes.length).toBeGreaterThanOrEqual(3);
     const alreadyExhausted = (view.zones.find(zone => zone.zone === "rune-zone" && zone.ownerPlayerId === "A")?.objects ?? [])
       .find(rune => rune.name === "Order Rune" && rune.exhausted === true);
     const selectedRune = alreadyExhausted ?? orderRunes[0]!;
-    const wrongPlayerRune = runtime.submit("B", command("rune-power", "opponent-recycle-order-rune", view.stateVersion, {
-      runeObjectId: selectedRune.objectId, zoneEntryId: selectedRune.zoneEntryId!,
+    const wrongPlayerRune = runtime.submit("B", command("rune-power", "opponent-recycle-own-order-rune", view.stateVersion, {
+      runeObjectId: opponentRune!.objectId, zoneEntryId: opponentRune!.zoneEntryId!,
     }));
     expect(wrongPlayerRune.receipt.status).toBe("rejected");
-    expect(wrongPlayerRune.projection.pendingChoice).toMatchObject({ status: "pending", choiceId: paymentChoiceId });
+    expect(wrongPlayerRune.receipt.stateVersion).toBe(opponentStateVersion);
+    expect(wrongPlayerRune.projection.stateVersion).toBe(opponentStateVersion);
+    expect(wrongPlayerRune.projection.pendingChoice).toEqual(opponentPending);
+    expect(wrongPlayerRune.projection.players.find(player => player.playerId === "B")!.power).toEqual(opponentPower);
+    expect(wrongPlayerRune.projection.objects.find(object => object.objectId === opponentRune!.objectId))
+      .toMatchObject({ zone: "rune-zone", zoneEntryId: opponentRune.zoneEntryId });
     const nonRune = runtime.submit("A", command("end-turn", "end-turn-during-payment", view.stateVersion, {}));
     expect(nonRune.receipt.status).toBe("rejected");
     expect(nonRune.projection.pendingChoice).toMatchObject({ status: "pending", choiceId: paymentChoiceId });

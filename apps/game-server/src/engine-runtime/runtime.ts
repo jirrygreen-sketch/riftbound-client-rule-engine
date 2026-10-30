@@ -162,7 +162,7 @@ class PendingChoiceError extends Error {
 }
 
 function isWeaponmasterPaymentRequest(request: ChoiceRequest<unknown>): boolean {
-  return request.type === "mode" && /^weaponmaster(?:%3A|:)pay(?:%3A|:)/u.test(request.id) &&
+  return request.type === "mode" && request.id.startsWith("weaponmaster-choice/weaponmaster-pay/") &&
     request.options.length === 2 && request.options.includes("支付") && request.options.includes("放弃装配");
 }
 
@@ -769,6 +769,13 @@ class MatchRuntime implements EngineRuntime {
       return { receipt: duplicate, projection: this.projectFor(playerId) };
     }
     if (command.stateVersion !== this.stateVersion) return this.rejected(command, playerId, `stateVersion mismatch: expected ${this.stateVersion}, received ${command.stateVersion}`);
+    const weaponmasterPayment = this.weaponmasterPaymentChoice();
+    if (weaponmasterPayment !== null && command.type !== "choose" &&
+        (playerId !== this.pending!.request.chooser ||
+          (command.type !== "rune-energy" && command.type !== "rune-power"))) {
+      return this.rejected(command, playerId,
+        "Only the Weaponmaster payment choice owner may submit Rune resource commands");
+    }
     if (command.type === "choose") return this.choose(playerId, command);
     try {
       return this.atomicCommand(() => this.executeAndCommit(playerId, command));
@@ -1272,7 +1279,7 @@ class MatchRuntime implements EngineRuntime {
       throw new Error(`Rune ${command.runeObjectId}:${command.zoneEntryId} is no longer current`);
     }
     const priorityLegal = match.flow.chain.canAct(playerId, "reaction", source.ref, source);
-    const weaponmasterPayment = this.pendingWeaponmasterPaymentChoice(playerId);
+    const weaponmasterPayment = this.weaponmasterPaymentChoice();
     const request = {
       actor: playerId,
       activationId: `rune-command:${command.commandId}`,
@@ -1304,10 +1311,9 @@ class MatchRuntime implements EngineRuntime {
   }
 
   /** Only the chooser's current Weaponmaster payment prompt opens this narrow Add window. */
-  private pendingWeaponmasterPaymentChoice(playerId: string): string | null {
+  private weaponmasterPaymentChoice(): string | null {
     const pending = this.pending;
-    return pending !== null && pending.command.type === "play" &&
-      isWeaponmasterPaymentRequest(pending.request) && pending.request.chooser === playerId
+    return pending !== null && isWeaponmasterPaymentRequest(pending.request)
       ? pending.request.id
       : null;
   }
