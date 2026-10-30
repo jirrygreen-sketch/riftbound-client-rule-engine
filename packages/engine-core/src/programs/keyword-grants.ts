@@ -9,6 +9,7 @@ import { ContinuousEffectRegistry } from '../layers/duration.js';
 import { LayerEngine, bumpDerivedLayerEpoch } from '../layers/engine.js';
 import { matchesObjectFilter } from '../layers/filter.js';
 import { filterAnchor } from '../layers/relative/filter.js';
+import { isObservedCondition, markObservedCondition, noteEventSensitiveRead } from '../layers/observed-reads.js';
 import { refKey, sameRef, type LayeredObjectSnapshot, type RegisteredContinuousEffect, type TimingEvent } from '../layers/types.js';
 import { ProgramBindingError } from './errors.js';
 import { expandProgram } from './keywords.js';
@@ -251,7 +252,10 @@ export class KeywordGrantLayerEngine extends LayerEngine {
   private conditionMatches(condition: unknown, source: ObjectSnapshot, host: ObjectSnapshot = source): boolean {
     if (condition === undefined || condition === true) return true;
     if (condition === false) return false;
-    if (typeof condition === 'function') return Boolean((condition as (object: ObjectSnapshot) => unknown)(source));
+    if (typeof condition === 'function') {
+      if (!isObservedCondition(condition)) noteEventSensitiveRead();
+      return Boolean((condition as (object: ObjectSnapshot) => unknown)(source));
+    }
     const environment = this.environment(source);
     const context = new Proxy(environment.context, { get: (target, key) => {
       if (key === 'object') return (ref: ObjectRef) => sameRef(ref, host.ref) ? { ...host, designation: host.combatRole } : Reflect.get(target, key)(ref);
@@ -300,8 +304,10 @@ export class KeywordGrantLayerEngine extends LayerEngine {
   private environment(source: ObjectSnapshot) {
     const base = this.options.context(source);
     const context = new Proxy(base, { get: (target, key) => {
-      if (key === 'source') return source;
-      if (key === 'controller') return source.controller;
+      // RIFT-1163: this source is this engine's own snapshot, which may lag
+      // the host generation of a layer pass that reads it.
+      if (key === 'source') { noteEventSensitiveRead(); return source; }
+      if (key === 'controller') { noteEventSensitiveRead(); return source.controller; }
       if (key === 'object') return (ref: ObjectRef) => {
         return this.view.get(refKey(ref)) ?? null;
       };
@@ -419,11 +425,15 @@ export class KeywordGrantLayerEngine extends LayerEngine {
       const normalized = Object.fromEntries(Object.entries(effect).map(([key, value]) => [key, this.value(value, source)]));
       const staticCondition = (object: ObjectSnapshot) => sameRef(object.ref, source.ref);
       const authoredCondition = bindLayerCondition(ability.condition, source.ref);
-      const condition = authoredCondition === undefined ? undefined : (object: ObjectSnapshot) => {
+      // RIFT-1163: these conditions test only their own incarnation. The
+      // source's presence here follows the host generation (refs are per
+      // incarnation), and every other read goes through environment(), whose
+      // source fields and host context record event-sensitive reads.
+      const condition = authoredCondition === undefined ? undefined : markObservedCondition((object: ObjectSnapshot) => {
         const current = this.sourceSnapshot(source.ref);
         if (current === null || !sameRef(object.ref, source.ref)) return false;
         return this.conditionMatches(authoredCondition, current, object);
-      };
+      });
       const registration: ContinuousEffectSpec = {
         id: `program-keyword:${JSON.stringify([source.ref.id, source.ref.zoneEntryId, ability.kind, effect.kind, index, expansion.entries[index]?.id ?? null])}`,
         source: source.ref,
@@ -431,7 +441,7 @@ export class KeywordGrantLayerEngine extends LayerEngine {
         filter: { objectId: source.ref.id, zoneEntryId: source.ref.zoneEntryId, zone: source.zone },
         effect: {
           ...normalized, ...movement, kind: String(effect.kind),
-          condition: condition ?? ((object: LayeredObjectSnapshot) => sameRef(object.ref, source.ref)),
+          condition: condition ?? markObservedCondition((object: LayeredObjectSnapshot) => sameRef(object.ref, source.ref)),
           // Movement rules consume the Static key as a separate admission
           // marker; they do not infer it from a layer's object characteristics.
           ...(effect.kind === 'continuous.movement' ? { staticCondition } : {}),

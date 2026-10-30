@@ -9,6 +9,7 @@
  */
 import type { ContinuousEffect } from "@riftbound/card-dsl";
 import type { ContinuousEffectSpec, ObjectRef, ObjectSnapshot } from "../effects/contract.js";
+import { markObservedCondition } from "./observed-reads.js";
 import { effectId, targetFilter, type OpsTarget } from "./ops/index.js";
 
 export interface TraitTagEffect {
@@ -23,7 +24,8 @@ function sameRef(left: ObjectRef, right: ObjectRef): boolean {
 }
 
 function targetCondition(target: TraitTagTarget): (object: ObjectSnapshot) => boolean {
-  return object => sameRef(object.ref, target.ref);
+  // RIFT-1163: a pure incarnation comparison reads nothing an event can change.
+  return markObservedCondition((object: ObjectSnapshot) => sameRef(object.ref, target.ref));
 }
 
 /**

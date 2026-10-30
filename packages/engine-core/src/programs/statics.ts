@@ -175,7 +175,11 @@ function installKeywordReexpansion(engine: ChainEngine): void {
       // command plan cache on every read.
       const rebased = objects.every(object => record(object).printed === undefined)
         ? objects : objects.map(rebaseLayeredMight);
-      setLayerObjects(rebased, preserveCommandPlan);
+      // RIFT-1163: turn and combat cleanup reinstall the very host snapshots
+      // the plan was built from. That boundary changes none of its inputs, so
+      // a plan that read nothing an event can change is kept.
+      setLayerObjects(rebased, preserveCommandPlan ||
+        engine.layers.commandPlanSurvivesEvents && engine.layers.installsSameObjects(rebased));
     }
     else {
       const rebased = new Map<string, ObjectSnapshot>();

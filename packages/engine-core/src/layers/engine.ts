@@ -13,6 +13,7 @@ import { additionalMightReductions } from "../effects/modifiers/query.js";
 import { getTimingPoint, type TimingPointId } from "../events/timing-points.js";
 import type { DuelDerivedMightEvaluatorV2 } from "../combat/derived-might.js";
 import { matchesObjectFilter, objectRefFrom } from "./filter.js";
+import { enterLayerEvaluation, isObservedCondition, leaveLayerEvaluation, noteEventSensitiveRead } from "./observed-reads.js";
 import { filterIncarnation } from "./relative/filter.js";
 import { ContinuousEffectRegistry } from "./duration.js";
 import { copyCharacteristics } from "./copy.js";
@@ -286,7 +287,10 @@ function conditionMatches(
 ): boolean {
   const condition = effect.condition ?? effect.when;
   if (condition === undefined) return true;
-  if (typeof condition === "function") return Boolean((condition as (object: LayeredObjectSnapshot) => unknown)(object));
+  if (typeof condition === "function") {
+    if (!isObservedCondition(condition)) noteEventSensitiveRead();
+    return Boolean((condition as (object: LayeredObjectSnapshot) => unknown)(object));
+  }
   if (condition === true) return true;
   if (condition === false) return false;
   const item = record(condition);
@@ -487,7 +491,38 @@ type AppliedEffect = { readonly entry: RegisteredContinuousEffect; readonly effe
  */
 let derivedLayerEpochCount = 0;
 export function derivedLayerEpoch(): number { return derivedLayerEpochCount; }
+export { layerEvaluationActive, markObservedCondition, noteEventSensitiveRead } from "./observed-reads.js";
 export function bumpDerivedLayerEpoch(): void { derivedLayerEpochCount++; }
+
+function planCheck(): boolean {
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+  return env?.RIFT_LAYER_PLAN_CHECK === '1';
+}
+function sameLayeredValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (typeof left !== 'object' || typeof right !== 'object' || left === null || right === null) return false;
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return leftKeys.length === rightKeys.length && leftKeys.every(key => Object.hasOwn(right, key) &&
+    sameLayeredValue((left as AnyRecord)[key], (right as AnyRecord)[key]));
+}
+/** RIFT_LAYER_PLAN_CHECK=1: every command-plan hit must equal a fresh pass, field by field. */
+function assertSamePlanSnapshots(cached: readonly LayeredObjectSnapshot[], fresh: readonly LayeredObjectSnapshot[]): void {
+  const index = (view: readonly LayeredObjectSnapshot[]) => new Map(view.map(object => [refKey(object.ref), object as unknown as AnyRecord]));
+  const a = index(cached);
+  const b = index(fresh);
+  for (const key of new Set([...a.keys(), ...b.keys()])) {
+    const x = a.get(key);
+    const y = b.get(key);
+    if (x === undefined || y === undefined) throw new Error(`RIFT-1163 layer plan drifted: object ${key} ${x ? 'missing from fresh' : 'missing from plan'}`);
+    for (const field of new Set([...Object.keys(x), ...Object.keys(y)])) {
+      if (!sameLayeredValue(x[field], y[field])) {
+        throw new Error(`RIFT-1163 layer plan drifted: ${key}.${field} plan=${JSON.stringify(x[field])} fresh=${JSON.stringify(y[field])}`);
+      }
+    }
+  }
+}
 const OBJECT_IDS = new WeakMap<object, number>();
 const DEEPLY_FROZEN = new WeakMap<object, boolean>();
 let objectId = 0;
@@ -612,6 +647,29 @@ export class LayerEngine {
    * registry, whose revision callers already key on.
    */
   get readsDerivedLayerState(): boolean { return false; }
+  /** Internal hook for noteEventSensitiveRead (RIFT-1163). */
+  markEventSensitiveRead(): void { this.cacheEventSensitive = true; }
+  /**
+   * RIFT-1163: the completed command plan made no event-sensitive read, so an
+   * event boundary that leaves its other key components unchanged keeps it.
+   */
+  get commandPlanSurvivesEvents(): boolean {
+    return this.commandPlan !== undefined && this.commandPlan.view !== undefined &&
+      this.lastCompletedPlan !== undefined && !this.lastCompletedPlan.eventSensitive;
+  }
+  /**
+   * RIFT-1163: `objects` are exactly the installed snapshots, in order, and
+   * deeply frozen, so installing them again changes no input of a plan.
+   */
+  installsSameObjects(objects: readonly ObjectSnapshot[]): boolean {
+    if (objects.length !== this.objects.size) return false;
+    let index = 0;
+    for (const object of this.objects.values()) {
+      const next = objects[index++];
+      if (next !== object || !deeplyFrozen(next)) return false;
+    }
+    return true;
+  }
   get diagnostics(): LayerDiagnostics { return Object.freeze({ ...this.diagnosticsState }); }
   /** Reset counters without changing cached semantic state. */
   resetDiagnostics(): void {
@@ -673,7 +731,11 @@ export class LayerEngine {
     readonly derivedEpoch: number;
     readonly timingPoint: string | null;
     readonly attachmentRevision: string;
+    /** RIFT-1163: the pass made a read that an event or timing change can alter. */
+    readonly eventSensitive: boolean;
   };
+  /** RIFT-1163: the current caches were built with an event-sensitive read. */
+  private cacheEventSensitive = false;
   constructor(
     objects: readonly ObjectSnapshot[] | ReadonlyMap<string, ObjectSnapshot>,
     registry = new ContinuousEffectRegistry(),
@@ -767,6 +829,7 @@ export class LayerEngine {
       this.copyPartial.clear();
       this.groups.clear();
       this.copyGroups.clear();
+      this.cacheEventSensitive = false;
     }
     if (!preserveCommandPlan) this.invalidateCommandPlan();
   }
@@ -845,10 +908,11 @@ export class LayerEngine {
     };
     // Layers own object characteristics, not player resources, history, picks,
     // or last-known information. Unavailable host capabilities fail closed.
+    const timingPoint = this.timingPoint ?? "cleanup-start";
     const reads = {
       get source() { return source(); },
       get controller() { return source().controller; },
-      timingPoint: this.timingPoint ?? "cleanup-start",
+      get timingPoint() { noteEventSensitiveRead(); return timingPoint; },
       object: (ref: ObjectRef) => this.resolve(ref),
       query: () => this.evaluateAll(),
     };
@@ -1399,14 +1463,16 @@ export class LayerEngine {
     }
     if (this.commandPlan !== undefined && this.commandPlan.enabled && !this.commandPlan.disabled &&
         this.commandPlan.key !== undefined && this.commandPlan.view !== undefined &&
-        this.planKey() === this.commandPlan.key) {
+        this.planKey() === this.commandPlan.key && (this.depth === 0 || !planCheck())) {
       const key = refKey(ref);
       const planned = this.commandPlan.view.find(snapshot => refKey(snapshot.ref) === key);
       if (planned !== undefined) {
         this.count("planCacheReferenceHits");
+        if (planCheck()) assertSamePlanSnapshots([planned], this.freshPlanCheckPass().filter(object => refKey(object.ref) === key));
         return detach ? this.publicSnapshot(planned) : planned;
       }
     }
+    if (this.depth === 0) enterLayerEvaluation(this);
     this.depth++;
     try {
       for (let attempt = 0; attempt <= this.objects.size; attempt++) {
@@ -1426,6 +1492,7 @@ export class LayerEngine {
       throw new MissingInformation("Object dependency groups did not stabilize");
     } finally {
       this.depth--;
+      if (this.depth === 0) leaveLayerEvaluation(this);
     }
   }
 
@@ -1499,7 +1566,7 @@ export class LayerEngine {
       ["planCacheGenerationInvalidations", completed.authority !== authority],
       ["planCacheRegistryInvalidations", completed.registryRevision !== this.registry.revision],
       ["planCacheDerivedInvalidations", completed.derivedEpoch !== derivedLayerEpoch()],
-      ["planCacheTimingInvalidations", completed.timingPoint !== (this.timingPoint ?? null)],
+      ["planCacheTimingInvalidations", completed.eventSensitive && completed.timingPoint !== (this.timingPoint ?? null)],
       ["planCacheAttachmentInvalidations", completed.attachmentRevision !== this.currentAttachmentSignature()],
     ] as const;
     for (const [field, didChange] of changed) if (didChange) this.count(field);
@@ -1543,7 +1610,7 @@ export class LayerEngine {
     // The authority already includes the command generation and complete raw
     // host generation. Registry, epoch, timing and attachment remain
     // explicit members so an independently mutable supplier fails closed.
-    return `${this.commandPlan!.authority}\u0000${this.registry.revision}\u0000${derivedLayerEpoch()}\u0000${this.timingPoint ?? ''}\u0000${attachment}`;
+    return `${this.commandPlan!.authority}\u0000${this.registry.revision}\u0000${derivedLayerEpoch()}\u0000${this.keyTimingPoint()}\u0000${attachment}`;
   }
 
 
@@ -1552,13 +1619,37 @@ export class LayerEngine {
     const attachment = this.immutableAttachmentObjects
       ? this.attachmentRevision!
       : this.attachmentSignature();
-    return `${this.commandPlan!.authority}\u0000${this.registry.revision}\u0000${derivedLayerEpoch()}\u0000${this.timingPoint ?? ''}\u0000${attachment}`;
+    return `${this.commandPlan!.authority}\u0000${this.registry.revision}\u0000${derivedLayerEpoch()}\u0000${this.keyTimingPoint()}\u0000${attachment}`;
   }
   /** Install only the exact components observed by a completed full pass. */
   private completedPlanKey(): string {
     const completed = this.lastCompletedPlan;
     return completed === undefined ? this.completionKey()
-      : `${completed.authority}\u0000${completed.registryRevision}\u0000${completed.derivedEpoch}\u0000${completed.timingPoint ?? ''}\u0000${completed.attachmentRevision}`;
+      : `${completed.authority}\u0000${completed.registryRevision}\u0000${completed.derivedEpoch}\u0000${completed.eventSensitive ? completed.timingPoint ?? '' : ''}\u0000${completed.attachmentRevision}`;
+  }
+
+  /** RIFT-1163: an event-insensitive completed plan is keyed without the timing point. */
+  private keyTimingPoint(): string {
+    const completed = this.lastCompletedPlan;
+    return completed !== undefined && !completed.eventSensitive ? '' : this.timingPoint ?? '';
+  }
+
+  /** RIFT_LAYER_PLAN_CHECK=1: a complete pass that bypasses the command plan and every cache. */
+  private freshPlanCheckPass(): readonly LayeredObjectSnapshot[] {
+    const plan = this.commandPlan!;
+    const disabled = plan.disabled;
+    plan.disabled = true;
+    try {
+      this.invalidate(true);
+      const fresh: LayeredObjectSnapshot[] = [];
+      for (const object of [...this.objects.values()]) {
+        const snapshot = this.evaluateObject(object.ref, false);
+        if (snapshot !== null) fresh.push(snapshot);
+      }
+      return fresh;
+    } finally {
+      plan.disabled = disabled;
+    }
   }
 
   /** Test/diagnostic fact: whether a completed plan is available for the next read. */
@@ -1582,6 +1673,7 @@ export class LayerEngine {
       if (this.commandPlan.enabled && !this.commandPlan.disabled) key = this.planKey();
       if (key !== undefined && key === this.commandPlan.key && this.commandPlan.view !== undefined) {
         this.count("planCacheHits");
+        if (planCheck()) assertSamePlanSnapshots(this.commandPlan.view, this.freshPlanCheckPass());
         return Object.freeze(this.commandPlan.view.map(snapshot => this.copySnapshot(snapshot)));
       }
       this.count(key === undefined ? "planCacheBypasses" : "planCacheMisses");
@@ -1622,7 +1714,7 @@ export class LayerEngine {
         registryRevision: this.registryRevision, derivedEpoch: derivedLayerEpoch(),
         timingPoint: this.timingPoint ?? null, attachmentRevision: this.immutableAttachmentObjects
           ? this.attachmentRevision!
-          : this.attachmentSignature() };
+          : this.attachmentSignature(), eventSensitive: this.cacheEventSensitive };
       this.commandPlan.lastCompletedKey = this.completedPlanKey();
       this.commandPlan.key = this.commandPlan.lastCompletedKey;
     }
@@ -1641,7 +1733,9 @@ export class LayerEngine {
       ...this.registry.expireInactive(ref => ref === undefined ? null : this.raw(ref)),
     ];
     this.timingPoint = event.id;
-    this.invalidate();
+    // RIFT-1163: a plan that read nothing an event can change is keyed without
+    // the timing point; an expiry above still changes the registry revision.
+    this.invalidate(this.commandPlanSurvivesEvents);
     return Object.freeze([...new Set(expired)]);
   }
 
