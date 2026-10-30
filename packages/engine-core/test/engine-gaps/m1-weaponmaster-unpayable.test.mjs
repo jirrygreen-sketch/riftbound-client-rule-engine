@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import lucian from '../../../card-dsl/dist/cards/sfd/lucian-merciless.js';
 import { ChainEngine } from '../../dist/chain/engine.js';
+import { AwaitChoice } from '../../dist/effects/contract.js';
 import { bindResolveContext, createActionPipelineHost } from '../../dist/events/action-adapter.js';
 import { world } from '../../dist/effects/testing/index.js';
 import { createProgramBinding } from '../../dist/programs/index.js';
@@ -49,9 +50,15 @@ function runtime({ energy = 3, power = [], equipmentKeywords = [], attachedTo = 
     });
   const kernel = builder.build();
   const requests = [];
+  const answers = new Map();
   const choose = request => {
     requests.push(request);
     if (request.type === 'mode' && request.id.includes(':order:')) return request.options[0];
+    if (request.type === 'mode' && request.options.length === 2 &&
+        request.options.includes('支付') && request.options.includes('放弃装配')) {
+      if (!answers.has(request.id)) throw new AwaitChoice(request);
+      return answers.get(request.id);
+    }
     if (request.type === 'select-objects' && request.id.includes('target:weaponmaster-equipment')) {
       return request.options.filter(ref => ref.id === 'equipment');
     }
@@ -82,7 +89,7 @@ function runtime({ energy = 3, power = [], equipmentKeywords = [], attachedTo = 
       engine.pass(engine.priority);
     }
   };
-  return { kernel, engine, requests, play };
+  return { kernel, engine, requests, answers, play };
 }
 
 const equip = ({ power = 1, domains = ['Fury'] } = {}) => ({
@@ -117,9 +124,36 @@ test('core-1.5 / CR 821.1.c.5: an unpayable Equip cost preserves resources and t
   const oldHost = f.kernel.getObject('old-host').ref;
   assert.equal(f.kernel.perform({ type: 'attach', object: f.kernel.getObject('equipment').ref, host: oldHost }).status, 'done');
   const before = structuredClone(f.kernel.stateForTest());
-  f.play();
+  let paymentChoice;
+  try {
+    f.play();
+    assert.fail('unpayable Weaponmaster must request a payment choice');
+  } catch (error) {
+    assert.ok(error instanceof AwaitChoice, String(error));
+    paymentChoice = error.request;
+  }
   assert.equal(f.requests.filter(request => request.id.includes('target:weaponmaster-equipment')).length, 1,
     'the target is locked once during Finalize');
+  assert.equal(paymentChoice.type, 'mode');
+  assert.equal(paymentChoice.chooser, 'A');
+  assert.deepEqual(paymentChoice.options, ['支付', '放弃装配']);
+  assert.match(paymentChoice.prompt,
+    /^equipment的装配费用：1 点摧破符能，当前不足。可先横置或回收符文补足，再选择支付；或放弃装配。$/u);
+  assert.equal(f.kernel.player('A').energy, 0, 'the pending choice leaves only the Unit play cost paid');
+  assert.deepEqual(f.kernel.player('A').power, ['Fury'], 'the pending choice has not paid the Equip cost');
+  assert.deepEqual(f.kernel.getObject('equipment').attachedTo, oldHost,
+    'the pending choice leaves the existing attachment unchanged');
+  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === 'object-attached'), false,
+    'the pending choice emits no attachment event');
+  assert.equal(f.engine.items.length, 1, 'the finalized trigger remains while payment is pending');
+  assert.equal(f.engine.items[0].id, 'trigger:1');
+  assert.equal(f.engine.items[0].controller, 'A');
+  assert.equal(f.engine.items[0].status, 'finalized');
+
+  f.answers.set(paymentChoice.id, '放弃装配');
+  // The response resumes the suspended Resolve; the following pass hands
+  // Priority back so the completed Chain item can be removed.
+  f.engine.pass(f.engine.priority);
   assert.equal(f.kernel.player('A').energy, 0, 'only the Unit play cost was paid');
   assert.deepEqual(f.kernel.player('A').power, ['Fury'], 'the selected Equip cost remains unpaid');
   assert.deepEqual(f.kernel.getObject('equipment').attachedTo, oldHost);

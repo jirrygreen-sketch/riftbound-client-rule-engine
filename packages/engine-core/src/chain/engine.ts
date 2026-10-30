@@ -29,6 +29,7 @@ import { collectTargetTaxes } from '../target/tax/index.js';
 import { boundTargetTaxes, ignoresTargetTax, staticCostSources } from '../programs/static-adapters/capabilities.js';
 import { finalizeCostPlan, type CostDiscountSources, type FinalizedCardPlay, type StaticCostAbility } from '../cost/discounts/index.js';
 import { bindWeaponmasterNoEquipPolicy } from '../effects/instructions/cost.modify.js';
+import { bindWeaponmasterPaymentPolicy } from '../effects/instructions/cost.pay.js';
 
 function chainDraftPrefix(item: ChainDraft, turn: number): string {
   const source = item.trigger?.source.ref ?? item.source.ref;
@@ -553,6 +554,7 @@ export class ChainEngine {
   private paymentContinuation: PaymentContinuation | null = null;
   private paymentContinuationCheckpoint: unknown = null;
   private paymentSuspended = false;
+  private weaponmasterPaymentPrompt: { readonly itemId: string; readonly choiceId: string; readonly controller: PlayerId } | null = null;
   private resumingPaymentContinuation = false;
   private readonly consumedPaymentContinuations = new Set<string>();
   private readonly suspendedPaymentContinuations = new Map<string, PaymentContinuation>();
@@ -1047,6 +1049,7 @@ export class ChainEngine {
         paymentContinuation: this.paymentContinuation,
         paymentContinuationCheckpoint: this.paymentContinuationCheckpoint,
         paymentSuspended: this.paymentSuspended,
+        weaponmasterPaymentPrompt: this.weaponmasterPaymentPrompt,
         resumingPaymentContinuation: this.resumingPaymentContinuation,
         suspendedPaymentContinuations: suspended,
         combatRoles: new Map(this.combatRoles),
@@ -1076,9 +1079,14 @@ export class ChainEngine {
         const suspendedHandle = this.paymentSuspended ? this.paymentContinuation : null;
         const suspendedCheckpoint = this.paymentSuspended ? this.paymentContinuationCheckpoint : null;
         const pendingFinalizeAnswers = error instanceof AwaitChoice ? new Map(this.finalizeAnswers) : undefined;
+        // The game-server wraps this suspension in its own error type. Preserve
+        // the payment prompt created by the rolled-back Resolve; completion and
+        // decline clear it before this catch can observe it.
+        const pendingWeaponmasterPayment = this.weaponmasterPaymentPrompt;
         hostWriteEpoch++; this.options.host.restore(host); this.pipeline.restore(events); Object.assign(this, saved);
         this.choiceMemory.restore(saved.choiceMemorySnapshot);
         if (pendingFinalizeAnswers !== undefined) this.finalizeAnswers = new Map([...saved.finalizeAnswers, ...pendingFinalizeAnswers]);
+        if (pendingWeaponmasterPayment !== null) this.weaponmasterPaymentPrompt = pendingWeaponmasterPayment;
         this.layers.registry.clear();
         for (const entry of layerEntries) this.layers.registry.register(entry.effect, entry.duration, entry.timestamp);
         this.layers.setObjects(this.hostObjects());
@@ -1768,14 +1776,28 @@ export class ChainEngine {
   }
   /** CR 430.3: Reaction Add can interrupt payment without transferring Priority. */
   activateAddDuringPayment(draft: ChainDraft): void {
-    if (this.busy !== 'finalize' || draft.kind !== 'add' || draft.speed !== 'reaction') throw new Error('Only Reaction Add is allowed during payment');
-    const parent = this.entries.find(item => item.status === 'finalized' && item.costPlan !== undefined) ??
-      this.entries.find(item => item.status === 'pending' && item.costPlan === undefined);
-    if (parent === undefined) throw new Error('A Reaction Add requires one parent Pay Costs item');
-    if (parent.costPlan !== undefined && draft.controller !== parent.costPlan.player) throw new Error('Only the parent payer can activate a Reaction Add');
+    const prompt = this.weaponmasterPaymentPrompt;
+    const weaponmasterResolveGated = prompt !== null && this.entries.some(item =>
+      item.id === prompt.itemId && item.status === 'finalized' && isWeaponmasterResolveShape(item));
+    if ((this.busy !== 'finalize' && !weaponmasterResolveGated) ||
+        draft.kind !== 'add' || draft.speed !== 'reaction') throw new Error('Only Reaction Add is allowed during payment');
+    const parent = prompt === null
+      ? this.entries.find(item => item.status === 'finalized' && item.costPlan !== undefined) ??
+        this.entries.find(item => item.status === 'pending' && item.costPlan === undefined)
+      : weaponmasterResolveGated ? this.entries.find(item => item.id === prompt.itemId) : undefined;
+    if (parent === undefined && prompt === null) throw new Error('A Reaction Add requires one parent Pay Costs item');
+    if (prompt !== null && parent === undefined) throw new Error('Weaponmaster payment window is no longer active');
+    if (parent?.costPlan !== undefined && draft.controller !== parent.costPlan.player) throw new Error('Only the parent payer can activate a Reaction Add');
+    if (prompt !== null && (draft.controller !== prompt.controller || draft.source.controller !== prompt.controller ||
+        (parent !== undefined && parent.controller !== prompt.controller))) {
+      throw new Error('Only the Weaponmaster payer can activate a Reaction Add');
+    }
     this.append(draft);
     const item = this.entries.at(-1)!;
-    this.finalize(item); this.resolve(item); this.busy = 'finalize';
+    // Keep the original parent Resolve checkpoint.
+    const parentBusy = this.busy;
+    this.finalize(item); this.resolve(item); this.busy = parentBusy;
+    if (parentBusy === 'idle') this.handleOutstanding();
   }
 
   /** Snapshot the only parent whose Pay Costs may accept an external Reaction Add. */
@@ -2060,6 +2082,10 @@ export class ChainEngine {
         this.parentResolveDepth++;
         if (isWeaponmasterResolveShape(item)) {
           bindWeaponmasterNoEquipPolicy(context.contractActions);
+          bindWeaponmasterPaymentPolicy(context.contractActions, {
+            begin: choiceId => { this.weaponmasterPaymentPrompt = { itemId: item.id, choiceId, controller: item.controller }; },
+            clear: () => { this.weaponmasterPaymentPrompt = null; },
+          });
         }
         result = resolveChainBody(item.body, context, { ...conditionInputs, targetPlans: item.targetPlans });
       } catch (error) {

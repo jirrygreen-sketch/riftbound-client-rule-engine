@@ -31,6 +31,96 @@ import {
 import { payCostPlan } from "../../cost/payment.js";
 import { DUEL_DOMAINS } from "../../cost/resources.js";
 
+const WEAPONMASTER_PAYMENT_POLICIES = new WeakSet<object>();
+
+interface WeaponmasterPaymentPolicy {
+  begin(choiceId: string): void;
+  clear(): void;
+}
+
+const WEAPONMASTER_PAYMENT_HOOKS = new WeakMap<object, WeaponmasterPaymentPolicy>();
+
+/** Bind the exact ResolveContext capability for one production Weaponmaster item. */
+export function bindWeaponmasterPaymentPolicy(
+  capability: object | undefined,
+  hooks: WeaponmasterPaymentPolicy,
+): void {
+  if (capability === undefined) return;
+  WEAPONMASTER_PAYMENT_POLICIES.add(capability);
+  WEAPONMASTER_PAYMENT_HOOKS.set(capability, hooks);
+}
+
+function hasWeaponmasterPaymentPolicy(ctx: ResolveContext): boolean {
+  return ctx.timingPoint === "chain-item-resolve" && ctx.contractActions !== undefined &&
+    WEAPONMASTER_PAYMENT_POLICIES.has(ctx.contractActions);
+}
+
+function weaponmasterPaymentHooks(ctx: ResolveContext): WeaponmasterPaymentPolicy | null {
+  return ctx.contractActions === undefined ? null : WEAPONMASTER_PAYMENT_HOOKS.get(ctx.contractActions) ?? null;
+}
+
+const WEAPONMASTER_PAY = "支付" as const;
+const WEAPONMASTER_DECLINE = "放弃装配" as const;
+
+function domainLabel(domain: Domain): string {
+  return ({
+    Fury: "炽烈",
+    Calm: "翠意",
+    Mind: "灵光",
+    Body: "摧破",
+    Chaos: "混沌",
+    Order: "序理"
+  } as const)[domain];
+}
+
+/** Exact human-readable remainder of the locked final Equip cost. */
+function weaponmasterCostText(plan: CostPlan): string {
+  const costs = [
+    ...(plan.total.energy === 0 ? [] : [`${plan.total.energy} 点能量`]),
+    ...plan.total.power.flatMap(requirement => {
+      const domains = [...new Set(requirement.allowedDomains)];
+      const resource = domains.length === DUEL_DOMAINS.length
+        ? "任意符能"
+        : domains.length === 1
+          ? `${domainLabel(domains[0]!)}符能`
+          : `${domains.map(domainLabel).join("或")}符能`;
+      return [`${requirement.amount} 点${resource}`];
+    }),
+    ...(plan.total.xp === 0 ? [] : [`${plan.total.xp} 点经验`])
+  ];
+  return costs.length === 0 ? "无需支付费用" : costs.join("、");
+}
+
+function weaponmasterPayChoice(
+  ctx: ResolveContext,
+  plan: CostPlan,
+  attempt: number
+): typeof WEAPONMASTER_PAY | typeof WEAPONMASTER_DECLINE {
+  const target = ctx.targets("weaponmaster-equipment");
+  const equipment = target.length === 1 ? ctx.object(target[0]!) : null;
+  const equipmentName = equipment !== null && equipment.name.trim().length > 0
+    ? equipment.name
+    : "所选装备";
+  const finalCost = weaponmasterCostText(plan);
+  const prompt = finalCost === "无需支付费用"
+    ? `${equipmentName}的装配费用：无需支付。请选择支付完成装配，或放弃装配。`
+    : `${equipmentName}的装配费用：${finalCost}，当前不足。可先横置或回收符文补足，再选择支付；或放弃装配。`;
+  const choiceId = `weaponmaster:pay:${encodeURIComponent(plan.source.id)}:${plan.source.zoneEntryId}:${attempt}`;
+  weaponmasterPaymentHooks(ctx)?.begin(choiceId);
+  const answer = ctx.choose<typeof WEAPONMASTER_PAY | typeof WEAPONMASTER_DECLINE>({
+    id: choiceId,
+    type: "mode",
+    chooser: ctx.controller,
+    visibility: "public",
+    prompt,
+    options: [WEAPONMASTER_PAY, WEAPONMASTER_DECLINE]
+  });
+  if (answer !== WEAPONMASTER_PAY && answer !== WEAPONMASTER_DECLINE) {
+    throw new TypeError("Weaponmaster payment choice is invalid");
+  }
+  return answer;
+}
+
 export interface CostPayArgs {
   readonly cost?: Expr;
   readonly power?: Expr;
@@ -227,7 +317,28 @@ const execute: InstructionDef<CostPayArgs>["execute"] = (ctx, args): Instruction
   };
   // Do not catch CostPlanError: even a later prevented action must abort the
   // enclosing transaction instead of committing earlier resource payments.
-  const receipt = payCostPlan(ctx, finalized, options);
+  let receipt: ReturnType<typeof payCostPlan> | undefined;
+  try {
+    receipt = payCostPlan(ctx, finalized, options);
+  } catch (error) {
+    if (!hasWeaponmasterPaymentPolicy(ctx) || !(error instanceof CostPlanError) || error.reason !== "cannot-pay-cost") {
+      throw error;
+    }
+    let attempt = 1;
+    while (weaponmasterPayChoice(ctx, finalized, attempt++) === WEAPONMASTER_PAY) {
+      try {
+        receipt = payCostPlan(ctx, finalized, options);
+        break;
+      } catch (retry) {
+        if (!(retry instanceof CostPlanError) || retry.reason !== "cannot-pay-cost") throw retry;
+      }
+    }
+    if (receipt === undefined) {
+      weaponmasterPaymentHooks(ctx)?.clear();
+      return { status: "ignored", reason: "mistargeted" };
+    }
+  }
+  weaponmasterPaymentHooks(ctx)?.clear();
   ctx.link(key, receipt as unknown as Value);
   return { status: "executed", events: [...receipt.events], linkedValues: { [key]: receipt as unknown as Value } };
 };

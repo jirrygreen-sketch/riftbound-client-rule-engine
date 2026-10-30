@@ -8,6 +8,7 @@ import { createMatch, type MatchCard, type MatchHost } from "../../../engine-cor
 import { world } from "../../../engine-core/dist/effects/testing/index.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../engine-core/dist/events/action-adapter.js";
 import {
+  headlessBotAnswer,
   rankHeadlessBotCommands,
   replayHeadlessJournal,
   runHeadlessGame,
@@ -245,5 +246,18 @@ describe("headless bot command strategy", () => {
       boardUnit("unknown-enemy", "B", { type: "battlefield", id: "enemy" }, null),
     ], [move], [{ id: "enemy", controller: "B" }]));
     expect(tiers[0]?.priority).toBe("enemy-move");
+  });
+
+  it("answers the Weaponmaster payment mode with one of its two legal choices", () => {
+    const request = {
+      id: "weaponmaster:pay:lucian:1:1",
+      type: "mode" as const,
+      chooser: "A" as const,
+      visibility: "public" as const,
+      prompt: "B.F. Sword的装配费用：1 点序理符能，当前不足。",
+      options: ["支付", "放弃装配"] as const,
+    };
+    expect(headlessBotAnswer(() => 0, request)).toBe("支付");
+    expect(headlessBotAnswer(() => 1, request)).toBe("放弃装配");
   });
 });
