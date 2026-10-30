@@ -86,8 +86,8 @@ interface WorldState {
   randomState: number;
 }
 
-const ZONES: readonly ZoneId[] = ["hand", "deck", "rune-deck", "trash", "banishment", "board", "rune-zone", "chain", "legend"];
-function emptyZones(): Record<ZoneId, string[]> { return { hand: [], deck: [], "rune-deck": [], trash: [], banishment: [], board: [], "rune-zone": [], chain: [], legend: [] }; }
+const ZONES: readonly ZoneId[] = ["hand", "deck", "rune-deck", "trash", "banishment", "board", "rune-zone", "chain", "legend", "champion"];
+function emptyZones(): Record<ZoneId, string[]> { return { hand: [], deck: [], "rune-deck": [], trash: [], banishment: [], board: [], "rune-zone": [], chain: [], legend: [], champion: [] }; }
 const cloneRef = (ref: ObjectRef): ObjectRef => ({ id: ref.id, zoneEntryId: ref.zoneEntryId });
 const refKey = (ref: ObjectRef): string => `${ref.id}:${ref.zoneEntryId}`;
 const copySnapshot = (snapshot: ObjectSnapshot): ObjectSnapshot => structuredClone(snapshot);
@@ -682,9 +682,11 @@ export class TestWorld implements ResolveContext {
         let id: string;
         do { id = `token-${this.state.nextToken++}`; } while (this.state.objects.has(id));
         const zone = action.to;
+        const types = zone === "champion" ? ["unit"] : action.token.types;
         const ref = this.addObject(defaultObject(id, action.player, {
-          ...action.token, ref: { id, zoneEntryId: 1 }, zone,
-          location: zone === "chain" || zone === "legend" ? null : action.location, isToken: true
+          ...action.token, types, ref: { id, zoneEntryId: 1 }, zone,
+          location: zone === "chain" || zone === "legend" || zone === "champion" ? null : action.location,
+          isToken: zone !== "champion"
         }), zone);
         if (zone === "legend" && action.token.championLegend === true) this.state.championLegends.add(refKey(ref));
         if (zone === "chain") this.state.pending.set(id, { object: cloneRef(ref), controller: action.player, status: "pending" });
