@@ -186,6 +186,14 @@
 .v2m-zoom { position: absolute; z-index: 4; top: .1rem; right: .1rem; width: 1.05rem; height: 1.05rem; padding: 0; border-radius: 50%; font-size: .62rem; line-height: 1;
   color: var(--v2t-ink); background: rgba(11, 15, 15, .8); border: 1px solid #42534f; cursor: zoom-in; opacity: 0; transition: opacity .12s ease; }
 .v2m-stack.is-stacked .v2m-zoom { top: 1rem; }
+/* RIFT-1180: Equipment attached to a unit hangs under that unit. */
+.v2m-attached { list-style: none; margin: .15rem 0 0; padding: 0; width: var(--v2m-w); display: grid; gap: .1rem; }
+.v2m-gear-hit { display: block; overflow: hidden; padding: .05rem .3rem; border-radius: .25rem; border: 1px solid #8a7440; background: #2a2414;
+  color: #f1dfa8; font-size: .62rem; line-height: 1.35; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; }
+.v2m-gear-hit b { margin-right: .25rem; color: #d9b45a; font-weight: 700; }
+.v2m-gear.is-exhausted .v2m-gear-hit { opacity: .65; }
+.v2m-gear[data-mark="selectable"] .v2m-gear-hit { box-shadow: 0 0 0 2px var(--v2t-opp); }
+.v2m-gear[data-mark="selected"] .v2m-gear-hit { box-shadow: 0 0 0 3px var(--v2t-me); }
 .v2m-stack:hover .v2m-zoom, .v2m-zoom:focus-visible { opacity: 1; }
 .v2m-alloc { position: absolute; z-index: 4; left: 50%; bottom: -.4rem; transform: translateX(-50%); padding: 0 .3rem; border-radius: .25rem; white-space: nowrap;
   max-width: calc(var(--v2m-w) + 2.8rem); overflow: hidden; text-overflow: ellipsis;

@@ -495,6 +495,24 @@ export function projectionSnapshot(match: Match, host: EngineRuntimeHost, matchI
   };
 }
 
+/**
+ * RIFT-1180: name the permanent an Equipment is attached to, so the board can
+ * draw the gear under its unit. Both must be face-up on the board under their
+ * real ids for this viewer, and the host must still be the same zone entry,
+ * so a hidden object or a host that has since left play is never linked.
+ */
+export function withAttachmentHosts(objects: V2ProjectedObject[], source: readonly ObjectSnapshot[]): V2ProjectedObject[] {
+  const hostOf = new Map(source.flatMap(object => object.attachedTo === null ? [] : [[object.ref.id, object.attachedTo] as const]));
+  if (hostOf.size === 0) return objects;
+  const onBoard = new Map(objects.filter(object => object.zone === "board" && !object.faceDown)
+    .map(object => [object.objectId, object.zoneEntryId] as const));
+  return objects.map(object => {
+    const host = hostOf.get(object.objectId);
+    return host === undefined || !onBoard.has(object.objectId) || onBoard.get(host.id) !== host.zoneEntryId ? object :
+      { ...object, attachedToObjectId: host.id };
+  });
+}
+
 function snapshotObjects(snapshot: RuntimeProjectionSnapshot, viewer: string | null): readonly V2ProjectedObject[] {
   const key = viewer ?? "spectator";
   const cached = snapshot.projectedObjects.get(key);
@@ -502,12 +520,12 @@ function snapshotObjects(snapshot: RuntimeProjectionSnapshot, viewer: string | n
   const hidden = new Map(snapshot.hiddenObjectSource.map(object => [objectRefKey(object), object]));
   const currentObject = (object: ObjectSnapshot): ObjectSnapshot =>
     snapshot.objectCurrentById?.get(objectRefKey(object)) ?? object;
-  const objects = Object.freeze([
+  const objects = Object.freeze(withAttachmentHosts([
     ...snapshot.objectSource.filter(object => !hidden.has(objectRefKey(object)) &&
       (!object.faceDown || object.zone === "deck" || object.zone === "rune-deck"))
       .map(object => projectedObject(currentObject(object), viewer, snapshot.visibilityGrants)),
     ...[...hidden.values()].map(object => projectedObject(object, viewer, snapshot.visibilityGrants)),
-  ]);
+  ], snapshot.objectSource));
   snapshot.projectedObjects.set(key, objects);
   return objects;
 }

@@ -31,6 +31,8 @@ export interface V2ProjectedObject {
   readonly damage?: number;
   readonly might?: number;
   readonly counters?: Readonly<Record<string, number>>;
+  /** The permanent this Equipment is attached to (RIFT-1180); absent when unattached. */
+  readonly attachedToObjectId?: string;
 }
 
 export interface V2ZoneSnapshot {

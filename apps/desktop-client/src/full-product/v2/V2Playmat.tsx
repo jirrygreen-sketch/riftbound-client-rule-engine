@@ -282,6 +282,31 @@ function UnitStack({ group, cards, onInspect, interaction }: {
         <button type="button" className="v2m-zoom" aria-label={`查看大图：${name}`} title="查看大图"
           onClick={() => onInspect(first.cardId!, first.objectId)}>⤢</button>
       ) : null}
+      {group.attachments.length > 0 ? (
+        <ul className="v2m-attached" aria-label={`${name} 装配的装备`}>
+          {group.attachments.map(gear => {
+            const gearName = cards.objectName(gear);
+            const gearMark = interaction?.markFor?.(gear) ?? null;
+            const clickGear = (): void => {
+              if (interaction?.onObjectClick?.([gear], false) === true) return;
+              if (gear.cardId !== undefined) onInspect(gear.cardId, gear.objectId);
+            };
+            return (
+              <li key={gear.objectId} className={`v2m-gear${gear.exhausted === true ? " is-exhausted" : ""}`}
+                data-object-id={gear.objectId} data-attached-to={first.objectId}
+                {...(gearMark === null ? {} : { "data-mark": gearMark })}>
+                <span role="button" tabIndex={0} className="v2m-gear-hit" title={`装备：${gearName}（装配在${name}上）`}
+                  {...v2HoverProps(interaction?.onHover, gear.cardId, gear)}
+                  onClick={clickGear}
+                  onContextMenu={event => context(event, [gear])}
+                  onKeyDown={event => { if (event.key === "Enter") clickGear(); }}>
+                  <b>装备</b>{gearName}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
       {expanded ? (
         <div className="v2m-expand" role="dialog" aria-label={`${name} ×${count} 展开`}>
           <header><strong>{name} ×{count}</strong><span>{ready} 就绪 · {count - ready} 休眠</span>
