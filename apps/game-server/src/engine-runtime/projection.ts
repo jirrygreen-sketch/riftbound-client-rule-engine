@@ -370,6 +370,8 @@ export interface RuntimeProjectionSnapshot {
   readonly eventPublicObjects: ReadonlyMap<number, string>;
   readonly playerIds: readonly string[];
   readonly objectSource: readonly ObjectSnapshot[];
+  /** Current layer-evaluated objects; null when the room has no live layer owner. */
+  readonly objectCurrentById: ReadonlyMap<string, ObjectSnapshot> | null;
   readonly hiddenObjectSource: readonly ObjectSnapshot[];
   readonly visibilityGrants: ReturnType<EngineRuntimeHost["visibility"]>;
   readonly zoneCounts: Readonly<Record<string, V2Projection["players"][number]["zoneCounts"]>>;
@@ -392,6 +394,17 @@ export function projectionSnapshot(match: Match, host: EngineRuntimeHost, matchI
   const playerIds = Object.freeze(Object.keys(host.playerNames()));
   const names = host.playerNames();
   const objectSource = host.objects();
+  // RIFT-1176: projection and Combat must consume the same current layer view.
+  // One stable pass serves the complete viewer snapshot; hidden objects remain
+  // sourced from objectSource and are never enriched from this private index.
+  const layerChain = match.flow.chain as typeof match.flow.chain | undefined;
+  const currentObjects = layerChain?.layers === undefined || typeof layerChain.withStableLayers !== "function"
+    ? null : layerChain.layers.withCommandPlanCache(
+      `projection:${matchId}:${stateVersion}`,
+      () => layerChain.withStableLayers(() => layerChain.pipeline.host.objects()),
+    );
+  const objectCurrentById = currentObjects === null ? null
+    : new Map(currentObjects.map(object => [objectRefKey(object), object]));
   const hiddenObjectSource = Object.freeze([...host.hiddenObjects()]);
   const visibilityGrants = Object.freeze(host.visibility());
   const zoneCounts = Object.fromEntries(playerIds.map(playerId => [playerId, Object.freeze(Object.fromEntries(
@@ -471,7 +484,7 @@ export function projectionSnapshot(match: Match, host: EngineRuntimeHost, matchI
     matchId, stateVersion,
     viewerPlayers, events: Object.freeze(publicViewerEvents),
     eventPrivateObjects, eventPublicObjects,
-    playerIds, objectSource, hiddenObjectSource, visibilityGrants,
+    playerIds, objectSource, objectCurrentById, hiddenObjectSource, visibilityGrants,
     zoneCounts,
     chain: chainSnapshot, phase: phase(match), turnNumber: Math.max(1, match.flow.turn),
     activePlayerId: match.flow.turnPlayer,
@@ -487,10 +500,12 @@ function snapshotObjects(snapshot: RuntimeProjectionSnapshot, viewer: string | n
   const cached = snapshot.projectedObjects.get(key);
   if (cached !== undefined) return cached;
   const hidden = new Map(snapshot.hiddenObjectSource.map(object => [objectRefKey(object), object]));
+  const currentObject = (object: ObjectSnapshot): ObjectSnapshot =>
+    snapshot.objectCurrentById?.get(objectRefKey(object)) ?? object;
   const objects = Object.freeze([
     ...snapshot.objectSource.filter(object => !hidden.has(objectRefKey(object)) &&
       (!object.faceDown || object.zone === "deck" || object.zone === "rune-deck"))
-      .map(object => projectedObject(object, viewer, snapshot.visibilityGrants)),
+      .map(object => projectedObject(currentObject(object), viewer, snapshot.visibilityGrants)),
     ...[...hidden.values()].map(object => projectedObject(object, viewer, snapshot.visibilityGrants)),
   ]);
   snapshot.projectedObjects.set(key, objects);
