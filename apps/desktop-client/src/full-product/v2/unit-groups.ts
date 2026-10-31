@@ -42,11 +42,18 @@ export function v2UnitGroupKey(object: V2ProjectedObject): string {
  * (RIFT-1180). Gear whose host is elsewhere stays a permanent of its own.
  */
 export function v2AttachmentsByHost(objects: readonly V2ProjectedObject[]): ReadonlyMap<string, readonly V2ProjectedObject[]> {
-  const listed = new Set(objects.map(object => object.objectId));
+  const listed = new Map(objects.map(object => [object.objectId, object] as const));
+  const sameLocation = (left: V2ProjectedObject, right: V2ProjectedObject): boolean =>
+    left.location === undefined ? right.location === undefined : right.location !== undefined &&
+      (left.location.kind === "base" && right.location.kind === "base"
+        ? left.location.playerId === right.location.playerId
+        : left.location.kind === "battlefield" && right.location.kind === "battlefield"
+          ? left.location.battlefieldId === right.location.battlefieldId : false);
   const attachments = new Map<string, V2ProjectedObject[]>();
   for (const object of objects) {
     const host = object.attachedToObjectId;
-    if (host === undefined || host === object.objectId || !listed.has(host)) continue;
+    const hostObject = host === undefined ? undefined : listed.get(host);
+    if (host === undefined || hostObject === undefined || host === object.objectId || !sameLocation(object, hostObject)) continue;
     attachments.set(host, [...attachments.get(host) ?? [], object]);
   }
   return attachments;

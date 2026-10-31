@@ -97,6 +97,15 @@ describe("RIFT-1180 attached Equipment grouping", () => {
     expect(groups.flatMap(group => group.objects.map(object => object.objectId))).toEqual(["rumble-1", "sword-1", "sword-2"]);
     expect(groups.every(group => group.attachments.length === 0)).toBe(true);
   });
+
+  it("does not attach gear across a base or battlefield location", () => {
+    const elsewhere = sword("sword-1", "rumble-1", {
+      location: { kind: "battlefield", battlefieldId: "field-1" }
+    });
+    const groups = v2GroupUnits([unit("rumble-1"), elsewhere]);
+    expect(groups.flatMap(group => group.objects.map(object => object.objectId))).toEqual(["rumble-1", "sword-1"]);
+    expect(groups.every(group => group.attachments.length === 0)).toBe(true);
+  });
 });
 
 describe("RIFT-1180 board draws gear under its unit", () => {
