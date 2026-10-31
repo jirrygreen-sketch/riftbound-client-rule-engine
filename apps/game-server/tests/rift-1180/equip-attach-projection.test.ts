@@ -8,7 +8,7 @@
 // The room path follows tests/rift-1168/quick-draw-room.test.ts.
 import { describe, expect, it } from "vitest";
 import { DUEL_RULESET_ID, type ClientSession } from "@riftbound/protocol";
-import type { V2Command, V2CommandReceipt, V2Projection }
+import { isV2Projection, type V2Command, type V2CommandReceipt, type V2Projection }
   from "../../../../packages/protocol/dist/v2/index.js";
 import { GameRoom } from "../../src/room.js";
 import { loadCardCatalogRuntime } from "../../src/card-catalog.js";
@@ -216,9 +216,36 @@ describe("RIFT-1180 real Long Sword attachment projection", () => {
     // Both players see the attachment: the gear and its host are public permanents.
     for (const viewer of ["player-1", "player-2"]) {
       const seen = view(started.room, viewer);
+      // Exercise the exact server wire shape through the strict V2 guard.
+      expect(isV2Projection(seen), JSON.stringify(seen.objects)).toBe(true);
       expect(seen.objects.find(object => object.objectId === swordOnBoard!.objectId)?.attachedToObjectId).toBe(liveRumble!.objectId);
       expect(seen.objects.find(object => object.objectId === liveRumble!.objectId)?.attachedToObjectId).toBeUndefined();
     }
+
+    // CR v1.5 718.6.a / 143.5.b: the current Layer view detaches when the Gear
+    // becomes a Unit, then restores the raw attachment when the effect expires.
+    // Read the public room projection both times; the raw host field remains
+    // attached throughout, so this specifically proves projection freshness.
+    const runtime = (started.room as unknown as { readonly engineRuntime: {
+      readonly match: { readonly flow: { readonly chain: { readonly layers: {
+        addContinuous: (effect: unknown, duration: unknown) => unknown;
+        removeContinuous: (id: string) => boolean;
+      } } } };
+    } }).engineRuntime;
+    const layers = runtime.match.flow.chain.layers;
+    layers.addContinuous({
+      id: "RIFT-1180-unitize-long-sword", layer: "trait",
+      filter: { objectId: swordOnBoard!.objectId, zoneEntryId: swordOnBoard!.zoneEntryId },
+      effect: { kind: "set-types", types: ["gear", "unit"] },
+    }, { type: "permanent" });
+    const unitized = view(started.room, "player-1");
+    expect(isV2Projection(unitized), JSON.stringify(unitized.objects)).toBe(true);
+    expect(unitized.objects.find(object => object.objectId === swordOnBoard!.objectId)?.attachedToObjectId).toBeUndefined();
+    expect(layers.removeContinuous("RIFT-1180-unitize-long-sword")).toBe(true);
+    const restored = view(started.room, "player-1");
+    expect(isV2Projection(restored), JSON.stringify(restored.objects)).toBe(true);
+    expect(restored.objects.find(object => object.objectId === swordOnBoard!.objectId)?.attachedToObjectId).toBe(liveRumble!.objectId);
+    current = restored;
 
     const field = current.battlefields.find(candidate => candidate.controllerPlayerId !== "player-1");
     expect(field).toBeDefined();
@@ -238,7 +265,7 @@ describe("RIFT-1180 real Long Sword attachment projection", () => {
 
 describe("RIFT-1180 attachment links never reveal or go stale", () => {
   const snapshot = (id: string, zoneEntryId: number, attachedTo: ObjectSnapshot["attachedTo"]): ObjectSnapshot =>
-    ({ ref: { id, zoneEntryId }, attachedTo } as unknown as ObjectSnapshot);
+    ({ ref: { id, zoneEntryId }, zone: "board", faceDown: false, attachedTo } as unknown as ObjectSnapshot);
   const projected = (objectId: string, zoneEntryId: number, extra: Partial<V2Projection["objects"][number]> = {}) =>
     ({ objectId, zoneEntryId, zone: "board", ownerPlayerId: "player-1", faceDown: false, visibility: "public",
       location: { kind: "base", playerId: "player-1" }, ...extra } as V2Projection["objects"][number]);
@@ -262,5 +289,14 @@ describe("RIFT-1180 attachment links never reveal or go stale", () => {
       ?.attachedToObjectId).toBeUndefined();
     expect(withAttachmentHosts([projected("sword", 3, { faceDown: true }), projected("unit", 2)], source)[0]
       ?.attachedToObjectId).toBeUndefined();
+  });
+
+  it("uses the current attachment relation instead of stale raw Gear state", () => {
+    const raw = [snapshot("sword", 3, { id: "unit", zoneEntryId: 2 }), snapshot("unit", 2, null)];
+    const detached = [snapshot("sword", 3, null), snapshot("unit", 2, null)];
+    expect(withAttachmentHosts([projected("sword", 3), projected("unit", 2)], raw, detached)[0]
+      ?.attachedToObjectId).toBeUndefined();
+    expect(withAttachmentHosts([projected("sword", 3), projected("unit", 2)], raw, raw)[0]
+      ?.attachedToObjectId).toBe("unit");
   });
 });

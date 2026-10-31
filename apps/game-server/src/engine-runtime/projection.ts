@@ -504,15 +504,30 @@ export function projectionSnapshot(match: Match, host: EngineRuntimeHost, matchI
  * real ids for this viewer, and the host must still be the same zone entry,
  * so a hidden object or a host that has since left play is never linked.
  */
-export function withAttachmentHosts(objects: V2ProjectedObject[], source: readonly ObjectSnapshot[]): V2ProjectedObject[] {
-  const hostOf = new Map(source.flatMap(object => object.attachedTo === null ? [] : [[object.ref.id, object.attachedTo] as const]));
-  if (hostOf.size === 0) return objects;
-  const onBoard = new Map(objects.filter(object => object.zone === "board" && !object.faceDown)
-    .map(object => [object.objectId, object.zoneEntryId] as const));
+export function withAttachmentHosts(objects: V2ProjectedObject[], source: readonly ObjectSnapshot[],
+  currentSource: readonly ObjectSnapshot[] = source): V2ProjectedObject[] {
+  const sourceByKey = new Map(source.map(object => [objectRefKey(object), object] as const));
+  const currentByKey = new Map(currentSource.map(object => [objectRefKey(object), object] as const));
+  const projectedByKey = new Map(objects.map(object =>
+    [`${object.objectId}:${object.zoneEntryId ?? 0}`, object] as const));
   return objects.map(object => {
-    const host = hostOf.get(object.objectId);
-    return host === undefined || !onBoard.has(object.objectId) || onBoard.get(host.id) !== host.zoneEntryId ? object :
-      { ...object, attachedToObjectId: host.id };
+    if (object.zone !== "board" || object.faceDown || object.zoneEntryId === undefined) return object;
+    const key = `${object.objectId}:${object.zoneEntryId}`;
+    // Layer effects can detach a Gear by making it a Unit (CR 718.6.a), so the
+    // current attachment relation is authoritative. Raw snapshots still bind
+    // both objects to the same zone incarnation and prevent invented links.
+    const original = sourceByKey.get(key);
+    const current = currentByKey.get(key);
+    const host = current?.attachedTo;
+    if (original?.zone !== "board" || original.faceDown || current?.zone !== "board" || current.faceDown ||
+        host === null || host === undefined || host.id === object.objectId) return object;
+    const originalHost = sourceByKey.get(`${host.id}:${host.zoneEntryId}`);
+    const currentHost = currentByKey.get(`${host.id}:${host.zoneEntryId}`);
+    const projectedHost = projectedByKey.get(`${host.id}:${host.zoneEntryId}`);
+    if (originalHost?.zone !== "board" || originalHost.faceDown || currentHost?.zone !== "board" || currentHost.faceDown ||
+        projectedHost === undefined || projectedHost.objectId !== host.id || projectedHost.zone !== "board" ||
+        projectedHost.faceDown || projectedHost.zoneEntryId !== host.zoneEntryId) return object;
+    return { ...object, attachedToObjectId: projectedHost.objectId };
   });
 }
 
@@ -528,7 +543,8 @@ function snapshotObjects(snapshot: RuntimeProjectionSnapshot, viewer: string | n
       (!object.faceDown || object.zone === "deck" || object.zone === "rune-deck"))
       .map(object => projectedObject(currentObject(object), viewer, snapshot.visibilityGrants)),
     ...[...hidden.values()].map(object => projectedObject(object, viewer, snapshot.visibilityGrants)),
-  ], snapshot.objectSource));
+  ], snapshot.objectSource, snapshot.objectCurrentById === null ? snapshot.objectSource
+    : [...snapshot.objectCurrentById.values()]));
   snapshot.projectedObjects.set(key, objects);
   return objects;
 }
