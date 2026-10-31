@@ -182,7 +182,16 @@ function execute(ctx: ResolveContext, args: EffectRevealArgs): InstructionResult
     }
     const outcome = ctx.perform({ type: "reveal", object: ref });
     events.push(...outcome.events);
-    if (outcome.status === "done") performed.push(...disclosedRefs([ref], outcome).map(actual => ({
+    if (outcome.status === "done") performed.push(...disclosedRefs([ref], {
+      ...outcome,
+      // A Reveal action is performed once per card, while the shared
+      // disclosure validator speaks in collection receipts. Normalize the
+      // production host's successful single-ref result without weakening the
+      // identity check.
+      ...(outcome.result === undefined || Array.isArray(outcome.result)
+        ? {}
+        : { result: [outcome.result] }),
+    }).map(actual => ({
       id: actual.id, zoneEntryId: actual.zoneEntryId
     })));
     else failure ??= outcome.status;
