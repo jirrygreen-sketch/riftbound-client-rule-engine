@@ -256,7 +256,7 @@ describe("RIFT-1176 public room current Might", () => {
     }
   }, 180_000);
 
-  it("projects Rumble's live Mech bonus through the public room projection", async () => {
+  it("starts a real public room with the production Rumble Legend and owner projection", async () => {
     expect(EVIDENCE.rules).toContain("478.1");
     expect(RUMBLE).toMatch(/^card\.hash-/);
     expect(BUBBLE_BOT).toMatch(/^card\.hash-/);

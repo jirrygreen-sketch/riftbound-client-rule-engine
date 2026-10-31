@@ -139,7 +139,7 @@ describe("RIFT-1176 current Might projection", () => {
     expect(ally?.might).toBe(4);
   });
 
-  it("keeps negative layer values and distinguishes them from absent Might", () => {
+  it("keeps null layer values and distinguishes them from absent Might", () => {
     const host = makeHost();
     const current = layered(host, { mech: 5, ally: 4, hidden: 8 });
     const absent = current.map(object => object.ref.id === "private-a"
