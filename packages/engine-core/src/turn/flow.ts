@@ -1,6 +1,6 @@
 import { ChainEngine, type ChainDraft } from '../chain/engine.js';
 import { releaseEffectActor } from '../events/effect-actor.js';
-import type { GameAction, ObjectRef, ObjectSnapshot, PlayerId, PlayerSnapshot } from '../effects/contract.js';
+import type { GameAction, LocationRef, ObjectRef, ObjectSnapshot, PlayerId, PlayerSnapshot } from '../effects/contract.js';
 import type { PipelineHost, TimingEmission } from '../events/pipeline-types.js';
 import { CombatFlow, type BattlefieldState } from '../combat/flow.js';
 import { TurnPhaseLayers } from './phase-layers.js';
@@ -112,6 +112,88 @@ export class TurnFlow {
       : restoreHiddenState(options.hiddenState);
     for (const field of options.battlefields) this.hiddenControllers.set(field.id, field.controller);
     this.layers = new TurnPhaseLayers(options.host.objects());
+    const relocateAttachedClosure = (
+      root: ObjectRef,
+      location: LocationRef,
+    ): void => {
+      const objects = options.host.objects();
+      const pending = [root];
+      const visited = new Set([`${root.id}:${root.zoneEntryId}`]);
+      // CR v1.5 435.4 and 718.5.c/719.3.a: attaching colocated the card with
+      // its new Top-Most card; later Top-Most movement carries every descendant.
+      // This is co-location, not a separate Move (448.1), so the state write
+      // deliberately bypasses event publication.
+      while (pending.length > 0) {
+        const hostRef = pending.shift()!;
+        for (const object of objects) {
+          const key = `${object.ref.id}:${object.ref.zoneEntryId}`;
+          if (object.zone !== 'board' || object.attachedTo === null ||
+              object.attachedTo.id !== hostRef.id ||
+              object.attachedTo.zoneEntryId !== hostRef.zoneEntryId || visited.has(key)) continue;
+          visited.add(key);
+          if (JSON.stringify(object.location) !== JSON.stringify(location)) {
+            const followed = options.host.execute({
+              type: 'move-location', object: object.ref, to: structuredClone(location),
+            });
+            if (followed.outcome.status !== 'done') {
+              throw new TurnCombatBlockedError('attached-co-location',
+                `Attached object ${object.ref.id} could not follow its Top-Most card`);
+            }
+          }
+          pending.push(object.ref);
+        }
+      }
+    };
+    const companionStateTransition = (
+      action: GameAction,
+      execution: ReturnType<typeof options.host.execute>,
+      before: ObjectSnapshot | undefined,
+    ): void => {
+      if (execution.outcome.status !== 'done' && execution.outcome.status !== 'replaced') return;
+      const source = before !== undefined && 'object' in action && before.ref.id === action.object.id &&
+        before.ref.zoneEntryId === action.object.zoneEntryId ? before : undefined;
+      if (source === undefined) return;
+      const current = options.host.objects().find(object => object.ref.id === source.ref.id);
+
+      if (action.type === 'move-location' && source.zone === 'board' &&
+          (execution.outcome.status === 'done' || current?.ref.zoneEntryId === source.ref.zoneEntryId &&
+            current.zone === 'board' && JSON.stringify(current.location) === JSON.stringify(action.to))) {
+        relocateAttachedClosure(source.ref, action.to);
+        return;
+      }
+      if (action.type === 'attach' && execution.outcome.status === 'done') {
+        const object = options.host.objects().find(candidate => candidate.ref.id === action.object.id);
+        if (object?.attachedTo?.id === action.host.id &&
+            object.attachedTo.zoneEntryId === action.host.zoneEntryId) {
+          const host = options.host.objects().find(candidate => candidate.ref.id === action.host.id &&
+            candidate.ref.zoneEntryId === action.host.zoneEntryId);
+          if (host?.zone === 'board' && host.location !== null) {
+            relocateAttachedClosure(object.ref, host.location);
+          }
+        }
+        return;
+      }
+
+      const leavesBoard = action.type === 'kill' || action.type === 'return-to-hand' ||
+        action.type === 'recycle' || action.type === 'banish' || action.type === 'discard' ||
+        action.type === 'move-zone' && action.to !== 'base' && action.to !== 'battlefield';
+      if (!leavesBoard || execution.outcome.status === 'replaced' &&
+          current?.ref.zoneEntryId === source.ref.zoneEntryId && current.zone === 'board') return;
+      const detached = options.host.objects().filter(object => object.zone === 'board' &&
+        object.attachedTo?.id === source.ref.id &&
+        object.attachedTo.zoneEntryId === source.ref.zoneEntryId);
+      // CR v1.5 719.5: attachments detach when their Top-Most card leaves the
+      // Board and stay at that Board location. Detach order is chosen by the
+      // Top-Most controller; this deterministic current-zone order is pending a
+      // dedicated player-order prompt when a Detach trigger requires ordering.
+      for (const object of detached) {
+        const outcome = options.host.execute({ type: 'detach', object: object.ref });
+        if (outcome.outcome.status !== 'done') {
+          throw new TurnCombatBlockedError('attached-host-exit',
+            `Attached object ${object.ref.id} could not detach as its host left the Board`);
+        }
+      }
+    };
     const host: PipelineHost = {
       checkpoint: () => ({ host: options.host.checkpoint(), rules: this.checkpoint() }),
       restore: checkpoint => {
@@ -173,6 +255,7 @@ export class TurnFlow {
           options.host.restore(actionCheckpoint);
           return execution;
         }
+        companionStateTransition(action, execution, before);
         if (revealExecution !== undefined) execution = {
           outcome: { ...execution.outcome, events: [...revealExecution.outcome.events, ...execution.outcome.events] },
           emissions: [...revealExecution.emissions, ...execution.emissions],
