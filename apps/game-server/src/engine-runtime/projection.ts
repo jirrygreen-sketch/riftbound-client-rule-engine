@@ -155,6 +155,8 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
   const canAdvance = advanceResponsiblePlayer(match, pendingChoice, viewer) !== null;
   const canPass = canPassForViewer(match, pendingChoice, viewer);
   const binding = match.programBinding;
+  // RIFT-1180: Ganking and other layer-evaluated characteristics must come
+  // from the single current-object view used by the rest of this projection.
   const objects = currentObjects ?? host.objects();
   const activations = (): NonNullable<V2ActionOptions["activations"]> => viewer === null || binding === undefined
     ? [] : inspectActivations({
@@ -512,6 +514,39 @@ export function projectionSnapshot(match: Match, host: EngineRuntimeHost, matchI
   };
 }
 
+/**
+ * RIFT-1180: name the permanent an Equipment is attached to, so the board can
+ * draw the gear under its unit. Both must be face-up on the board under their
+ * real ids for this viewer, and the host must still be the same zone entry,
+ * so a hidden object or a host that has since left play is never linked.
+ */
+export function withAttachmentHosts(objects: V2ProjectedObject[], source: readonly ObjectSnapshot[],
+  currentSource: readonly ObjectSnapshot[] = source): V2ProjectedObject[] {
+  const sourceByKey = new Map(source.map(object => [objectRefKey(object), object] as const));
+  const currentByKey = new Map(currentSource.map(object => [objectRefKey(object), object] as const));
+  const projectedByKey = new Map(objects.map(object =>
+    [`${object.objectId}:${object.zoneEntryId ?? 0}`, object] as const));
+  return objects.map(object => {
+    if (object.zone !== "board" || object.faceDown || object.zoneEntryId === undefined) return object;
+    const key = `${object.objectId}:${object.zoneEntryId}`;
+    // Layer effects can detach a Gear by making it a Unit (CR 718.6.a), so the
+    // current attachment relation is authoritative. Raw snapshots still bind
+    // both objects to the same zone incarnation and prevent invented links.
+    const original = sourceByKey.get(key);
+    const current = currentByKey.get(key);
+    const host = current?.attachedTo;
+    if (original?.zone !== "board" || original.faceDown || current?.zone !== "board" || current.faceDown ||
+        host === null || host === undefined || host.id === object.objectId) return object;
+    const originalHost = sourceByKey.get(`${host.id}:${host.zoneEntryId}`);
+    const currentHost = currentByKey.get(`${host.id}:${host.zoneEntryId}`);
+    const projectedHost = projectedByKey.get(`${host.id}:${host.zoneEntryId}`);
+    if (originalHost?.zone !== "board" || originalHost.faceDown || currentHost?.zone !== "board" || currentHost.faceDown ||
+        projectedHost === undefined || projectedHost.objectId !== host.id || projectedHost.zone !== "board" ||
+        projectedHost.faceDown || projectedHost.zoneEntryId !== host.zoneEntryId) return object;
+    return { ...object, attachedToObjectId: projectedHost.objectId };
+  });
+}
+
 function snapshotObjects(snapshot: RuntimeProjectionSnapshot, viewer: string | null): readonly V2ProjectedObject[] {
   const key = viewer ?? "spectator";
   const cached = snapshot.projectedObjects.get(key);
@@ -519,12 +554,13 @@ function snapshotObjects(snapshot: RuntimeProjectionSnapshot, viewer: string | n
   const hidden = new Map(snapshot.hiddenObjectSource.map(object => [objectRefKey(object), object]));
   const currentObject = (object: ObjectSnapshot): ObjectSnapshot =>
     snapshot.objectCurrentById?.get(objectRefKey(object)) ?? object;
-  const objects = Object.freeze([
+  const objects = Object.freeze(withAttachmentHosts([
     ...snapshot.objectSource.filter(object => !hidden.has(objectRefKey(object)) &&
       (!object.faceDown || object.zone === "deck" || object.zone === "rune-deck"))
       .map(object => projectedObject(currentObject(object), viewer, snapshot.visibilityGrants)),
     ...[...hidden.values()].map(object => projectedObject(object, viewer, snapshot.visibilityGrants)),
-  ]);
+  ], snapshot.objectSource, snapshot.objectCurrentById === null ? snapshot.objectSource
+    : [...snapshot.objectCurrentById.values()]));
   snapshot.projectedObjects.set(key, objects);
   return objects;
 }

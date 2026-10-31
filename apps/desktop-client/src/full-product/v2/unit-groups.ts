@@ -17,6 +17,8 @@ import type {
 export interface V2UnitGroup {
   readonly key: string;
   readonly objects: readonly V2ProjectedObject[];
+  /** Equipment attached to this group's single permanent, drawn under it (RIFT-1180). */
+  readonly attachments: readonly V2ProjectedObject[];
 }
 
 function controllerOf(object: V2ProjectedObject): string {
@@ -35,17 +37,47 @@ export function v2UnitGroupKey(object: V2ProjectedObject): string {
     object.might ?? "", counters].join("|");
 }
 
+/**
+ * Equipment attached to a permanent in the same list, by host objectId
+ * (RIFT-1180). Gear whose host is elsewhere stays a permanent of its own.
+ */
+export function v2AttachmentsByHost(objects: readonly V2ProjectedObject[]): ReadonlyMap<string, readonly V2ProjectedObject[]> {
+  const listed = new Map(objects.map(object => [object.objectId, object] as const));
+  const sameLocation = (left: V2ProjectedObject, right: V2ProjectedObject): boolean =>
+    left.location === undefined ? right.location === undefined : right.location !== undefined &&
+      (left.location.kind === "base" && right.location.kind === "base"
+        ? left.location.playerId === right.location.playerId
+        : left.location.kind === "battlefield" && right.location.kind === "battlefield"
+          ? left.location.battlefieldId === right.location.battlefieldId : false);
+  const attachments = new Map<string, V2ProjectedObject[]>();
+  for (const object of objects) {
+    const host = object.attachedToObjectId;
+    const hostObject = host === undefined ? undefined : listed.get(host);
+    if (host === undefined || hostObject === undefined || host === object.objectId || !sameLocation(object, hostObject)) continue;
+    attachments.set(host, [...attachments.get(host) ?? [], object]);
+  }
+  return attachments;
+}
+
 /** Stack identical permanents, keeping the projection's order of first appearance. */
 export function v2GroupUnits(objects: readonly V2ProjectedObject[]): readonly V2UnitGroup[] {
+  const attachments = v2AttachmentsByHost(objects);
+  const attached = new Set([...attachments.values()].flat().map(object => object.objectId));
   const groups = new Map<string, V2ProjectedObject[]>();
   for (const object of objects) {
+    // Attached gear is drawn under its host instead of in a slot of its own.
+    if (attached.has(object.objectId)) continue;
     // Face-down permanents never stack: their identities are hidden from us.
-    const key = object.faceDown ? `facedown|${object.objectId}` : v2UnitGroupKey(object);
+    // A unit carrying gear differs from its twins, so it never stacks either.
+    const key = object.faceDown ? `facedown|${object.objectId}` :
+      attachments.has(object.objectId) ? `equipped|${object.objectId}` : v2UnitGroupKey(object);
     const group = groups.get(key);
     if (group === undefined) groups.set(key, [object]);
     else group.push(object);
   }
-  return [...groups].map(([key, members]) => ({ key, objects: members }));
+  return [...groups].map(([key, members]) => ({
+    key, objects: members, attachments: members.length === 1 ? attachments.get(members[0]!.objectId) ?? [] : []
+  }));
 }
 
 /** Total projected Might of one player's units at a battlefield. */

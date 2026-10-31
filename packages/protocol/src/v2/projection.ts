@@ -31,6 +31,8 @@ export interface V2ProjectedObject {
   readonly damage?: number;
   readonly might?: number;
   readonly counters?: Readonly<Record<string, number>>;
+  /** The permanent this Equipment is attached to (RIFT-1180); absent when unattached. */
+  readonly attachedToObjectId?: string;
 }
 
 export interface V2ZoneSnapshot {
@@ -259,7 +261,8 @@ function visibility(value: unknown): value is "public" | "owner-only" {
 }
 function object(value: unknown, viewer: string | null): value is V2ProjectedObject {
   if (!data(value) || !exact(value, ["objectId", "zone", "ownerPlayerId", "faceDown", "visibility"],
-    ["zoneEntryId", "controllerPlayerId", "cardId", "name", "location", "exhausted", "damage", "might", "counters"]) ||
+    ["zoneEntryId", "controllerPlayerId", "cardId", "name", "location", "exhausted", "damage", "might", "counters",
+      "attachedToObjectId"]) ||
       !text(value.objectId) || !isV2Zone(value.zone) || !text(value.ownerPlayerId) || typeof value.faceDown !== "boolean" ||
       !visibility(value.visibility)) return false;
   if (value.zoneEntryId !== undefined && !count(value.zoneEntryId)) return false;
@@ -270,6 +273,7 @@ function object(value: unknown, viewer: string | null): value is V2ProjectedObje
   if (value.exhausted !== undefined && typeof value.exhausted !== "boolean") return false;
   for (const key of ["damage", "might"] as const) if (value[key] !== undefined && !count(value[key])) return false;
   if (value.counters !== undefined && !map(value.counters)) return false;
+  if (value.attachedToObjectId !== undefined && !text(value.attachedToObjectId)) return false;
   if (value.faceDown && value.cardId !== undefined) return false;
   if ((value.zone === "deck" || value.zone === "rune-deck" || value.zone === "facedown") &&
       (value.cardId !== undefined || value.name !== undefined)) return false;
