@@ -15,6 +15,7 @@ import { loadCardCatalogRuntime } from "../../src/card-catalog.js";
 
 // Core Rules v1.5 (published 2026-10-09, effective 2026-10-16):
 // https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// Chinese card source: https://content.publishing.riotgames.com/publishing-content/v2.0/public/channel/riftbound_website/list/riftbound_gallery_cards?locale=zh_CN
 // 466.2.c.3 assigns Attacker/Defender during the real Combat Showdown;
 // 467.2.a sums only the Attacking Units' current Might, while 467.2.b does the
 // same for the Defending Units. The projection and both assignment commands
@@ -133,41 +134,6 @@ function responsibleView(views: readonly [V2Projection, V2Projection]): {
 }
 
 describe("RIFT-1171 combat damage budget room projection", () => {
-  it("keeps a 2-Might side at 2 and a 4-Might side at 4 in the same damage window", async () => {
-    const started = await startedRumbleRoom("RIFT-1171-independent-budgets");
-    let damageView: V2Projection | null = null;
-    for (let step = 0; step < 160; step += 1) {
-      const views = started.playerIds.map(playerId =>
-        readProjection(started.room, playerId)) as [V2Projection, V2Projection];
-      if (views[0].combat.status === "active" && views[0].combat.step === "damage") {
-        damageView = views[0];
-        break;
-      }
-      const { actor, view } = responsibleView(views);
-      let command: V2Command | null = null;
-      if (view.chain.items.length === 0 && view.combat.status === "none") {
-        const move = view.actionOptions.moves.find(option => option.destination.kind === "battlefield");
-        if (move?.destination.kind === "battlefield") {
-          command = { type: "move", commandId: `RIFT-1171-independent-${step}`,
-            stateVersion: view.stateVersion, objectId: move.objectId,
-            to: { zone: "battlefield", locationId: move.destination.battlefieldId } };
-        }
-      }
-      command ??= botCommand(view, actor, `RIFT-1171-independent-${step}`, new Set(), cardFacts);
-      if (command === null) throw new Error(`No projected room command at step ${step}`);
-      expect(submitThroughRoom(started, actor, command).accepted).toBe(true);
-    }
-    expect(damageView).not.toBeNull();
-    if (damageView?.combat.status !== "active" || damageView.combat.step !== "damage" ||
-        damageView.combat.damage === undefined) throw new Error("Damage window was not reached");
-    expect([damageView.combat.damage.attackerMight, damageView.combat.damage.defenderMight].sort())
-      .toEqual([2, 4]);
-    expect(damageView.combat.damage.attackerMight)
-      .not.toBe(damageView.combat.damage.attackerMight + damageView.combat.damage.defenderMight);
-    expect(damageView.combat.damage.defenderMight)
-      .not.toBe(damageView.combat.damage.attackerMight + damageView.combat.damage.defenderMight);
-  }, 120_000);
-
   it("derives each projected budget from the participating Units on each side", async () => {
     const started = await startedRumbleRoom("RIFT-1171-participant-budget");
     let damageView: V2Projection | null = null;

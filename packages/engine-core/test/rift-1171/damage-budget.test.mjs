@@ -8,6 +8,7 @@ import { bindResolveContext, createActionPipelineHost } from '../../dist/events/
 
 // Core Rules v1.5 (published 2026-10-09, effective 2026-10-16):
 // https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// Chinese card source: https://content.publishing.riotgames.com/publishing-content/v2.0/public/channel/riftbound_website/list/riftbound_gallery_cards?locale=zh_CN
 // 467.2.a sums all Attacking Units' current Might, 467.2.b does the same for
 // Defending Units, and 467.2.c assigns each side's budget to opposing Units.
 // Units elsewhere on the Board neither attack nor defend at this Battlefield.
