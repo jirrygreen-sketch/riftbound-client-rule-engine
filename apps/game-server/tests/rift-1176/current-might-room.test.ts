@@ -233,6 +233,27 @@ describe("RIFT-1176 public room current Might", () => {
       expect(view.objects.find(object => object.objectId === bubbleBotId)?.might).toBe(4);
       expect(view.objects.find(object => object.objectId === rumbleId)?.might).toBe(5);
     }
+
+    const runtime = (started.room as unknown as {
+      engineRuntime: { host: EngineRuntimeHost };
+    }).engineRuntime;
+    const rumble = runtime.host.objects().find(object => object.ref.id === rumbleId);
+    if (rumble === undefined) throw new Error("Rumble is not present in the authoritative host");
+    expect(runtime.host.perform({ type: "return-to-hand", object: rumble.ref }).status).toBe("done");
+    const source = runtime.host.objects().find(object => object.ref.id === rumbleId);
+    expect(source === undefined || source.zone === "hand").toBe(true);
+    const remaining = runtime.host.objects().filter(object => object.zone === "board"
+      && object.controller === "A" && object.tags.includes("Mech") && object.cardId === BUBBLE_BOT);
+    const current = runtime.match.flow.chain.layers;
+    current.setObjects(runtime.host.objects());
+    expect(current.evaluateAll().find(object => object.ref.id === bubbleBotId)?.might).toBe(3);
+    expect(remaining).toHaveLength(1);
+    for (const viewer of started.playerIds) {
+      const view = readProjection(started.room, viewer);
+      expect(view.objects.find(object => object.objectId === bubbleBotId)?.might).toBe(3);
+      const projected = view.objects.find(object => object.objectId === rumbleId);
+      expect(projected?.might ?? 4).toBe(4);
+    }
   }, 180_000);
 
   it("projects Rumble's live Mech bonus through the public room projection", async () => {
