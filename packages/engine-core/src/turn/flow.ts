@@ -1,4 +1,4 @@
-import { ChainEngine, type ChainDraft } from '../chain/engine.js';
+import { ChainEngine, type ChainDraft, type PaymentContinuationHostPort } from '../chain/engine.js';
 import { releaseEffectActor } from '../events/effect-actor.js';
 import type { GameAction, LocationRef, ObjectRef, ObjectSnapshot, PlayerId, PlayerSnapshot } from '../effects/contract.js';
 import type { PipelineHost, TimingEmission } from '../events/pipeline-types.js';
@@ -51,6 +51,8 @@ export interface TurnFlowOptions {
   readonly hiddenState?: HiddenState;
   readonly facedownCapacity?: (battlefieldId: string) => number;
   readonly taskCapabilities?: { readonly clearStun?: (object: ObjectRef) => void };
+  /** Durable server owner for one frozen external Pay Costs step. */
+  readonly paymentContinuation?: PaymentContinuationHostPort;
 }
 
 type Task = () => void;
@@ -319,6 +321,7 @@ export class TurnFlow {
       turnOrder: options.turnOrder, turnPlayer: options.turnOrder[0], phase: 'not-started', layers: this.layers,
       host, cleanup: engine => this.cleanup(engine), describePlay: options.describePlay === undefined ? undefined :
         (action, source) => withHiddenSource(this, () => options.describePlay!(action, source, this)),
+      ...(options.paymentContinuation === undefined ? {} : { paymentContinuation: options.paymentContinuation }),
     });
     // Batch 4's initial clock is 1; this driver emits the first turn-start itself.
     this.chain.pipeline.clock.turn = 0;

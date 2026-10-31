@@ -141,6 +141,22 @@ export interface PaymentContinuationHostPort {
    * journaled notice to restorePaymentContinuationHandle for equality checks.
    */
   persist(notice: PaymentContinuationSnapshot): boolean;
+  /**
+   * Production runtime defers only costs that cannot be paid now, allowing a
+   * Reaction Add to fund them. Tests that install the port as a journal seam
+   * retain the historical behavior of suspending every external payment.
+   */
+  readonly onlyWhenUnpayable?: boolean;
+  /**
+   * Optional read-only gate for the formal suspension. Production uses it to
+   * require a currently legal Reaction Add candidate; journal-seam tests omit
+   * it and retain the established suspend-on-demand contract.
+   */
+  readonly shouldSuspend?: (input: {
+    readonly payer: PlayerId;
+    readonly source: ObjectRef;
+    readonly costPlan: CostPlan;
+  }) => boolean;
 }
 
 interface PaymentContinuationBinding {
@@ -1577,11 +1593,22 @@ export class ChainEngine {
           item.costPlan = finalizedInput.ignoreAllCosts === true
             ? buildCostPlan(paymentContext, finalizedInput)
             : finalizeCostPlan(paymentContext, finalizedInput, this.costDiscountSources(item));
-          if (this.options.paymentContinuation !== undefined && !this.resumingPaymentContinuation) {
+          const paymentPort = this.options.paymentContinuation;
+          const paymentUnpayable = paymentPort !== undefined &&
+            !assessCostPayment(paymentContext, item.costPlan).payable;
+          const shouldSuspendPayment = paymentPort !== undefined &&
+            !this.resumingPaymentContinuation &&
+            (paymentPort.onlyWhenUnpayable !== true || paymentUnpayable) &&
+            (paymentPort.shouldSuspend?.({
+              payer: item.costPlan.player,
+              source: { ...item.source.ref },
+              costPlan: item.costPlan,
+            }) ?? true);
+          if (shouldSuspendPayment) {
             item.status = 'finalized';
             this.record({ step: 'finalized', item: item.id });
             const handle = this.suspendPaymentContinuation(item);
-            if (!this.options.paymentContinuation.persist(handle.snapshot)) {
+            if (!this.options.paymentContinuation!.persist(handle.snapshot)) {
               throw new Error('Payment continuation notice was not durably accepted');
             }
             this.paymentSuspended = true;
@@ -1876,6 +1903,42 @@ export class ChainEngine {
     const parentBusy = this.busy;
     this.finalize(item); this.resolve(item); this.busy = parentBusy;
     if (parentBusy === 'idle') this.handleOutstanding();
+  }
+
+  /**
+   * Read-only owner for any live Pay Costs interrupt window. The formal
+   * continuation is authoritative across the suspension; the legacy
+   * instruction path remains readable while its exact prompt is pending.
+   */
+  reactionAddPaymentWindow(): {
+    readonly payer: PlayerId;
+    readonly source: ObjectRef;
+    readonly kind: 'continuation' | 'instruction';
+    readonly continuationId?: string;
+  } | null {
+    const formal = this.paymentContinuation ??
+      (this.suspendedPaymentContinuations.size === 1 ? [...this.suspendedPaymentContinuations.values()][0]! : null);
+    if (formal !== null) return {
+      payer: formal.snapshot.payer,
+      source: { ...formal.snapshot.source },
+      kind: 'continuation',
+      continuationId: formal.snapshot.continuationId,
+    };
+    const prompt = this.weaponmasterPaymentPrompt;
+    if (prompt === null) return null;
+    const parent = this.entries.find(item => item.id === prompt.itemId && item.status === 'finalized');
+    return parent === undefined ? null : {
+      payer: prompt.controller,
+      source: { ...parent.source.ref },
+      kind: 'instruction',
+    };
+  }
+
+  /** Journal-safe, process-local notice for the current formal suspension. */
+  paymentContinuationNotice(): PaymentContinuationSnapshot | null {
+    const handle = this.paymentContinuation ??
+      (this.suspendedPaymentContinuations.size === 1 ? [...this.suspendedPaymentContinuations.values()][0]! : null);
+    return handle === null ? null : structuredClone(handle.snapshot);
   }
 
   /** Snapshot the only parent whose Pay Costs may accept an external Reaction Add. */
