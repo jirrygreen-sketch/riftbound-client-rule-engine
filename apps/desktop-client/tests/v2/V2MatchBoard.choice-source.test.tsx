@@ -71,10 +71,13 @@ function render(value: V2Projection): string {
 }
 
 describe("V2 choice source and prompt", () => {
-  it("renders the source name and engine prompt under the choice heading", () => {
+  it("renders the source name and a Chinese operation hint under the choice heading", () => {
     const html = render(projection({ objectId: "source-1", name: "Treasure Hoard" }, "Pay 1 Energy?"));
-    expect(html).toContain("来源：Treasure Hoard");
-    expect(html).toContain("Pay 1 Energy?");
+    expect(html).toContain("来源：");
+    expect(html).toContain(">Treasure Hoard</span>");
+    // RIFT-1164: card-authored English prompts give way to a Chinese hint.
+    expect(html).toContain("是否发动这项可选效果？");
+    expect(html).not.toContain("Pay 1 Energy?");
   });
 
   it("keeps the original choice panel when auxiliary metadata is absent", () => {
@@ -88,8 +91,9 @@ describe("V2 choice source and prompt", () => {
       const value = projection({ objectId: "source-1", name: "Pit Rookie" }, "Choose a friendly unit.");
       value.pendingChoice = { ...value.pendingChoice, choiceId, kind };
       const html = render(value);
-      expect(html).toContain("来源：Pit Rookie");
-      expect(html).toContain("Choose a friendly unit.");
+      expect(html).toContain(">Pit Rookie</span>");
+      expect(html).toContain(kind === "mode" ? "请选择一种模式" : "请在下方点选对象");
+      expect(html).not.toContain("Choose a friendly unit.");
     }
   });
 

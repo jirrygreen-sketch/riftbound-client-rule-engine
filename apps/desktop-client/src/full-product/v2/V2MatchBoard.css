@@ -420,7 +420,7 @@
 .v2cd .v2cd-text .card-text { font-size: .95rem; line-height: 1.7; max-height: 46vh; }
 .v2cd .v2cd-close { margin-top: auto; }
 
-.v2ch { position: absolute; z-index: 44; top: 2.2rem; width: clamp(14rem, 19vw, 18rem); max-height: calc(100% - var(--v2t-hand) - 2.8rem); overflow: hidden;
+.v2ch { position: absolute; z-index: 47; top: 2.2rem; width: clamp(14rem, 19vw, 18rem); max-height: calc(100% - var(--v2t-hand) - 2.8rem); overflow: hidden;
   display: flex; flex-direction: column; gap: .35rem; padding: .45rem; border-radius: .6rem; pointer-events: none;
   background: rgba(8, 14, 17, .96); border: 1px solid rgba(184, 154, 82, .6); box-shadow: 0 16px 40px rgba(0, 0, 0, .6); animation: v2t-fade .12s ease; }
 @keyframes v2t-fade { from { opacity: 0; } }

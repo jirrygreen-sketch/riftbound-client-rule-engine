@@ -41,9 +41,14 @@ interface ChoiceMetadata {
   readonly prompt?: string;
 }
 
-/** Player-facing text only for keyword-defined choices whose mechanics map exactly. */
+/**
+ * Player-facing text only for keyword-defined choices whose mechanics map exactly.
+ * Keyword name and reminder text are the official zh_CN gallery wording
+ * ([预知], e.g. OGN-086 宝石巨像, riftbound_gallery_cards?locale=zh_CN, read
+ * 2026-10-31); the sentence after it is the client operation hint (RIFT-1164).
+ */
 const KEYWORD_CHOICE_PROMPTS: Readonly<Record<string, string>> = Object.freeze({
-  vision: "Vision: Look at the top card of your Main Deck. Select it to recycle it; leave it unselected to keep it on top.",
+  vision: "预知：查看主牌堆顶部的一张牌，你可以选择将其回收。选中这张牌即回收它；不选则让它留在主牌堆顶部。",
 });
 
 interface ResolvedTriggerOption {
