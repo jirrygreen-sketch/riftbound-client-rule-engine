@@ -166,7 +166,13 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
   if ((priority !== viewer && !waitingForFutureCommand) || !open || chain.items.length > 0) {
     return { canEndTurn, canAdvance, canPass, moves: [], plays: [] };
   }
-  const objects = host.objects();
+  // Ganking and other keyword grants are characteristics produced by the
+  // authoritative layer pass, not bits rewritten into the state owner. Action
+  // options must use that same effective view as Standard Move validation
+  // (CR 478 and 810.3).
+  const objects = chain.layers === undefined
+    ? host.objects()
+    : chain.layers.evaluateAll();
   const battlefields = match.flow.battlefields;
   const moves: V2ActionOptions["moves"][number][] = [];
   for (const object of objects) {
