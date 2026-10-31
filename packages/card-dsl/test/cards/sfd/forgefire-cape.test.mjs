@@ -134,7 +134,7 @@ test("sfd-190-221 Forgefire Cape: the merged Equip expansion is valid EffectIR f
 test("sfd-190-221 Forgefire Cape golden: the Equip body attaches the cape to a locked unit you control", () => {
   // 818.1.b.1 / 818.1.c.2: the chosen unit is a Target restricted to units you control.
   assert.deepEqual(activation.body[0].targets, [
-    { id: "equip-target", filter: { type: "unit", controller: "self" }, min: 1, max: 1, selection: "one" }
+    { id: "equip-target", filter: { type: "unit", zone: "board", controller: "self" }, min: 1, max: 1, selection: "one" }
   ]);
   assert.deepEqual(activation.cost.payments.map((payment) => payment.kind), ["equip"]);
 

@@ -96,7 +96,7 @@ test("sfd-042-221 Brutalizer: the merged Equip expansion is valid EffectIR for t
   // 818.1.b.1 / 818.1.c.2: the chosen unit is a Target, limited to units you control.
   assert.deepEqual(ability.body[0].targets, [{
     id: "equip-target",
-    filter: { type: "unit", controller: "self" },
+    filter: { type: "unit", zone: "board", controller: "self" },
     min: 1,
     max: 1,
     selection: "one"

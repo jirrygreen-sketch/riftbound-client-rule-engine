@@ -113,7 +113,7 @@ test("unl-158-219 Shepherd's Heirloom: the Equip expansion for this declaration 
   assert.deepEqual(ability.body[0].targets, [
     {
       id: "equip-target",
-      filter: { type: "unit", controller: "self" },
+      filter: { type: "unit", zone: "board", controller: "self" },
       min: 1,
       max: 1,
       selection: "one"

@@ -168,7 +168,7 @@ test("sfd-191-221 Rabadon's Deathcrown: the merged Equip expansion is valid Effe
 
 test("sfd-191-221 golden: the Equip body attaches the crown to a locked unit you control", () => {
   assert.deepEqual(activation.body[0].targets, [
-    { id: "equip-target", filter: { type: "unit", controller: "self" }, min: 1, max: 1, selection: "one" }
+    { id: "equip-target", filter: { type: "unit", zone: "board", controller: "self" }, min: 1, max: 1, selection: "one" }
   ]);
 
   const attached = runEquipBody((kernel) => kernel.ref("teemo"));

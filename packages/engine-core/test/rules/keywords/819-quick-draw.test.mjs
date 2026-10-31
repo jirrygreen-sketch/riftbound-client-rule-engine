@@ -54,7 +54,7 @@ test('keywords-quickdraw-attach-on-play: the trigger is limited to the Quick-Dra
   assert.equal(triggered.trigger.at, 'card-played');
   assert.deepEqual(triggered.body[0].targets, [{
     id: 'quick-draw-unit',
-    filter: { type: 'unit', controller: 'self' },
+    filter: { type: 'unit', zone: 'board', controller: 'self' },
     min: 1,
     max: 1,
     selection: 'one'

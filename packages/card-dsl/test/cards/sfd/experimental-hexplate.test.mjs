@@ -101,7 +101,7 @@ test("sfd-073-221 Experimental Hexplate: the merged Equip expansion is valid Eff
   assert.deepEqual(ability.body[0].targets, [
     {
       id: "equip-target",
-      filter: { type: "unit", controller: "self" },
+      filter: { type: "unit", zone: "board", controller: "self" },
       min: 1,
       max: 1,
       selection: "one"

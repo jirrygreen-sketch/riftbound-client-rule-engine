@@ -82,7 +82,7 @@ test("Equip expansion uses a controlled Unit target", () => {
   const [instruction] = ability.body;
   assert.deepEqual(instruction.targets, [{
     id: "equip-target",
-    filter: { type: "unit", controller: "self" },
+    filter: { type: "unit", zone: "board", controller: "self" },
     min: 1,
     max: 1,
     selection: "one"

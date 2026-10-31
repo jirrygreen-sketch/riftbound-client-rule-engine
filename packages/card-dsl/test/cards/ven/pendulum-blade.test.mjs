@@ -113,7 +113,7 @@ test("ven-011-166 Pendulum Blade: the merged Equip expansion is valid EffectIR f
   assert.deepEqual(ability.body[0].targets, [
     {
       id: "equip-target",
-      filter: { type: "unit", controller: "self" },
+      filter: { type: "unit", zone: "board", controller: "self" },
       min: 1,
       max: 1,
       selection: "one"
