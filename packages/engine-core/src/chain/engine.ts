@@ -1557,10 +1557,15 @@ export class ChainEngine {
           // Leaving-source abilities retain LKI for the effect, but a leading
           // "recycle me" cost acts on the card now in Trash (CR 383.3.b).
           const currentSource = item.kind === 'triggered' ? this.options.host.objects().find(object => object.ref.id === item.source.ref.id) : undefined;
-          const incumbentContext = currentSource ? bindResolveContext(context, { source: currentSource }) : context;
+          const incumbentSource = currentSource ?? context.source;
+          const incumbentContext = currentSource === undefined ? context : bindResolveContext(context, { source: currentSource });
+          const cardSource = this.finalizeCardSource(item, incumbentSource);
+          const paymentContextBase = cardSource === incumbentSource
+            ? incumbentContext
+            : bindResolveContext(incumbentContext, { source: cardSource });
           const paymentContext = legendExhaustCost
-            ? boardViewForLegendExhaustCost(incumbentContext, currentSource ?? context.source)
-            : incumbentContext;
+            ? boardViewForLegendExhaustCost(paymentContextBase, cardSource)
+            : paymentContextBase;
           const rawInput = baseInput ?? { id: `cost:${item.id}`, cost: { energy: { kind: 'constant' as const, value: 0 } } };
           const finalized = finalizeCostPlanInput(paymentContext, rawInput, item.costInput?.costChoices);
           const mandatoryAdditional = [...(finalized.input.mandatoryAdditional ?? []), ...targetTaxes.filter(tax => tax.id !== '' && !('stage' in tax))];
@@ -1661,8 +1666,9 @@ export class ChainEngine {
   }
   /** Capture the exact successful Finalize, before Resolve or Counter (CR 420.4.b). */
   private recordCardFinalize(item: ChainItem): void {
-    const object = this.options.host.objects().find(candidate =>
+    const live = this.options.host.objects().find(candidate =>
       candidate.ref.id === item.object.id && candidate.ref.zoneEntryId === item.object.zoneEntryId) ?? item.source;
+    const object = this.finalizeCardSource(item, live);
     this.finalizedPlaysThisTurn.push(structuredClone({
       object,
       player: item.controller,
@@ -1670,6 +1676,29 @@ export class ChainEngine {
       sequence: ++this.finalizeSequence,
       finalizedAt: 'chain-item-finalize',
     }));
+  }
+  /**
+   * The game runtime creates physical setup cards through `create-token`, so
+   * hand snapshots inherit `isToken:true`. A production card played from Hand
+   * is necessarily a card: Tokens can exist only on the Board or Chain
+   * (CR 186.1) and have no printed cost (CR 185.3.a). Correct only that
+   * contradictory carrier flag for production identities with a printed
+   * Energy cost. Synthetic fixtures and printed Token-tagged objects retain
+   * their supplied semantics.
+   */
+  private finalizeCardSource(item: ChainItem, source: ObjectSnapshot): ObjectSnapshot {
+    const productionCard = source.cardId?.startsWith('card.hash-') === true;
+    const printedToken = source.tags.some(tag => tag.trim().toLowerCase() === 'token');
+    if (item.source.zone !== 'hand' || !productionCard || source.energy === null ||
+        !source.isToken || printedToken) return source;
+    // RIFT-1165 is the version gate for setup Battlefields participating in
+    // the Board lifecycle. Legacy current-version journals keep those objects
+    // in `battlefield`, so this correction never changes their replay shape.
+    const currentSetupBattlefield = this.hostObjects().some(object => object.zone === 'board' &&
+      object.isToken && object.types.some(type => type.toLowerCase() === 'battlefield'));
+    return currentSetupBattlefield
+      ? Object.freeze({ ...source, isToken: false as const })
+      : source;
   }
   private collectBoundTargetTaxes(item: ChainItem, context: ResolveContext, into: CostComponentInput[]): void {
     const effects = boundTargetTaxes(this);
