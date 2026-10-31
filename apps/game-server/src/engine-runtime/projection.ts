@@ -14,6 +14,7 @@ import type {
   V2Zone,
 } from "../../../../packages/protocol/dist/v2/index.js";
 import { playLocations, restrictions as ruleRestrictions } from "../../../../packages/engine-core/dist/layers/rules/query.js";
+import { DUEL_DOMAINS } from "../../../../packages/engine-core/dist/cost/resources.js";
 import type { Match } from "../../../../packages/engine-core/dist/game/lifecycle.js";
 import type { ObjectRef, ObjectSnapshot, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
 import { playPermissionAllows, playPermissions } from "../../../../packages/engine-core/dist/programs/play-permissions.js";
@@ -160,27 +161,38 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
   const priority = chain.priority;
   const waitingForFutureCommand = chain.items.length === 0 && !match.flow.combat.active &&
     match.flow.phase === "main" && chain.turnState === "neutral-open" && priority === null;
-  const open = !match.flow.combat.active && chain.turnState === "neutral-open" &&
+  // A Showdown is an open Focus window, not a blanket prohibition: Reaction
+  // cards still require the per-source canAct query below. Ordinary Actions
+  // remain confined to the idle Main/Chain state.
+  const ordinaryOpen = !match.flow.combat.active && chain.turnState === "neutral-open" && chain.items.length === 0 &&
     (chain.canAct(viewer, "normal") || waitingForFutureCommand);
-  const canEndTurn = viewer === match.flow.turnPlayer && open;
-  if ((priority !== viewer && !waitingForFutureCommand) || !open || chain.items.length > 0) {
+  // Reaction cards are legal in a Closed State and at Priority under
+  // CR 813.1.c.1/.c.2. Per-source reaction legality is checked below against
+  // the engine's exact Priority/Focus query. Combat itself is not a permission:
+  // a Reactive Add still needs a valid trigger/payment window.
+  const reactionOpen = priority === viewer && chain.turnState.startsWith("showdown-");
+  const open = ordinaryOpen || reactionOpen;
+  const canEndTurn = viewer === match.flow.turnPlayer && ordinaryOpen;
+  if ((priority !== viewer && !waitingForFutureCommand) || !open) {
     return { canEndTurn, canAdvance, canPass, moves: [], plays: [] };
   }
   const objects = host.objects();
   const battlefields = match.flow.battlefields;
   const moves: V2ActionOptions["moves"][number][] = [];
-  for (const object of objects) {
-    if (object.controller !== viewer || object.zone !== "board" || !object.types.includes("unit") ||
-        object.exhausted || object.location === null) continue;
-    if (object.location.type === "battlefield") {
-      moves.push({ objectId: object.ref.id, destination: { kind: "base", playerId: viewer } });
-    }
-    if (object.location.type === "base" || object.location.type === "battlefield") {
-      for (const field of battlefields) {
-        if (object.location.type === "battlefield" && object.location.id === field.id) continue;
-        if (object.location.type === "base" || object.keywords.some(keyword =>
-          keyword.id.toLowerCase().replace(/[\s_-]+/g, "") === "ganking")) {
-          moves.push({ objectId: object.ref.id, destination: { kind: "battlefield", battlefieldId: field.id } });
+  if (ordinaryOpen) {
+    for (const object of objects) {
+      if (object.controller !== viewer || object.zone !== "board" || !object.types.includes("unit") ||
+          object.exhausted || object.location === null) continue;
+      if (object.location.type === "battlefield") {
+        moves.push({ objectId: object.ref.id, destination: { kind: "base", playerId: viewer } });
+      }
+      if (object.location.type === "base" || object.location.type === "battlefield") {
+        for (const field of battlefields) {
+          if (object.location.type === "battlefield" && object.location.id === field.id) continue;
+          if (object.location.type === "base" || object.keywords.some(keyword =>
+            keyword.id.toLowerCase().replace(/[\s_-]+/g, "") === "ganking")) {
+            moves.push({ objectId: object.ref.id, destination: { kind: "battlefield", battlefieldId: field.id } });
+          }
         }
       }
     }
@@ -189,14 +201,20 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
   const energy = host.player(viewer).energy;
   const power = host.player(viewer).power;
   const binding = match.programBinding;
-  const printedCatalog = binding === undefined ? undefined :
-    (binding.describePlay as typeof binding.describePlay & {
+  // Catalog rows are installed by ProgramBinding lifecycle on the Chain's
+  // describePlay function. TurnFlow wraps the Match binding, so the trusted
+  // lookup is available here even though match.programBinding predates the
+  // runtime-owned catalog binding.
+  const describePlay = (chain as unknown as { readonly options?: {
+    readonly describePlay?: NonNullable<typeof binding>["describePlay"] & {
       readonly printedCatalog?: (canonicalCardId: string) => {
         readonly domains: readonly string[];
         readonly energy: number | null;
         readonly power: number | null;
       } | undefined;
-    }).printedCatalog;
+    };
+  } }).options?.describePlay;
+  const printedCatalog = describePlay?.printedCatalog;
   const hasTargets = (source: ObjectSnapshot): boolean => {
     const program = binding?.registry.inspect(source.cardId);
     if (program === undefined || program.status !== "executable") return false;
@@ -206,13 +224,28 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
   };
   const canPay = (source: ObjectSnapshot): boolean => {
     const row = source.cardId === null ? undefined : printedCatalog?.(source.cardId);
-    const printedEnergy = row?.energy ?? source.energy;
-    if (printedEnergy === null || printedEnergy! > energy) return false;
-    const requiredPower = row === undefined ? (source.power ?? []).length : row.power ?? 0;
+    // Without an exact numeric catalog row, ObjectSnapshot can prove only that
+    // a Power requirement exists, not whether it is for one or several Power.
+    // Do not turn a Domain set into a cost amount; fail closed instead.
+    if (row === undefined && (source.power ?? []).length > 0) return false;
+    const printedEnergy = row === undefined ? source.energy : row.energy;
+    if (printedEnergy === null || printedEnergy > energy) return false;
+    // ObjectSnapshot.power is a Domain set, not a cardinality. In particular,
+    // a multi-Domain printed [C] carries both Domains but still requires one
+    // Power (CR 135.2.e.6.c). Only the trusted catalog row supplies the amount.
+    const requiredPower = row?.power ?? 0;
     if (requiredPower === 0) return true;
-    const allowed = row?.domains ?? source.power ?? [];
-    return power.filter(source => allowed.includes(source) || source === "universal" ||
-      source === "any" || source === "universal-power").length >= requiredPower;
+    // Empty/Colorless domains are processed as universal [A] (CR 135.2.e.6.b);
+    // a colored multi-Domain card accepts Power of any one listed Domain
+    // (CR 135.2.e.6.c).
+    const allowed: readonly string[] = row !== undefined &&
+      (row.domains.length === 0 || row.domains.length === 1 && row.domains[0] === "Colorless")
+      ? DUEL_DOMAINS
+      : row?.domains ? row.domains.filter(domain => (DUEL_DOMAINS as readonly string[]).includes(domain)) : source.power ?? [];
+    const universal = power.filter(resource => resource === "any" ||
+      resource === "universal" || resource === "universal-power").length;
+    const named = power.filter(resource => allowed.includes(resource)).length;
+    return named + universal >= requiredPower;
   };
   const explicitPermissions = (source: ObjectSnapshot) => playPermissions(chain.layers.registry, source);
   // `undefined` means the trusted ability has no direct target requirement.
@@ -257,11 +290,22 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
     }
     return projected.length === 0 ? undefined : projected;
   };
-  if (!chain.items.length) {
+  {
     for (const source of objects) {
       if (source.controller !== viewer || (source.zone !== "hand" && source.zone !== "champion") || source.cardId === null ||
-          !canPay(source) ||
-          (!waitingForFutureCommand && !chain.canAct(viewer, source.types.includes("spell") || source.types.includes("gear") ? "action" : "normal", source.ref, source))) continue;
+          !canPay(source)) continue;
+      let ordinaryTiming = waitingForFutureCommand;
+      let reactionTiming = false;
+      const sourceSpeed = binding === undefined ? undefined : (() => {
+        try { return binding.describePlay({ type: "play", object: source.ref, player: viewer }, source).speed; }
+        catch { return undefined; }
+      })();
+      if (!ordinaryTiming) {
+        const ordinarySpeed = sourceSpeed ?? (source.types.includes("spell") || source.types.includes("gear") ? "action" : "normal");
+        ordinaryTiming = chain.canAct(viewer, ordinarySpeed, source.ref, source);
+        reactionTiming = sourceSpeed === "reaction" && chain.canAct(viewer, "reaction", source.ref, source);
+      }
+      if (!ordinaryTiming && !reactionTiming) continue;
       const requirements = targetRequirements(source);
       if (requirements === null) continue;
       const unit = source.types.some(type => type.toLowerCase() === "unit");
