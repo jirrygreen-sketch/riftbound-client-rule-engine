@@ -150,7 +150,7 @@ export function canPassForViewer(match: Match, pendingChoice: boolean, viewer: P
 }
 
 function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | null,
-  pendingChoice: boolean): V2ActionOptions {
+  pendingChoice: boolean, currentById: ReadonlyMap<string, ObjectSnapshot> | null = null): V2ActionOptions {
   const canAdvance = advanceResponsiblePlayer(match, pendingChoice, viewer) !== null;
   const canPass = canPassForViewer(match, pendingChoice, viewer);
   if (viewer === null || match.result().winner !== null || match.flow.phase !== "main") {
@@ -166,7 +166,10 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
   if ((priority !== viewer && !waitingForFutureCommand) || !open || chain.items.length > 0) {
     return { canEndTurn, canAdvance, canPass, moves: [], plays: [] };
   }
-  const objects = host.objects();
+  // RIFT-1180 (handoff from RIFT-1173): Ganking granted by an effect is a
+  // layer-evaluated characteristic, as Standard Move validation reads it
+  // (CR 478, 810.3), so move options use the snapshot's current view.
+  const objects = host.objects().map(object => currentById?.get(objectRefKey(object)) ?? object);
   const battlefields = match.flow.battlefields;
   const moves: V2ActionOptions["moves"][number][] = [];
   for (const object of objects) {
@@ -603,7 +606,7 @@ export function projectRuntimeFromSnapshot(
     scoring: snapshot.scoring,
     battlefields: snapshot.battlefields,
     combat: snapshot.combat,
-    actionOptions: actionOptions(match, host, viewer, pendingChoice !== null),
+    actionOptions: actionOptions(match, host, viewer, pendingChoice !== null, snapshot.objectCurrentById),
     pendingChoice: projectedChoice,
     winnerPlayerId: snapshot.winnerPlayerId,
     events: snapshotEvents(snapshot, viewer),
