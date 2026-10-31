@@ -36,6 +36,7 @@ import {
   projectedObjectCardName,
   type CardNameIndex
 } from "./card-names";
+import { officialKeywordName } from "./keyword-names";
 import { DEFAULT_HTTP_SERVER_URL, DEFAULT_WS_SERVER_URL } from "../../net/server-defaults";
 import {
   buildV2CardLookup,
@@ -1578,7 +1579,7 @@ function ChoicePanel({ cardNames, projection: choiceProjection, onHover, choice,
             allowLocation: choiceProjection.objects.find(object => object.objectId === option.objectRef!.objectId)?.visibility === "public" }]), cardNames);
         return options.map(option => <button key={`${option.id}:${String(option.objectRef?.zoneEntryId ?? option.value ?? option.id)}`} type="button" aria-pressed={selectedIds.includes(option.id)} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onToggle(option.id)}
           {...(option.objectRef === undefined ? {} : v2HoverProps(onHover, choiceObject(option.objectRef.objectId)?.cardId, choiceObject(option.objectRef.objectId)))}>{
-          option.objectRef === undefined ? option.label : labels.get(option.objectRef.objectId) ??
+          option.objectRef === undefined ? (v2IsTriggerOrderChoice(pending) ? v2TriggerOrderOptionLabel(cardNames, option.label) : option.label) : labels.get(option.objectRef.objectId) ??
             cardReferenceName(cardNames, option.objectRef.objectId, option.label, option.objectRef.objectId)}{pending.kind === "order" && selectedIds.includes(option.id) ? ` · 第 ${selectedIds.indexOf(option.id) + 1} 位` : ""}</button>);
       })()}</div>}
     {pending.min !== undefined || pending.max !== undefined ? <p className="v2-muted">可选数量：{pending.min ?? 0}–{pending.max ?? "不限"}{multiple ? "（可多选）" : ""}</p> : null}
@@ -1595,6 +1596,11 @@ function ChoicePanel({ cardNames, projection: choiceProjection, onHover, choice,
  */
 export function v2ChoiceInstruction(pending: Extract<V2PendingChoice, { status: "pending" }>): string {
   if (pending.prompt !== undefined && /[\u4e00-\u9fff]/u.test(pending.prompt)) return pending.prompt;
+  // RIFT-1170: several of the player's abilities triggered at once. The engine
+  // puts the picked one on the Chain first, so it resolves after the others.
+  if (v2IsTriggerOrderChoice(pending)) {
+    return "多个效果同时触发：请选出先放上连锁的那一个（连锁上越晚放上的越先结算），剩下的会继续让你选。";
+  }
   switch (pending.kind) {
     case "optional": return "是否发动这项可选效果？效果见来源卡牌说明（鼠标移到卡名上查看）。";
     case "mode": return "请选择一种模式，然后点“提交选择”。";
@@ -1604,6 +1610,24 @@ export function v2ChoiceInstruction(pending: Extract<V2PendingChoice, { status: 
     case "order": return "请按期望顺序依次点击下方各项，然后点“提交选择”。";
     case "number": return "请输入数值，然后点“提交选择”。";
   }
+}
+
+export function v2IsTriggerOrderChoice(pending: Extract<V2PendingChoice, { status: "pending" }>): boolean {
+  return pending.kind === "mode" && /^trigger:\d+:[^:]+:order:\d+$/u.test(pending.choiceId);
+}
+
+/**
+ * A trigger-order option is labelled "<card name> · <keyword>" by the server
+ * (RIFT-1170). Show the official Chinese card name and keyword where known;
+ * an unreadable option keeps the server label.
+ */
+export function v2TriggerOrderOptionLabel(cardNames: CardNameIndex, label: string): string {
+  // An unreadable option is the raw engine token ("program:…"); keep it.
+  const match = /^(.+?)(?: · ([A-Za-z][A-Za-z-]*))?(?: \(trigger (\d+)\))?$/u.exec(label);
+  if (match === null || label.includes(":")) return label;
+  const name = cardReferenceName(cardNames, undefined, match[1]) ?? match[1]!;
+  const keyword = match[2] === undefined ? "" : ` · ${officialKeywordName(match[2]) ?? match[2]}`;
+  return `${name}${keyword}${match[3] === undefined ? "" : `（第 ${match[3]} 个）`}`;
 }
 
 function choiceKindLabel(kind: Extract<V2PendingChoice, { status: "pending" }>["kind"]): string {

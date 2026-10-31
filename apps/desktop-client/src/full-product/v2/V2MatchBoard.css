@@ -172,6 +172,13 @@
 .v2m-state > span { padding: 0 .2rem; border-radius: .2rem; background: rgba(4, 10, 11, .78); }
 .v2m-readied { color: var(--v2t-muted); }
 .v2m-might { color: #f2c86b; font-weight: 700; }
+.v2m-might em { margin-left: .15rem; font-style: normal; font-size: .85em; }
+.v2m-might.is-up { color: #7ee08a; }
+.v2m-might.is-down { color: #ff8a7a; }
+.v2m-art.is-token { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .1rem;
+  background: linear-gradient(160deg, rgba(70, 90, 110, .9), rgba(28, 36, 44, .95)); color: #e8eef2; text-align: center; }
+.v2m-art.is-token b { font-size: .8rem; }
+.v2m-art.is-token small { font-size: .62rem; opacity: .8; }
 .v2m-damage { color: #fff; background: #b9362a !important; }
 .v2m-layer { position: absolute; z-index: 0; inset: 0; border-radius: .3rem; background: #22353a; border: 1px solid #3a5157; transform: translate(3px, -3px); }
 .v2m-layer.is-second { transform: translate(6px, -6px); }

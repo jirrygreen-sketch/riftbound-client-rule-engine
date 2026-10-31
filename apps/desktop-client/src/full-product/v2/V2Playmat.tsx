@@ -190,15 +190,25 @@ function UnitFace({ object, cards, allocation }: {
 }) {
   const name = cards.objectName(object);
   const image = object.cardId !== undefined && !object.faceDown ? cards.image(object.cardId) : null;
+  // RIFT-1176: the badge compares the projected current Might with the printed one.
+  const printedMight = object.cardId === undefined ? null : cards.card(object.cardId)?.might ?? null;
+  const mightDelta = object.might !== undefined && printedMight !== null ? object.might - printedMight : 0;
+  // RIFT-1175: an effect-created token has no catalog card and no official art.
+  const token = object.cardId === undefined && !object.faceDown;
   return (
     <span className={`v2m-face${object.exhausted === true ? " is-exhausted" : ""}`}>
       {object.faceDown ? <span className="full-product-duel-card-back v2m-art" aria-hidden="true" /> :
         image !== null ? <img className="v2m-art" src={image} alt={name} draggable={false} /> :
-          <span className="v2m-art is-missing" aria-hidden="true" />}
+          token ? <span className="v2m-art is-missing is-token" title={`${name}（衍生物，官方图库没有卡图）`}>
+            <b>{name}</b><small>衍生物</small>{object.might !== undefined ? <small>战力 {object.might}</small> : null}
+          </span> :
+            <span className="v2m-art is-missing" aria-hidden="true" />}
       <span className="v2m-name">{object.faceDown ? "牌面朝下" : name}</span>
       <span className="v2m-state">
         <span className="v2m-readied">{object.exhausted === true ? V2_EXHAUSTED_LABEL : DUEL_READY_LABEL}</span>
-        {object.might !== undefined ? <span className="v2m-might">战力 {object.might}</span> : null}
+        {object.might !== undefined ? <span className={`v2m-might${mightDelta > 0 ? " is-up" : mightDelta < 0 ? " is-down" : ""}`}
+          title={mightDelta === 0 ? undefined : `印刷战力 ${printedMight}，当前 ${object.might}`}>
+          战力 {object.might}{mightDelta === 0 ? null : <em>{mightDelta > 0 ? `+${mightDelta}` : mightDelta}</em>}</span> : null}
         {object.damage !== undefined && object.damage > 0 ? <span className="v2m-damage">伤害 {object.damage}</span> : null}
       </span>
       {allocation !== null && allocation.amount > 0 ? (
