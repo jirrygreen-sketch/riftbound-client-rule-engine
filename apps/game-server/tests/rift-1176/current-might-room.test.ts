@@ -5,7 +5,7 @@ import { V2_M1_PRECONS } from "../../../../packages/integration-tests/src/v2-due
 import type { V2Command, V2CommandReceipt, V2Projection }
   from "../../../../packages/protocol/dist/v2/index.js";
 import { GameRoom } from "../../src/room.js";
-import { loadCardCatalogRuntime } from "../../src/card-catalog.js";
+import { loadCardCatalogRuntime, type CardCatalogRuntime } from "../../src/card-catalog.js";
 import { projectRuntimeFromSnapshot, projectionSnapshot } from "../../src/engine-runtime/projection.js";
 import type { EngineRuntimeHost } from "../../src/engine-runtime/host.js";
 import type { Match } from "../../../../packages/engine-core/dist/game/lifecycle.js";
@@ -22,6 +22,22 @@ const EVIDENCE = Object.freeze({
 });
 const RUMBLE = EVIDENCE.rumble;
 const BUBBLE_BOT = "card.hash-34880fcae16bd9461e4c318dfb455365ff9e353db357f948b4a15dea7e01b389";
+const AURA_DECK_RULES: CardCatalogRuntime["deckRules"] = {
+  cardPolicies: {}, defaultMaxCopiesPerCanonical: 20,
+  copyRules: [
+    { zones: ["mainDeck"], maxCopiesPerCanonical: 20 },
+    { zones: ["runes"], maxCopiesPerCanonical: 12 },
+    { zones: ["legend"], maxCopiesPerCanonical: 1 },
+    { zones: ["champion"], maxCopiesPerCanonical: 1 },
+    { zones: ["battlefields"], maxCopiesPerCanonical: 1 },
+  ],
+  sizeRules: {
+    mainDeck: { minimum: 40, maximum: 40 }, runes: { minimum: 12, maximum: 12 },
+    legend: { minimum: 1, maximum: 1 }, champion: { minimum: 1, maximum: 1 },
+    battlefields: { minimum: 3, maximum: 3 },
+  },
+  uniqueCanonicalZones: ["battlefields"],
+};
 
 interface StartedRoom {
   readonly room: GameRoom;
@@ -59,7 +75,7 @@ function submitThroughRoom(started: StartedRoom, playerId: string, command: V2Co
 }
 
 async function roomWithRumbleDeck(): Promise<StartedRoom> {
-  const catalog = await loadCardCatalogRuntime();
+  const catalog = await loadCardCatalogRuntime({ deckRules: AURA_DECK_RULES });
   const roomId = "RIFT-1176-current-might-room";
   const room = new GameRoom(roomId, DUEL_RULESET_ID, catalog, () => 0,
     undefined, undefined, undefined, "engine-v2");
@@ -76,18 +92,149 @@ async function roomWithRumbleDeck(): Promise<StartedRoom> {
   };
   const playerIds = [first.playerId, second.playerId] as const;
   const started: StartedRoom = { room, sessions, connections, playerIds };
+  const auraDeck = V2_M1_PRECONS["rumble-sfd"].deck;
+  const focusedDeck = { ...auraDeck,
+    mainDeck: [{ cardId: "sfd-089-221", quantity: 20 }, { cardId: "sfd-062-221", quantity: 20 }],
+  };
   room.submitDeck(sessions[first.playerId]!, first.connectionId, room.currentRoomVersion,
-    V2_M1_PRECONS["rumble-sfd"].deck, `${roomId}:deck-a`, noMessages);
+    focusedDeck, `${roomId}:deck-a`, noMessages);
   room.setReady(sessions[first.playerId]!, first.connectionId, room.currentRoomVersion,
     true, `${roomId}:ready-a`, noMessages);
   room.submitDeck(sessions[second.playerId]!, second.connectionId, room.currentRoomVersion,
-    V2_M1_PRECONS["fiora-sfd"].deck, `${roomId}:deck-b`, noMessages);
+    focusedDeck, `${roomId}:deck-b`, noMessages);
   room.setReady(sessions[second.playerId]!, second.connectionId, room.currentRoomVersion,
     true, `${roomId}:ready-b`, noMessages);
   return started;
 }
 
+function settle(started: StartedRoom, prefix: string): V2Projection {
+  for (let index = 0; index < 30; index += 1) {
+    const view = readProjection(started.room, started.playerIds[0]);
+    if (view.chain.items.length === 0) return view;
+    const actor = view.priority.playerId;
+    if (actor === null) throw new Error(`${prefix}: Chain has no Priority holder`);
+    submitThroughRoom(started, actor, {
+      type: "pass", commandId: `${prefix}:pass:${index}`, stateVersion: view.stateVersion,
+    });
+  }
+  throw new Error(`${prefix}: Chain did not settle`);
+}
+
+function readyRunes(started: StartedRoom, playerId: string) {
+  return (readProjection(started.room, playerId).zones
+    .find(zone => zone.zone === "rune-zone" && zone.ownerPlayerId === playerId)?.objects ?? [])
+    .filter((rune): rune is typeof rune & { readonly zoneEntryId: number } =>
+      rune.exhausted === false && rune.zoneEntryId !== undefined);
+}
+
+function ownerHand(started: StartedRoom, playerId: string) {
+  return (readProjection(started.room, playerId).zones
+    .find(zone => zone.zone === "hand" && zone.ownerPlayerId === playerId)?.objects ?? []);
+}
+
+function driveToOwnerMain(started: StartedRoom, owner: string, prefix: string): V2Projection {
+  for (let index = 0; index < 40; index += 1) {
+    const view = readProjection(started.room, owner);
+    if (view.phase === "main" && view.chain.items.length === 0 && view.activePlayerId === owner) return view;
+    if (view.phase === "main" && view.chain.items.length === 0) {
+      submitThroughRoom(started, view.activePlayerId, {
+        type: "end-turn", commandId: `${prefix}:end:${index}`, stateVersion: view.stateVersion,
+      });
+    } else {
+      const actor = view.priority.playerId ?? view.activePlayerId;
+      submitThroughRoom(started, actor, {
+        type: "pass", commandId: `${prefix}:pass:${index}`, stateVersion: view.stateVersion,
+      });
+    }
+    settle(started, `${prefix}:settle:${index}`);
+  }
+  throw new Error(`${prefix}: Owner did not reach Main`);
+}
+
+async function startedAuraMatch(): Promise<StartedRoom> {
+  const started = await roomWithRumbleDeck();
+  for (let index = 0; index < 2; index += 1) {
+    const due = started.playerIds.map(playerId => readProjection(started.room, playerId)).find(view =>
+      view.pendingChoice.status === "pending" &&
+      view.pendingChoice.ownerPlayerId === view.viewerPlayerId);
+    if (due === undefined || due.pendingChoice.status !== "pending") throw new Error("Expected mulligan owner");
+    submitThroughRoom(started, due.viewerPlayerId!, {
+      type: "mulligan", commandId: `RIFT-1176:aura-mulligan:${index}`,
+      stateVersion: 0, selectedObjectIds: [],
+    });
+  }
+  return started;
+}
+
+function fundRumble(started: StartedRoom, owner: string): void {
+  driveToOwnerMain(started, owner, "RIFT-1176:aura-fund");
+  const runes = readyRunes(started, owner);
+  const powerRune = runes.find(rune => rune.name === "Mind Rune");
+  if (powerRune === undefined) throw new Error("Rumble payment requires a Mind Rune");
+  for (const [index, rune] of runes.filter(candidate => candidate.objectId !== powerRune.objectId)
+    .slice(0, 8).entries()) {
+    submitThroughRoom(started, owner, {
+      type: "rune-energy", commandId: `RIFT-1176:aura-energy:${index}`,
+      stateVersion: readProjection(started.room, owner).stateVersion,
+      runeObjectId: rune.objectId, zoneEntryId: rune.zoneEntryId,
+    });
+  }
+  submitThroughRoom(started, owner, {
+    type: "rune-power", commandId: "RIFT-1176:aura-power",
+    stateVersion: readProjection(started.room, owner).stateVersion,
+    runeObjectId: powerRune.objectId, zoneEntryId: powerRune.zoneEntryId,
+  });
+}
+
+function playAuraUnits(started: StartedRoom, owner: string): {
+  readonly bubbleBotId: string;
+  readonly rumbleId: string;
+} {
+  const ids: string[] = [];
+  for (const [index, cardId] of [BUBBLE_BOT, RUMBLE].entries()) {
+    const view = readProjection(started.room, owner);
+    const card = ownerHand(started, owner).find(object => object.cardId === cardId);
+    if (card === undefined) throw new Error(`Aura deck did not deal ${cardId}`);
+    const option = view.actionOptions.plays.find(candidate => candidate.cardObjectId === card.objectId);
+    if (option === undefined) throw new Error(`No legal play for ${cardId}`);
+    submitThroughRoom(started, owner, {
+      type: "play", commandId: `RIFT-1176:aura-play:${index}`,
+      stateVersion: view.stateVersion, cardObjectId: card.objectId, destination: option.destination,
+    });
+    settle(started, `RIFT-1176:aura-play:${index}`);
+    ids.push(card.objectId);
+  }
+  return { bubbleBotId: ids[0]!, rumbleId: ids[1]! };
+}
+
 describe("RIFT-1176 public room current Might", () => {
+  it("projects current Might for Rumble and another Mech through ordinary room commands", async () => {
+    const started = await startedAuraMatch();
+    const owner = started.playerIds[0];
+    let ready = false;
+    for (let turn = 0; turn < 9; turn += 1) {
+      const view = driveToOwnerMain(started, owner, `RIFT-1176:prep:${turn}`);
+      if (readyRunes(started, owner).length >= 9 &&
+          ownerHand(started, owner).some(object => object.cardId === RUMBLE) &&
+          ownerHand(started, owner).some(object => object.cardId === BUBBLE_BOT)) {
+        ready = true;
+        break;
+      }
+      submitThroughRoom(started, view.activePlayerId, {
+        type: "end-turn", commandId: `RIFT-1176:prep-end:${turn}`, stateVersion: view.stateVersion,
+      });
+      settle(started, `RIFT-1176:prep-end:${turn}`);
+    }
+    expect(ready).toBe(true);
+    fundRumble(started, owner);
+    const { bubbleBotId, rumbleId } = playAuraUnits(started, owner);
+    for (const viewer of started.playerIds) {
+      const view = readProjection(started.room, viewer);
+      expect(view.objects.find(object => object.objectId === bubbleBotId)?.might).toBe(4);
+      expect(view.objects.find(object => object.objectId === rumbleId)?.might).toBe(5);
+    }
+  }, 180_000);
+
   it("projects Rumble's live Mech bonus through the public room projection", async () => {
     expect(EVIDENCE.rules).toContain("478.1");
     expect(RUMBLE).toMatch(/^card\.hash-/);
