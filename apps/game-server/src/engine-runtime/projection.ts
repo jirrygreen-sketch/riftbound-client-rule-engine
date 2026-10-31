@@ -17,6 +17,7 @@ import { playLocations, restrictions as ruleRestrictions } from "../../../../pac
 import type { Match } from "../../../../packages/engine-core/dist/game/lifecycle.js";
 import type { ObjectRef, ObjectSnapshot, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
 import { playPermissionAllows, playPermissions } from "../../../../packages/engine-core/dist/programs/play-permissions.js";
+import { inspectActivations } from "../../../../packages/engine-core/dist/programs/activate.js";
 import { queryTargetCandidates, type TargetRequirement } from "../../../../packages/engine-core/dist/target/target-plan.js";
 import { readEmpowered } from "../../../../packages/engine-core/dist/zones/empower-state.js";
 import type { EngineRuntimeHost } from "./host.js";
@@ -150,9 +151,29 @@ export function canPassForViewer(match: Match, pendingChoice: boolean, viewer: P
 }
 
 function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | null,
-  pendingChoice: boolean, currentById: ReadonlyMap<string, ObjectSnapshot> | null = null): V2ActionOptions {
+  pendingChoice: boolean, currentObjects?: readonly ObjectSnapshot[], paymentWindow = false): V2ActionOptions {
   const canAdvance = advanceResponsiblePlayer(match, pendingChoice, viewer) !== null;
   const canPass = canPassForViewer(match, pendingChoice, viewer);
+  const binding = match.programBinding;
+  // RIFT-1180: Ganking and other layer-evaluated characteristics must come
+  // from the single current-object view used by the rest of this projection.
+  const objects = currentObjects ?? host.objects();
+  const activations = (): NonNullable<V2ActionOptions["activations"]> => viewer === null || binding === undefined
+    ? [] : inspectActivations({
+        engine: match.flow.chain,
+        registry: binding.registry,
+        controller: viewer,
+        sources: objects,
+        window: "priority",
+      }).map(candidate => ({
+        sourceObjectId: candidate.source.ref.id,
+        abilityId: String(candidate.abilityIndex),
+        label: candidate.label,
+        ...(candidate.reaction ? { reaction: true } : {}),
+      }));
+  const priorityActivations = pendingChoice || paymentWindow ? [] : activations();
+  const withActivations = <T extends V2ActionOptions>(value: T): V2ActionOptions => priorityActivations.length === 0
+    ? value : { ...value, activations: priorityActivations };
   if (viewer === null || match.result().winner !== null || match.flow.phase !== "main") {
     return { canEndTurn: false, canAdvance, canPass, moves: [], plays: [] };
   }
@@ -164,12 +185,8 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
     (chain.canAct(viewer, "normal") || waitingForFutureCommand);
   const canEndTurn = viewer === match.flow.turnPlayer && open;
   if ((priority !== viewer && !waitingForFutureCommand) || !open || chain.items.length > 0) {
-    return { canEndTurn, canAdvance, canPass, moves: [], plays: [] };
+    return withActivations({ canEndTurn, canAdvance, canPass, moves: [], plays: [] });
   }
-  // RIFT-1180 (handoff from RIFT-1173): Ganking granted by an effect is a
-  // layer-evaluated characteristic, as Standard Move validation reads it
-  // (CR 478, 810.3), so move options use the snapshot's current view.
-  const objects = host.objects().map(object => currentById?.get(objectRefKey(object)) ?? object);
   const battlefields = match.flow.battlefields;
   const moves: V2ActionOptions["moves"][number][] = [];
   for (const object of objects) {
@@ -191,7 +208,6 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
   const plays: V2ActionOptions["plays"][number][] = [];
   const energy = host.player(viewer).energy;
   const power = host.player(viewer).power;
-  const binding = match.programBinding;
   const printedCatalog = binding === undefined ? undefined :
     (binding.describePlay as typeof binding.describePlay & {
       readonly printedCatalog?: (canonicalCardId: string) => {
@@ -307,7 +323,7 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
       }
     }
   }
-  return { canEndTurn, canAdvance, canPass, moves, plays };
+  return withActivations({ canEndTurn, canAdvance, canPass, moves, plays });
 }
 
 function battlefieldProjection(match: Match, host: EngineRuntimeHost): readonly V2BattlefieldSnapshot[] {
@@ -599,6 +615,33 @@ export function projectRuntimeFromSnapshot(
     ...(pendingChoice.min === undefined ? {} : { min: pendingChoice.min }),
     ...(pendingChoice.max === undefined ? {} : { max: pendingChoice.max }),
   } : { status: "none" as const };
+  const activationObjects = snapshot.objectCurrentById === null
+    ? host.objects() : [...snapshot.objectCurrentById.values()];
+  const paymentWindow = typeof match.flow.chain.reactionAddPaymentWindow === "function"
+    ? match.flow.chain.reactionAddPaymentWindow() : null;
+  const baseActions = actionOptions(match, host, viewer, pendingChoice !== null, activationObjects,
+    paymentWindow !== null);
+  const paymentActivations = viewer === null || match.programBinding === undefined ||
+    paymentWindow === null || viewer !== paymentWindow.payer
+    ? [] : inspectActivations({
+        engine: match.flow.chain,
+        registry: match.programBinding.registry,
+        controller: viewer,
+        sources: activationObjects,
+        window: "payment",
+      }).map(candidate => ({
+        sourceObjectId: candidate.source.ref.id,
+        abilityId: String(candidate.abilityIndex),
+        label: candidate.label,
+        ...(candidate.reaction ? { reaction: true } : {}),
+      }));
+  const extraActivations = paymentActivations.filter(candidate =>
+    !(baseActions.activations ?? []).some(existing => existing.sourceObjectId === candidate.sourceObjectId &&
+      existing.abilityId === candidate.abilityId));
+  const uniqueExtraActivations = extraActivations.filter((candidate, index) =>
+    extraActivations.findIndex(existing => existing.sourceObjectId === candidate.sourceObjectId &&
+      existing.abilityId === candidate.abilityId) === index);
+  const allActivations = [...(baseActions.activations ?? []), ...uniqueExtraActivations];
   return {
     projectionContract: "riftbound.protocol.v2.projection",
     protocolVersion: "2.0.0",
@@ -613,16 +656,16 @@ export function projectRuntimeFromSnapshot(
     players,
     zones,
     objects,
-    chain: { ...snapshot.chain, phase: pendingChoice ? "await-commit" : snapshot.chain.phase },
+    chain: { ...snapshot.chain, phase: pendingChoice || paymentWindow ? "await-commit" : snapshot.chain.phase },
     priority: {
       playerId: snapshot.priority.playerId, focusPlayerId: snapshot.priority.focusPlayerId,
-      window: pendingChoice ? "choice" : snapshot.priority.focusPlayerId !== null ? "showdown" :
+      window: pendingChoice || paymentWindow ? "choice" : snapshot.priority.focusPlayerId !== null ? "showdown" :
         snapshot.chain.items.length ? "closed" : "open",
     },
     scoring: snapshot.scoring,
     battlefields: snapshot.battlefields,
     combat: snapshot.combat,
-    actionOptions: actionOptions(match, host, viewer, pendingChoice !== null, snapshot.objectCurrentById),
+    actionOptions: allActivations.length === 0 ? baseActions : { ...baseActions, activations: allActivations },
     pendingChoice: projectedChoice,
     winnerPlayerId: snapshot.winnerPlayerId,
     events: snapshotEvents(snapshot, viewer),

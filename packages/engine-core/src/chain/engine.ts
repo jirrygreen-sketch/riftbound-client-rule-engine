@@ -141,6 +141,22 @@ export interface PaymentContinuationHostPort {
    * journaled notice to restorePaymentContinuationHandle for equality checks.
    */
   persist(notice: PaymentContinuationSnapshot): boolean;
+  /**
+   * Production runtime defers only costs that cannot be paid now, allowing a
+   * Reaction Add to fund them. Tests that install the port as a journal seam
+   * retain the historical behavior of suspending every external payment.
+   */
+  readonly onlyWhenUnpayable?: boolean;
+  /**
+   * Optional read-only gate for the formal suspension. Production uses it to
+   * require a currently legal Reaction Add candidate; journal-seam tests omit
+   * it and retain the established suspend-on-demand contract.
+   */
+  readonly shouldSuspend?: (input: {
+    readonly payer: PlayerId;
+    readonly source: ObjectRef;
+    readonly costPlan: CostPlan;
+  }) => boolean;
 }
 
 interface PaymentContinuationBinding {
@@ -1557,10 +1573,15 @@ export class ChainEngine {
           // Leaving-source abilities retain LKI for the effect, but a leading
           // "recycle me" cost acts on the card now in Trash (CR 383.3.b).
           const currentSource = item.kind === 'triggered' ? this.options.host.objects().find(object => object.ref.id === item.source.ref.id) : undefined;
-          const incumbentContext = currentSource ? bindResolveContext(context, { source: currentSource }) : context;
+          const incumbentSource = currentSource ?? context.source;
+          const incumbentContext = currentSource === undefined ? context : bindResolveContext(context, { source: currentSource });
+          const cardSource = this.finalizeCardSource(item, incumbentSource);
+          const paymentContextBase = cardSource === incumbentSource
+            ? incumbentContext
+            : bindResolveContext(incumbentContext, { source: cardSource });
           const paymentContext = legendExhaustCost
-            ? boardViewForLegendExhaustCost(incumbentContext, currentSource ?? context.source)
-            : incumbentContext;
+            ? boardViewForLegendExhaustCost(paymentContextBase, cardSource)
+            : paymentContextBase;
           const rawInput = baseInput ?? { id: `cost:${item.id}`, cost: { energy: { kind: 'constant' as const, value: 0 } } };
           const finalized = finalizeCostPlanInput(paymentContext, rawInput, item.costInput?.costChoices);
           const mandatoryAdditional = [...(finalized.input.mandatoryAdditional ?? []), ...targetTaxes.filter(tax => tax.id !== '' && !('stage' in tax))];
@@ -1572,11 +1593,22 @@ export class ChainEngine {
           item.costPlan = finalizedInput.ignoreAllCosts === true
             ? buildCostPlan(paymentContext, finalizedInput)
             : finalizeCostPlan(paymentContext, finalizedInput, this.costDiscountSources(item));
-          if (this.options.paymentContinuation !== undefined && !this.resumingPaymentContinuation) {
+          const paymentPort = this.options.paymentContinuation;
+          const paymentUnpayable = paymentPort !== undefined &&
+            !assessCostPayment(paymentContext, item.costPlan).payable;
+          const shouldSuspendPayment = paymentPort !== undefined &&
+            !this.resumingPaymentContinuation &&
+            (paymentPort.onlyWhenUnpayable !== true || paymentUnpayable) &&
+            (paymentPort.shouldSuspend?.({
+              payer: item.costPlan.player,
+              source: { ...item.source.ref },
+              costPlan: item.costPlan,
+            }) ?? true);
+          if (shouldSuspendPayment) {
             item.status = 'finalized';
             this.record({ step: 'finalized', item: item.id });
             const handle = this.suspendPaymentContinuation(item);
-            if (!this.options.paymentContinuation.persist(handle.snapshot)) {
+            if (!this.options.paymentContinuation!.persist(handle.snapshot)) {
               throw new Error('Payment continuation notice was not durably accepted');
             }
             this.paymentSuspended = true;
@@ -1661,8 +1693,9 @@ export class ChainEngine {
   }
   /** Capture the exact successful Finalize, before Resolve or Counter (CR 420.4.b). */
   private recordCardFinalize(item: ChainItem): void {
-    const object = this.options.host.objects().find(candidate =>
+    const live = this.options.host.objects().find(candidate =>
       candidate.ref.id === item.object.id && candidate.ref.zoneEntryId === item.object.zoneEntryId) ?? item.source;
+    const object = this.finalizeCardSource(item, live);
     this.finalizedPlaysThisTurn.push(structuredClone({
       object,
       player: item.controller,
@@ -1670,6 +1703,29 @@ export class ChainEngine {
       sequence: ++this.finalizeSequence,
       finalizedAt: 'chain-item-finalize',
     }));
+  }
+  /**
+   * The game runtime creates physical setup cards through `create-token`, so
+   * hand snapshots inherit `isToken:true`. A production card played from Hand
+   * is necessarily a card: Tokens can exist only on the Board or Chain
+   * (CR 186.1) and have no printed cost (CR 185.3.a). Correct only that
+   * contradictory carrier flag for production identities with a printed
+   * Energy cost. Synthetic fixtures and printed Token-tagged objects retain
+   * their supplied semantics.
+   */
+  private finalizeCardSource(item: ChainItem, source: ObjectSnapshot): ObjectSnapshot {
+    const productionCard = source.cardId?.startsWith('card.hash-') === true;
+    const printedToken = source.tags.some(tag => tag.trim().toLowerCase() === 'token');
+    if (item.source.zone !== 'hand' || !productionCard || source.energy === null ||
+        !source.isToken || printedToken) return source;
+    // RIFT-1165 is the version gate for setup Battlefields participating in
+    // the Board lifecycle. Legacy current-version journals keep those objects
+    // in `battlefield`, so this correction never changes their replay shape.
+    const currentSetupBattlefield = this.hostObjects().some(object => object.zone === 'board' &&
+      object.isToken && object.types.some(type => type.toLowerCase() === 'battlefield'));
+    return currentSetupBattlefield
+      ? Object.freeze({ ...source, isToken: false as const })
+      : source;
   }
   private collectBoundTargetTaxes(item: ChainItem, context: ResolveContext, into: CostComponentInput[]): void {
     const effects = boundTargetTaxes(this);
@@ -1847,6 +1903,42 @@ export class ChainEngine {
     const parentBusy = this.busy;
     this.finalize(item); this.resolve(item); this.busy = parentBusy;
     if (parentBusy === 'idle') this.handleOutstanding();
+  }
+
+  /**
+   * Read-only owner for any live Pay Costs interrupt window. The formal
+   * continuation is authoritative across the suspension; the legacy
+   * instruction path remains readable while its exact prompt is pending.
+   */
+  reactionAddPaymentWindow(): {
+    readonly payer: PlayerId;
+    readonly source: ObjectRef;
+    readonly kind: 'continuation' | 'instruction';
+    readonly continuationId?: string;
+  } | null {
+    const formal = this.paymentContinuation ??
+      (this.suspendedPaymentContinuations.size === 1 ? [...this.suspendedPaymentContinuations.values()][0]! : null);
+    if (formal !== null) return {
+      payer: formal.snapshot.payer,
+      source: { ...formal.snapshot.source },
+      kind: 'continuation',
+      continuationId: formal.snapshot.continuationId,
+    };
+    const prompt = this.weaponmasterPaymentPrompt;
+    if (prompt === null) return null;
+    const parent = this.entries.find(item => item.id === prompt.itemId && item.status === 'finalized');
+    return parent === undefined ? null : {
+      payer: prompt.controller,
+      source: { ...parent.source.ref },
+      kind: 'instruction',
+    };
+  }
+
+  /** Journal-safe, process-local notice for the current formal suspension. */
+  paymentContinuationNotice(): PaymentContinuationSnapshot | null {
+    const handle = this.paymentContinuation ??
+      (this.suspendedPaymentContinuations.size === 1 ? [...this.suspendedPaymentContinuations.values()][0]! : null);
+    return handle === null ? null : structuredClone(handle.snapshot);
   }
 
   /** Snapshot the only parent whose Pay Costs may accept an external Reaction Add. */

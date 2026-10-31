@@ -357,8 +357,33 @@ export function collectCostModifications(ctx: ResolveContext, input: CostPlanInp
   return collected;
 }
 
+/**
+ * Finalize the current cost without opening any choice or mutating the game.
+ * Client playability asks whether a card can be started now; a cost that needs
+ * an unresolved additional-cost or discount-order choice is therefore not a
+ * safe unconditional play. Fail closed until the caller has chosen that input.
+ */
+export function previewCostPlan(
+  ctx: ResolveContext,
+  input: CostPlanInput,
+  sources: CostDiscountSources = {},
+): CostPlan {
+  const readOnly = new Proxy(ctx, { get(target, key) {
+    if (key === 'choose') {
+      return <T>(): T => blocked('Read-only cost preview requires a cost choice');
+    }
+    const value = Reflect.get(target, key);
+    return typeof value === 'function' ? value.bind(target) : value;
+  } });
+  return finalizeCostPlan(readOnly, structuredClone(input), sources);
+}
+
 /** Finalize-facing entry: collect once, choose discount order, then freeze the existing CostPlan. */
-export function finalizeCostPlan(ctx: ResolveContext, input: CostPlanInput, sources: CostDiscountSources = {}): CostPlan {
+export function finalizeCostPlan(
+  ctx: ResolveContext,
+  input: CostPlanInput,
+  sources: CostDiscountSources = {},
+): CostPlan {
   const collected = collectCostModifications(ctx, input, sources) as CollectedCostPlanInput;
   const metadata = collected.__costDiscountMetadata;
   if (collected.discountOrder !== undefined) return decorateCostPlan(buildCostPlan(ctx, collected), metadata);

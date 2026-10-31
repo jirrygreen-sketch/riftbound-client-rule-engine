@@ -241,7 +241,9 @@ describe("RIFT-1166 Rumble Mech aura production room", () => {
     }
     expect(battlefieldUnits.map(unit => unit.cardId)).toEqual(expect.arrayContaining([FORECASTER, GEM_JAMMER]));
     expect(battlefieldUnits).toContainEqual(expect.objectContaining({ cardId: FORECASTER, might: 2 }));
-    expect(battlefieldUnits).toContainEqual(expect.objectContaining({ cardId: GEM_JAMMER, might: 2 }));
+    // The projection shows current Might (RIFT-1176): the defending Gem Jammer adds its granted Shield, so it
+    // reads as the defender budget while its raw printed Might above stays 2.
+    expect(battlefieldUnits).toContainEqual(expect.objectContaining({ cardId: GEM_JAMMER, might: 4 }));
     expect(combatDamage.damage.attackerMight).toBe(2);
     expect(combatDamage.damage.defenderMight).toBe(4);
     expect(combatDamage.damage.attackerMight).toBeLessThan(combatDamage.damage.defenderMight);

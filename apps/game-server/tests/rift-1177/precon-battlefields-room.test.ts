@@ -25,7 +25,7 @@ import {
 // Minefield: 053.3, 170.2, 190.6, 383.4.c.2, 471.1, 472, 473.2.
 // Ravenbloom: same Defend/Battlefield refs plus 383.4.f, 425.1/.1.a.2,
 // 425.2.a, 417.1/.1.a/.1.c and 466.2.
-// Ornn's Forge: 190.6, 356.4, 420.4.b.
+// Ornn's Forge: 185.3.a, 186.1, 190.6, 356.4, 420.4.b.
 // Sunken Temple: 190.6, 383.2.a.1, 383.3.a/b, 405.1/.2, 473.2,
 // 706, 708, 710; no Radiance or Spiritforged card-specific ruling.
 // Veiled Temple: 190.6, 355.7/.12, 383.3.a/.a.3, 403, 405.2,
@@ -135,7 +135,7 @@ describe("RIFT-1177 precon battlefields in the real room path", () => {
     expect(defenderAfter.deckCount).toBe(defenderBefore.deckCount);
   }, 180_000);
 
-  it.fails("RIFT-1177 contract gap: Ornn's Forge discount is not collected by real-room Finalize", async () => {
+  it("Ornn's Forge discounts only the first friendly non-token Gear each turn", async () => {
     const started = await startRoom("RIFT-1177-seed-27", "fiora-sfd", "rumble-sfd", 0);
     const opening = openMain(started, PLAYER_1);
     fundEnergy(started, PLAYER_1, 2, "forge-gear");
@@ -158,11 +158,10 @@ describe("RIFT-1177 precon battlefields in the real room path", () => {
     expect(blade).toBeDefined();
     expect(projection(started, PLAYER_1).players.find(player => player.playerId === PLAYER_1)?.energy).toBe(4);
     playToBase(started, PLAYER_1, armor!.objectId, "forge-first-gear");
-    // The current root cause is the missing production cost-source bridge.
-    // Correct behavior would leave 3 Energy after the 2-cost Armor is reduced
-    // by 1; this assertion intentionally proves the current 4-Energy charge.
+    // Warmog's Armor has 1 printed Energy; the first Gear discount makes it 0.
     expect(projection(started, PLAYER_1).players.find(player => player.playerId === PLAYER_1)?.energy).toBe(4);
     playToBase(started, PLAYER_1, blade!.objectId, "forge-second-gear");
+    // Doran's Blade has 2 printed Energy and is the second Gear, so it pays full cost.
     expect(projection(started, PLAYER_1).players.find(player => player.playerId === PLAYER_1)?.energy).toBe(2);
     expect(ownedBoard(projection(started, PLAYER_1), PLAYER_1).filter(object =>
       object.name === "Warmog's Armor" || object.name === "Doran's Blade")).toHaveLength(2);

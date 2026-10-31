@@ -9,7 +9,7 @@ import {
   type V2Zone
 } from "./constants.js";
 import type { V2Event } from "./events.js";
-import type { V2Location, V2ObjectRef } from "./commands.js";
+import type { V2Location, V2ObjectId, V2ObjectRef } from "./commands.js";
 
 export type V2ProjectionVisibility =
   | { readonly visibility: "public" }
@@ -149,6 +149,18 @@ export interface V2ActionOptions {
   readonly moves: readonly V2MoveOption[];
   /** The viewer can play a hand card without target/payment selections. */
   readonly plays: readonly V2PlayOption[];
+  /** Activated abilities the viewer can currently begin, keyed for `activate`. */
+  readonly activations?: readonly V2ActivationOption[];
+}
+
+/** One server-authorized activated ability source and engine ability index. */
+export interface V2ActivationOption {
+  readonly sourceObjectId: V2ObjectId;
+  readonly abilityId: string;
+  /** English card-program ability text or an unlocalized keyword such as Equip. */
+  readonly label: string;
+  /** True when the activated ability itself has Reaction timing. */
+  readonly reaction?: boolean;
 }
 
 export interface V2ChoiceOption {
@@ -367,12 +379,18 @@ function moveOption(value: unknown): boolean {
   return data(value) && exact(value, ["objectId", "destination"]) &&
     text(value.objectId) && commandLocation(value.destination);
 }
+function activationOption(value: unknown): boolean {
+  return data(value) && exact(value, ["sourceObjectId", "abilityId", "label"], ["reaction"]) &&
+    text(value.sourceObjectId) && text(value.abilityId) && text(value.label) &&
+    (value.reaction === undefined || typeof value.reaction === "boolean");
+}
 function actionOptions(value: unknown): boolean {
-  return data(value) && exact(value, ["canEndTurn", "moves", "plays"], ["canAdvance", "canPass"]) &&
+  return data(value) && exact(value, ["canEndTurn", "moves", "plays"], ["canAdvance", "canPass", "activations"]) &&
     typeof value.canEndTurn === "boolean" && (value.canAdvance === undefined || typeof value.canAdvance === "boolean") &&
     (value.canPass === undefined || typeof value.canPass === "boolean") &&
     Array.isArray(value.moves) && value.moves.every(moveOption) &&
-    Array.isArray(value.plays) && value.plays.every(playOption);
+    Array.isArray(value.plays) && value.plays.every(playOption) &&
+    (value.activations === undefined || Array.isArray(value.activations) && value.activations.every(activationOption));
 }
 function pendingChoice(value: unknown, viewer: string | null): boolean {
   if (!data(value) || !text(value.status, 32)) return false;
