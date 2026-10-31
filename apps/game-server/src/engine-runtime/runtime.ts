@@ -46,6 +46,15 @@ const KEYWORD_CHOICE_PROMPTS: Readonly<Record<string, string>> = Object.freeze({
   vision: "Vision: Look at the top card of your Main Deck. Select it to recycle it; leave it unselected to keep it on top.",
 });
 
+/**
+ * Existing production journals used this exact version before RIFT-1165 made
+ * setup Battlefields participate in the engine-core Board lifecycle. Keep
+ * that byte/version gate separate so old accepted commands retain their
+ * recorded semantics instead of being reinterpreted by a newer trigger scan.
+ */
+const LEGACY_RUNTIME_ENGINE_VERSION = "@riftbound/engine-core/current";
+const CURRENT_RUNTIME_ENGINE_VERSION = "@riftbound/engine-core/current+RIFT-1165.setup-battlefield-board-v1";
+
 interface ResolvedTriggerOption {
   readonly source?: ReturnType<EngineRuntimeHost["objects"]>[number];
   readonly controller?: PlayerId;
@@ -207,6 +216,15 @@ interface RuntimeMetadataCheckpoint {
  * location rules, events, and rollback remain engine-core owned.
  */
 class RuntimeBoardHost extends EngineRuntimeHost {
+  constructor(
+    playerNames: Readonly<Record<PlayerId, string>>,
+    choose: <T>(request: ChoiceRequest<T>) => T,
+    catalogDomains: ReadonlyMap<string, readonly Domain[]> = new Map(),
+    private readonly normalizeSetupBattlefields = true,
+  ) {
+    super(playerNames, choose, catalogDomains);
+  }
+
   override perform(action: GameAction): ReturnType<EngineRuntimeHost["perform"]> {
     const matches = action.type === "move-zone" && (action.to === "base" || action.to === "battlefield");
     const staged = matches && "object" in action ? this.stagedObject(action.object) : null;
@@ -223,8 +241,9 @@ class RuntimeBoardHost extends EngineRuntimeHost {
     // EngineRuntimeHost's concrete-location zone spelling is adapted at this
     // single runtime seam so chain, Awaken, Move and projection all observe the
     // same `board + location` authority expected by engine-core.
-    if (action.type !== "move-zone" || (action.to !== "base" && action.to !== "battlefield") || staged === null ||
-        !staged.types.some(type => ["unit", "gear"].includes(type.toLowerCase()))) return;
+    if (action.type !== "move-zone" || (action.to !== "base" && action.to !== "battlefield") || staged === null) return;
+    const normalizedTypes = this.normalizeSetupBattlefields ? ["unit", "gear", "battlefield"] : ["unit", "gear"];
+    if (!staged.types.some(type => normalizedTypes.includes(type.toLowerCase()))) return;
     const players = (this as unknown as { players: Map<string, { zones: Record<string, string[]> }> }).players;
     for (const player of players.values()) for (const ids of Object.values(player.zones)) {
       const index = ids.indexOf(staged.ref.id);
@@ -673,6 +692,7 @@ class MatchRuntime implements EngineRuntime {
       : Array.isArray(this.runtimeOptions.programs)
         ? new Map((this.runtimeOptions.programs as readonly CardProgram[]).map(program => [program.canonicalCardId, program] as const))
         : new Map(this.runtimeOptions.programs as ReadonlyMap<string, CardProgram>);
+    const normalizeSetupBattlefields = this.runtimeOptions.engineVersion !== LEGACY_RUNTIME_ENGINE_VERSION;
     const hostState = new RuntimeBoardHost(Object.fromEntries(seats.map(seat => [seat.playerId, seat.name])), request => {
       if (this.decisions !== null && this.decisions.has(request.id)) {
         return structuredClone(this.decisions.get(request.id)) as never;
@@ -684,7 +704,7 @@ class MatchRuntime implements EngineRuntime {
       choiceMetadata = chain === undefined ? {} : this.choiceMetadataAtPending(request, hostState, grants,
         chain.pipeline.registeredTriggers(), chain.items as readonly ChainChoiceItem[]);
       throw new PendingChoiceError(request as ChoiceRequest<unknown>, choiceMetadata);
-    }, catalogDomains);
+    }, catalogDomains, normalizeSetupBattlefields);
     this.host = hostState;
     const pipelineHost = createActionPipelineHost({
       checkpoint: () => hostState.checkpoint(), restore: checkpoint => hostState.restore(checkpoint), objects: () => hostState.objects(),
@@ -730,7 +750,7 @@ class MatchRuntime implements EngineRuntime {
     }
     this.journalWriter = new RuntimeJournalWriter({
       header: {
-        engineVersion: this.runtimeOptions.engineVersion ?? "@riftbound/engine-core/current",
+        engineVersion: this.runtimeOptions.engineVersion ?? CURRENT_RUNTIME_ENGINE_VERSION,
         matchId: this.runtimeOptions.matchId, roomId: this.runtimeOptions.roomId ?? this.runtimeOptions.matchId,
         catalogDigest: this.runtimeOptions.catalogDigest ?? "sha256:" + digest(normalizedDecks),
         rosterDigest: digest(seats), trustedDeckDigest: digest({ seats, decks: normalizedDecks }),
