@@ -103,6 +103,32 @@ test('RIFT-1171 reports each side of a 2-Might versus 4-Might Combat separately'
     [['attacker-1', 2]]);
 });
 
+test('RIFT-1171 sums each side across multiple participating Units', () => {
+  const f = fixture({
+    attackers: [
+      { id: 'attacker-1', might: 2 },
+      { id: 'attacker-2', might: 3 },
+    ],
+    defenders: [
+      { id: 'defender-1', might: 1 },
+      { id: 'defender-2', might: 4 },
+    ],
+    elsewhere: [{ id: 'a-elsewhere', controller: 'A', might: 9 }],
+  });
+  const plan = prepareDamage(f);
+  assert.equal(plan.attacker.budget, 5);
+  assert.equal(plan.defender.budget, 5);
+  assert.deepEqual(plan.attacker.targets.map(target => target.uid).sort(),
+    ['defender-1', 'defender-2']);
+  assert.deepEqual(plan.defender.targets.map(target => target.uid).sort(),
+    ['attacker-1', 'attacker-2']);
+  assert.deepEqual(f.combat.damageView(), {
+    combatId: 'combat:RIFT-1171-field:1', battlefieldId: FIELD.id,
+    attackerPlayerId: 'A', defenderPlayerId: 'B',
+    attackerMight: 5, defenderMight: 5, attackerSubmitted: false,
+  });
+});
+
 test('RIFT-1171 sums every participating Unit and excludes Units elsewhere', () => {
   const f = fixture({
     attackers: [{ id: 'attacker-1', might: 5 }],
