@@ -3,7 +3,10 @@
 `finalizeCostPlan(ctx, input, sources)` collects active cost declarations and
 calls the existing `buildCostPlan`. Import it from `cost/discounts/index.ts`.
 `collectCostModifications` exposes the translated `CostPlanInput` separately.
-Neither function pays, records a play, consumes an effect, or changes state.
+`previewCostPlan` applies the same collector without accepting a Finalize
+choice or mutating authority; playability projections should use it before
+asking whether a pending card's reduced cost is currently payable.
+These functions never pay, record a play, consume an effect, or change state.
 
 Supply the current layered payment context, active `StaticCostAbility` bindings,
 and the layer registry's registrations **after duration expiry**. Static source
