@@ -11,7 +11,9 @@ import { createEngineRuntime, type EngineRuntimeDeck }
 // Battlefield-to-Battlefield Standard Move. The engine regression imports the
 // official Gem Jammer program and proves its play-trigger grant, self-target,
 // expiry, and Standard Move legality. This server regression uses the exact
-// production runtime/layer path to prove the public actionOptions view.
+// production runtime/layer path to exercise the public actionOptions view.
+// It remains red until the projection owner switches actionOptions from the raw
+// host view to the same effective layer view used by Standard Move validation.
 
 function card(id: string, name: string, types: readonly string[],
   extra: Record<string, unknown> = {}) {
