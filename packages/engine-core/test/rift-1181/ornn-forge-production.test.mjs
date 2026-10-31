@@ -4,6 +4,7 @@ import test from 'node:test';
 import doransBlade from '../../../card-dsl/dist/cards/sfd/dorans-blade.js';
 import ornnsForge from '../../../card-dsl/dist/cards/sfd/ornns-forge.js';
 import warmogsArmor from '../../../card-dsl/dist/cards/sfd/warmogs-armor.js';
+import { ChainEngine } from '../../dist/chain/engine.js';
 import { AwaitChoice } from '../../dist/effects/contract.js';
 import { world } from '../../dist/effects/testing/test-kernel.js';
 import { bindResolveContext, createActionPipelineHost } from '../../dist/events/action-adapter.js';
@@ -74,8 +75,8 @@ function deck(prefix, forge = false) {
   };
 }
 
-function makeHost() {
-  const kernel = world().player('A').player('B').build();
+function makeHost(builder = world().player('A').player('B')) {
+  const kernel = builder.build();
   let pipeline;
   let adapterDefaultChoose;
   const choose = request => {
@@ -196,4 +197,30 @@ test("RIFT-1181 setup Battlefield static enters real Finalize; first Gear is dis
   } finally {
     adapter.detach();
   }
+});
+
+test('RIFT-1181 legacy Battlefield-zone shape keeps carrier token history unchanged', () => {
+  const made = makeHost(world().player('A').player('B').hand('legacy-warmog', {
+    cardId: WARMO_G, types: ['gear'], energy: 1, power: null, might: 1,
+    tags: ['Equipment'], isToken: true,
+  }));
+  const binding = createProgramBinding({ cardPrograms: [warmogsArmor] });
+  const chain = new ChainEngine({
+    turnOrder: ['A', 'B'], turnPlayer: 'A', phase: 'main', host: made.host,
+    cleanup: () => false, describePlay: binding.describePlay,
+  });
+  binding.attachLifecycle(chain, error => { throw error; });
+  assert.equal(chain.commit({ type: 'gain-energy', player: 'A', amount: 10 }).status, 'done');
+  const source = made.kernel.getObject('legacy-warmog');
+  const draft = binding.describePlay({ type: 'play', player: 'A', object: source.ref }, source);
+  // This is an .mjs test; access the engine's private seam directly to check
+  // its pure normalization behavior without inventing a Play or turn state.
+  const internal = chain;
+  const item = { ...draft, object: source.ref, status: 'pending', targetPlans: [] };
+  const legacy = internal.finalizeCardSource(item, source);
+  assert.equal(legacy, source, 'a legacy Battlefield-zone host receives no source rewrite');
+  const current = internal.finalizeCardSource(item, { ...source, isToken: false });
+  assert.equal(current.isToken, false, 'already-card sources remain unchanged');
+  assert.equal(chain.finalizedCardPlaysThisTurn().length, 0,
+    'legacy replay publishes no Finalize history');
 });

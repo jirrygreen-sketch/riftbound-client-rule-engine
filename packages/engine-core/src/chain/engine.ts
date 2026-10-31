@@ -1689,8 +1689,14 @@ export class ChainEngine {
   private finalizeCardSource(item: ChainItem, source: ObjectSnapshot): ObjectSnapshot {
     const productionCard = source.cardId?.startsWith('card.hash-') === true;
     const printedToken = source.tags.some(tag => tag.trim().toLowerCase() === 'token');
-    return item.source.zone === 'hand' && productionCard && source.energy !== null &&
-      source.isToken && !printedToken
+    if (item.source.zone !== 'hand' || !productionCard || source.energy === null ||
+        !source.isToken || printedToken) return source;
+    // RIFT-1165 is the version gate for setup Battlefields participating in
+    // the Board lifecycle. Legacy current-version journals keep those objects
+    // in `battlefield`, so this correction never changes their replay shape.
+    const currentSetupBattlefield = this.hostObjects().some(object => object.zone === 'board' &&
+      object.isToken && object.types.some(type => type.toLowerCase() === 'battlefield'));
+    return currentSetupBattlefield
       ? Object.freeze({ ...source, isToken: false as const })
       : source;
   }
