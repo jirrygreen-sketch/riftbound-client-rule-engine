@@ -47,6 +47,9 @@ type MutableObject = {
   -readonly [K in keyof ObjectSnapshot]: ObjectSnapshot[K];
 } & { counters: Record<string, number>; empowered: number; championLegend?: true };
 
+/** `effect.token` adds the stipulated board-entry state to the frozen TokenSpec. */
+type RuntimeCreatedToken = TokenSpec & { readonly exhausted?: boolean };
+
 type RuntimeZone = ZoneId | "base" | "battlefield" | "champion" | "legend";
 
 type MutablePlayer = {
@@ -981,13 +984,17 @@ export class EngineRuntimeHost {
   private moveLocation(ref: ObjectRef, location: LocationRef): ActionOutcome { const object = this.requireObject(ref); object.location = location; return this.done(objectRef(object)); }
   private setExhausted(ref: ObjectRef, exhausted: boolean): ActionOutcome { const object = this.requireObject(ref); object.exhausted = exhausted; return this.done(); }
 
-  private createToken(player: PlayerId, token: TokenSpec, to: "board" | "chain" | "legend" | "champion", location?: LocationRef): ActionOutcome {
+  private createToken(player: PlayerId, token: RuntimeCreatedToken, to: "board" | "chain" | "legend" | "champion", location?: LocationRef): ActionOutcome {
     if (to !== "legend" && token.championLegend === true) return this.prevented();
     if ((to === "legend") !== token.types.some(type => type.toLowerCase() === "legend")) return this.prevented();
     const id = `token:${this.nextToken++}`;
     const types = to === "champion" ? ["unit"] : token.types;
     const ref = this.addCard(player, { id, cardId: token.cardId, name: token.name, types, tags: token.tags, keywords: token.keywords, might: token.might, energy: token.energy, power: token.power }, to);
     const object = this.objectMap.get(id)!; object.isToken = to !== "champion"; object.faceDown = false; object.location = to === "legend" || to === "chain" || to === "champion" ? null : location ?? null;
+    // CR 184.1 / 185.2.d: a created permanent retains the entry state stipulated
+    // by the creating effect. The generic create primitive otherwise starts
+    // every object ready, which would erase "Gold ... exhausted" before Play.
+    object.exhausted = token.exhausted === true;
     if (to === "legend" && token.championLegend === true) {
       object.championLegend = true;
       this.championLegends.add(refKey(ref));

@@ -182,6 +182,37 @@ function advanceAuthorizationRuntime(started = true): EngineRuntime {
   return started ? runtime.start() : runtime;
 }
 
+/** End the current natural turn only after the public driver has no Chain or Showdown left. */
+function endSettledTurn(runtime: EngineRuntime, commandId: string): void {
+  for (let index = 0; index < 64; index += 1) {
+    const view = runtime.projectFor(null);
+    if (view.winnerPlayerId !== null) return;
+    if (view.chain.items.length > 0) {
+      const actor = view.chain.priorityPlayerId;
+      if (actor === null) throw new Error(`Nonempty Chain has no Priority at ${commandId}`);
+      const receipt = submit(runtime, actor, {
+        type: "pass", commandId: `${commandId}:pass:${index}`, stateVersion: view.stateVersion,
+      });
+      expect(receipt.status, JSON.stringify({ view, receipt })).toBe("accepted");
+      continue;
+    }
+    if (view.combat.status === "active" && view.combat.step === "showdown") {
+      const actor = view.chain.focusPlayerId ?? view.priority.playerId ?? view.activePlayerId;
+      const receipt = submit(runtime, actor, {
+        type: "pass", commandId: `${commandId}:focus:${index}`, stateVersion: view.stateVersion,
+      });
+      expect(receipt.status, JSON.stringify({ view, receipt })).toBe("accepted");
+      continue;
+    }
+    const receipt = submit(runtime, view.activePlayerId, {
+      type: "end-turn", commandId, stateVersion: view.stateVersion,
+    });
+    expect(receipt.status, JSON.stringify({ view, receipt })).toBe("accepted");
+    return;
+  }
+  throw new Error(`Could not settle and end turn ${commandId}`);
+}
+
 function playUnit(runtime: EngineRuntime, playerId: "A" | "B", commandId: string): string {
   const view = runtime.projectFor(playerId);
   const card = ownedHand(view, playerId).find(object => object.cardId === `${playerId}:unit-card`);
@@ -227,7 +258,7 @@ describe("RIFT-924 protocol v2 playable turn runtime", () => {
         type: "end-turn", commandId: `destination-turn-${turn}`,
         stateVersion: runtime.projectFor(null).stateVersion,
       });
-      expect(ended.status, ended.error).toBe("accepted");
+      expect(ended.status, JSON.stringify({ error: ended.error })).toBe("accepted");
     }
     energyFor(runtime, "A", "destination-energy");
     const view = runtime.projectFor("A");
@@ -253,12 +284,16 @@ describe("RIFT-924 protocol v2 playable turn runtime", () => {
     // completed turn boundaries run A's next Awaken; the engine itself readies
     // the Base permanent and opens Showdown from the real location move.
     for (let index = 0; index < 2; index += 1) {
-      const actor = runtime.projectFor(null).activePlayerId;
+      const current = runtime.projectFor(null);
+      const actor = current.activePlayerId;
       const ended = submit(runtime, actor, {
         type: "end-turn", commandId: `after-play-turn-${index}`,
-        stateVersion: runtime.projectFor(null).stateVersion,
+        stateVersion: current.stateVersion,
       });
-      expect(ended.status, ended.error).toBe("accepted");
+      expect(ended.status, JSON.stringify({ error: ended.error, projection: {
+        stateVersion: current.stateVersion, phase: current.phase, activePlayerId: current.activePlayerId,
+        chain: current.chain, pendingChoice: current.pendingChoice, combat: current.combat,
+      } })).toBe("accepted");
     }
     const moveView = runtime.projectFor("A");
     const move = moveView.actionOptions.moves.find(option => option.objectId === play!.cardObjectId &&
@@ -290,11 +325,7 @@ describe("RIFT-924 protocol v2 playable turn runtime", () => {
       .toBeGreaterThanOrEqual(1);
     let winner = runtime.projectFor(null).winnerPlayerId;
     for (let turn = 0; turn < 40 && winner === null; turn += 1) {
-      const current = runtime.projectFor(null);
-      const ended = submit(runtime, current.activePlayerId, {
-        type: "end-turn", commandId: `natural-turn-${turn}`, stateVersion: current.stateVersion,
-      });
-      expect(ended.status, ended.error).toBe("accepted");
+      endSettledTurn(runtime, `natural-turn-${turn}`);
       winner = runtime.projectFor(null).winnerPlayerId;
     }
     expect(winner).toBe("A");

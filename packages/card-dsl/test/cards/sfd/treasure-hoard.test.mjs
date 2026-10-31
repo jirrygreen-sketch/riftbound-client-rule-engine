@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import goldProgram from "../../../dist/cards/sfd/gold.js";
+import poroProgram from "../../../dist/cards/sfd/plundering-poro.js";
 import program from "../../../dist/cards/sfd/treasure-hoard.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
@@ -196,12 +197,15 @@ function settleMatch(match, budget = 160) {
   throw new Error("production Match did not settle");
 }
 
-function addRaider(kernel, { owner = "A", id = "raider", might = 5 } = {}) {
+function addRaider(kernel, {
+  owner = "A", id = "raider", might = 5,
+  cardId = `synthetic:${id}`, canonicalCardId = cardId, name = id,
+} = {}) {
   return kernel.addObject({
     ref: { id, zoneEntryId: 1 },
-    cardId: `synthetic:${id}`,
-    canonicalCardId: `synthetic:${id}`,
-    name: id,
+    cardId,
+    canonicalCardId,
+    name,
     types: ["unit"],
     tags: [],
     keywords: [],
@@ -223,7 +227,7 @@ function addRaider(kernel, { owner = "A", id = "raider", might = 5 } = {}) {
   }, "board");
 }
 
-function productionMatch({ accepted = true, energy = 1 } = {}) {
+function productionMatch({ accepted = true, energy = 1, orderFirstCardId } = {}) {
   const kernel = world().player("A").player("B").build();
   const requests = [];
   const energyAtOptional = [];
@@ -234,7 +238,19 @@ function productionMatch({ accepted = true, energy = 1 } = {}) {
       if (request.id.startsWith("finalize:")) energyAtOptional.push(kernel.player(request.chooser).energy);
       return accepted;
     }
-    if (request.type === "mode") return request.options[0];
+    if (request.type === "mode") {
+      if (orderFirstCardId !== undefined && request.id.includes(":order:")) {
+        const preferred = request.options.find((option) => {
+          const match = /^program:(.+):(\d+):\d+$/.exec(option);
+          if (match === null) return false;
+          const source = kernel.objects.find((object) =>
+            object.ref.id === match[1] && object.ref.zoneEntryId === Number(match[2]));
+          return source?.cardId === orderFirstCardId;
+        });
+        if (preferred !== undefined) return preferred;
+      }
+      return request.options[0];
+    }
     if (request.type === "order") return [...request.options];
     if (request.type === "select-objects" && request.options.length === request.min) return [...request.options];
     if (request.type === "select-objects" && request.min === 0) return [];
@@ -256,7 +272,7 @@ function productionMatch({ accepted = true, energy = 1 } = {}) {
     testTrigger: (registration) => kernel.test(registration.spec.condition)
   });
   host.player = (id) => kernel.player(id);
-  const binding = createProgramBinding({ cardPrograms: [program, goldProgram] });
+  const binding = createProgramBinding({ cardPrograms: [program, goldProgram, poroProgram] });
   const match = createMatch({
     host,
     decks: [deck({ treasure: true }), deck()],
@@ -609,6 +625,38 @@ test("sfd-220-221 Treasure Hoard production counterexample: finalize order is Co
   assert.ok(conquerAt >= 0 && conquerAt < pendingAt && pendingAt < finalizeAt && finalizeAt < resolveAt);
   assert.ok(f.match.flow.chain.trace.some((entry) => entry.step === "finalized" && entry.item === "trigger:1"));
   assert.ok(f.match.flow.chain.trace.some((entry) => entry.step === "resolved" && entry.item === "trigger:1"));
+});
+
+test("sfd-220-221 Treasure Hoard production: simultaneous Unit and Battlefield Conquer triggers are ordered before each optional decision", () => {
+  const f = productionMatch({ orderFirstCardId: CANONICAL });
+  const poro = addRaider(f.kernel, {
+    id: "conquering-poro", might: 2,
+    cardId: poroProgram.canonicalCardId, canonicalCardId: poroProgram.canonicalCardId,
+    name: "Plundering Poro",
+  });
+  assert.deepEqual(f.binding.registerProgramTriggers(f.match.flow.chain, f.kernel.getObject(poro.id)),
+    [`program:${poro.id}:${poro.zoneEntryId}:0`]);
+  f.match.flow.move("A", poro, f.hoard.ref.id);
+  f.settle();
+
+  const orderIndex = f.requests.findIndex((request) =>
+    request.type === "mode" && request.id.includes(":order:"));
+  const optionalIndex = f.requests.findIndex((request) =>
+    request.type === "optional" && request.id.startsWith("finalize:trigger:"));
+  assert.ok(orderIndex >= 0, "383.3.d asks one controller to order simultaneous triggers");
+  assert.ok(optionalIndex > orderIndex, "the Treasure Hoard may is asked after ordering, during Finalize");
+  const ordered = f.requests[orderIndex];
+  assert.equal(ordered.options.some((option) => option.includes(`:${f.hoard.ref.id}:`)), true);
+  assert.equal(ordered.options.some((option) => option.includes(`:${poro.id}:`)), true);
+  assert.equal(f.requests.filter((request) => request.type === "optional" &&
+    request.id.startsWith("finalize:trigger:")).length, 1,
+  "only Treasure Hoard contributes an optional Finalize decision; the Unit trigger is mandatory");
+
+  const trace = f.match.flow.chain.trace;
+  assert.ok(trace.some((entry) => entry.item === "trigger:1" && entry.step === "finalized"));
+  assert.ok(trace.some((entry) => entry.item === "trigger:2" && entry.step === "finalized"));
+  assert.ok(trace.some((entry) => String(entry.item).startsWith("play:") && entry.step === "resolved"),
+    "both Conquer bodies reach their own Chain effects rather than one auto-answering the other");
 });
 
 test("sfd-220-221 Treasure Hoard production counterexample: declining Finalize pays nothing and creates no token", () => {
