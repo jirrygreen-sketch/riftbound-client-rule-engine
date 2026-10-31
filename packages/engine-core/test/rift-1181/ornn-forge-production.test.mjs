@@ -173,6 +173,10 @@ test("RIFT-1181 setup Battlefield static enters real Finalize; first Gear is dis
         cardId: record.object.cardId,
         isToken: record.object.isToken,
       })), [{ cardId: WARMO_G, isToken: false }]);
+      assert.ok(chain.pipeline.events.some(event => event.timingPoint === 'chain-item-pending' &&
+        event.object?.ref.id === warmog.ref.id));
+      assert.ok(chain.pipeline.events.some(event => event.timingPoint === 'chain-item-finalize' &&
+        event.object?.ref.id === warmog.ref.id));
 
       adapter.execute('A', {
         type: 'play', commandId: 'RIFT-1181:second', stateVersion: adapter.stateVersion,
