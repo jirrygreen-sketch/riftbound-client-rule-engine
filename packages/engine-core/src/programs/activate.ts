@@ -278,7 +278,7 @@ export function inspectActivations(input: InspectActivationInput): readonly Insp
   const inspected: InspectedActivation[] = [];
   for (const source of sources) {
     if (source.controller !== controller || source.faceDown ||
-        (source.zone !== 'board' && !source.types.some(type => type.toLowerCase() === 'legend'))) continue;
+        (source.zone !== 'board' && source.zone !== 'legend')) continue;
     let abilities: readonly ActivatedAbility[];
     let program: CardProgram;
     try {

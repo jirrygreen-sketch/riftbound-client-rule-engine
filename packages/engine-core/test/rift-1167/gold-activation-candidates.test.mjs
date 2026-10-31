@@ -35,7 +35,10 @@ const EQUIP = Object.freeze({
   abilities: longSword.abilities,
 });
 
-function scene({ goldExhausted = false, power = [], goldZone = 'board', onPayment, mixedCosts = false } = {}) {
+function scene({
+  goldExhausted = false, power = [], goldZone = 'board', onPayment, mixedCosts = false,
+  legendZone = 'legend',
+} = {}) {
   const builder = world()
     .player('A', { energy: 0, power })
     .player('B')
@@ -49,6 +52,10 @@ function scene({ goldExhausted = false, power = [], goldZone = 'board', onPaymen
       cardId: SWORD_ID, name: 'Long Sword', types: ['gear'], tags: ['Equipment'],
       location: BASE_A, energy: 2, power: ['Fury'], might: 2, exhausted: false,
       keywords: [{ id: 'Equip' }],
+    })
+    .object('legend', {
+      cardId: 'test:legend-activation', name: 'Legend', types: ['legend'], zone: legendZone,
+      location: legendZone === 'board' ? BASE_A : null, controller: 'A', energy: null, power: null,
     });
   if (mixedCosts) {
     builder.object('mixed', {
@@ -78,7 +85,13 @@ function scene({ goldExhausted = false, power = [], goldZone = 'board', onPaymen
     context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
   });
   const engine = new ChainEngine({ turnOrder: ['A', 'B'], turnPlayer: 'A', phase: 'main', host, cleanup: () => false });
-  const binding = createProgramBinding({ cardPrograms: [gold, EQUIP, ...(mixedCosts ? [{
+  const binding = createProgramBinding({ cardPrograms: [gold, EQUIP, {
+    canonicalCardId: 'test:legend-activation',
+    rulesetVersion: 'core-1.5',
+    status: 'executable',
+    sourceText: 'Legend activation.',
+    abilities: [{ kind: 'activated', timing: 'action', cost: { kind: 'explicit', energy: constant(0) }, body: [] }],
+  }, ...(mixedCosts ? [{
     canonicalCardId: 'test:mixed-activation-costs',
     rulesetVersion: 'core-1.5',
     status: 'executable',
@@ -189,6 +202,13 @@ test('RIFT-1167 a continuous activation restriction is enforced before advertisi
   restricted.engine.layers.setObjects(restricted.kernel.objects);
   assert.ok(candidates(f).some(candidate => candidate.source.ref.id === 'gold'));
   assert.equal(candidates(restricted).some(candidate => candidate.source.ref.id === 'gold'), false);
+});
+
+test('RIFT-1167 activated abilities are offered only from the Board or Legend Zone', () => {
+  const inLegendZone = candidates(scene()).filter(candidate => candidate.source.ref.id === 'legend');
+  assert.equal(inLegendZone.length, 1);
+  const inHand = candidates(scene({ legendZone: 'hand' })).filter(candidate => candidate.source.ref.id === 'legend');
+  assert.deepEqual(inHand, []);
 });
 
 test('RIFT-1167 Equip is listed only while its Fury cost and friendly target are available', () => {
