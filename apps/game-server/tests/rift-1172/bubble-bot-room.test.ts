@@ -19,6 +19,10 @@ import { buildM1Deck } from "../../../../packages/integration-tests/src/headless
 // 401-403.2 make its required choice during that Triggered Ability's
 // finalization, 355.7 and 406.1 keep the chosen object a legal Target, and
 // 416.1 makes Ready turn the selected exhausted Unit ready.
+// Bubble Bot (sfd-062-221), official card page read 2026-10-31:
+// https://content.publishing.riotgames.com/publishing-content/v2.0/public/channel/riftbound_website/list/riftbound_gallery_cards?locale=zh_CN
+// "When you play me, ready another friendly Mech." /
+// “当你打出我时，让另一名友方“机械”属性单位变为活跃状态。”
 // Bubble Bot canonical id:
 // card.hash-34880fcae16bd9461e4c318dfb455365ff9e353db357f948b4a15dea7e01b389.
 

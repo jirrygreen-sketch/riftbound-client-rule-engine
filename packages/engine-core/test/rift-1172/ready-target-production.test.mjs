@@ -4,6 +4,10 @@ import { runCardScenario } from "../../dist/effects/testing/scenario/index.js";
 
 // Official evidence (Core Rules v1.5, published 2026-10-09, effective 2026-10-16):
 // https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf
+// Bubble Bot (sfd-062-221), official card page read 2026-10-31:
+// https://content.publishing.riotgames.com/publishing-content/v2.0/public/channel/riftbound_website/list/riftbound_gallery_cards?locale=zh_CN
+// "When you play me, ready another friendly Mech." /
+// “当你打出我时，让另一名友方“机械”属性单位变为活跃状态。”
 // CR 143.4 (Units enter exhausted), 383.4.a.2 (a Play Effect becomes Pending
 // after the permanent enters Board), 401-403.2 (the Triggered Ability is then
 // finalized and its required target choice is made), 355.7 and 406.1 (that
