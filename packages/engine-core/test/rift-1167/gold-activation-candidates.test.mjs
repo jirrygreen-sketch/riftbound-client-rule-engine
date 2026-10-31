@@ -172,6 +172,25 @@ test('RIFT-1167 an unsupported activation does not suppress executable candidate
   assert.ok(candidates(f).some(candidate => candidate.source.ref.id === 'gold'));
 });
 
+test('RIFT-1167 a continuous activation restriction is enforced before advertising', () => {
+  const f = scene();
+  const restricted = scene();
+  const gold = restricted.kernel.getObject('gold');
+  restricted.engine.layers.registry.register(
+    {
+      id: 'RIFT-1167:block-gold-activate',
+      layer: 'ability',
+      source: gold.ref,
+      filter: {},
+      effect: { kind: 'restriction', actions: ['activate'], actionKind: 'activate' },
+    },
+    { type: 'permanent' },
+  );
+  restricted.engine.layers.setObjects(restricted.kernel.objects);
+  assert.ok(candidates(f).some(candidate => candidate.source.ref.id === 'gold'));
+  assert.equal(candidates(restricted).some(candidate => candidate.source.ref.id === 'gold'), false);
+});
+
 test('RIFT-1167 Equip is listed only while its Fury cost and friendly target are available', () => {
   const unavailable = scene();
   assert.equal(candidates(unavailable).some(candidate => candidate.label === 'Equip'), false);

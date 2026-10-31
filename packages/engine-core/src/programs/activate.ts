@@ -242,6 +242,26 @@ function activationCostAvailable(engine: ChainEngine, source: ObjectSnapshot, dr
   });
 }
 
+/**
+ * Mirror ChainEngine.execute's continuous rule gate without adding state.
+ * The restriction query is private to the engine, so the production surface
+ * exposes this read-only candidate query at the same rules seam.
+ */
+export function activationIsRestricted(engine: ChainEngine, draft: ChainDraft, speed: ChainDraft['speed'] = draft.speed): boolean {
+  const actionNames = new Set<string>([speed ?? 'normal', 'play', 'play-card']);
+  if (draft.kind === 'activated') {
+    actionNames.add('activate');
+    actionNames.add('activate-ability');
+  }
+  return [...actionNames].some(action => ruleRestrictions(
+    engine.layers.registry,
+    action,
+    draft.source.ref,
+    draft.source,
+    draft.controller,
+  ).length > 0);
+}
+
 function activationLabel(program: CardProgram, body: readonly Instruction[]): string {
   if (body.some(instruction => instruction.op === 'effect.attach') &&
       program.abilities.some(ability => ability.kind === 'keyword' && ability.keyword.toLowerCase() === 'equip')) {
@@ -273,6 +293,7 @@ export function inspectActivations(input: InspectActivationInput): readonly Insp
         const add = hasAddPrimitive(draft.body);
         if (window === 'payment' && (!reaction || !add)) continue;
         if (window === 'priority' && !engine.canAct(controller, ability.timing, source.ref, source)) continue;
+        if (activationIsRestricted(engine, draft, ability.timing)) continue;
         if (!targetRequirementsAvailable(engine, source, controller, draft.body)) continue;
         if (!activationCostAvailable(engine, source, draft, controller)) continue;
         inspected.push(Object.freeze({ source, abilityIndex, ability, draft,
