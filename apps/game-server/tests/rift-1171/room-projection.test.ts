@@ -164,7 +164,15 @@ describe("RIFT-1171 combat damage budget room projection", () => {
     const combat = damageView.combat;
     const units = damageView.battlefields.find(field =>
       field.battlefieldId === combat.battlefieldId)?.occupantObjectIds ?? [];
-    expect(units).toHaveLength(2);
+    // Since RIFT-1173/1176 the seeded route can bring more than one Unit to a side; the budget must still be the
+    // sum of each side's participating Units, so require a participant on both sides instead of a fixed count.
+    const controllerOf = (objectId: string) => {
+      const object = damageView!.objects.find(candidate => candidate.objectId === objectId);
+      return object?.controllerPlayerId ?? object?.ownerPlayerId;
+    };
+    expect(units.some(objectId => controllerOf(objectId) === combat.attackerPlayerId)).toBe(true);
+    expect(units.some(objectId => controllerOf(objectId) === combat.defenderPlayerId)).toBe(true);
+    expect(units.every(objectId => [combat.attackerPlayerId, combat.defenderPlayerId].includes(controllerOf(objectId)!))).toBe(true);
     const sideMight = (playerId: string) => units.flatMap(objectId => {
       const object = damageView!.objects.find(candidate => candidate.objectId === objectId);
       const controller = object?.controllerPlayerId ?? object?.ownerPlayerId;
