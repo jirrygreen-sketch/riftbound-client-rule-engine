@@ -763,6 +763,29 @@ test('external parent payment continuation accepts one authoritative Rune Add, p
   assert.equal(f.kernel.player('A').energy, 0);
 });
 
+test('production payment continuation gate can preserve an ordinary unpayable parent when no Reaction Add is available', () => {
+  const seen = [];
+  const f = scene(
+    world().player('A', { energy: 0 }).player('B').base('parent', { types: ['unit'], energy: 0, power: [] }),
+    [], {}, {},
+    { paymentContinuation: {
+      onlyWhenUnpayable: true,
+      shouldSuspend: input => { seen.push(input); return false; },
+      persist: () => true,
+    } },
+  );
+  const source = f.kernel.getObject('parent');
+  assert.throws(() => f.engine.execute({
+    id: 'ungated-parent', controller: 'A', source, kind: 'activated', speed: 'normal', body: [],
+    cost: { id: 'cost:ungated-parent', cost: { energy: constant(1), power: constant([]) } },
+  }), error => error?.reason === 'cannot-pay-cost');
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].payer, 'A');
+  assert.deepEqual(seen[0].source, source.ref);
+  assert.equal(f.engine.items.length, 0, 'declining the continuation preserves the ordinary rollback path');
+  assert.equal(f.kernel.player('A').energy, 0);
+});
+
 test('payment continuation rejects cloned handles, wrong payer/source, targets and late failure atomically', () => {
   let restorePoint;
   const f = scene(

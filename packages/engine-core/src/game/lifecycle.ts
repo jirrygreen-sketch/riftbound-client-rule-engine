@@ -9,6 +9,7 @@ import type { ActionOutcome, Domain, GameAction, ObjectRef, PlayerId, PlayerSnap
 import type { PipelineHost, PipelineEvent } from '../events/pipeline-types.js';
 import { createProgramBinding, type ProgramBinding, type ProgramSource } from '../programs/index.js';
 import { TurnFlow } from '../turn/flow.js';
+import type { PaymentContinuationHostPort } from '../chain/engine.js';
 
 export interface MatchCard {
   readonly id: string;
@@ -73,6 +74,8 @@ export interface MatchOptions {
   /** Catalog projection used to reconcile the deck's printed data before setup. */
   readonly catalog?: readonly MatchProgramCard[];
   readonly host: MatchHost;
+  /** Durable server owner for a frozen external Pay Costs step. */
+  readonly paymentContinuation?: PaymentContinuationHostPort;
 }
 
 export interface MatchBattlefield {
@@ -659,6 +662,7 @@ export function createMatch(options: MatchOptions): Match {
     battlefields: report.battlefields,
     victoryScore: options.victoryScore ?? DEFAULT_VICTORY_SCORE,
     ...(programBinding === undefined ? {} : { describePlay: programBinding.describePlay }),
+    ...(options.paymentContinuation === undefined ? {} : { paymentContinuation: options.paymentContinuation }),
   });
   flow.start();
   flow.chain.initializeBattlefieldControl(report.battlefields);

@@ -144,8 +144,7 @@ function projection(viewer) {
     battlefields: [{ battlefieldId: "field-1", controllerPlayerId: "alice", contestedByPlayerId: null,
       staged: "none", occupantObjectIds: ["a-unit-1"] }],
     combat: { status: "none" },
-    actionOptions: { canEndTurn: true, canAdvance: false, moves: [], plays: [],
-      activations: [{ sourceObjectId: "a-unit-1", abilityId: "0", label: "Equip", reaction: false }] },
+    actionOptions: { canEndTurn: true, canAdvance: false, moves: [], plays: [] },
     pendingChoice: viewer === "alice" ? { status: "pending", choiceId: "choice-1", ownerPlayerId: "alice", stateVersion: 7,
       kind: "mode", options: [{ id: "yes", label: "Yes", value: true }] } :
       { status: "pending", choiceId: "choice-1", ownerPlayerId: "alice", stateVersion: 7, kind: "mode" },
@@ -270,24 +269,6 @@ test("play options may publish complete, chooser-visible target requirements", (
   for (const play of malformed) {
     assert.equal(isV2Projection({ ...value, actionOptions: { ...value.actionOptions, plays: [play] } }), false);
   }
-});
-
-test("activation options carry authoritative source/index labels and optional Reaction timing", () => {
-  const value = projection("alice");
-  assert.equal(isV2Projection(value), true);
-  const invalid = [
-    { ...value.actionOptions.activations[0], sourceObjectId: "" },
-    { ...value.actionOptions.activations[0], abilityId: "" },
-    { ...value.actionOptions.activations[0], label: " Equip" },
-    { ...value.actionOptions.activations[0], reaction: "yes" },
-    { ...value.actionOptions.activations[0], extra: true }
-  ];
-  for (const activation of invalid) {
-    assert.equal(isV2Projection({ ...value,
-      actionOptions: { ...value.actionOptions, activations: [activation] } }), false);
-  }
-  assert.equal(isV2Projection({ ...value,
-    actionOptions: { ...value.actionOptions, activations: null } }), false);
 });
 
 test("choose command arrays retain legacy object-ref acceptance", () => {

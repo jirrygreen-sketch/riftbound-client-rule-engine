@@ -151,7 +151,7 @@ export function canPassForViewer(match: Match, pendingChoice: boolean, viewer: P
 }
 
 function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | null,
-  pendingChoice: boolean, currentObjects?: readonly ObjectSnapshot[]): V2ActionOptions {
+  pendingChoice: boolean, currentObjects?: readonly ObjectSnapshot[], paymentWindow = false): V2ActionOptions {
   const canAdvance = advanceResponsiblePlayer(match, pendingChoice, viewer) !== null;
   const canPass = canPassForViewer(match, pendingChoice, viewer);
   const binding = match.programBinding;
@@ -169,7 +169,7 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
         label: candidate.label,
         ...(candidate.reaction ? { reaction: true } : {}),
       }));
-  const priorityActivations = pendingChoice ? [] : activations();
+  const priorityActivations = pendingChoice || paymentWindow ? [] : activations();
   const withActivations = <T extends V2ActionOptions>(value: T): V2ActionOptions => priorityActivations.length === 0
     ? value : { ...value, activations: priorityActivations };
   if (viewer === null || match.result().winner !== null || match.flow.phase !== "main") {
@@ -581,17 +581,12 @@ export function projectRuntimeFromSnapshot(
   } : { status: "none" as const };
   const activationObjects = snapshot.objectCurrentById === null
     ? host.objects() : [...snapshot.objectCurrentById.values()];
-  const baseActions = actionOptions(match, host, viewer, pendingChoice !== null, activationObjects);
-  // Match the runtime's exact payment prompt, including its two answer labels,
-  // and only for the prompt owner. A lookalike pending mode must never open the
-  // Reaction Add window for either seat.
-  const paymentWindow = pendingChoice !== null && viewer !== null &&
-    pendingChoice.ownerPlayerId === viewer && pendingChoice.kind === "mode" &&
-    pendingChoice.choiceId.startsWith("weaponmaster-choice/weaponmaster-pay/") &&
-    pendingChoice.options?.length === 2 &&
-    pendingChoice.options.some(option => option.label === "支付") &&
-    pendingChoice.options.some(option => option.label === "放弃装配");
-  const paymentActivations = viewer === null || match.programBinding === undefined || !paymentWindow
+  const paymentWindow = typeof match.flow.chain.reactionAddPaymentWindow === "function"
+    ? match.flow.chain.reactionAddPaymentWindow() : null;
+  const baseActions = actionOptions(match, host, viewer, pendingChoice !== null, activationObjects,
+    paymentWindow !== null);
+  const paymentActivations = viewer === null || match.programBinding === undefined ||
+    paymentWindow === null || viewer !== paymentWindow.payer
     ? [] : inspectActivations({
         engine: match.flow.chain,
         registry: match.programBinding.registry,
@@ -625,10 +620,10 @@ export function projectRuntimeFromSnapshot(
     players,
     zones,
     objects,
-    chain: { ...snapshot.chain, phase: pendingChoice ? "await-commit" : snapshot.chain.phase },
+    chain: { ...snapshot.chain, phase: pendingChoice || paymentWindow ? "await-commit" : snapshot.chain.phase },
     priority: {
       playerId: snapshot.priority.playerId, focusPlayerId: snapshot.priority.focusPlayerId,
-      window: pendingChoice ? "choice" : snapshot.priority.focusPlayerId !== null ? "showdown" :
+      window: pendingChoice || paymentWindow ? "choice" : snapshot.priority.focusPlayerId !== null ? "showdown" :
         snapshot.chain.items.length ? "closed" : "open",
     },
     scoring: snapshot.scoring,
