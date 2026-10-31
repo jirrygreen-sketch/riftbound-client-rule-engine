@@ -13,7 +13,9 @@ const EVIDENCE = Object.freeze({
   processing: ["project play", "rune-energy", "rune-power", "play", "Finalize", "pay", "Resolve"],
 });
 
-function deck(seat: "A" | "B", runeDomain: "Fury" | "Mind" | "Order"): EngineRuntimeDeck {
+type RuneDomain = "Fury" | "Mind" | "Order";
+
+function deck(seat: "A" | "B", runeDomains: readonly RuneDomain[]): EngineRuntimeDeck {
   return {
     mainDeck: [
       ...Array.from({ length: 20 }, (_, index) => ({
@@ -25,10 +27,13 @@ function deck(seat: "A" | "B", runeDomain: "Fury" | "Mind" | "Order"): EngineRun
         domains: ["Order"] as const, energy: 0, power: null, might: 2,
       })),
     ],
-    runeDeck: Array.from({ length: 12 }, (_, index) => ({
-      id: `${seat}:rune:${index}`, cardId: `rune:${runeDomain}:${seat}`, name: `${runeDomain} Rune`,
-      types: ["rune"], tags: ["Basic"], domains: [runeDomain], energy: null, power: null, might: null,
-    })),
+    runeDeck: Array.from({ length: 12 }, (_, index) => {
+      const runeDomain = runeDomains[index % runeDomains.length]!;
+      return {
+        id: `${seat}:rune:${index}`, cardId: `rune:${runeDomain}:${seat}`, name: `${runeDomain} Rune`,
+        types: ["rune"], tags: ["Basic"], domains: [runeDomain], energy: null, power: null, might: null,
+      } as const;
+    }),
     championLegend: { id: `${seat}:legend`, cardId: `legend:${seat}`, name: "Legend", types: ["legend"] },
     chosenChampion: { id: `${seat}:champion`, cardId: `champion:${seat}`, name: "Champion", types: ["champion"] },
     battlefields: [0, 1, 2].map(index => ({
@@ -42,22 +47,24 @@ function program(canonicalCardId: string): CardProgram {
     abilities: [{ kind: "play", cost: { energy: { kind: "constant", value: 0 } }, body: [] }] };
 }
 
-function runtime(aDomain: "Fury" | "Mind", bDomain: "Mind" | "Order" = "Order",
+function runtime(aDomain: RuneDomain, bDomain: RuneDomain | readonly RuneDomain[] = "Order",
   includeDangerCatalog = true): EngineRuntime {
-  const decks = [deck("A", aDomain), deck("B", bDomain)] as const;
+  const bDomains = typeof bDomain === "string" ? [bDomain] : bDomain;
+  const decks = [deck("A", [aDomain]), deck("B", bDomains)] as const;
   const programs = [
     dangerZone as unknown as CardProgram,
     program("unit:A"), program("unit:B"),
     program("legend:A"), program("legend:B"), program("champion:A"), program("champion:B"),
     ...[0, 1, 2].flatMap(index => [program(`field:A:${index}`), program(`field:B:${index}`)]),
-    program(`rune:${aDomain}:A`), program(`rune:${bDomain}:B`),
+    program(`rune:${aDomain}:A`), ...[...new Set(bDomains)].map(domain => program(`rune:${domain}:B`)),
   ];
   const printedCatalog = ["unit:A", "unit:B", ...(includeDangerCatalog ? [CANONICAL_ID] : [])].map(canonicalCardId => ({
     id: canonicalCardId, canonicalCardId, cardType: canonicalCardId.startsWith("unit:") ? "Unit" : "Spell",
     domains: canonicalCardId === CANONICAL_ID ? ["Fury", "Mind"] : ["Order"],
     energy: canonicalCardId === CANONICAL_ID ? 1 : 0, power: canonicalCardId === CANONICAL_ID ? 1 : null,
   }));
-  return createEngineRuntime({ matchId: `RIFT-1169-${aDomain}-${bDomain}`, roomId: `RIFT-1169-${aDomain}-${bDomain}`,
+  const matchup = [aDomain, ...bDomains].join("-");
+  return createEngineRuntime({ matchId: `RIFT-1169-${matchup}`, roomId: `RIFT-1169-${matchup}`,
     decks, seed: "seed-0", firstPlayer: "A", battlefieldChoice: [0, 0], programs, printedCatalog }).start();
 }
 
@@ -197,6 +204,60 @@ describe("RIFT-1169 Danger Zone real engine room", () => {
     const card = ownHand(view, "A").find(object => object.cardId === CANONICAL_ID);
     expect(card).toBeDefined();
     expect(view.actionOptions.plays).not.toContainEqual(expect.objectContaining({ cardObjectId: card!.objectId }));
+  });
+
+  it("offers the Reaction in a non-Combat Neutral Closed State with Priority", () => {
+    const game = runtime("Fury", ["Mind", "Order"]);
+    fund(game, "A", "Fury", "neutral-closed:a-fund");
+    const view = game.projectFor("A");
+    const [opener, reaction] = ownHand(view, "A").filter(object => object.cardId === CANONICAL_ID);
+    expect(opener).toBeDefined();
+    expect(reaction).toBeDefined();
+    const openerOption = view.actionOptions.plays.find(option => option.cardObjectId === opener!.objectId)!;
+    const opened = submit(game, "A", {
+      type: "play", commandId: "neutral-closed:opener", stateVersion: view.stateVersion,
+      cardObjectId: opener!.objectId,
+      ...(openerOption.requiresDestination ? { destination: openerOption.destination } : {}),
+    });
+    expect(opened.receipt.status, opened.receipt.error).toBe("pending");
+    const repeat = game.projectFor("A").pendingChoice;
+    if (repeat.status !== "pending") throw new Error("Repeat choice expected");
+    const declined = submit(game, "A", {
+      type: "choose", commandId: "neutral-closed:opener-repeat-decline",
+      stateVersion: game.projectFor("A").stateVersion, choiceId: repeat.choiceId, answer: false,
+    });
+    expect(declined.receipt.status, declined.receipt.error).toBe("accepted");
+    const closed = game.projectFor("A");
+    expect(closed.combat).toEqual({ status: "none" });
+    expect(closed.chain.items.length).toBeGreaterThan(0);
+    expect(closed.priority).toMatchObject({ playerId: "A", window: "closed" });
+    expect(closed.actionOptions.plays).toEqual([]);
+    expect(closed.objects.find(object => object.objectId === reaction!.objectId)?.zone).toBe("hand");
+  });
+
+  it("pays base [C] with Mind and Repeat rainbow Power with Order", () => {
+    const game = runtime("Fury", ["Mind", "Order"]);
+    endTurn(game, "A", "repeat:end-a");
+    fund(game, "B", "Mind", "repeat:base");
+    fund(game, "B", "Order", "repeat:rainbow");
+    const view = game.projectFor("B");
+    expect(view.players.find(player => player.playerId === "B")).toMatchObject({
+      energy: 2, power: { Mind: 1, Order: 1 },
+    });
+    const card = ownHand(view, "B").find(object => object.cardId === CANONICAL_ID)!;
+    expect(view.actionOptions.plays).toContainEqual(expect.objectContaining({ cardObjectId: card.objectId }));
+    const played = submit(game, "B", {
+      type: "play", commandId: "repeat:pay", stateVersion: view.stateVersion, cardObjectId: card.objectId,
+    });
+    expect(played.receipt.status, played.receipt.error).toBe("pending");
+    const choice = game.projectFor("B").pendingChoice;
+    if (choice.status !== "pending") throw new Error("Repeat choice expected");
+    const paid = submit(game, "B", {
+      type: "choose", commandId: "repeat:accept", stateVersion: game.projectFor("B").stateVersion,
+      choiceId: choice.choiceId, answer: true,
+    });
+    expect(paid.receipt.status, paid.receipt.error).toBe("accepted");
+    expect(game.projectFor("B").players.find(player => player.playerId === "B")).toMatchObject({ energy: 0, power: {} });
   });
 
 });

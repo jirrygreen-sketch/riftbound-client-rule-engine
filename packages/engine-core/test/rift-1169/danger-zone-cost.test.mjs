@@ -133,3 +133,23 @@ for (const repeatDomain of ['Fury', 'Mind']) {
       'CR 820.1.d.1 executes the whole effect once more');
     });
 }
+
+test('Danger Zone Repeat rainbow Power accepts Order while base [C] remains Fury/Mind',
+  () => {
+    const game = runtime({ power: ['Fury', 'Order'], energy: 2, repeat: true });
+    game.engine.execute(draft(game));
+    const item = game.engine.items[0];
+    assert.deepEqual(item.costPlan.total.power, [
+      { amount: 1, allowedDomains: domains },
+      { amount: 1, allowedDomains: ['Fury', 'Calm', 'Mind', 'Body', 'Chaos', 'Order'] },
+    ]);
+    assert.deepEqual(item.payment.power.power, [
+      { requirementIndex: 0, from: 'Fury', amount: 1 },
+      { requirementIndex: 1, from: 'Order', amount: 1 },
+    ]);
+    assert.deepEqual(game.kernel.player('A').power, []);
+    settle(game.engine);
+    assert.equal(game.engine.layers.registry.list().filter(entry =>
+      entry.effect.effect.kind === 'continuous.might').length, 2,
+    'CR 135.2.e.5.a lets rainbow Power use Order and CR 820.1.d.1 repeats the effect');
+  });

@@ -170,7 +170,11 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
   // CR 813.1.c.1/.c.2. Per-source reaction legality is checked below against
   // the engine's exact Priority/Focus query. Combat itself is not a permission:
   // a Reactive Add still needs a valid trigger/payment window.
-  const reactionOpen = priority === viewer && chain.turnState.startsWith("showdown-");
+  // Reaction is also legal in a non-Combat Closed State (CR 813.1.c.1); the
+  // Pending Chain item grants its controller Priority (CR 312.2.c). As in a
+  // Showdown, the per-source canAct check below remains the exact authority.
+  const reactionOpen = priority === viewer &&
+    (chain.turnState.startsWith("showdown-") || chain.turnState === "neutral-closed");
   const open = ordinaryOpen || reactionOpen;
   const canEndTurn = viewer === match.flow.turnPlayer && ordinaryOpen;
   if ((priority !== viewer && !waitingForFutureCommand) || !open) {
