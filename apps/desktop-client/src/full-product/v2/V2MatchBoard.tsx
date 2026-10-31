@@ -372,6 +372,9 @@ export function V2MatchBoard({
   const [combatResult, setCombatResult] = useState<V2CombatResult | null>(null);
   // The card under the pointer, shown in the docked info panel (left unless the card is on the left).
   const [hoverCard, setHoverCard] = useState<{ readonly cardId: string; readonly side: "left" | "right"; readonly objectId?: string } | null>(null);
+  // A choice panel unmounts under the pointer without a pointer-leave (RIFT-1164).
+  const hoverChoiceKey = state.choice.choice.status === "pending" ? state.choice.choice.choiceId : null;
+  useEffect(() => { setHoverCard(null); }, [hoverChoiceKey]);
   const [previewObjectId, setPreviewObjectId] = useState<string | null>(null);
   // Where the selected hand card sits on screen: its play menu is drawn above it.
   const [menuAnchor, setMenuAnchor] = useState<{ readonly x: number; readonly y: number } | null>(null);
@@ -1230,7 +1233,7 @@ export function V2MatchBoard({
         </section> : null}
     </div>
   );
-  const choicePanel = !setup ? <ChoicePanel cardNames={cardNames} projection={projection} choice={state.choice} selectedIds={selectedChoiceIds} numberAnswer={numberAnswer} optionalAnswer={optionalChoiceAnswer} disabled={!canAct}
+  const choicePanel = !setup ? <ChoicePanel cardNames={cardNames} projection={projection} onHover={hoverHandler} choice={state.choice} selectedIds={selectedChoiceIds} numberAnswer={numberAnswer} optionalAnswer={optionalChoiceAnswer} disabled={!canAct}
     onNumberChange={setNumberAnswer}
     onOptionalAnswerChange={setOptionalChoiceAnswer}
     onToggle={id => setSelectedChoiceIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id])}
@@ -1537,7 +1540,7 @@ function ConnectionState({ state }: { readonly state: V2ClientState["connectionS
 
 
 
-function ChoicePanel({ cardNames, projection: choiceProjection, choice, selectedIds, numberAnswer, optionalAnswer, disabled, onNumberChange, onOptionalAnswerChange, onToggle, onSubmit }: { readonly cardNames: CardNameIndex; readonly projection: V2Projection; readonly choice: V2ChoiceUiState; readonly selectedIds: readonly string[]; readonly numberAnswer: string; readonly optionalAnswer: boolean; readonly disabled: boolean; readonly onNumberChange: (value: string) => void; readonly onOptionalAnswerChange: (value: boolean) => void; readonly onToggle: (id: string) => void; readonly onSubmit: () => void }) {
+function ChoicePanel({ cardNames, projection: choiceProjection, onHover, choice, selectedIds, numberAnswer, optionalAnswer, disabled, onNumberChange, onOptionalAnswerChange, onToggle, onSubmit }: { readonly cardNames: CardNameIndex; readonly projection: V2Projection; readonly onHover?: V2BoardInteraction["onHover"]; readonly choice: V2ChoiceUiState; readonly selectedIds: readonly string[]; readonly numberAnswer: string; readonly optionalAnswer: boolean; readonly disabled: boolean; readonly onNumberChange: (value: string) => void; readonly onOptionalAnswerChange: (value: boolean) => void; readonly onToggle: (id: string) => void; readonly onSubmit: () => void }) {
   if (choice.choice.status === "none") return null;
   const pending = choice.choice;
   const options = pending.options ?? [];
@@ -1549,6 +1552,9 @@ function ChoicePanel({ cardNames, projection: choiceProjection, choice, selected
   const emptySelectionOnly = pending.kind === "select-objects" && options.length === 0 && (pending.min ?? 0) === 0;
   const missingCandidates = objectChoice && !emptySelectionOnly &&
     (options.length === 0 || options.some(option => option.objectRef === undefined));
+  // Hover previews read only the viewer's projection: a hidden candidate has no cardId (RIFT-1164).
+  const choiceObject = (objectId: string): V2ProjectedObject | undefined =>
+    choiceProjection.objects.find(object => object.objectId === objectId);
   const selectionComplete = pending.kind === "order" ? selectedIds.length === options.length :
     !objectChoice || (selectedIds.length >= (pending.min ?? 0) && selectedIds.length <= (pending.max ?? Number.POSITIVE_INFINITY));
   return <section className="v2-choice" aria-label="选择请求"><div className="v2-section-heading"><h3>选择请求 · {choiceKindLabel(pending.kind)}</h3><span>{choice.status === "expired" ? "已过期" : choice.answerable ? "请作出选择" : "等待对手回应"}</span></div>
@@ -1559,16 +1565,19 @@ function ChoicePanel({ cardNames, projection: choiceProjection, choice, selected
         pending.source.name === undefined
           ? pending.source.objectId === undefined ? undefined : cardNames.localizedById.get(pending.source.objectId)
           : cardReferenceName(cardNames, pending.source.objectId, pending.source.name);
-      return sourceName === undefined ? null : <p className="v2-choice-source">来源：{sourceName}</p>;
+      const sourceObject = pending.source?.objectId === undefined ? undefined : choiceObject(pending.source.objectId);
+      return sourceName === undefined ? null : <p className="v2-choice-source">来源：<span className="v2-choice-card"
+        {...v2HoverProps(onHover, sourceObject?.cardId, sourceObject)}>{sourceName}</span></p>;
     })()}
-    {pending.prompt === undefined ? null : <p className="v2-choice-prompt">{pending.prompt}</p>}
+    <p className="v2-choice-prompt">{v2ChoiceInstruction(pending)}</p>
     {pending.kind === "number" ? <input aria-label="选择数值" type="number" min={pending.min} max={pending.max} value={numberAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onChange={event => onNumberChange(event.currentTarget.value)} /> :
       <div className="v2-choice-options">{options.length === 0 && pending.kind === "optional" ? <><button type="button" aria-pressed={optionalAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onOptionalAnswerChange(true)}>接受</button><button type="button" aria-pressed={!optionalAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onOptionalAnswerChange(false)}>拒绝</button></> : emptySelectionOnly ? <p className="v2-muted" role="status">没有可选对象，直接提交即可继续。</p> : missingCandidates ? <p className="v2-waiting" role="status">等待服务端投影选择候选；客户端不会从手牌或其他对象自行推导。</p> : (() => {
         const labels = duplicateObjectLabels(choiceProjection, options.flatMap(option => option.objectRef === undefined ? [] :
           [{ objectId: option.objectRef.objectId,
             label: cardReferenceName(cardNames, option.objectRef.objectId, option.label, option.objectRef.objectId)!,
             allowLocation: choiceProjection.objects.find(object => object.objectId === option.objectRef!.objectId)?.visibility === "public" }]), cardNames);
-        return options.map(option => <button key={`${option.id}:${String(option.objectRef?.zoneEntryId ?? option.value ?? option.id)}`} type="button" aria-pressed={selectedIds.includes(option.id)} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onToggle(option.id)}>{
+        return options.map(option => <button key={`${option.id}:${String(option.objectRef?.zoneEntryId ?? option.value ?? option.id)}`} type="button" aria-pressed={selectedIds.includes(option.id)} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onToggle(option.id)}
+          {...(option.objectRef === undefined ? {} : v2HoverProps(onHover, choiceObject(option.objectRef.objectId)?.cardId, choiceObject(option.objectRef.objectId)))}>{
           option.objectRef === undefined ? option.label : labels.get(option.objectRef.objectId) ??
             cardReferenceName(cardNames, option.objectRef.objectId, option.label, option.objectRef.objectId)}{pending.kind === "order" && selectedIds.includes(option.id) ? ` · 第 ${selectedIds.indexOf(option.id) + 1} 位` : ""}</button>);
       })()}</div>}
@@ -1576,6 +1585,25 @@ function ChoicePanel({ cardNames, projection: choiceProjection, choice, selected
     {pending.kind === "order" && !missingCandidates && !selectionComplete ? <p className="v2-muted" role="status">请按期望顺序继续点击：第 {selectedIds.length + 1} 张</p> : null}
     <button type="button" className="v2-primary-action" disabled={disabled || !choice.answerable || choice.status === "expired" || missingCandidates || !selectionComplete} onClick={onSubmit}>提交选择</button>
   </section>;
+}
+
+/**
+ * The operation hint under a choice heading (RIFT-1164). A Chinese engine
+ * prompt is shown as sent; card-authored prompts are English paraphrases, so
+ * they are replaced by a Chinese hint for the choice kind instead of being
+ * translated here. The official card text is one hover away on the card name.
+ */
+export function v2ChoiceInstruction(pending: Extract<V2PendingChoice, { status: "pending" }>): string {
+  if (pending.prompt !== undefined && /[\u4e00-\u9fff]/u.test(pending.prompt)) return pending.prompt;
+  switch (pending.kind) {
+    case "optional": return "是否发动这项可选效果？效果见来源卡牌说明（鼠标移到卡名上查看）。";
+    case "mode": return "请选择一种模式，然后点“提交选择”。";
+    case "select-objects": return (pending.min ?? 0) === 0
+      ? "请在下方点选对象，也可以不选；然后点“提交选择”。鼠标移到卡名上可查看卡牌。"
+      : "请在下方点选对象，然后点“提交选择”。鼠标移到卡名上可查看卡牌。";
+    case "order": return "请按期望顺序依次点击下方各项，然后点“提交选择”。";
+    case "number": return "请输入数值，然后点“提交选择”。";
+  }
 }
 
 function choiceKindLabel(kind: Extract<V2PendingChoice, { status: "pending" }>["kind"]): string {

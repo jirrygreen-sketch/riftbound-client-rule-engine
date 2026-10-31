@@ -230,9 +230,11 @@ describe("RIFT-1123 V2 official Chinese card names", () => {
     };
     const html = render(projection({ pendingChoice }), catalog);
     const choice = panel(html, "选择请求");
-    expect(choice).toContain("来源：兰博");
+    expect(choice).toContain(">兰博</span>");
     expect(choice).toContain(">兰博</button>");
-    expect(choice).toContain("Choose a unit.");
+    // RIFT-1164: the English engine prompt is replaced by a Chinese hint.
+    expect(choice).toContain("请在下方点选对象");
+    expect(choice).not.toContain("Choose a unit.");
 
     const plain: V2PendingChoice = {
       status: "pending", choiceId: "mode", ownerPlayerId: "alice", stateVersion: 9,
