@@ -164,15 +164,18 @@ describe("RIFT-1171 combat damage budget room projection", () => {
     const combat = damageView.combat;
     const units = damageView.battlefields.find(field =>
       field.battlefieldId === combat.battlefieldId)?.occupantObjectIds ?? [];
-    // Since RIFT-1173/1176 the seeded route can bring more than one Unit to a side; the budget must still be the
-    // sum of each side's participating Units, so require a participant on both sides instead of a fixed count.
+    // Since RIFT-1173/1176 this seeded route brings one attacker and two defenders. Keep the participant count
+    // explicit so the multi-Unit budget check cannot pass if the room regresses to a 1v1 Combat.
     const controllerOf = (objectId: string) => {
       const object = damageView!.objects.find(candidate => candidate.objectId === objectId);
       return object?.controllerPlayerId ?? object?.ownerPlayerId;
     };
-    expect(units.some(objectId => controllerOf(objectId) === combat.attackerPlayerId)).toBe(true);
-    expect(units.some(objectId => controllerOf(objectId) === combat.defenderPlayerId)).toBe(true);
-    expect(units.every(objectId => [combat.attackerPlayerId, combat.defenderPlayerId].includes(controllerOf(objectId)!))).toBe(true);
+    const attackers = units.filter(objectId => controllerOf(objectId) === combat.attackerPlayerId);
+    const defenders = units.filter(objectId => controllerOf(objectId) === combat.defenderPlayerId);
+    expect(units.every(objectId => [combat.attackerPlayerId, combat.defenderPlayerId]
+      .includes(controllerOf(objectId)!))).toBe(true);
+    expect(attackers).toHaveLength(1);
+    expect(defenders).toHaveLength(2);
     const sideMight = (playerId: string) => units.flatMap(objectId => {
       const object = damageView!.objects.find(candidate => candidate.objectId === objectId);
       const controller = object?.controllerPlayerId ?? object?.ownerPlayerId;
