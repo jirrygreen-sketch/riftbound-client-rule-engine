@@ -9,7 +9,8 @@ const CANONICAL_ID = "card.hash-3c1c01b405853556e3e1c12bbd758e94d73f5ed474a5643b
 const RULES_URL = "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf";
 const EVIDENCE = Object.freeze({
   ruleset: "core-1.5", published: "2026-10-09", effective: "2026-10-16", url: RULES_URL,
-  rules: ["135.2.e.6.c", "430.3", "820.1.c.1"], canonicalCardId: CANONICAL_ID,
+  rules: ["135.2.e.5.a", "135.2.e.6.c", "312.2.c", "430.3", "813.1.c.1", "820.1.c.1"],
+  canonicalCardId: CANONICAL_ID,
   processing: ["project play", "rune-energy", "rune-power", "play", "Finalize", "pay", "Resolve"],
 });
 
@@ -107,7 +108,8 @@ function endTurn(runtime: EngineRuntime, player: "A" | "B", tag: string): void {
 describe("RIFT-1169 Danger Zone real engine room", () => {
   it.each(["Fury", "Mind"] as const)("pays with %s after exhausting then recycling the Rune", domain => {
     expect(EVIDENCE).toMatchObject({ ruleset: "core-1.5", published: "2026-10-09", effective: "2026-10-16",
-      rules: ["135.2.e.6.c", "430.3", "820.1.c.1"], canonicalCardId: CANONICAL_ID });
+      rules: ["135.2.e.5.a", "135.2.e.6.c", "312.2.c", "430.3", "813.1.c.1", "820.1.c.1"],
+      canonicalCardId: CANONICAL_ID });
     const game = runtime(domain);
     const card = ownHand(game.projectFor("A"), "A").find(object => object.cardId === CANONICAL_ID);
     expect(card).toBeDefined();
@@ -208,31 +210,74 @@ describe("RIFT-1169 Danger Zone real engine room", () => {
 
   it("offers the Reaction in a non-Combat Neutral Closed State with Priority", () => {
     const game = runtime("Fury", ["Mind", "Order"]);
-    fund(game, "A", "Fury", "neutral-closed:a-fund");
-    const view = game.projectFor("A");
-    const [opener, reaction] = ownHand(view, "A").filter(object => object.cardId === CANONICAL_ID);
-    expect(opener).toBeDefined();
-    expect(reaction).toBeDefined();
-    const openerOption = view.actionOptions.plays.find(option => option.cardObjectId === opener!.objectId)!;
-    const opened = submit(game, "A", {
-      type: "play", commandId: "neutral-closed:opener", stateVersion: view.stateVersion,
-      cardObjectId: opener!.objectId,
-      ...(openerOption.requiresDestination ? { destination: openerOption.destination } : {}),
+    endTurn(game, "A", "neutral-closed:end-a");
+    fund(game, "B", "Mind", "neutral-closed:opener-fund");
+    const openerView = game.projectFor("B");
+    const opener = ownHand(openerView, "B").find(object => object.cardId === CANONICAL_ID)!;
+    const opened = submit(game, "B", {
+      type: "play", commandId: "neutral-closed:opener", stateVersion: openerView.stateVersion,
+      cardObjectId: opener.objectId,
     });
     expect(opened.receipt.status, opened.receipt.error).toBe("pending");
+    const openerRepeat = game.projectFor("B").pendingChoice;
+    if (openerRepeat.status !== "pending") throw new Error("Repeat choice expected");
+    const openerDeclined = submit(game, "B", {
+      type: "choose", commandId: "neutral-closed:opener-repeat-decline",
+      stateVersion: game.projectFor("B").stateVersion, choiceId: openerRepeat.choiceId, answer: false,
+    });
+    expect(openerDeclined.receipt.status, openerDeclined.receipt.error).toBe("accepted");
+    expect(game.projectFor("A").combat).toEqual({ status: "none" });
+    const passOpener = submit(game, "B", {
+      type: "pass", commandId: "neutral-closed:opener-pass", stateVersion: game.projectFor("B").stateVersion,
+    });
+    expect(passOpener.receipt.status, passOpener.receipt.error).toBe("accepted");
+    expect(game.projectFor("A").priority).toMatchObject({ playerId: "A", window: "closed" });
+
+    for (const [kind, tag] of [["rune-energy", "energy"], ["rune-power", "power"]] as const) {
+      const view = game.projectFor("A");
+      const rune = view.zones.find(zone => zone.zone === "rune-zone" && zone.ownerPlayerId === "A")?.objects?.find(object =>
+        object.cardId === "rune:Fury:A" && object.zoneEntryId !== undefined &&
+        (kind === "rune-power" || object.exhausted === false));
+      expect(rune, JSON.stringify(view.zones)).toBeDefined();
+      const funded = submit(game, "A", {
+        type: kind, commandId: `neutral-closed:${tag}`, stateVersion: view.stateVersion,
+        runeObjectId: rune!.objectId, zoneEntryId: rune!.zoneEntryId!,
+      });
+      expect(funded.receipt.status, funded.receipt.error).toBe("accepted");
+      if (kind === "rune-energy") {
+        const handedBack = submit(game, "B", {
+          type: "pass", commandId: "neutral-closed:energy-pass", stateVersion: game.projectFor("B").stateVersion,
+        });
+        expect(handedBack.receipt.status, handedBack.receipt.error).toBe("accepted");
+      }
+    }
+
+    const passPower = submit(game, "B", {
+      type: "pass", commandId: "neutral-closed:power-pass", stateVersion: game.projectFor("B").stateVersion,
+    });
+    expect(passPower.receipt.status, passPower.receipt.error).toBe("accepted");
+    const view = game.projectFor("A");
+    const card = ownHand(view, "A").find(object => object.cardId === CANONICAL_ID);
+    expect(card).toBeDefined();
+    expect(view.combat).toEqual({ status: "none" });
+    expect(view.chain.status).toBe("closed");
+    expect(view.priority).toMatchObject({ playerId: "A", window: "closed" });
+    expect(view.actionOptions.plays).toContainEqual(expect.objectContaining({
+      cardObjectId: card!.objectId, requiresDestination: false,
+    }));
+    const played = submit(game, "A", {
+      type: "play", commandId: "neutral-closed:play", stateVersion: view.stateVersion,
+      cardObjectId: card!.objectId,
+    });
+    expect(played.receipt.status, played.receipt.error).toBe("pending");
     const repeat = game.projectFor("A").pendingChoice;
     if (repeat.status !== "pending") throw new Error("Repeat choice expected");
     const declined = submit(game, "A", {
-      type: "choose", commandId: "neutral-closed:opener-repeat-decline",
+      type: "choose", commandId: "neutral-closed:repeat-decline",
       stateVersion: game.projectFor("A").stateVersion, choiceId: repeat.choiceId, answer: false,
     });
     expect(declined.receipt.status, declined.receipt.error).toBe("accepted");
-    const closed = game.projectFor("A");
-    expect(closed.combat).toEqual({ status: "none" });
-    expect(closed.chain.items.length).toBeGreaterThan(0);
-    expect(closed.priority).toMatchObject({ playerId: "A", window: "closed" });
-    expect(closed.actionOptions.plays).toEqual([]);
-    expect(closed.objects.find(object => object.objectId === reaction!.objectId)?.zone).toBe("hand");
+    expect(game.projectFor("A").players.find(player => player.playerId === "A")).toMatchObject({ energy: 0, power: {} });
   });
 
   it("pays base [C] with Mind and Repeat rainbow Power with Order", () => {
