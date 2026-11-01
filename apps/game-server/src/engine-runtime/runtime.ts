@@ -31,7 +31,8 @@ import { assertRuntimeJournal, ENGINE_RUNTIME_RULESET_VERSION, RuntimeJournalWri
   digestCanonicalJson, type RuntimeJournal, type RuntimeJournalEntry, digest } from "./journal.js";
 import { EngineRuntimeHost, type RuntimeCard, type RuntimeVisibilityGrant } from "./host.js";
 import { advanceResponsiblePlayer, isCombatDamageAssignment, projectObjectForChoice, projectRuntime,
-  projectRuntimeFromSnapshot, projectionCanonicalJson, projectionDigest, projectionSnapshot } from "./projection.js";
+  projectRuntimeFromSnapshot, projectionCanonicalJson, projectionDigest, projectionSemantics, projectionSnapshot,
+  LEGACY_RUNTIME_ENGINE_VERSION } from "./projection.js";
 
 type PendingChoice = Extract<V2PendingChoice, { readonly status: "pending" }>;
 type V2PendingChoiceSource = NonNullable<PendingChoice["source"]>;
@@ -730,7 +731,7 @@ class MatchRuntime implements EngineRuntime {
     }
     this.journalWriter = new RuntimeJournalWriter({
       header: {
-        engineVersion: this.runtimeOptions.engineVersion ?? "@riftbound/engine-core/current",
+        engineVersion: this.runtimeOptions.engineVersion ?? LEGACY_RUNTIME_ENGINE_VERSION,
         matchId: this.runtimeOptions.matchId, roomId: this.runtimeOptions.roomId ?? this.runtimeOptions.matchId,
         catalogDigest: this.runtimeOptions.catalogDigest ?? "sha256:" + digest(normalizedDecks),
         rosterDigest: digest(seats), trustedDeckDigest: digest({ seats, decks: normalizedDecks }),
@@ -799,7 +800,7 @@ class MatchRuntime implements EngineRuntime {
 
   projectFor(playerId: PlayerId | null): V2Projection {
     this.requireStarted();
-    const snapshot = projectionSnapshot(this.match!, this.host!, this.runtimeOptions.matchId, this.stateVersion);
+    const snapshot = this.projectionSnapshot();
     return this.projectForSnapshot(playerId, snapshot);
   }
 
@@ -808,6 +809,11 @@ class MatchRuntime implements EngineRuntime {
     const projection = projectRuntimeFromSnapshot(this.match!, this.host!, this.runtimeOptions.matchId,
       playerId, this.stateVersion, this.pendingChoiceFor(playerId), snapshot);
     return withChoiceMetadata(projection, this.pending);
+  }
+
+  private projectionSnapshot(): ReturnType<typeof projectionSnapshot> {
+    return projectionSnapshot(this.match!, this.host!, this.runtimeOptions.matchId, this.stateVersion,
+      projectionSemantics(this.runtimeOptions.engineVersion ?? LEGACY_RUNTIME_ENGINE_VERSION));
   }
 
   journal(): RuntimeJournal {
@@ -894,7 +900,7 @@ class MatchRuntime implements EngineRuntime {
         const receipt = { commandId: command.commandId, status: "accepted" as const, stateVersion: this.stateVersion + 1,
           eventSeq: this.match!.events().length, result: { resumedCommandId: original.command.commandId, accepted: true } };
         this.stateVersion += 1;
-        const snapshot = projectionSnapshot(this.match!, this.host!, this.runtimeOptions.matchId, this.stateVersion);
+        const snapshot = this.projectionSnapshot();
         const projection = this.projectForSnapshot(playerId, snapshot);
         this.appendJournal(playerId, command, receipt, receipt.result!, false, undefined, projection, snapshot);
         this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
@@ -1070,7 +1076,7 @@ class MatchRuntime implements EngineRuntime {
     });
     const receipt: RuntimeReceipt = { commandId: command.commandId, status: "accepted", stateVersion: this.stateVersion,
       eventSeq: this.match!.events().length, result };
-    const snapshot = projectionSnapshot(this.match!, this.host!, this.runtimeOptions.matchId, this.stateVersion);
+    const snapshot = this.projectionSnapshot();
     const projection = this.projectForSnapshot(playerId, snapshot);
     this.appendJournal(playerId, command, receipt, result, false, undefined, projection, snapshot);
     this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
@@ -1354,8 +1360,7 @@ class MatchRuntime implements EngineRuntime {
   ): RuntimeJournalEntry {
     const writer = this.journalWriter!;
     const viewers = Object.keys(this.host!.playerNames());
-    const snapshot = sharedSnapshot ??
-      projectionSnapshot(this.match!, this.host!, this.runtimeOptions.matchId, this.stateVersion);
+    const snapshot = sharedSnapshot ?? this.projectionSnapshot();
     const projectionFor = (viewer: string | null) => projectRuntimeFromSnapshot(
       this.match!, this.host!, this.runtimeOptions.matchId, viewer, this.stateVersion,
       this.pendingChoiceFor(viewer), snapshot,
@@ -1415,9 +1420,15 @@ class MatchRuntime implements EngineRuntime {
     this.host.advanceTurn(Math.max(this.match.flow.turn, 1));
   }
 
+  private projectionSemantics(): ReturnType<typeof projectionSemantics> {
+    return projectionSemantics(this.runtimeOptions.engineVersion ?? LEGACY_RUNTIME_ENGINE_VERSION);
+  }
+
   private stateDigest(): string {
     if (!this.match || !this.host) throw new Error("Engine runtime has not started");
-    return projectionDigest(projectRuntime(this.match, this.host, this.runtimeOptions.matchId, null, this.stateVersion, null));
+    return projectionDigest(projectRuntime(this.match, this.host, this.runtimeOptions.matchId, null,
+      this.stateVersion, null,
+      this.projectionSemantics()));
   }
   private privateStateDigest(): string {
     if (!this.match || !this.host) throw new Error("Engine runtime has not started");
@@ -1427,13 +1438,13 @@ class MatchRuntime implements EngineRuntime {
         ownerPlayerId: this.pending.request.chooser,
         stateVersion: this.stateVersion,
         kind: this.pending.request.type,
-      } : null),
+      } : null, this.projectionSemantics()),
       projectRuntime(this.match, this.host, this.runtimeOptions.matchId, Object.keys(this.host.playerNames())[1]!, this.stateVersion, this.pending ? {
         choiceId: this.pending.request.id,
         ownerPlayerId: this.pending.request.chooser,
         stateVersion: this.stateVersion,
         kind: this.pending.request.type,
-      } : null),
+      } : null, this.projectionSemantics()),
     ]);
   }
 
