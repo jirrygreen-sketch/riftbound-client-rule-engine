@@ -6,6 +6,7 @@ import type {
   RoomView
 } from "@riftbound/protocol";
 import type {
+  V2ActivationOption,
   V2ChoiceAnswer,
   V2ChoiceOption,
   V2CommandReceipt,
@@ -49,9 +50,17 @@ import {
   V2PlaymatSide,
   v2PlaymatCards,
   type V2BoardInteraction,
+  type V2MenuAnchor,
   type V2ObjectMark,
   type V2PlaymatCards
 } from "./V2Playmat";
+import {
+  buildV2ActivateCommand,
+  v2ActivationLabel,
+  v2Activations,
+  v2ActivationsFor,
+  v2ActivationSourceIds
+} from "./activations";
 import {
   v2AssignDamage,
   v2ChainKindLabel,
@@ -379,6 +388,8 @@ export function V2MatchBoard({
   const [previewObjectId, setPreviewObjectId] = useState<string | null>(null);
   // Where the selected hand card sits on screen: its play menu is drawn above it.
   const [menuAnchor, setMenuAnchor] = useState<{ readonly x: number; readonly y: number } | null>(null);
+  // RIFT-1183: the permanent whose activated-ability menu is open, drawn above the clicked point.
+  const [activationMenu, setActivationMenu] = useState<{ readonly objectId: string; readonly anchor: V2MenuAnchor } | null>(null);
   const combatWatchRef = useRef<{ readonly battlefieldId: string; readonly fromSeq: number; readonly contested: boolean } | null>(null);
   const mainActionRef = useRef<(() => void) | null>(null);
   const cardNames = useMemo(() => buildCardNameIndex(catalogCards), [catalogCards]);
@@ -429,6 +440,7 @@ export function V2MatchBoard({
         mainActionRef.current();
       }
       if (event.key === "Escape") {
+        setActivationMenu(null);
         setSelectedCardId(null);
         setSelectedPlayTargets({});
         setExpandedGroup(null);
@@ -670,6 +682,10 @@ export function V2MatchBoard({
   const canChooseMulligan = setup ? canAct && mulliganOpen && !choiceExpired : false;
   const canEndTurn = canAct && actionOptions?.canEndTurn === true && choiceOpen && !choiceExpired;
   const canAdvance = canAct && actionOptions?.canAdvance === true && choiceOpen && !choiceExpired;
+  // The server lists only abilities the viewer may begin now, Reaction timing included (RIFT-1167).
+  const activations = v2Activations(projection);
+  const activationSourceIds = v2ActivationSourceIds(projection);
+  const canActivate = !setup && canAct && choiceOpen && !choiceExpired && activations.length > 0;
   const combatDamage = projection.combat?.status === "active" && projection.combat.step === "damage" &&
     projection.combat.combatId !== undefined && projection.combat.damage !== undefined &&
     projection.combat.damage.expectedPlayerId === projection.viewerPlayerId ? projection.combat.damage : null;
@@ -733,6 +749,7 @@ export function V2MatchBoard({
     setSelectedPlayDestination(next.playDestination);
   };
   const selectPlayCard = (objectId: string, anchor: { readonly x: number; readonly y: number }): void => {
+    setActivationMenu(null);
     setMenuAnchor(anchor);
     applyPlayCardPick(v2PlayCardSelection(selectedCardId, objectId));
   };
@@ -809,9 +826,10 @@ export function V2MatchBoard({
       onEnergy: rune => submit(buildV2RuneCommand("rune-energy", rune)),
       onPower: rune => submit(buildV2RuneCommand("rune-power", rune))
     },
-    operable: object => !setup && canAct && combatDamage === null && targetingRequirements.length === 0 && movableIds.has(object.objectId),
+    operable: object => !setup && canAct && combatDamage === null && targetingRequirements.length === 0 &&
+      (movableIds.has(object.objectId) || canActivate && activationSourceIds.has(object.objectId)),
     markFor,
-    onObjectClick: (objects, multi) => {
+    onObjectClick: (objects, multi, anchor) => {
       if (consumeDragClick()) return true;
       if (combatDamage !== null && combatDamageBudget !== null && objects.length > 0 &&
           objects.every(object => combatTargetIds.has(object.objectId))) {
@@ -843,6 +861,15 @@ export function V2MatchBoard({
       // Shift/Ctrl/⌘ click picks own units to move together; a plain click still opens the card.
       if (multi === true && !setup && canAct && combatDamage === null && objects.some(object => movableIds.has(object.objectId))) {
         setMoveGroup(v2ToggleMoveGroup(projection, activeMoveGroup, objects));
+        return true;
+      }
+      // RIFT-1183: a plain click on a permanent with a listed ability opens its ability menu;
+      // its card still opens from the zoom button.
+      const source = canActivate && combatDamage === null && targetingRequirements.length === 0 && anchor !== undefined
+        ? objects.find(object => activationSourceIds.has(object.objectId)) : undefined;
+      if (source !== undefined && anchor !== undefined) {
+        setMenuAnchor(null);
+        setActivationMenu(current => current?.objectId === source.objectId ? null : { objectId: source.objectId, anchor });
         return true;
       }
       return false;
@@ -940,7 +967,7 @@ export function V2MatchBoard({
     setCombatDamageDrafts({});
     setCombatDamageOrder([]);
   };
-  const anythingOperable = playableCount > 0 || movableUnits.length > 0 ||
+  const anythingOperable = playableCount > 0 || movableUnits.length > 0 || canActivate ||
     ownRunes.some(rune => v2RuneCanAddEnergy(rune));
   const waitingOn = pendingChoiceState.status === "pending" && !state.choice.answerable ? pendingChoiceState.ownerPlayerId :
     waitingForOpponentDamage ? projection.combat?.damage?.expectedPlayerId ?? null : projection.priority.playerId;
@@ -1055,6 +1082,34 @@ export function V2MatchBoard({
         if (command !== null) submit(command);
       }} />
   ) : null;
+  const activationSource = activationMenu === null || !canActivate || combatDamage !== null || targetingRequirements.length > 0
+    ? undefined : objectById(activationMenu.objectId);
+  const menuActivations = activationSource === undefined ? [] : v2ActivationsFor(projection, activationSource.objectId);
+  const activate = (option: V2ActivationOption): void => {
+    setActivationMenu(null);
+    submit(buildV2ActivateCommand(option));
+  };
+  const activationMenuNode = activationSource !== undefined && activationMenu !== null && menuActivations.length > 0 ? (
+    <V2ActivationMenu label={objectLabel(activationSource)} sourceObjectId={activationSource.objectId} options={menuActivations}
+      anchor={activationMenu.anchor} onActivate={activate} />
+  ) : null;
+  // Every listed ability, including ones on sources the playmat does not draw as permanents (e.g. a Legend).
+  const activationList = canActivate ? (
+    <section className="v2-action-row v2t-activations" aria-label="可发动的能力">
+      <span>可发动</span>
+      {activations.map(option => {
+        const source = objectById(option.sourceObjectId);
+        return (
+          <button key={`${option.sourceObjectId}:${option.abilityId}`} type="button"
+            disabled={combatDamage !== null || targetingRequirements.length > 0}
+            {...v2HoverProps(hoverHandler, source?.cardId, source)}
+            onClick={() => activate(option)}>
+            {source === undefined ? "" : `${objectLabel(source)} · `}{v2ActivationLabel(option, v2ActivationsFor(projection, option.sourceObjectId))}
+          </button>
+        );
+      })}
+    </section>
+  ) : null;
   const statusArea = (
     <div className="v2t-status">
         {dragNotice ? <p className="v2-waiting" role="status" aria-label="拖动提示">{dragNotice}</p> : null}
@@ -1129,6 +1184,7 @@ export function V2MatchBoard({
         aria-label={`主操作：${main.label}`} onClick={() => main.run?.()}>
         <span>{main.label}</span>{main.detail ? <small>{main.detail}</small> : null}
       </button>
+      {activationList}
       {!setup ? <section className="v2-action-row v2t-secondary" aria-label="对局操作">
           <button type="button" disabled={setup || !canPass} onClick={() => submit(buildV2PassCommand())}>Pass</button>
           <button type="button" disabled={setup || !canAdvance} onClick={() => submit(buildV2AdvanceCommand())}>推进</button>
@@ -1280,6 +1336,7 @@ export function V2MatchBoard({
           <div className="v2t-hand" role="region" aria-label="手牌">{handPanel}</div>
           {prompt}
           {playMenu}
+          {activationMenuNode}
           {drag?.active ? null : <V2CardHoverPanel cardId={hoverCard?.cardId ?? null} side={hoverCard?.side ?? "left"} cards={playmatCards}
             object={hoverCard?.objectId === undefined ? undefined : objectById(hoverCard.objectId)} />}
           {choicePanel !== null && choiceMine ? <div className="v2t-choice-overlay">{choicePanel}</div> : null}
@@ -1401,6 +1458,26 @@ function PlayMenu({ card, plays, label, disabled, anchor, destinationLabel, onPl
         <button key={option.requiresDestination === false ? "none" : v2LocationKey(option.destination)} type="button" role="menuitem"
           disabled={disabled} onClick={() => onPlay(option)}>
           {v2PlayNeedsSelection(option) ? "选择目标" : "打出"}{option.requiresDestination === false ? "" : ` · ${destinationLabel(option.destination)}`}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** One permanent's listed activated abilities, shown above it when clicked (RIFT-1183). */
+export function V2ActivationMenu({ label, sourceObjectId, options, anchor, onActivate }: {
+  readonly label: string;
+  readonly sourceObjectId: string;
+  readonly options: readonly V2ActivationOption[];
+  readonly anchor: V2MenuAnchor;
+  readonly onActivate: (option: V2ActivationOption) => void;
+}) {
+  return (
+    <div className="v2t-play-menu" role="menu" aria-label={`${label} 的可发动能力`} data-object-id={sourceObjectId}
+      style={{ left: anchor.x, top: anchor.y }}>
+      {options.map(option => (
+        <button key={option.abilityId} type="button" role="menuitem" onClick={() => onActivate(option)}>
+          发动 {v2ActivationLabel(option, options)}
         </button>
       ))}
     </div>

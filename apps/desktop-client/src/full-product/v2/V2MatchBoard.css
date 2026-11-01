@@ -368,6 +368,11 @@
 .v2t .v2t-secondary button { padding: .2rem .55rem; border-radius: .35rem; border: 1px solid #2c4248; background: transparent; color: var(--v2t-muted); font-size: .68rem; cursor: pointer; }
 .v2t .v2t-secondary button:disabled { opacity: .4; cursor: not-allowed; }
 .v2t .v2t-secondary [role="group"] { display: inline-flex; align-items: center; gap: .3rem; }
+/* RIFT-1183: every activated ability the server lists right now. */
+.v2t-activations { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: .3rem; font-size: .62rem; color: var(--v2t-muted); }
+.v2t .v2t-activations button { padding: .2rem .55rem; border-radius: .35rem; border: 1px solid var(--v2t-me); background: rgba(56, 189, 214, .12);
+  color: var(--v2t-ink); font-size: .68rem; font-weight: 700; cursor: pointer; }
+.v2t .v2t-activations button:disabled { opacity: .4; cursor: not-allowed; }
 .v2t-keys { margin: 0; font-size: .6rem; color: #5d7477; }
 .v2t-drawer summary { cursor: pointer; color: var(--v2t-muted); font-size: .7rem; }
 .v2t-drawer[open] summary { margin-bottom: .4rem; }
