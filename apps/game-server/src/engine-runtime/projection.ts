@@ -14,6 +14,7 @@ import type {
   V2Zone,
 } from "../../../../packages/protocol/dist/v2/index.js";
 import { playLocations, restrictions as ruleRestrictions } from "../../../../packages/engine-core/dist/layers/rules/query.js";
+import { DUEL_DOMAINS } from "../../../../packages/engine-core/dist/cost/resources.js";
 import type { Match } from "../../../../packages/engine-core/dist/game/lifecycle.js";
 import type { ObjectRef, ObjectSnapshot, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
 import { playPermissionAllows, playPermissions } from "../../../../packages/engine-core/dist/programs/play-permissions.js";
@@ -24,6 +25,30 @@ import type { EngineRuntimeHost } from "./host.js";
 import { canonicalJson, digest } from "./journal.js";
 
 const zoneNames: readonly V2Zone[] = ["base", "board", "battlefield", "champion", "legend", "rune-zone", "hand", "deck", "rune-deck", "trash", "banishment", "chain", "facedown"];
+
+export const LEGACY_RUNTIME_ENGINE_VERSION = "@riftbound/engine-core/current" as const;
+
+/** Projection semantics released after the historical current-version replay. */
+export const RIFT_1169_ENGINE_SUFFIX = "+RIFT-1169.danger-zone-closed-v1" as const;
+export const RIFT_1169_ENGINE_VERSION = `@riftbound/engine-core/current${RIFT_1169_ENGINE_SUFFIX}` as const;
+
+export interface ProjectionSemantics {
+  readonly trustedPrintedCatalog: boolean;
+  readonly dangerZoneClosedState: boolean;
+}
+
+export function projectionSemantics(engineVersion: string): ProjectionSemantics {
+  // Version suffixes compose across integration. A room created by an earlier
+  // release (for example the RIFT-1165 current version) remains legacy until
+  // the parent advances its current identifier with this explicit marker.
+  const dangerZoneClosedState = engineVersion.includes(RIFT_1169_ENGINE_SUFFIX);
+  return Object.freeze({ trustedPrintedCatalog: dangerZoneClosedState, dangerZoneClosedState });
+}
+
+export const LEGACY_PROJECTION_SEMANTICS: ProjectionSemantics = Object.freeze({
+  trustedPrintedCatalog: false,
+  dangerZoneClosedState: false,
+});
 
 function v2Zone(zone: ObjectSnapshot["zone"]): V2Zone {
   return zone as V2Zone;
@@ -151,7 +176,8 @@ export function canPassForViewer(match: Match, pendingChoice: boolean, viewer: P
 }
 
 function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | null,
-  pendingChoice: boolean, currentObjects?: readonly ObjectSnapshot[], paymentWindow = false): V2ActionOptions {
+  pendingChoice: boolean, semantics: ProjectionSemantics, currentObjects?: readonly ObjectSnapshot[],
+  paymentWindow = false): V2ActionOptions {
   const canAdvance = advanceResponsiblePlayer(match, pendingChoice, viewer) !== null;
   const canPass = canPassForViewer(match, pendingChoice, viewer);
   const binding = match.programBinding;
@@ -181,26 +207,36 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
   const priority = chain.priority;
   const waitingForFutureCommand = chain.items.length === 0 && !match.flow.combat.active &&
     match.flow.phase === "main" && chain.turnState === "neutral-open" && priority === null;
-  const open = !match.flow.combat.active && chain.turnState === "neutral-open" &&
+  const legacyOpen = !match.flow.combat.active && chain.turnState === "neutral-open" &&
     (chain.canAct(viewer, "normal") || waitingForFutureCommand);
-  const canEndTurn = viewer === match.flow.turnPlayer && open;
-  if ((priority !== viewer && !waitingForFutureCommand) || !open || chain.items.length > 0) {
+  const ordinaryOpen = !match.flow.combat.active && chain.turnState === "neutral-open" && chain.items.length === 0 &&
+    (chain.canAct(viewer, "normal") || waitingForFutureCommand);
+  // A Showdown is an open Focus window; a Pending Chain item creates a
+  // non-Combat Closed State. Both still require exact per-source canAct below.
+  const reactionOpen = semantics.dangerZoneClosedState && priority === viewer &&
+    (chain.turnState.startsWith("showdown-") || chain.turnState === "neutral-closed");
+  const open = semantics.dangerZoneClosedState ? ordinaryOpen || reactionOpen : legacyOpen;
+  const canEndTurn = viewer === match.flow.turnPlayer && (semantics.dangerZoneClosedState ? ordinaryOpen : legacyOpen);
+  if ((priority !== viewer && !waitingForFutureCommand) || !open ||
+      (!semantics.dangerZoneClosedState && chain.items.length > 0)) {
     return withActivations({ canEndTurn, canAdvance, canPass, moves: [], plays: [] });
   }
   const battlefields = match.flow.battlefields;
   const moves: V2ActionOptions["moves"][number][] = [];
-  for (const object of objects) {
-    if (object.controller !== viewer || object.zone !== "board" || !object.types.includes("unit") ||
-        object.exhausted || object.location === null) continue;
-    if (object.location.type === "battlefield") {
-      moves.push({ objectId: object.ref.id, destination: { kind: "base", playerId: viewer } });
-    }
-    if (object.location.type === "base" || object.location.type === "battlefield") {
-      for (const field of battlefields) {
-        if (object.location.type === "battlefield" && object.location.id === field.id) continue;
-        if (object.location.type === "base" || object.keywords.some(keyword =>
-          keyword.id.toLowerCase().replace(/[\s_-]+/g, "") === "ganking")) {
-          moves.push({ objectId: object.ref.id, destination: { kind: "battlefield", battlefieldId: field.id } });
+  if (!semantics.dangerZoneClosedState || ordinaryOpen) {
+    for (const object of objects) {
+      if (object.controller !== viewer || object.zone !== "board" || !object.types.includes("unit") ||
+          object.exhausted || object.location === null) continue;
+      if (object.location.type === "battlefield") {
+        moves.push({ objectId: object.ref.id, destination: { kind: "base", playerId: viewer } });
+      }
+      if (object.location.type === "base" || object.location.type === "battlefield") {
+        for (const field of battlefields) {
+          if (object.location.type === "battlefield" && object.location.id === field.id) continue;
+          if (object.location.type === "base" || object.keywords.some(keyword =>
+            keyword.id.toLowerCase().replace(/[\s_-]+/g, "") === "ganking")) {
+            moves.push({ objectId: object.ref.id, destination: { kind: "battlefield", battlefieldId: field.id } });
+          }
         }
       }
     }
@@ -208,14 +244,27 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
   const plays: V2ActionOptions["plays"][number][] = [];
   const energy = host.player(viewer).energy;
   const power = host.player(viewer).power;
-  const printedCatalog = binding === undefined ? undefined :
-    (binding.describePlay as typeof binding.describePlay & {
+  // Catalog rows are installed by ProgramBinding lifecycle on the Chain's
+  // describePlay function. TurnFlow wraps the Match binding, so the trusted
+  // lookup is available here even though match.programBinding predates the
+  // runtime-owned catalog binding.
+  const describePlay = (chain as unknown as { readonly options?: {
+    readonly describePlay?: NonNullable<typeof binding>["describePlay"] & {
       readonly printedCatalog?: (canonicalCardId: string) => {
         readonly domains: readonly string[];
         readonly energy: number | null;
         readonly power: number | null;
       } | undefined;
-    }).printedCatalog;
+    };
+  } }).options?.describePlay;
+  const printedCatalog = semantics.trustedPrintedCatalog ? describePlay?.printedCatalog
+    : (binding?.describePlay as NonNullable<typeof binding>["describePlay"] & {
+      readonly printedCatalog?: (canonicalCardId: string) => {
+        readonly domains: readonly string[];
+        readonly energy: number | null;
+        readonly power: number | null;
+      } | undefined;
+    } | undefined)?.printedCatalog;
   const hasTargets = (source: ObjectSnapshot): boolean => {
     const program = binding?.registry.inspect(source.cardId);
     if (program === undefined || program.status !== "executable") return false;
@@ -225,13 +274,32 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
   };
   const canPay = (source: ObjectSnapshot): boolean => {
     const row = source.cardId === null ? undefined : printedCatalog?.(source.cardId);
-    const printedEnergy = row?.energy ?? source.energy;
-    if (printedEnergy === null || printedEnergy! > energy) return false;
-    const requiredPower = row === undefined ? (source.power ?? []).length : row.power ?? 0;
+    if (!semantics.dangerZoneClosedState) {
+      const printedEnergy = row?.energy ?? source.energy;
+      if (printedEnergy === null || printedEnergy! > energy) return false;
+      const requiredPower = row === undefined ? (source.power ?? []).length : row.power ?? 0;
+      if (requiredPower === 0) return true;
+      const allowed = row?.domains ?? source.power ?? [];
+      return power.filter(resource => allowed.includes(resource) || resource === "universal" ||
+        resource === "any" || resource === "universal-power").length >= requiredPower;
+    }
+    // Without an exact numeric catalog row, ObjectSnapshot can prove only that
+    // a Power requirement exists, not whether it is for one or several Power.
+    // A Domain set is not a cardinality; fail closed until the trusted catalog
+    // proves the amount (CR 135.2.e.6.b/.c).
+    if (row === undefined && (source.power ?? []).length > 0) return false;
+    const printedEnergy = row === undefined ? source.energy : row.energy;
+    if (printedEnergy === null || printedEnergy > energy) return false;
+    const requiredPower = row?.power ?? 0;
     if (requiredPower === 0) return true;
-    const allowed = row?.domains ?? source.power ?? [];
-    return power.filter(source => allowed.includes(source) || source === "universal" ||
-      source === "any" || source === "universal-power").length >= requiredPower;
+    const allowed: readonly string[] = row !== undefined &&
+      (row.domains.length === 0 || row.domains.length === 1 && row.domains[0] === "Colorless")
+      ? DUEL_DOMAINS
+      : row?.domains ? row.domains.filter(domain => (DUEL_DOMAINS as readonly string[]).includes(domain)) : source.power ?? [];
+    const universal = power.filter(resource => resource === "any" ||
+      resource === "universal" || resource === "universal-power").length;
+    const named = power.filter(resource => allowed.includes(resource)).length;
+    return named + universal >= requiredPower;
   };
   const explicitPermissions = (source: ObjectSnapshot) => playPermissions(chain.layers.registry, source);
   // `undefined` means the trusted ability has no direct target requirement.
@@ -276,11 +344,26 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
     }
     return projected.length === 0 ? undefined : projected;
   };
-  if (!chain.items.length) {
+  {
     for (const source of objects) {
       if (source.controller !== viewer || (source.zone !== "hand" && source.zone !== "champion") || source.cardId === null ||
-          !canPay(source) ||
-          (!waitingForFutureCommand && !chain.canAct(viewer, source.types.includes("spell") || source.types.includes("gear") ? "action" : "normal", source.ref, source))) continue;
+          !canPay(source)) continue;
+      if (semantics.dangerZoneClosedState) {
+        let ordinaryTiming = waitingForFutureCommand;
+        let reactionTiming = false;
+        const sourceSpeed = binding === undefined ? undefined : (() => {
+          try { return binding.describePlay({ type: "play", object: source.ref, player: viewer }, source).speed; }
+          catch { return undefined; }
+        })();
+        if (!ordinaryTiming) {
+          const ordinarySpeed = sourceSpeed ??
+            (source.types.includes("spell") || source.types.includes("gear") ? "action" : "normal");
+          ordinaryTiming = chain.canAct(viewer, ordinarySpeed, source.ref, source);
+          reactionTiming = sourceSpeed === "reaction" && chain.canAct(viewer, "reaction", source.ref, source);
+        }
+        if (!ordinaryTiming && !reactionTiming) continue;
+      } else if (!waitingForFutureCommand && !chain.canAct(viewer,
+        source.types.includes("spell") || source.types.includes("gear") ? "action" : "normal", source.ref, source)) continue;
       const requirements = targetRequirements(source);
       if (requirements === null) continue;
       const unit = source.types.some(type => type.toLowerCase() === "unit");
@@ -369,9 +452,10 @@ export function projectRuntime(
   viewer: string | null,
   stateVersion: number,
   pendingChoice: { readonly choiceId: string; readonly ownerPlayerId: string; readonly stateVersion: number; readonly kind: "optional" | "mode" | "select-objects" | "order" | "number"; readonly options?: readonly V2ChoiceOption[]; readonly min?: number; readonly max?: number } | null,
+  semantics: ProjectionSemantics = LEGACY_PROJECTION_SEMANTICS,
 ): V2Projection {
   return projectRuntimeFromSnapshot(match, host, matchId, viewer, stateVersion, pendingChoice,
-    projectionSnapshot(match, host, matchId, stateVersion));
+    projectionSnapshot(match, host, matchId, stateVersion, semantics));
 }
 
 /**
@@ -406,10 +490,11 @@ export interface RuntimeProjectionSnapshot {
   readonly projectedObjects: Map<string, readonly V2ProjectedObject[]>;
   readonly eventsByViewer: Map<string, readonly V2Event[]>;
   readonly zoneObjects: Readonly<Record<string, Readonly<Record<string, readonly ObjectSnapshot[]>>>>;
+  readonly semantics: ProjectionSemantics;
 }
 
 export function projectionSnapshot(match: Match, host: EngineRuntimeHost, matchId: string,
-  stateVersion: number): RuntimeProjectionSnapshot {
+  stateVersion: number, semantics: ProjectionSemantics = LEGACY_PROJECTION_SEMANTICS): RuntimeProjectionSnapshot {
   const playerIds = Object.freeze(Object.keys(host.playerNames()));
   const names = host.playerNames();
   const objectSource = host.objects();
@@ -484,7 +569,9 @@ export function projectionSnapshot(match: Match, host: EngineRuntimeHost, matchI
   };
   const chain = match.flow.chain.items;
   const chainSnapshot: V2ChainSnapshot = {
-    status: chain.length ? "open" : "closed",
+    status: semantics.dangerZoneClosedState
+      ? match.flow.chain.turnState.endsWith("closed") ? "closed" : "open"
+      : chain.length ? "open" : "closed",
     phase: chain.some(item => item.status === "pending") ? "finalize" : chain.length ? "resolve" : "open",
     priorityPlayerId: match.flow.chain.priority, focusPlayerId: match.flow.chain.focus,
     items: chain.map(item => ({ itemId: item.id, controllerPlayerId: item.controller,
@@ -511,6 +598,7 @@ export function projectionSnapshot(match: Match, host: EngineRuntimeHost, matchI
     scoring, battlefields, combat, winnerPlayerId: match.result().winner,
     projectedObjects, eventsByViewer,
     zoneObjects: zoneObjects as RuntimeProjectionSnapshot["zoneObjects"],
+    semantics,
   };
 }
 
@@ -619,8 +707,8 @@ export function projectRuntimeFromSnapshot(
     ? host.objects() : [...snapshot.objectCurrentById.values()];
   const paymentWindow = typeof match.flow.chain.reactionAddPaymentWindow === "function"
     ? match.flow.chain.reactionAddPaymentWindow() : null;
-  const baseActions = actionOptions(match, host, viewer, pendingChoice !== null, activationObjects,
-    paymentWindow !== null);
+  const baseActions = actionOptions(match, host, viewer, pendingChoice !== null, snapshot.semantics,
+    activationObjects, paymentWindow !== null);
   const paymentActivations = viewer === null || match.programBinding === undefined ||
     paymentWindow === null || viewer !== paymentWindow.payer
     ? [] : inspectActivations({
