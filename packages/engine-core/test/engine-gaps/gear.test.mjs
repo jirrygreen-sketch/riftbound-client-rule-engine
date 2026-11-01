@@ -168,7 +168,7 @@ test('EG-GEAR original IR expands through the production binding to the Equip at
   });
   assert.deepEqual(instruction.targets, [{
     id: 'equip-target',
-    filter: { type: 'unit', controller: 'self' },
+    filter: { type: 'unit', zone: 'board', controller: 'self' },
     min: 1,
     max: 1,
     selection: 'one',

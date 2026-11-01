@@ -133,7 +133,7 @@ test("ven-073-166 Jagged Cutlass: the merged Equip expansion attaches this Gear 
   // 818.1.b.1 / 818.1.c.2: the chosen unit is a Target on a unit you control.
   assert.deepEqual(activation.body[0].targets, [{
     id: "equip-target",
-    filter: { type: "unit", controller: "self" },
+    filter: { type: "unit", zone: "board", controller: "self" },
     min: 1,
     max: 1,
     selection: "one"
@@ -203,7 +203,7 @@ test("ven-073-166 golden: the merged card-program path binds the Equip activatio
   assert.equal(draft.body[0].op, "effect.attach");
   assert.deepEqual(draft.body[0].targets, [{
     id: "equip-target",
-    filter: { type: "unit", controller: "self" },
+    filter: { type: "unit", zone: "board", controller: "self" },
     min: 1,
     max: 1,
     selection: "one"

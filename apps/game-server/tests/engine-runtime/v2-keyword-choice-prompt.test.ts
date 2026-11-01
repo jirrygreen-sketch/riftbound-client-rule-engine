@@ -38,7 +38,7 @@ interface CatalogCard {
 }
 
 const FORECASTER = "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40";
-const VISION_PROMPT = "Vision: Look at the top card of your Main Deck. Select it to recycle it; leave it unselected to keep it on top.";
+const VISION_PROMPT = "预知：查看主牌堆顶部的一张牌，你可以选择将其回收。选中这张牌即回收它；不选则让它留在主牌堆顶部。";
 const m1 = JSON.parse(readFileSync(new URL("../../../../docs/plans/m1-decks.json", import.meta.url), "utf8")) as {
   readonly candidates: readonly M1Candidate[];
 };

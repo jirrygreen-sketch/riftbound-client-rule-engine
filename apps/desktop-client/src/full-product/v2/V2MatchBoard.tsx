@@ -6,6 +6,7 @@ import type {
   RoomView
 } from "@riftbound/protocol";
 import type {
+  V2ActivationOption,
   V2ChoiceAnswer,
   V2ChoiceOption,
   V2CommandReceipt,
@@ -36,6 +37,7 @@ import {
   projectedObjectCardName,
   type CardNameIndex
 } from "./card-names";
+import { officialKeywordName } from "./keyword-names";
 import { DEFAULT_HTTP_SERVER_URL, DEFAULT_WS_SERVER_URL } from "../../net/server-defaults";
 import {
   buildV2CardLookup,
@@ -48,9 +50,17 @@ import {
   V2PlaymatSide,
   v2PlaymatCards,
   type V2BoardInteraction,
+  type V2MenuAnchor,
   type V2ObjectMark,
   type V2PlaymatCards
 } from "./V2Playmat";
+import {
+  buildV2ActivateCommand,
+  v2ActivationLabel,
+  v2Activations,
+  v2ActivationsFor,
+  v2ActivationSourceIds
+} from "./activations";
 import {
   v2AssignDamage,
   v2ChainKindLabel,
@@ -372,9 +382,14 @@ export function V2MatchBoard({
   const [combatResult, setCombatResult] = useState<V2CombatResult | null>(null);
   // The card under the pointer, shown in the docked info panel (left unless the card is on the left).
   const [hoverCard, setHoverCard] = useState<{ readonly cardId: string; readonly side: "left" | "right"; readonly objectId?: string } | null>(null);
+  // A choice panel unmounts under the pointer without a pointer-leave (RIFT-1164).
+  const hoverChoiceKey = state.choice.choice.status === "pending" ? state.choice.choice.choiceId : null;
+  useEffect(() => { setHoverCard(null); }, [hoverChoiceKey]);
   const [previewObjectId, setPreviewObjectId] = useState<string | null>(null);
   // Where the selected hand card sits on screen: its play menu is drawn above it.
   const [menuAnchor, setMenuAnchor] = useState<{ readonly x: number; readonly y: number } | null>(null);
+  // RIFT-1183: the permanent whose activated-ability menu is open, drawn above the clicked point.
+  const [activationMenu, setActivationMenu] = useState<{ readonly objectId: string; readonly anchor: V2MenuAnchor } | null>(null);
   const combatWatchRef = useRef<{ readonly battlefieldId: string; readonly fromSeq: number; readonly contested: boolean } | null>(null);
   const mainActionRef = useRef<(() => void) | null>(null);
   const cardNames = useMemo(() => buildCardNameIndex(catalogCards), [catalogCards]);
@@ -425,6 +440,7 @@ export function V2MatchBoard({
         mainActionRef.current();
       }
       if (event.key === "Escape") {
+        setActivationMenu(null);
         setSelectedCardId(null);
         setSelectedPlayTargets({});
         setExpandedGroup(null);
@@ -666,6 +682,10 @@ export function V2MatchBoard({
   const canChooseMulligan = setup ? canAct && mulliganOpen && !choiceExpired : false;
   const canEndTurn = canAct && actionOptions?.canEndTurn === true && choiceOpen && !choiceExpired;
   const canAdvance = canAct && actionOptions?.canAdvance === true && choiceOpen && !choiceExpired;
+  // The server lists only abilities the viewer may begin now, Reaction timing included (RIFT-1167).
+  const activations = v2Activations(projection);
+  const activationSourceIds = v2ActivationSourceIds(projection);
+  const canActivate = !setup && canAct && choiceOpen && !choiceExpired && activations.length > 0;
   const combatDamage = projection.combat?.status === "active" && projection.combat.step === "damage" &&
     projection.combat.combatId !== undefined && projection.combat.damage !== undefined &&
     projection.combat.damage.expectedPlayerId === projection.viewerPlayerId ? projection.combat.damage : null;
@@ -729,6 +749,7 @@ export function V2MatchBoard({
     setSelectedPlayDestination(next.playDestination);
   };
   const selectPlayCard = (objectId: string, anchor: { readonly x: number; readonly y: number }): void => {
+    setActivationMenu(null);
     setMenuAnchor(anchor);
     applyPlayCardPick(v2PlayCardSelection(selectedCardId, objectId));
   };
@@ -805,9 +826,10 @@ export function V2MatchBoard({
       onEnergy: rune => submit(buildV2RuneCommand("rune-energy", rune)),
       onPower: rune => submit(buildV2RuneCommand("rune-power", rune))
     },
-    operable: object => !setup && canAct && combatDamage === null && targetingRequirements.length === 0 && movableIds.has(object.objectId),
+    operable: object => !setup && canAct && combatDamage === null && targetingRequirements.length === 0 &&
+      (movableIds.has(object.objectId) || canActivate && activationSourceIds.has(object.objectId)),
     markFor,
-    onObjectClick: (objects, multi) => {
+    onObjectClick: (objects, multi, anchor) => {
       if (consumeDragClick()) return true;
       if (combatDamage !== null && combatDamageBudget !== null && objects.length > 0 &&
           objects.every(object => combatTargetIds.has(object.objectId))) {
@@ -839,6 +861,15 @@ export function V2MatchBoard({
       // Shift/Ctrl/⌘ click picks own units to move together; a plain click still opens the card.
       if (multi === true && !setup && canAct && combatDamage === null && objects.some(object => movableIds.has(object.objectId))) {
         setMoveGroup(v2ToggleMoveGroup(projection, activeMoveGroup, objects));
+        return true;
+      }
+      // RIFT-1183: a plain click on a permanent with a listed ability opens its ability menu;
+      // its card still opens from the zoom button.
+      const source = canActivate && combatDamage === null && targetingRequirements.length === 0 && anchor !== undefined
+        ? objects.find(object => activationSourceIds.has(object.objectId)) : undefined;
+      if (source !== undefined && anchor !== undefined) {
+        setMenuAnchor(null);
+        setActivationMenu(current => current?.objectId === source.objectId ? null : { objectId: source.objectId, anchor });
         return true;
       }
       return false;
@@ -936,7 +967,7 @@ export function V2MatchBoard({
     setCombatDamageDrafts({});
     setCombatDamageOrder([]);
   };
-  const anythingOperable = playableCount > 0 || movableUnits.length > 0 ||
+  const anythingOperable = playableCount > 0 || movableUnits.length > 0 || canActivate ||
     ownRunes.some(rune => v2RuneCanAddEnergy(rune));
   const waitingOn = pendingChoiceState.status === "pending" && !state.choice.answerable ? pendingChoiceState.ownerPlayerId :
     waitingForOpponentDamage ? projection.combat?.damage?.expectedPlayerId ?? null : projection.priority.playerId;
@@ -1051,6 +1082,34 @@ export function V2MatchBoard({
         if (command !== null) submit(command);
       }} />
   ) : null;
+  const activationSource = activationMenu === null || !canActivate || combatDamage !== null || targetingRequirements.length > 0
+    ? undefined : objectById(activationMenu.objectId);
+  const menuActivations = activationSource === undefined ? [] : v2ActivationsFor(projection, activationSource.objectId);
+  const activate = (option: V2ActivationOption): void => {
+    setActivationMenu(null);
+    submit(buildV2ActivateCommand(option));
+  };
+  const activationMenuNode = activationSource !== undefined && activationMenu !== null && menuActivations.length > 0 ? (
+    <V2ActivationMenu label={objectLabel(activationSource)} sourceObjectId={activationSource.objectId} options={menuActivations}
+      anchor={activationMenu.anchor} onActivate={activate} />
+  ) : null;
+  // Every listed ability, including ones on sources the playmat does not draw as permanents (e.g. a Legend).
+  const activationList = canActivate ? (
+    <section className="v2-action-row v2t-activations" aria-label="可发动的能力">
+      <span>可发动</span>
+      {activations.map(option => {
+        const source = objectById(option.sourceObjectId);
+        return (
+          <button key={`${option.sourceObjectId}:${option.abilityId}`} type="button"
+            disabled={combatDamage !== null || targetingRequirements.length > 0}
+            {...v2HoverProps(hoverHandler, source?.cardId, source)}
+            onClick={() => activate(option)}>
+            {source === undefined ? "" : `${objectLabel(source)} · `}{v2ActivationLabel(option, v2ActivationsFor(projection, option.sourceObjectId))}
+          </button>
+        );
+      })}
+    </section>
+  ) : null;
   const statusArea = (
     <div className="v2t-status">
         {dragNotice ? <p className="v2-waiting" role="status" aria-label="拖动提示">{dragNotice}</p> : null}
@@ -1125,6 +1184,7 @@ export function V2MatchBoard({
         aria-label={`主操作：${main.label}`} onClick={() => main.run?.()}>
         <span>{main.label}</span>{main.detail ? <small>{main.detail}</small> : null}
       </button>
+      {activationList}
       {!setup ? <section className="v2-action-row v2t-secondary" aria-label="对局操作">
           <button type="button" disabled={setup || !canPass} onClick={() => submit(buildV2PassCommand())}>Pass</button>
           <button type="button" disabled={setup || !canAdvance} onClick={() => submit(buildV2AdvanceCommand())}>推进</button>
@@ -1230,7 +1290,7 @@ export function V2MatchBoard({
         </section> : null}
     </div>
   );
-  const choicePanel = !setup ? <ChoicePanel cardNames={cardNames} projection={projection} choice={state.choice} selectedIds={selectedChoiceIds} numberAnswer={numberAnswer} optionalAnswer={optionalChoiceAnswer} disabled={!canAct}
+  const choicePanel = !setup ? <ChoicePanel cardNames={cardNames} projection={projection} onHover={hoverHandler} choice={state.choice} selectedIds={selectedChoiceIds} numberAnswer={numberAnswer} optionalAnswer={optionalChoiceAnswer} disabled={!canAct}
     onNumberChange={setNumberAnswer}
     onOptionalAnswerChange={setOptionalChoiceAnswer}
     onToggle={id => setSelectedChoiceIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id])}
@@ -1276,6 +1336,7 @@ export function V2MatchBoard({
           <div className="v2t-hand" role="region" aria-label="手牌">{handPanel}</div>
           {prompt}
           {playMenu}
+          {activationMenuNode}
           {drag?.active ? null : <V2CardHoverPanel cardId={hoverCard?.cardId ?? null} side={hoverCard?.side ?? "left"} cards={playmatCards}
             object={hoverCard?.objectId === undefined ? undefined : objectById(hoverCard.objectId)} />}
           {choicePanel !== null && choiceMine ? <div className="v2t-choice-overlay">{choicePanel}</div> : null}
@@ -1397,6 +1458,26 @@ function PlayMenu({ card, plays, label, disabled, anchor, destinationLabel, onPl
         <button key={option.requiresDestination === false ? "none" : v2LocationKey(option.destination)} type="button" role="menuitem"
           disabled={disabled} onClick={() => onPlay(option)}>
           {v2PlayNeedsSelection(option) ? "选择目标" : "打出"}{option.requiresDestination === false ? "" : ` · ${destinationLabel(option.destination)}`}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** One permanent's listed activated abilities, shown above it when clicked (RIFT-1183). */
+export function V2ActivationMenu({ label, sourceObjectId, options, anchor, onActivate }: {
+  readonly label: string;
+  readonly sourceObjectId: string;
+  readonly options: readonly V2ActivationOption[];
+  readonly anchor: V2MenuAnchor;
+  readonly onActivate: (option: V2ActivationOption) => void;
+}) {
+  return (
+    <div className="v2t-play-menu" role="menu" aria-label={`${label} 的可发动能力`} data-object-id={sourceObjectId}
+      style={{ left: anchor.x, top: anchor.y }}>
+      {options.map(option => (
+        <button key={option.abilityId} type="button" role="menuitem" onClick={() => onActivate(option)}>
+          发动 {v2ActivationLabel(option, options)}
         </button>
       ))}
     </div>
@@ -1537,7 +1618,7 @@ function ConnectionState({ state }: { readonly state: V2ClientState["connectionS
 
 
 
-function ChoicePanel({ cardNames, projection: choiceProjection, choice, selectedIds, numberAnswer, optionalAnswer, disabled, onNumberChange, onOptionalAnswerChange, onToggle, onSubmit }: { readonly cardNames: CardNameIndex; readonly projection: V2Projection; readonly choice: V2ChoiceUiState; readonly selectedIds: readonly string[]; readonly numberAnswer: string; readonly optionalAnswer: boolean; readonly disabled: boolean; readonly onNumberChange: (value: string) => void; readonly onOptionalAnswerChange: (value: boolean) => void; readonly onToggle: (id: string) => void; readonly onSubmit: () => void }) {
+function ChoicePanel({ cardNames, projection: choiceProjection, onHover, choice, selectedIds, numberAnswer, optionalAnswer, disabled, onNumberChange, onOptionalAnswerChange, onToggle, onSubmit }: { readonly cardNames: CardNameIndex; readonly projection: V2Projection; readonly onHover?: V2BoardInteraction["onHover"]; readonly choice: V2ChoiceUiState; readonly selectedIds: readonly string[]; readonly numberAnswer: string; readonly optionalAnswer: boolean; readonly disabled: boolean; readonly onNumberChange: (value: string) => void; readonly onOptionalAnswerChange: (value: boolean) => void; readonly onToggle: (id: string) => void; readonly onSubmit: () => void }) {
   if (choice.choice.status === "none") return null;
   const pending = choice.choice;
   const options = pending.options ?? [];
@@ -1549,6 +1630,9 @@ function ChoicePanel({ cardNames, projection: choiceProjection, choice, selected
   const emptySelectionOnly = pending.kind === "select-objects" && options.length === 0 && (pending.min ?? 0) === 0;
   const missingCandidates = objectChoice && !emptySelectionOnly &&
     (options.length === 0 || options.some(option => option.objectRef === undefined));
+  // Hover previews read only the viewer's projection: a hidden candidate has no cardId (RIFT-1164).
+  const choiceObject = (objectId: string): V2ProjectedObject | undefined =>
+    choiceProjection.objects.find(object => object.objectId === objectId);
   const selectionComplete = pending.kind === "order" ? selectedIds.length === options.length :
     !objectChoice || (selectedIds.length >= (pending.min ?? 0) && selectedIds.length <= (pending.max ?? Number.POSITIVE_INFINITY));
   return <section className="v2-choice" aria-label="选择请求"><div className="v2-section-heading"><h3>选择请求 · {choiceKindLabel(pending.kind)}</h3><span>{choice.status === "expired" ? "已过期" : choice.answerable ? "请作出选择" : "等待对手回应"}</span></div>
@@ -1559,23 +1643,68 @@ function ChoicePanel({ cardNames, projection: choiceProjection, choice, selected
         pending.source.name === undefined
           ? pending.source.objectId === undefined ? undefined : cardNames.localizedById.get(pending.source.objectId)
           : cardReferenceName(cardNames, pending.source.objectId, pending.source.name);
-      return sourceName === undefined ? null : <p className="v2-choice-source">来源：{sourceName}</p>;
+      const sourceObject = pending.source?.objectId === undefined ? undefined : choiceObject(pending.source.objectId);
+      return sourceName === undefined ? null : <p className="v2-choice-source">来源：<span className="v2-choice-card"
+        {...v2HoverProps(onHover, sourceObject?.cardId, sourceObject)}>{sourceName}</span></p>;
     })()}
-    {pending.prompt === undefined ? null : <p className="v2-choice-prompt">{pending.prompt}</p>}
+    <p className="v2-choice-prompt">{v2ChoiceInstruction(pending)}</p>
     {pending.kind === "number" ? <input aria-label="选择数值" type="number" min={pending.min} max={pending.max} value={numberAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onChange={event => onNumberChange(event.currentTarget.value)} /> :
       <div className="v2-choice-options">{options.length === 0 && pending.kind === "optional" ? <><button type="button" aria-pressed={optionalAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onOptionalAnswerChange(true)}>接受</button><button type="button" aria-pressed={!optionalAnswer} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onOptionalAnswerChange(false)}>拒绝</button></> : emptySelectionOnly ? <p className="v2-muted" role="status">没有可选对象，直接提交即可继续。</p> : missingCandidates ? <p className="v2-waiting" role="status">等待服务端投影选择候选；客户端不会从手牌或其他对象自行推导。</p> : (() => {
         const labels = duplicateObjectLabels(choiceProjection, options.flatMap(option => option.objectRef === undefined ? [] :
           [{ objectId: option.objectRef.objectId,
             label: cardReferenceName(cardNames, option.objectRef.objectId, option.label, option.objectRef.objectId)!,
             allowLocation: choiceProjection.objects.find(object => object.objectId === option.objectRef!.objectId)?.visibility === "public" }]), cardNames);
-        return options.map(option => <button key={`${option.id}:${String(option.objectRef?.zoneEntryId ?? option.value ?? option.id)}`} type="button" aria-pressed={selectedIds.includes(option.id)} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onToggle(option.id)}>{
-          option.objectRef === undefined ? option.label : labels.get(option.objectRef.objectId) ??
+        return options.map(option => <button key={`${option.id}:${String(option.objectRef?.zoneEntryId ?? option.value ?? option.id)}`} type="button" aria-pressed={selectedIds.includes(option.id)} disabled={disabled || !choice.answerable || choice.status === "expired"} onClick={() => onToggle(option.id)}
+          {...(option.objectRef === undefined ? {} : v2HoverProps(onHover, choiceObject(option.objectRef.objectId)?.cardId, choiceObject(option.objectRef.objectId)))}>{
+          option.objectRef === undefined ? (v2IsTriggerOrderChoice(pending) ? v2TriggerOrderOptionLabel(cardNames, option.label) : option.label) : labels.get(option.objectRef.objectId) ??
             cardReferenceName(cardNames, option.objectRef.objectId, option.label, option.objectRef.objectId)}{pending.kind === "order" && selectedIds.includes(option.id) ? ` · 第 ${selectedIds.indexOf(option.id) + 1} 位` : ""}</button>);
       })()}</div>}
     {pending.min !== undefined || pending.max !== undefined ? <p className="v2-muted">可选数量：{pending.min ?? 0}–{pending.max ?? "不限"}{multiple ? "（可多选）" : ""}</p> : null}
     {pending.kind === "order" && !missingCandidates && !selectionComplete ? <p className="v2-muted" role="status">请按期望顺序继续点击：第 {selectedIds.length + 1} 张</p> : null}
     <button type="button" className="v2-primary-action" disabled={disabled || !choice.answerable || choice.status === "expired" || missingCandidates || !selectionComplete} onClick={onSubmit}>提交选择</button>
   </section>;
+}
+
+/**
+ * The operation hint under a choice heading (RIFT-1164). A Chinese engine
+ * prompt is shown as sent; card-authored prompts are English paraphrases, so
+ * they are replaced by a Chinese hint for the choice kind instead of being
+ * translated here. The official card text is one hover away on the card name.
+ */
+export function v2ChoiceInstruction(pending: Extract<V2PendingChoice, { status: "pending" }>): string {
+  if (pending.prompt !== undefined && /[\u4e00-\u9fff]/u.test(pending.prompt)) return pending.prompt;
+  // RIFT-1170: several of the player's abilities triggered at once. The engine
+  // puts the picked one on the Chain first, so it resolves after the others.
+  if (v2IsTriggerOrderChoice(pending)) {
+    return "多个效果同时触发：请选出先放上连锁的那一个（连锁上越晚放上的越先结算），剩下的会继续让你选。";
+  }
+  switch (pending.kind) {
+    case "optional": return "是否发动这项可选效果？效果见来源卡牌说明（鼠标移到卡名上查看）。";
+    case "mode": return "请选择一种模式，然后点“提交选择”。";
+    case "select-objects": return (pending.min ?? 0) === 0
+      ? "请在下方点选对象，也可以不选；然后点“提交选择”。鼠标移到卡名上可查看卡牌。"
+      : "请在下方点选对象，然后点“提交选择”。鼠标移到卡名上可查看卡牌。";
+    case "order": return "请按期望顺序依次点击下方各项，然后点“提交选择”。";
+    case "number": return "请输入数值，然后点“提交选择”。";
+  }
+}
+
+export function v2IsTriggerOrderChoice(pending: Extract<V2PendingChoice, { status: "pending" }>): boolean {
+  return pending.kind === "mode" && /^trigger:\d+:[^:]+:order:\d+$/u.test(pending.choiceId);
+}
+
+/**
+ * A trigger-order option is labelled "<card name> · <keyword>" by the server
+ * (RIFT-1170). Show the official Chinese card name and keyword where known;
+ * an unreadable option keeps the server label.
+ */
+export function v2TriggerOrderOptionLabel(cardNames: CardNameIndex, label: string): string {
+  // An unreadable option is the raw engine token ("program:…"); keep it.
+  const match = /^(.+?)(?: · ([A-Za-z][A-Za-z-]*))?(?: \(trigger (\d+)\))?$/u.exec(label);
+  if (match === null || label.includes(":")) return label;
+  const name = cardReferenceName(cardNames, undefined, match[1]) ?? match[1]!;
+  const keyword = match[2] === undefined ? "" : ` · ${officialKeywordName(match[2]) ?? match[2]}`;
+  return `${name}${keyword}${match[3] === undefined ? "" : `（第 ${match[3]} 个）`}`;
 }
 
 function choiceKindLabel(kind: Extract<V2PendingChoice, { status: "pending" }>["kind"]): string {

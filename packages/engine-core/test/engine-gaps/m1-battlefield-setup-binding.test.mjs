@@ -16,6 +16,7 @@ import { bindResolveContext, createActionPipelineHost } from '../../dist/events/
 import { createMatchCommandAdapter } from '../../dist/game/command-adapter.js';
 import { createMatch } from '../../dist/game/lifecycle.js';
 import { createProgramBinding } from '../../dist/programs/index.js';
+import { triggerRegistrations } from '../../dist/programs/triggers.js';
 
 const field = id => ({ type: 'battlefield', id });
 const executableMinefield = { ...minefield, status: 'executable', judgeReason: undefined };
@@ -315,4 +316,16 @@ test('RIFT-959 initial scan does not bind a pre-existing non-Battlefield Board o
   } finally {
     lifecycle.detach();
   }
+});
+
+test('RIFT-1165 lifecycle bindings treat setup-token Battlefields as active Board sources', () => {
+  const f = setup();
+  const mine = f.kernel.objects.find(object => object.cardId === minefield.canonicalCardId && object.zone === 'board');
+  assert.ok(mine);
+  const registration = triggerRegistrations(f.match.programBinding.registry, mine)
+    .find(candidate => candidate.id === `program:${mine.ref.id}:${mine.ref.zoneEntryId}:0`);
+  assert.ok(registration);
+  assert.equal(registration.optional, false);
+  assert.equal(registration.mayAtFinalize, undefined);
+  assert.deepEqual(registration.activeZones, ['board']);
 });

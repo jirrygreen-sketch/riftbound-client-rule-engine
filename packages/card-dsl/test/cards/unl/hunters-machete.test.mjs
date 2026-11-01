@@ -75,7 +75,7 @@ test("unl-096-219 Hunter's Machete: the merged Equip expansion is valid EffectIR
   assert.deepEqual(activation.body.map(step => [step.id, step.op]), [["equip-attach", "effect.attach"]]);
   assert.deepEqual(activation.body[0].targets, [{
     id: "equip-target",
-    filter: { type: "unit", controller: "self" },
+    filter: { type: "unit", zone: "board", controller: "self" },
     min: 1,
     max: 1,
     selection: "one"
@@ -161,7 +161,7 @@ test("unl-096-219 Hunter's Machete: the merged program binding describes the 818
     // 818.1.b.2 / contract 3.6: the card's relative "you control" stays the
     // symbolic "self" selector; programs/filters.ts is what resolves it against
     // the ability controller at Finalize.
-    filter: { type: "unit", controller: "self" },
+    filter: { type: "unit", zone: "board", controller: "self" },
     min: 1,
     max: 1,
     selection: "one"

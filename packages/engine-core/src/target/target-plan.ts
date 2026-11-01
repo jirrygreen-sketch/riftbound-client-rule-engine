@@ -11,7 +11,7 @@ import type {
 import type { LocationFilter, LocationSelector } from "@riftbound/card-dsl";
 import { restrictions as ruleRestrictions } from "../layers/rules/query.js";
 import type { ContinuousEffectRegistry } from "../layers/duration.js";
-import { matchesObjectPredicates } from "../effects/filters/predicates.js";
+import { matchesObjectPredicates, targetObjectFilter } from "../effects/filters/predicates.js";
 import { isLegalLocation, resolveLocationSelector, sameLocation } from "./location/index.js";
 
 export type TargetSelectionMode = "one" | "any" | "all" | "up-to";
@@ -158,7 +158,6 @@ export class TargetSelectionError extends Error {
 }
 
 const DEFAULT_SELECTION: TargetSelectionMode = "one";
-const BOARD_DEFAULT_TYPES = new Set(["unit", "gear"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -264,26 +263,9 @@ function matchesCandidateFilter(
     controller: context.controller,
     anchor: context.source,
     references: selector => referenceSnapshots(context, selector),
-    objects
+    objects,
+    strictRelativePlayers: true
   });
-}
-
-/**
- * CR v1.5 133.3.a and 355.9.a.1: a Unit or Gear means the Board object of that
- * type unless the card text says otherwise. Runes remain in the host's Rune
- * Zone rather than the generic board slice, so they keep their existing model.
- * TargetSpec.filter.zone is the explicit-zone surface; only an omitted zone is
- * scoped here.
- */
-function targetFilterUsesBoardByDefault(filter: ObjectFilter): ObjectFilter {
-  if (Object.hasOwn(filter, "zone")) return filter;
-  const types = filter.type ?? filter.types;
-  if (types === undefined) return filter;
-  const values = Array.isArray(types) ? types : [types];
-  if (values.length === 0 || !values.every(type => typeof type === "string" && BOARD_DEFAULT_TYPES.has(type))) {
-    return filter;
-  }
-  return Object.freeze({ ...filter, zone: "board" });
 }
 
 function refKey(ref: ObjectRef): string {
@@ -402,7 +384,7 @@ function enumerateLegalCandidates(
   const refs: ObjectRef[] = [];
   const seen = new Set<string>();
   const pending = options.isPending ?? defaultPending;
-  const filter = targetFilterUsesBoardByDefault(requirement.filter);
+  const filter = targetObjectFilter(requirement.filter, context.controller);
   // The host query is the visible-object source. TargetPlan performs the full
   // selector check below because different hosts implement only partial filter
   // vocabularies; passing relation or sparse selectors through them can either
@@ -413,8 +395,8 @@ function enumerateLegalCandidates(
     const key = refKey(ref);
     if (seen.has(key)) continue;
     const current = context.object(ref);
-    const controller = requirement.filter.controller;
-    const owner = requirement.filter.owner;
+    const controller = filter.controller;
+    const owner = filter.owner;
     if (current === null ||
       (typeof controller === "string" && !isRelativePlayer(controller, context, current, "controller")) ||
       (typeof owner === "string" && !isRelativePlayer(owner, context, current, "owner")) ||
@@ -431,6 +413,12 @@ function enumerateLegalCandidates(
   return refs;
 }
 
+/**
+ * Production target candidate enumeration shared by the Chain Finalize
+ * pipeline and game-server play-target projection. It applies the target-only
+ * Board default and binds relative controllers without changing ordinary
+ * expression/layer queries.
+ */
 export function queryTargetCandidates(
   context: ResolveContext,
   requirement: TargetRequirement,

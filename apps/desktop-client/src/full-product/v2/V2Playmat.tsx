@@ -67,9 +67,10 @@ export interface V2BoardInteraction {
   /**
    * A left click on a stack or one of its members; returns true when the board
    * used it. `multi` is a Shift/Ctrl/⌘ click, which selects units that move
-   * together (RIFT-1154).
+   * together (RIFT-1154). `anchor` is the clicked point, where a menu for the
+   * object opens (RIFT-1183 activated abilities).
    */
-  readonly onObjectClick?: (objects: readonly V2ProjectedObject[], multi?: boolean) => boolean;
+  readonly onObjectClick?: (objects: readonly V2ProjectedObject[], multi?: boolean, anchor?: V2MenuAnchor) => boolean;
   /** A right click on a stack or one of its members; returns true when the board used it. */
   readonly onObjectContext?: (objects: readonly V2ProjectedObject[]) => boolean;
   readonly allocationFor?: (object: V2ProjectedObject) => V2UnitAllocation | null;
@@ -97,6 +98,18 @@ export interface V2BoardInteraction {
     /** True once when the last pointer press was a drag, so its click is swallowed. */
     readonly consumeDragClick: () => boolean;
   };
+}
+
+/** Viewport point a board menu opens above. */
+export interface V2MenuAnchor {
+  readonly x: number;
+  readonly y: number;
+}
+
+/** The top centre of the clicked element, so keyboard and pointer clicks open menus in the same place. */
+function anchorOf(element: Element): V2MenuAnchor {
+  const rect = element.getBoundingClientRect();
+  return { x: rect.left + rect.width / 2, y: rect.top };
 }
 
 /** Hover props for any card face: report the card on enter, clear on leave. */
@@ -190,15 +203,25 @@ function UnitFace({ object, cards, allocation }: {
 }) {
   const name = cards.objectName(object);
   const image = object.cardId !== undefined && !object.faceDown ? cards.image(object.cardId) : null;
+  // RIFT-1176: the badge compares the projected current Might with the printed one.
+  const printedMight = object.cardId === undefined ? null : cards.card(object.cardId)?.might ?? null;
+  const mightDelta = object.might !== undefined && printedMight !== null ? object.might - printedMight : 0;
+  // RIFT-1175: an effect-created token has no catalog card and no official art.
+  const token = object.cardId === undefined && !object.faceDown;
   return (
     <span className={`v2m-face${object.exhausted === true ? " is-exhausted" : ""}`}>
       {object.faceDown ? <span className="full-product-duel-card-back v2m-art" aria-hidden="true" /> :
         image !== null ? <img className="v2m-art" src={image} alt={name} draggable={false} /> :
-          <span className="v2m-art is-missing" aria-hidden="true" />}
+          token ? <span className="v2m-art is-missing is-token" title={`${name}（衍生物，官方图库没有卡图）`}>
+            <b>{name}</b><small>衍生物</small>{object.might !== undefined ? <small>战力 {object.might}</small> : null}
+          </span> :
+            <span className="v2m-art is-missing" aria-hidden="true" />}
       <span className="v2m-name">{object.faceDown ? "牌面朝下" : name}</span>
       <span className="v2m-state">
         <span className="v2m-readied">{object.exhausted === true ? V2_EXHAUSTED_LABEL : DUEL_READY_LABEL}</span>
-        {object.might !== undefined ? <span className="v2m-might">战力 {object.might}</span> : null}
+        {object.might !== undefined ? <span className={`v2m-might${mightDelta > 0 ? " is-up" : mightDelta < 0 ? " is-down" : ""}`}
+          title={mightDelta === 0 ? undefined : `印刷战力 ${printedMight}，当前 ${object.might}`}>
+          战力 {object.might}{mightDelta === 0 ? null : <em>{mightDelta > 0 ? `+${mightDelta}` : mightDelta}</em>}</span> : null}
         {object.damage !== undefined && object.damage > 0 ? <span className="v2m-damage">伤害 {object.damage}</span> : null}
       </span>
       {allocation !== null && allocation.amount > 0 ? (
@@ -238,8 +261,8 @@ function UnitStack({ group, cards, onInspect, interaction }: {
   }, { amount: 0, lethal: 0 });
   const groupAllocation: V2UnitAllocation | null = count === 1 ? interaction?.allocationFor?.(first) ?? null :
     totals.amount === 0 ? null : { amount: totals.amount, lethal: false, order: null };
-  const click = (members: readonly V2ProjectedObject[], multi = false): void => {
-    if (interaction?.onObjectClick?.(members, multi) === true) return;
+  const click = (members: readonly V2ProjectedObject[], multi = false, anchor?: V2MenuAnchor): void => {
+    if (interaction?.onObjectClick?.(members, multi, anchor) === true) return;
     if (members.length > 1) interaction?.onExpand?.(expanded ? null : group.key);
     else if (members[0]?.cardId !== undefined && !members[0].faceDown && count === 1) onInspect(members[0].cardId, members[0].objectId);
   };
@@ -258,9 +281,9 @@ function UnitStack({ group, cards, onInspect, interaction }: {
         aria-label={count > 1 ? `${name} ×${count}` : name}
         title={onDragStart ? `${name}：拖动到其他位置即可移动；按住 Shift 点选多个单位可一起移动` : name}
         {...(onDragStart ? { onPointerDown: onDragStart } : {})}
-        onClick={event => click(objects, event.shiftKey || event.ctrlKey || event.metaKey)}
+        onClick={event => click(objects, event.shiftKey || event.ctrlKey || event.metaKey, anchorOf(event.currentTarget))}
         onContextMenu={event => context(event, objects)}
-        onKeyDown={event => { if (event.key === "Enter") click(objects); }}>
+        onKeyDown={event => { if (event.key === "Enter") click(objects, false, anchorOf(event.currentTarget)); }}>
         {count > 1 ? <><span className="v2m-layer" aria-hidden="true" /><span className="v2m-layer is-second" aria-hidden="true" /></> : null}
         <UnitFace object={first} cards={cards} allocation={count === 1 ? groupAllocation : null} />
         {count > 1 ? <span className="v2m-count">×{count}</span> : null}
@@ -271,6 +294,32 @@ function UnitStack({ group, cards, onInspect, interaction }: {
       {first.cardId !== undefined && !first.faceDown ? (
         <button type="button" className="v2m-zoom" aria-label={`查看大图：${name}`} title="查看大图"
           onClick={() => onInspect(first.cardId!, first.objectId)}>⤢</button>
+      ) : null}
+      {group.attachments.length > 0 ? (
+        <ul className="v2m-attached" aria-label={`${name} 装配的装备`}>
+          {group.attachments.map(gear => {
+            const gearName = cards.objectName(gear);
+            const gearMark = interaction?.markFor?.(gear) ?? null;
+            const clickGear = (anchor: V2MenuAnchor): void => {
+              if (interaction?.onObjectClick?.([gear], false, anchor) === true) return;
+              if (gear.cardId !== undefined) onInspect(gear.cardId, gear.objectId);
+            };
+            return (
+              <li key={gear.objectId} className={`v2m-gear${gear.exhausted === true ? " is-exhausted" : ""}${
+                interaction?.operable?.(gear) === true ? " v2-operable" : ""}`}
+                data-object-id={gear.objectId} data-attached-to={first.objectId}
+                {...(gearMark === null ? {} : { "data-mark": gearMark })}>
+                <span role="button" tabIndex={0} className="v2m-gear-hit" title={`装备：${gearName}（装配在${name}上）`}
+                  {...v2HoverProps(interaction?.onHover, gear.cardId, gear)}
+                  onClick={event => clickGear(anchorOf(event.currentTarget))}
+                  onContextMenu={event => context(event, [gear])}
+                  onKeyDown={event => { if (event.key === "Enter") clickGear(anchorOf(event.currentTarget)); }}>
+                  <b>装备</b>{gearName}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
       ) : null}
       {expanded ? (
         <div className="v2m-expand" role="dialog" aria-label={`${name} ×${count} 展开`}>

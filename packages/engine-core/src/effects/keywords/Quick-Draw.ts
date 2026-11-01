@@ -61,7 +61,7 @@ const quickDraw = {
           },
           targets: [{
             id: targetId,
-            filter: { type: "unit", controller: "self" },
+            filter: { type: "unit", zone: "board", controller: "self" },
             min: 1,
             max: 1,
             selection: "one"

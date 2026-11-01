@@ -179,7 +179,7 @@ test("sfd-178-221 Blade of the Ruined King: the merged Equip expansion is valid 
   assert.deepEqual(expansion[0].body.map((step) => [step.id, step.op]), [["equip-attach", "effect.attach"]]);
   assert.deepEqual(expansion[0].body[0].targets, [{
     id: "equip-target",
-    filter: { type: "unit", controller: "self" },
+    filter: { type: "unit", zone: "board", controller: "self" },
     min: 1,
     max: 1,
     selection: "one"

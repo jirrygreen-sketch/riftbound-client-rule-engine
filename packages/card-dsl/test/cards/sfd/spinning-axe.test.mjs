@@ -156,7 +156,7 @@ test("sfd-186-221 golden: the Quick-Draw trigger attaches the axe to a locked un
   assert.equal(triggered.optional, false);
   // 819.1.d reminder: "attach it to a unit you control".
   assert.deepEqual(triggered.body[0].targets, [
-    { id: "quick-draw-unit", filter: { type: "unit", controller: "self" }, min: 1, max: 1, selection: "one" }
+    { id: "quick-draw-unit", filter: { type: "unit", zone: "board", controller: "self" }, min: 1, max: 1, selection: "one" }
   ]);
 
   // A locked ally: the real attach action runs and records the attachment.
@@ -182,7 +182,7 @@ test("sfd-186-221 golden: the Equip body attaches the axe to a locked unit you c
   assert.deepEqual(activation.cost.payments.map((payment) => payment.kind), ["equip"]);
   // 818.1.b.1 / 818.1.c.2: the chosen unit is a Target restricted to units you control.
   assert.deepEqual(activation.body[0].targets, [
-    { id: "equip-target", filter: { type: "unit", controller: "self" }, min: 1, max: 1, selection: "one" }
+    { id: "equip-target", filter: { type: "unit", zone: "board", controller: "self" }, min: 1, max: 1, selection: "one" }
   ]);
 
   const attached = runExpansionBody(activation.body, "equip-target", (kernel) => kernel.ref("ally"));

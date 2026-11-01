@@ -172,6 +172,13 @@
 .v2m-state > span { padding: 0 .2rem; border-radius: .2rem; background: rgba(4, 10, 11, .78); }
 .v2m-readied { color: var(--v2t-muted); }
 .v2m-might { color: #f2c86b; font-weight: 700; }
+.v2m-might em { margin-left: .15rem; font-style: normal; font-size: .85em; }
+.v2m-might.is-up { color: #7ee08a; }
+.v2m-might.is-down { color: #ff8a7a; }
+.v2m-art.is-token { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .1rem;
+  background: linear-gradient(160deg, rgba(70, 90, 110, .9), rgba(28, 36, 44, .95)); color: #e8eef2; text-align: center; }
+.v2m-art.is-token b { font-size: .8rem; }
+.v2m-art.is-token small { font-size: .62rem; opacity: .8; }
 .v2m-damage { color: #fff; background: #b9362a !important; }
 .v2m-layer { position: absolute; z-index: 0; inset: 0; border-radius: .3rem; background: #22353a; border: 1px solid #3a5157; transform: translate(3px, -3px); }
 .v2m-layer.is-second { transform: translate(6px, -6px); }
@@ -179,6 +186,18 @@
 .v2m-zoom { position: absolute; z-index: 4; top: .1rem; right: .1rem; width: 1.05rem; height: 1.05rem; padding: 0; border-radius: 50%; font-size: .62rem; line-height: 1;
   color: var(--v2t-ink); background: rgba(11, 15, 15, .8); border: 1px solid #42534f; cursor: zoom-in; opacity: 0; transition: opacity .12s ease; }
 .v2m-stack.is-stacked .v2m-zoom { top: 1rem; }
+/* RIFT-1180: Equipment attached to a unit is tagged on that unit's card. */
+/* The card fills its row's height, so the tags sit on the art just above the name instead of below the card;
+   the child selector outranks the generic .v2-zone ul padding. */
+.v2m-stack > .v2m-attached { position: absolute; z-index: 3; left: .1rem; right: .1rem; bottom: .95rem; list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column-reverse; gap: .08rem; pointer-events: none; }
+.v2m-gear-hit { display: block; overflow: hidden; padding: 0 .2rem; border-radius: .2rem; border: 1px solid #8a7440; background: rgba(42, 36, 20, .92);
+  color: #f1dfa8; font-size: .56rem; line-height: 1.4; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; pointer-events: auto; }
+.v2m-gear { display: block; width: 100%; }
+.v2m-gear-hit b { margin-right: .2rem; color: #d9b45a; font-weight: 700; }
+.v2m-gear.is-exhausted .v2m-gear-hit { opacity: .65; }
+.v2m-gear[data-mark="selectable"] .v2m-gear-hit { box-shadow: 0 0 0 2px var(--v2t-opp); }
+.v2m-gear[data-mark="selected"] .v2m-gear-hit { box-shadow: 0 0 0 3px var(--v2t-me); }
 .v2m-stack:hover .v2m-zoom, .v2m-zoom:focus-visible { opacity: 1; }
 .v2m-alloc { position: absolute; z-index: 4; left: 50%; bottom: -.4rem; transform: translateX(-50%); padding: 0 .3rem; border-radius: .25rem; white-space: nowrap;
   max-width: calc(var(--v2m-w) + 2.8rem); overflow: hidden; text-overflow: ellipsis;
@@ -349,6 +368,11 @@
 .v2t .v2t-secondary button { padding: .2rem .55rem; border-radius: .35rem; border: 1px solid #2c4248; background: transparent; color: var(--v2t-muted); font-size: .68rem; cursor: pointer; }
 .v2t .v2t-secondary button:disabled { opacity: .4; cursor: not-allowed; }
 .v2t .v2t-secondary [role="group"] { display: inline-flex; align-items: center; gap: .3rem; }
+/* RIFT-1183: every activated ability the server lists right now. */
+.v2t-activations { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: .3rem; font-size: .62rem; color: var(--v2t-muted); }
+.v2t .v2t-activations button { padding: .2rem .55rem; border-radius: .35rem; border: 1px solid var(--v2t-me); background: rgba(56, 189, 214, .12);
+  color: var(--v2t-ink); font-size: .68rem; font-weight: 700; cursor: pointer; }
+.v2t .v2t-activations button:disabled { opacity: .4; cursor: not-allowed; }
 .v2t-keys { margin: 0; font-size: .6rem; color: #5d7477; }
 .v2t-drawer summary { cursor: pointer; color: var(--v2t-muted); font-size: .7rem; }
 .v2t-drawer[open] summary { margin-bottom: .4rem; }
@@ -420,7 +444,7 @@
 .v2cd .v2cd-text .card-text { font-size: .95rem; line-height: 1.7; max-height: 46vh; }
 .v2cd .v2cd-close { margin-top: auto; }
 
-.v2ch { position: absolute; z-index: 44; top: 2.2rem; width: clamp(14rem, 19vw, 18rem); max-height: calc(100% - var(--v2t-hand) - 2.8rem); overflow: hidden;
+.v2ch { position: absolute; z-index: 47; top: 2.2rem; width: clamp(14rem, 19vw, 18rem); max-height: calc(100% - var(--v2t-hand) - 2.8rem); overflow: hidden;
   display: flex; flex-direction: column; gap: .35rem; padding: .45rem; border-radius: .6rem; pointer-events: none;
   background: rgba(8, 14, 17, .96); border: 1px solid rgba(184, 154, 82, .6); box-shadow: 0 16px 40px rgba(0, 0, 0, .6); animation: v2t-fade .12s ease; }
 @keyframes v2t-fade { from { opacity: 0; } }

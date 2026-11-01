@@ -278,7 +278,7 @@ describe("room restore isolation", () => {
       roomId: divergingRoomId,
       rulesetId: DUEL_RULESET_ID,
       rulesetVersion: "core-1.5",
-      engineVersion: "@riftbound/engine-core/current",
+      engineVersion: "@riftbound/engine-core/current+RIFT-1165.setup-battlefield-board-v1+RIFT-1169.danger-zone-closed-v1",
       protocolVersion: PROTOCOL_V2_VERSION,
       reason: expect.stringContaining("Journal replay failed")
     });
@@ -294,7 +294,7 @@ describe("room restore isolation", () => {
       roomId: divergingRoomId,
       rulesetId: DUEL_RULESET_ID,
       rulesetVersion: "core-1.5",
-      engineVersion: "@riftbound/engine-core/current",
+      engineVersion: "@riftbound/engine-core/current+RIFT-1165.setup-battlefield-board-v1+RIFT-1169.danger-zone-closed-v1",
       protocolVersion: PROTOCOL_V2_VERSION
     });
 
@@ -308,7 +308,7 @@ describe("room restore isolation", () => {
         roomId: divergingRoomId,
         rulesetId: DUEL_RULESET_ID,
         rulesetVersion: "core-1.5",
-        engineVersion: "@riftbound/engine-core/current",
+        engineVersion: "@riftbound/engine-core/current+RIFT-1165.setup-battlefield-board-v1+RIFT-1169.danger-zone-closed-v1",
         protocolVersion: PROTOCOL_V2_VERSION
       }]
     });

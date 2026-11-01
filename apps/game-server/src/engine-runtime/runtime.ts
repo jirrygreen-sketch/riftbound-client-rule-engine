@@ -3,6 +3,7 @@ import { createMatch, concede, type Match, type MatchDeck } from "../../../../pa
 import { createActionPipelineHost } from "../../../../packages/engine-core/dist/events/action-adapter.js";
 import {
   createProgramBinding,
+  inspectActivations,
   type ProgramBinding,
   type ProgramPrintedCatalogCard,
 } from "../../../../packages/engine-core/dist/programs/index.js";
@@ -16,6 +17,8 @@ import {
   planBasicRuneResourceActivation,
   type BasicRuneResourceReceipt,
 } from "../../../../packages/engine-core/dist/runes/index.js";
+import { PaymentContinuationSuspendedError,
+  type PaymentContinuationSnapshot } from "../../../../packages/engine-core/dist/chain/engine.js";
 import {
   isV2Command,
   type V2ChoiceAnswer,
@@ -32,7 +35,7 @@ import { assertRuntimeJournal, ENGINE_RUNTIME_RULESET_VERSION, RuntimeJournalWri
 import { EngineRuntimeHost, type RuntimeCard, type RuntimeVisibilityGrant } from "./host.js";
 import { advanceResponsiblePlayer, isCombatDamageAssignment, projectObjectForChoice, projectRuntime,
   projectRuntimeFromSnapshot, projectionCanonicalJson, projectionDigest, projectionSemantics, projectionSnapshot,
-  LEGACY_RUNTIME_ENGINE_VERSION } from "./projection.js";
+  RIFT_1169_ENGINE_SUFFIX } from "./projection.js";
 
 type PendingChoice = Extract<V2PendingChoice, { readonly status: "pending" }>;
 type V2PendingChoiceSource = NonNullable<PendingChoice["source"]>;
@@ -42,10 +45,27 @@ interface ChoiceMetadata {
   readonly prompt?: string;
 }
 
-/** Player-facing text only for keyword-defined choices whose mechanics map exactly. */
+/**
+ * Player-facing text only for keyword-defined choices whose mechanics map exactly.
+ * Keyword name and reminder text are the official zh_CN gallery wording
+ * ([预知], e.g. OGN-086 宝石巨像, riftbound_gallery_cards?locale=zh_CN, read
+ * 2026-10-31); the sentence after it is the client operation hint (RIFT-1164).
+ */
 const KEYWORD_CHOICE_PROMPTS: Readonly<Record<string, string>> = Object.freeze({
-  vision: "Vision: Look at the top card of your Main Deck. Select it to recycle it; leave it unselected to keep it on top.",
+  vision: "预知：查看主牌堆顶部的一张牌，你可以选择将其回收。选中这张牌即回收它；不选则让它留在主牌堆顶部。",
 });
+
+/**
+ * Existing production journals used this exact version before RIFT-1165 made
+ * setup Battlefields participate in the engine-core Board lifecycle. Keep
+ * that byte/version gate separate so old accepted commands retain their
+ * recorded semantics instead of being reinterpreted by a newer trigger scan.
+ */
+const LEGACY_RUNTIME_ENGINE_VERSION = "@riftbound/engine-core/current";
+// RIFT-1169: new rooms also take the Danger Zone closed-state projection;
+// rooms recorded under either earlier identifier keep their projection.
+const CURRENT_RUNTIME_ENGINE_VERSION =
+  `@riftbound/engine-core/current+RIFT-1165.setup-battlefield-board-v1${RIFT_1169_ENGINE_SUFFIX}`;
 
 interface ResolvedTriggerOption {
   readonly source?: ReturnType<EngineRuntimeHost["objects"]>[number];
@@ -195,8 +215,13 @@ interface RuntimeMetadataCheckpoint {
   readonly pending: MatchRuntime["pending"];
   readonly decisions: MatchRuntime["decisions"];
   readonly preparedPlay: PreparedPlay | null;
+  readonly paymentContinuation: RuntimePaymentContinuation | null;
   readonly visibilityGrants: readonly RuntimeVisibilityGrant[];
   readonly seen: ReadonlyMap<string, SeenCommand>;
+}
+
+interface RuntimePaymentContinuation {
+  readonly notice: PaymentContinuationSnapshot;
 }
 
 /**
@@ -208,6 +233,15 @@ interface RuntimeMetadataCheckpoint {
  * location rules, events, and rollback remain engine-core owned.
  */
 class RuntimeBoardHost extends EngineRuntimeHost {
+  constructor(
+    playerNames: Readonly<Record<PlayerId, string>>,
+    choose: <T>(request: ChoiceRequest<T>) => T,
+    catalogDomains: ReadonlyMap<string, readonly Domain[]> = new Map(),
+    private readonly normalizeSetupBattlefields = true,
+  ) {
+    super(playerNames, choose, catalogDomains);
+  }
+
   override perform(action: GameAction): ReturnType<EngineRuntimeHost["perform"]> {
     const matches = action.type === "move-zone" && (action.to === "base" || action.to === "battlefield");
     const staged = matches && "object" in action ? this.stagedObject(action.object) : null;
@@ -224,8 +258,9 @@ class RuntimeBoardHost extends EngineRuntimeHost {
     // EngineRuntimeHost's concrete-location zone spelling is adapted at this
     // single runtime seam so chain, Awaken, Move and projection all observe the
     // same `board + location` authority expected by engine-core.
-    if (action.type !== "move-zone" || (action.to !== "base" && action.to !== "battlefield") || staged === null ||
-        !staged.types.some(type => ["unit", "gear"].includes(type.toLowerCase()))) return;
+    if (action.type !== "move-zone" || (action.to !== "base" && action.to !== "battlefield") || staged === null) return;
+    const normalizedTypes = this.normalizeSetupBattlefields ? ["unit", "gear", "battlefield"] : ["unit", "gear"];
+    if (!staged.types.some(type => normalizedTypes.includes(type.toLowerCase()))) return;
     const players = (this as unknown as { players: Map<string, { zones: Record<string, string[]> }> }).players;
     for (const player of players.values()) for (const ids of Object.values(player.zones)) {
       const index = ids.indexOf(staged.ref.id);
@@ -650,6 +685,8 @@ class MatchRuntime implements EngineRuntime {
   } | null = null;
   private decisions: ReadonlyMap<string, unknown> | null = null;
   private preparedPlay: PreparedPlay | null = null;
+  /** Process-local capability rebuilt from the exact journal notice after restore. */
+  private paymentContinuation: RuntimePaymentContinuation | null = null;
   private choiceVisibilityGrants: readonly RuntimeVisibilityGrant[] = [];
   private readonly seen = new Map<string, SeenCommand>();
   private runtimeOptions: EngineRuntimeOptions;
@@ -674,6 +711,7 @@ class MatchRuntime implements EngineRuntime {
       : Array.isArray(this.runtimeOptions.programs)
         ? new Map((this.runtimeOptions.programs as readonly CardProgram[]).map(program => [program.canonicalCardId, program] as const))
         : new Map(this.runtimeOptions.programs as ReadonlyMap<string, CardProgram>);
+    const normalizeSetupBattlefields = this.runtimeOptions.engineVersion !== LEGACY_RUNTIME_ENGINE_VERSION;
     const hostState = new RuntimeBoardHost(Object.fromEntries(seats.map(seat => [seat.playerId, seat.name])), request => {
       if (this.decisions !== null && this.decisions.has(request.id)) {
         return structuredClone(this.decisions.get(request.id)) as never;
@@ -685,7 +723,7 @@ class MatchRuntime implements EngineRuntime {
       choiceMetadata = chain === undefined ? {} : this.choiceMetadataAtPending(request, hostState, grants,
         chain.pipeline.registeredTriggers(), chain.items as readonly ChainChoiceItem[]);
       throw new PendingChoiceError(request as ChoiceRequest<unknown>, choiceMetadata);
-    }, catalogDomains);
+    }, catalogDomains, normalizeSetupBattlefields);
     this.host = hostState;
     const pipelineHost = createActionPipelineHost({
       checkpoint: () => hostState.checkpoint(), restore: checkpoint => hostState.restore(checkpoint), objects: () => hostState.objects(),
@@ -710,6 +748,22 @@ class MatchRuntime implements EngineRuntime {
         rulesetVersion: ENGINE_RUNTIME_RULESET_VERSION,
         programs: this.runtimeOptions.programs ? { programs: this.runtimeOptions.programs } : undefined,
         host: matchHost,
+        paymentContinuation: {
+          onlyWhenUnpayable: true,
+          shouldSuspend: ({ payer, source }) => this.binding !== null && this.match !== null && this.host !== null &&
+            inspectActivations({
+              engine: this.match.flow.chain,
+              registry: this.binding.registry,
+              controller: payer,
+              sources: this.host.objects(),
+              window: "payment",
+            }).some(candidate => candidate.source.ref.id !== source.id ||
+              candidate.source.ref.zoneEntryId !== source.zoneEntryId),
+          persist: notice => {
+            this.paymentContinuation = { notice: structuredClone(notice) };
+            return true;
+          },
+        },
       });
     } catch (error) {
       if (error instanceof PendingChoiceError && choice) throw new Error("Match setup unexpectedly requested a choice");
@@ -731,7 +785,7 @@ class MatchRuntime implements EngineRuntime {
     }
     this.journalWriter = new RuntimeJournalWriter({
       header: {
-        engineVersion: this.runtimeOptions.engineVersion ?? LEGACY_RUNTIME_ENGINE_VERSION,
+        engineVersion: this.runtimeOptions.engineVersion ?? CURRENT_RUNTIME_ENGINE_VERSION,
         matchId: this.runtimeOptions.matchId, roomId: this.runtimeOptions.roomId ?? this.runtimeOptions.matchId,
         catalogDigest: this.runtimeOptions.catalogDigest ?? "sha256:" + digest(normalizedDecks),
         rosterDigest: digest(seats), trustedDeckDigest: digest({ seats, decks: normalizedDecks }),
@@ -780,6 +834,16 @@ class MatchRuntime implements EngineRuntime {
     try {
       return this.atomicCommand(() => this.executeAndCommit(playerId, command));
     } catch (error) {
+      if (error instanceof PaymentContinuationSuspendedError) {
+        const receipt: RuntimeReceipt = { commandId: command.commandId, status: "pending",
+          stateVersion: this.stateVersion, eventSeq: this.match!.events().length };
+        this.seen.set(command.commandId, { playerId, command: structuredClone(command), receipt });
+        this.appendJournal(playerId, command, receipt, {
+          pending: true,
+          paymentContinuation: this.paymentContinuation!.notice,
+        }, false, { kind: "payment", continuationId: this.paymentContinuation!.notice.continuationId }, undefined);
+        return { receipt, projection: this.projectFor(playerId) };
+      }
       if (error instanceof PendingChoiceError) {
         this.pending = { request: error.request, command: structuredClone(command), playerId,
           visibilityGrants: this.choiceVisibilityGrants, answers: new Map(),
@@ -813,7 +877,7 @@ class MatchRuntime implements EngineRuntime {
 
   private projectionSnapshot(): ReturnType<typeof projectionSnapshot> {
     return projectionSnapshot(this.match!, this.host!, this.runtimeOptions.matchId, this.stateVersion,
-      projectionSemantics(this.runtimeOptions.engineVersion ?? LEGACY_RUNTIME_ENGINE_VERSION));
+      projectionSemantics(this.runtimeOptions.engineVersion ?? CURRENT_RUNTIME_ENGINE_VERSION));
   }
 
   journal(): RuntimeJournal {
@@ -827,6 +891,7 @@ class MatchRuntime implements EngineRuntime {
     const options = this.runtimeOptions;
     this.match = null; this.host = null; this.binding = null; this.journalWriter = null; this.stateVersion = 0;
     this.pending = null; this.decisions = null; this.preparedPlay = null; this.choiceVisibilityGrants = [];
+    this.paymentContinuation = null;
     this.seen.clear(); this.replayAcceptedPasses.clear();
     const setup = journal.header.setup;
     this.runtimeOptions = {
@@ -852,24 +917,26 @@ class MatchRuntime implements EngineRuntime {
     this.replayingJournal = true;
     try {
       this.start();
-      for (const entry of journal.entries) {
-        if (entry.duplicate) continue;
-        if (entry.command.type === "pass" && entry.publicReceipt.status === "accepted") {
-          this.replayAcceptedPasses.add(entry.commandId);
-        }
-        const result = this.submit(entry.playerId, entry.command);
-        if (entry.pendingReason) {
-          if (result.receipt.status !== "pending") throw new Error(`Journal replay failed for pending ${entry.commandId}: ${result.receipt.error ?? result.receipt.status}`);
-        } else if (result.receipt.status !== "accepted") {
-          throw new Error(`Journal replay failed for ${entry.commandId}: ${result.receipt.error ?? result.receipt.status}`);
-        }
-      }
+      for (const entry of journal.entries) this.replayEntry(entry);
       // Replay verifies semantics; the original protected journal remains the
       // resume point so current projection fixes never rewrite historical bytes.
       this.journalWriter = resumedWriter;
       return this;
     } finally {
       this.replayingJournal = false;
+    }
+  }
+
+  private replayEntry(entry: RuntimeJournal["entries"][number]): void {
+    if (entry.duplicate) return;
+    if (entry.command.type === "pass" && entry.publicReceipt.status === "accepted") {
+      this.replayAcceptedPasses.add(entry.commandId);
+    }
+    const result = this.submit(entry.playerId, entry.command);
+    if (entry.pendingReason) {
+      if (result.receipt.status !== "pending") throw new Error(`Journal replay failed for pending ${entry.commandId}: ${result.receipt.error ?? result.receipt.status}`);
+    } else if (result.receipt.status !== "accepted") {
+      throw new Error(`Journal replay failed for ${entry.commandId}: ${result.receipt.error ?? result.receipt.status}`);
     }
   }
 
@@ -1032,6 +1099,31 @@ class MatchRuntime implements EngineRuntime {
       if (!Number.isSafeInteger(abilityIndex) || abilityIndex < 0 || !this.binding.activationAbilities(source)[abilityIndex]) {
         throw new Error(`Unknown ability ${command.abilityId}`);
       }
+      const paymentWindow = match.flow.chain.reactionAddPaymentWindow();
+      if (paymentWindow !== null) {
+        if (paymentWindow.payer !== playerId) throw new Error("Only the Pay Costs payer can activate a Reaction Add");
+        const add = this.binding.describeAddActivation(source, playerId, abilityIndex).draft;
+        if (paymentWindow.kind === "instruction") {
+          // The established Weaponmaster instruction window owns its parent
+          // prompt and receipt. Reuse the engine's exact payment-only path.
+          match.flow.chain.activateAddDuringPayment(add);
+          return { accepted: true, objectId: command.sourceObjectId, abilityId: command.abilityId };
+        }
+        if (this.paymentContinuation === null) throw new Error("The external Pay Costs continuation is unavailable");
+        const handle = match.flow.chain.restorePaymentContinuationHandle(this.paymentContinuation.notice);
+        const payment = match.flow.chain.resumePaymentContinuation(handle, {
+          payer: playerId, source: paymentWindow.source, add,
+        });
+        this.paymentContinuation = null;
+        this.pending = null;
+        this.decisions = null;
+        this.preparedPlay = null;
+        this.choiceVisibilityGrants = [];
+        return { accepted: true, objectId: command.sourceObjectId, abilityId: command.abilityId,
+          continuationId: payment.continuationId, itemId: payment.itemId,
+          resources: { ...payment.add.resources }, parentPaid: payment.payment.paid,
+          parentPayment: structuredClone(payment.payment) };
+      }
       match.flow.execute(this.binding.describeActivate(source, playerId, abilityIndex));
       return { accepted: true, objectId: command.sourceObjectId, abilityId: command.abilityId };
     }
@@ -1088,7 +1180,7 @@ class MatchRuntime implements EngineRuntime {
 
   private metadataCheckpoint(): RuntimeMetadataCheckpoint {
     return { stateVersion: this.stateVersion, pending: this.pending, decisions: this.decisions,
-      preparedPlay: this.preparedPlay,
+      preparedPlay: this.preparedPlay, paymentContinuation: this.paymentContinuation,
       visibilityGrants: this.choiceVisibilityGrants, seen: new Map(this.seen) };
   }
 
@@ -1097,6 +1189,7 @@ class MatchRuntime implements EngineRuntime {
     this.pending = before.pending;
     this.decisions = before.decisions;
     this.preparedPlay = before.preparedPlay;
+    this.paymentContinuation = before.paymentContinuation;
     this.choiceVisibilityGrants = before.visibilityGrants;
     this.seen.clear();
     for (const [commandId, seen] of before.seen) this.seen.set(commandId, seen);
@@ -1112,6 +1205,14 @@ class MatchRuntime implements EngineRuntime {
       this.syncHiddenTurn();
       return chain.atomic(run);
     } catch (error) {
+      // Payment suspension is a committed command endpoint. Its exact frozen
+      // parent, journal notice and process-local handle must survive this outer
+      // rollback layer so a later activate can resume it.
+      if (error instanceof PaymentContinuationSuspendedError) {
+        const notice = this.match!.flow.chain.paymentContinuationNotice();
+        if (notice) this.paymentContinuation = { notice };
+        throw error;
+      }
       const suspended = error instanceof PendingChoiceError ? {
         decisions: this.decisions,
         preparedPlay: this.preparedPlay,
@@ -1421,7 +1522,7 @@ class MatchRuntime implements EngineRuntime {
   }
 
   private projectionSemantics(): ReturnType<typeof projectionSemantics> {
-    return projectionSemantics(this.runtimeOptions.engineVersion ?? LEGACY_RUNTIME_ENGINE_VERSION);
+    return projectionSemantics(this.runtimeOptions.engineVersion ?? CURRENT_RUNTIME_ENGINE_VERSION);
   }
 
   private stateDigest(): string {

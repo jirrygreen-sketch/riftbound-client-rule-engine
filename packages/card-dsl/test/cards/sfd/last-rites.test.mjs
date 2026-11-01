@@ -185,7 +185,7 @@ test("sfd-150-221 Last Rites: the merged Equip expansion is valid EffectIR for t
   assert.deepEqual(expansion[0].body.map((step) => [step.id, step.op]), [["equip-attach", "effect.attach"]]);
   assert.deepEqual(expansion[0].body[0].targets, [{
     id: "equip-target",
-    filter: { type: "unit", controller: "self" },
+    filter: { type: "unit", zone: "board", controller: "self" },
     min: 1,
     max: 1,
     selection: "one"

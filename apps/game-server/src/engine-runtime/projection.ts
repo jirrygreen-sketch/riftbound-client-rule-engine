@@ -18,6 +18,7 @@ import { DUEL_DOMAINS } from "../../../../packages/engine-core/dist/cost/resourc
 import type { Match } from "../../../../packages/engine-core/dist/game/lifecycle.js";
 import type { ObjectRef, ObjectSnapshot, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
 import { playPermissionAllows, playPermissions } from "../../../../packages/engine-core/dist/programs/play-permissions.js";
+import { inspectActivations } from "../../../../packages/engine-core/dist/programs/activate.js";
 import { queryTargetCandidates, type TargetRequirement } from "../../../../packages/engine-core/dist/target/target-plan.js";
 import { readEmpowered } from "../../../../packages/engine-core/dist/zones/empower-state.js";
 import type { EngineRuntimeHost } from "./host.js";
@@ -28,7 +29,8 @@ const zoneNames: readonly V2Zone[] = ["base", "board", "battlefield", "champion"
 export const LEGACY_RUNTIME_ENGINE_VERSION = "@riftbound/engine-core/current" as const;
 
 /** Projection semantics released after the historical current-version replay. */
-export const RIFT_1169_ENGINE_VERSION = "@riftbound/engine-core/current+RIFT-1169.danger-zone-closed-v1" as const;
+export const RIFT_1169_ENGINE_SUFFIX = "+RIFT-1169.danger-zone-closed-v1" as const;
+export const RIFT_1169_ENGINE_VERSION = `@riftbound/engine-core/current${RIFT_1169_ENGINE_SUFFIX}` as const;
 
 export interface ProjectionSemantics {
   readonly trustedPrintedCatalog: boolean;
@@ -39,7 +41,7 @@ export function projectionSemantics(engineVersion: string): ProjectionSemantics 
   // Version suffixes compose across integration. A room created by an earlier
   // release (for example the RIFT-1165 current version) remains legacy until
   // the parent advances its current identifier with this explicit marker.
-  const dangerZoneClosedState = engineVersion.includes("+RIFT-1169.danger-zone-closed-v1");
+  const dangerZoneClosedState = engineVersion.includes(RIFT_1169_ENGINE_SUFFIX);
   return Object.freeze({ trustedPrintedCatalog: dangerZoneClosedState, dangerZoneClosedState });
 }
 
@@ -174,9 +176,30 @@ export function canPassForViewer(match: Match, pendingChoice: boolean, viewer: P
 }
 
 function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | null,
-  pendingChoice: boolean, semantics: ProjectionSemantics): V2ActionOptions {
+  pendingChoice: boolean, semantics: ProjectionSemantics, currentObjects?: readonly ObjectSnapshot[],
+  paymentWindow = false): V2ActionOptions {
   const canAdvance = advanceResponsiblePlayer(match, pendingChoice, viewer) !== null;
   const canPass = canPassForViewer(match, pendingChoice, viewer);
+  const binding = match.programBinding;
+  // RIFT-1180: Ganking and other layer-evaluated characteristics must come
+  // from the single current-object view used by the rest of this projection.
+  const objects = currentObjects ?? host.objects();
+  const activations = (): NonNullable<V2ActionOptions["activations"]> => viewer === null || binding === undefined
+    ? [] : inspectActivations({
+        engine: match.flow.chain,
+        registry: binding.registry,
+        controller: viewer,
+        sources: objects,
+        window: "priority",
+      }).map(candidate => ({
+        sourceObjectId: candidate.source.ref.id,
+        abilityId: String(candidate.abilityIndex),
+        label: candidate.label,
+        ...(candidate.reaction ? { reaction: true } : {}),
+      }));
+  const priorityActivations = pendingChoice || paymentWindow ? [] : activations();
+  const withActivations = <T extends V2ActionOptions>(value: T): V2ActionOptions => priorityActivations.length === 0
+    ? value : { ...value, activations: priorityActivations };
   if (viewer === null || match.result().winner !== null || match.flow.phase !== "main") {
     return { canEndTurn: false, canAdvance, canPass, moves: [], plays: [] };
   }
@@ -196,9 +219,8 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
   const canEndTurn = viewer === match.flow.turnPlayer && (semantics.dangerZoneClosedState ? ordinaryOpen : legacyOpen);
   if ((priority !== viewer && !waitingForFutureCommand) || !open ||
       (!semantics.dangerZoneClosedState && chain.items.length > 0)) {
-    return { canEndTurn, canAdvance, canPass, moves: [], plays: [] };
+    return withActivations({ canEndTurn, canAdvance, canPass, moves: [], plays: [] });
   }
-  const objects = host.objects();
   const battlefields = match.flow.battlefields;
   const moves: V2ActionOptions["moves"][number][] = [];
   if (!semantics.dangerZoneClosedState || ordinaryOpen) {
@@ -222,7 +244,6 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
   const plays: V2ActionOptions["plays"][number][] = [];
   const energy = host.player(viewer).energy;
   const power = host.player(viewer).power;
-  const binding = match.programBinding;
   // Catalog rows are installed by ProgramBinding lifecycle on the Chain's
   // describePlay function. TurnFlow wraps the Match binding, so the trusted
   // lookup is available here even though match.programBinding predates the
@@ -385,7 +406,7 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
       }
     }
   }
-  return { canEndTurn, canAdvance, canPass, moves, plays };
+  return withActivations({ canEndTurn, canAdvance, canPass, moves, plays });
 }
 
 function battlefieldProjection(match: Match, host: EngineRuntimeHost): readonly V2BattlefieldSnapshot[] {
@@ -452,6 +473,8 @@ export interface RuntimeProjectionSnapshot {
   readonly eventPublicObjects: ReadonlyMap<number, string>;
   readonly playerIds: readonly string[];
   readonly objectSource: readonly ObjectSnapshot[];
+  /** Current layer-evaluated objects; null when the room has no live layer owner. */
+  readonly objectCurrentById: ReadonlyMap<string, ObjectSnapshot> | null;
   readonly hiddenObjectSource: readonly ObjectSnapshot[];
   readonly visibilityGrants: ReturnType<EngineRuntimeHost["visibility"]>;
   readonly zoneCounts: Readonly<Record<string, V2Projection["players"][number]["zoneCounts"]>>;
@@ -475,6 +498,17 @@ export function projectionSnapshot(match: Match, host: EngineRuntimeHost, matchI
   const playerIds = Object.freeze(Object.keys(host.playerNames()));
   const names = host.playerNames();
   const objectSource = host.objects();
+  // RIFT-1176: projection and Combat must consume the same current layer view.
+  // One stable pass serves the complete viewer snapshot; hidden objects remain
+  // sourced from objectSource and are never enriched from this private index.
+  const layerChain = match.flow.chain as typeof match.flow.chain | undefined;
+  const currentObjects = layerChain?.layers === undefined || typeof layerChain.withStableLayers !== "function"
+    ? null : layerChain.layers.withCommandPlanCache(
+      `projection:${matchId}:${stateVersion}`,
+      () => layerChain.withStableLayers(() => layerChain.pipeline.host.objects()),
+    );
+  const objectCurrentById = currentObjects === null ? null
+    : new Map(currentObjects.map(object => [objectRefKey(object), object]));
   const hiddenObjectSource = Object.freeze([...host.hiddenObjects()]);
   const visibilityGrants = Object.freeze(host.visibility());
   const zoneCounts = Object.fromEntries(playerIds.map(playerId => [playerId, Object.freeze(Object.fromEntries(
@@ -556,7 +590,7 @@ export function projectionSnapshot(match: Match, host: EngineRuntimeHost, matchI
     matchId, stateVersion,
     viewerPlayers, events: Object.freeze(publicViewerEvents),
     eventPrivateObjects, eventPublicObjects,
-    playerIds, objectSource, hiddenObjectSource, visibilityGrants,
+    playerIds, objectSource, objectCurrentById, hiddenObjectSource, visibilityGrants,
     zoneCounts,
     chain: chainSnapshot, phase: phase(match), turnNumber: Math.max(1, match.flow.turn),
     activePlayerId: match.flow.turnPlayer,
@@ -568,17 +602,53 @@ export function projectionSnapshot(match: Match, host: EngineRuntimeHost, matchI
   };
 }
 
+/**
+ * RIFT-1180: name the permanent an Equipment is attached to, so the board can
+ * draw the gear under its unit. Both must be face-up on the board under their
+ * real ids for this viewer, and the host must still be the same zone entry,
+ * so a hidden object or a host that has since left play is never linked.
+ */
+export function withAttachmentHosts(objects: V2ProjectedObject[], source: readonly ObjectSnapshot[],
+  currentSource: readonly ObjectSnapshot[] = source): V2ProjectedObject[] {
+  const sourceByKey = new Map(source.map(object => [objectRefKey(object), object] as const));
+  const currentByKey = new Map(currentSource.map(object => [objectRefKey(object), object] as const));
+  const projectedByKey = new Map(objects.map(object =>
+    [`${object.objectId}:${object.zoneEntryId ?? 0}`, object] as const));
+  return objects.map(object => {
+    if (object.zone !== "board" || object.faceDown || object.zoneEntryId === undefined) return object;
+    const key = `${object.objectId}:${object.zoneEntryId}`;
+    // Layer effects can detach a Gear by making it a Unit (CR 718.6.a), so the
+    // current attachment relation is authoritative. Raw snapshots still bind
+    // both objects to the same zone incarnation and prevent invented links.
+    const original = sourceByKey.get(key);
+    const current = currentByKey.get(key);
+    const host = current?.attachedTo;
+    if (original?.zone !== "board" || original.faceDown || current?.zone !== "board" || current.faceDown ||
+        host === null || host === undefined || host.id === object.objectId) return object;
+    const originalHost = sourceByKey.get(`${host.id}:${host.zoneEntryId}`);
+    const currentHost = currentByKey.get(`${host.id}:${host.zoneEntryId}`);
+    const projectedHost = projectedByKey.get(`${host.id}:${host.zoneEntryId}`);
+    if (originalHost?.zone !== "board" || originalHost.faceDown || currentHost?.zone !== "board" || currentHost.faceDown ||
+        projectedHost === undefined || projectedHost.objectId !== host.id || projectedHost.zone !== "board" ||
+        projectedHost.faceDown || projectedHost.zoneEntryId !== host.zoneEntryId) return object;
+    return { ...object, attachedToObjectId: projectedHost.objectId };
+  });
+}
+
 function snapshotObjects(snapshot: RuntimeProjectionSnapshot, viewer: string | null): readonly V2ProjectedObject[] {
   const key = viewer ?? "spectator";
   const cached = snapshot.projectedObjects.get(key);
   if (cached !== undefined) return cached;
   const hidden = new Map(snapshot.hiddenObjectSource.map(object => [objectRefKey(object), object]));
-  const objects = Object.freeze([
+  const currentObject = (object: ObjectSnapshot): ObjectSnapshot =>
+    snapshot.objectCurrentById?.get(objectRefKey(object)) ?? object;
+  const objects = Object.freeze(withAttachmentHosts([
     ...snapshot.objectSource.filter(object => !hidden.has(objectRefKey(object)) &&
       (!object.faceDown || object.zone === "deck" || object.zone === "rune-deck"))
-      .map(object => projectedObject(object, viewer, snapshot.visibilityGrants)),
+      .map(object => projectedObject(currentObject(object), viewer, snapshot.visibilityGrants)),
     ...[...hidden.values()].map(object => projectedObject(object, viewer, snapshot.visibilityGrants)),
-  ]);
+  ], snapshot.objectSource, snapshot.objectCurrentById === null ? snapshot.objectSource
+    : [...snapshot.objectCurrentById.values()]));
   snapshot.projectedObjects.set(key, objects);
   return objects;
 }
@@ -633,6 +703,33 @@ export function projectRuntimeFromSnapshot(
     ...(pendingChoice.min === undefined ? {} : { min: pendingChoice.min }),
     ...(pendingChoice.max === undefined ? {} : { max: pendingChoice.max }),
   } : { status: "none" as const };
+  const activationObjects = snapshot.objectCurrentById === null
+    ? host.objects() : [...snapshot.objectCurrentById.values()];
+  const paymentWindow = typeof match.flow.chain.reactionAddPaymentWindow === "function"
+    ? match.flow.chain.reactionAddPaymentWindow() : null;
+  const baseActions = actionOptions(match, host, viewer, pendingChoice !== null, snapshot.semantics,
+    activationObjects, paymentWindow !== null);
+  const paymentActivations = viewer === null || match.programBinding === undefined ||
+    paymentWindow === null || viewer !== paymentWindow.payer
+    ? [] : inspectActivations({
+        engine: match.flow.chain,
+        registry: match.programBinding.registry,
+        controller: viewer,
+        sources: activationObjects,
+        window: "payment",
+      }).map(candidate => ({
+        sourceObjectId: candidate.source.ref.id,
+        abilityId: String(candidate.abilityIndex),
+        label: candidate.label,
+        ...(candidate.reaction ? { reaction: true } : {}),
+      }));
+  const extraActivations = paymentActivations.filter(candidate =>
+    !(baseActions.activations ?? []).some(existing => existing.sourceObjectId === candidate.sourceObjectId &&
+      existing.abilityId === candidate.abilityId));
+  const uniqueExtraActivations = extraActivations.filter((candidate, index) =>
+    extraActivations.findIndex(existing => existing.sourceObjectId === candidate.sourceObjectId &&
+      existing.abilityId === candidate.abilityId) === index);
+  const allActivations = [...(baseActions.activations ?? []), ...uniqueExtraActivations];
   return {
     projectionContract: "riftbound.protocol.v2.projection",
     protocolVersion: "2.0.0",
@@ -647,16 +744,16 @@ export function projectRuntimeFromSnapshot(
     players,
     zones,
     objects,
-    chain: { ...snapshot.chain, phase: pendingChoice ? "await-commit" : snapshot.chain.phase },
+    chain: { ...snapshot.chain, phase: pendingChoice || paymentWindow ? "await-commit" : snapshot.chain.phase },
     priority: {
       playerId: snapshot.priority.playerId, focusPlayerId: snapshot.priority.focusPlayerId,
-      window: pendingChoice ? "choice" : snapshot.priority.focusPlayerId !== null ? "showdown" :
+      window: pendingChoice || paymentWindow ? "choice" : snapshot.priority.focusPlayerId !== null ? "showdown" :
         snapshot.chain.items.length ? "closed" : "open",
     },
     scoring: snapshot.scoring,
     battlefields: snapshot.battlefields,
     combat: snapshot.combat,
-    actionOptions: actionOptions(match, host, viewer, pendingChoice !== null, snapshot.semantics),
+    actionOptions: allActivations.length === 0 ? baseActions : { ...baseActions, activations: allActivations },
     pendingChoice: projectedChoice,
     winnerPlayerId: snapshot.winnerPlayerId,
     events: snapshotEvents(snapshot, viewer),
