@@ -101,7 +101,7 @@ test("sfd-086-221 World Atlas: the merged Equip expansion targets a controlled u
   assert.deepEqual(activation.body[0].targets, [
     {
       id: "equip-target",
-      filter: { type: "unit", controller: "self" },
+      filter: { type: "unit", zone: "board", controller: "self" },
       min: 1,
       max: 1,
       selection: "one"

@@ -99,7 +99,7 @@ test("sfd-153-221 Eye of the Herald: the merged Equip expansion is valid EffectI
   assert.deepEqual(ability.body.map((step) => [step.id, step.op]), [["equip-attach", "effect.attach"]]);
   assert.deepEqual(ability.body[0].targets, [{
     id: "equip-target",
-    filter: { type: "unit", controller: "self" },
+    filter: { type: "unit", zone: "board", controller: "self" },
     min: 1,
     max: 1,
     selection: "one"

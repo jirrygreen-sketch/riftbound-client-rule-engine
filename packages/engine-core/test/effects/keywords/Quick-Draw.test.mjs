@@ -84,7 +84,7 @@ test("Quick-Draw limits its trigger and attachment to the host and a friendly Un
   });
   assert.deepEqual(triggered.body[0].targets, [{
     id: "quick-draw-unit",
-    filter: { type: "unit", controller: "self" },
+    filter: { type: "unit", zone: "board", controller: "self" },
     min: 1,
     max: 1,
     selection: "one"

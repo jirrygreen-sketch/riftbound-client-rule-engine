@@ -15,7 +15,15 @@ export interface FilterMatchContext {
   readonly costReference?: ObjectSnapshot | null;
   /** Visible objects used to evaluate inverse attachment predicates. */
   readonly objects?: readonly ObjectSnapshot[];
+  /**
+   * Target selection must resolve every relative player against the ability
+   * controller. Layer and legacy statics retain their historical unanchored
+   * `self` matcher by leaving this false.
+   */
+  readonly strictRelativePlayers?: boolean;
 }
+
+const BOARD_DEFAULT_TARGET_TYPES = new Set(["unit", "gear"]);
 
 export function refKey(ref: ObjectRef | null | undefined): string | null {
   return ref === null || ref === undefined ? null : `${ref.id}:${ref.zoneEntryId}`;
@@ -95,7 +103,9 @@ function playerMatches(expected: unknown, actual: string, context: FilterMatchCo
   // Preserve the layer matcher’s legacy self spelling when it is used without
   // a query anchor: the candidate is its own comparison object. Other
   // relative spellings fail closed until a controller/source is available.
-  if (resolved === "self" && context.controller === undefined && context.anchor?.controller === undefined) return true;
+  if (resolved === "self" && context.controller === undefined && context.anchor?.controller === undefined) {
+    return context.strictRelativePlayers !== true;
+  }
   const relative = playerFrom(resolved, context);
   if (relative === null) {
     const controller = context.controller ?? context.anchor?.controller;
@@ -103,6 +113,39 @@ function playerMatches(expected: unknown, actual: string, context: FilterMatchCo
   }
   if (relative === undefined) return false;
   return actual === relative;
+}
+
+/**
+ * CR v1.5 133.3.a and 355.9.a.1: an unqualified Unit or Gear means the Board
+ * object of that type unless the effect specifies another zone. Bind the
+ * relative player spellings on the target path so self/controller cannot race
+ * ahead of a host implement that lacks relative-query support.
+ */
+export function targetObjectFilter(filter: ObjectFilter, controller?: string): ObjectFilter {
+  let result: ObjectFilter = filter;
+  if (!Object.hasOwn(filter, "zone")) {
+    const types = filter.type ?? filter.types;
+    if (types !== undefined) {
+      const values = Array.isArray(types) ? types : [types];
+      if (values.length > 0 && values.every(type =>
+        typeof type === "string" && BOARD_DEFAULT_TARGET_TYPES.has(type))) {
+        result = Object.freeze({ ...result, zone: "board" });
+      }
+    }
+  }
+  if (controller !== undefined) {
+    const values: Record<string, unknown> = { ...result };
+    let bound = false;
+    for (const key of ["controller", "owner"] as const) {
+      const value = literal(values[key]);
+      if (value === "self" || value === "controller") {
+        values[key] = controller;
+        bound = true;
+      }
+    }
+    if (bound) result = Object.freeze(values as ObjectFilter);
+  }
+  return result;
 }
 
 function keywordId(value: unknown): string | null {

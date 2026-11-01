@@ -121,7 +121,7 @@ test("ven-027-166 Hand Hammer: the merged Equip expansion is valid EffectIR for 
   assert.deepEqual(ability.body[0].targets, [
     {
       id: "equip-target",
-      filter: { type: "unit", controller: "self" },
+      filter: { type: "unit", zone: "board", controller: "self" },
       min: 1,
       max: 1,
       selection: "one"

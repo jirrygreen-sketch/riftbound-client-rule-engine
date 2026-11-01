@@ -30,7 +30,7 @@ const position = () => world().player('A').player('B')
 test('keywords-equip-target-must-be-friendly-unit: the Equip target spec is exactly “a Unit you control” (CR 818.1.b.1, 818.1.c.2)', () => {
   assert.deepEqual(equipTarget, {
     id: 'equip-target',
-    filter: { type: 'unit', controller: 'self' },
+    filter: { type: 'unit', zone: 'board', controller: 'self' },
     min: 1,
     max: 1,
     selection: 'one'
