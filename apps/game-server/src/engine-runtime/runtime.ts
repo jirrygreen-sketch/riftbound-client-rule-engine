@@ -174,6 +174,11 @@ export interface EngineRuntime {
   projectFor(playerId: PlayerId | null): V2Projection;
   journal(): RuntimeJournal;
   restore(journal: RuntimeJournal): EngineRuntime;
+  /**
+   * RIFT-1184: the canonical card ids of a seat's CR 116 opening hand, as the
+   * engine recorded them before any mulligan or turn-start draw.
+   */
+  openingHandCardIds?(playerId: "A" | "B"): readonly string[];
 }
 
 class PendingChoiceError extends Error {
@@ -883,6 +888,13 @@ class MatchRuntime implements EngineRuntime {
   journal(): RuntimeJournal {
     if (!this.journalWriter) throw new Error("Engine runtime has not started");
     return this.journalWriter.snapshot();
+  }
+
+  openingHandCardIds(playerId: "A" | "B"): readonly string[] {
+    this.requireStarted();
+    const opening = this.match!.setup.openingHands[playerId];
+    if (opening === undefined) throw new Error(`Engine runtime has no opening hand for ${playerId}`);
+    return [...opening];
   }
 
   restore(journal: RuntimeJournal): EngineRuntime {
