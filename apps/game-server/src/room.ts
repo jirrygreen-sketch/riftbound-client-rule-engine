@@ -192,6 +192,23 @@ type DistributiveOmit<T, Keys extends keyof T> = T extends unknown
  * starts immediately for the synthetic demo or after ready decks for the
  * foundation ruleset.
  */
+/**
+ * RIFT-1184: pick the hand objects that make up the engine-recorded opening
+ * hand. Copies of one card are interchangeable for a mulligan, which the engine
+ * resolves by card id. Fails closed when the record and the hand disagree.
+ */
+function openingHandObjects<T extends { readonly cardId?: string }>(
+  hand: readonly T[], openingCardIds: readonly string[] | undefined
+): T[] {
+  if (openingCardIds === undefined) throw new Error("Engine runtime did not record the opening hand");
+  const remaining = [...hand];
+  return openingCardIds.map(cardId => {
+    const index = remaining.findIndex(object => object.cardId === cardId);
+    if (index < 0) throw new Error("Mulligan preview hand does not contain the recorded opening hand");
+    return remaining.splice(index, 1)[0]!;
+  });
+}
+
 export class GameRoom {
   readonly players = new Map<PlayerId, RoomConnection>();
   readonly processedCommands = new Map<string, ProcessedCommand>();
@@ -481,7 +498,10 @@ export class GameRoom {
     // The probe has already started the first turn, so its active seat holds a
     // fifth card. CR 116/117 exposes exactly the four-card opening hand for the
     // mulligan window; the turn-start draw becomes visible only after setup ends.
-    const opening = ownHand.slice(0, 4);
+    // RIFT-1184: hand objects are listed in creation order, not draw order, so
+    // the opening hand comes from the engine's own CR 116 record.
+    const opening = openingHandObjects(ownHand,
+      this.engineMulliganPreview?.runtime.openingHandCardIds?.(enginePlayerId));
     const openingKeys = new Set(opening.map(object => `${object.objectId}:${String(object.zoneEntryId)}`));
     const turnDrawIds = new Set(view.objects.filter(object => object.ownerPlayerId === enginePlayerId &&
       object.zone === "hand" && !openingKeys.has(`${object.objectId}:${String(object.zoneEntryId)}`))
