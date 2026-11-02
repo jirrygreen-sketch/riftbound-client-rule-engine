@@ -961,6 +961,37 @@ export class EngineRuntimeHost {
     return this.done(objectRef(current));
   }
 
+  /**
+   * RIFT-1185: TurnFlow.hide owns Hide legality, cost and the engine Facedown
+   * Zone, but it moves the card through the ordinary move-zone primitive. This
+   * records the same incarnation as this host's facedown card so projections
+   * conceal it and a later Play leaves from the Facedown Zone. TurnFlow keeps
+   * a hidden card only while it is on the Board at that Battlefield
+   * (CR 107.3.a), so the card moves from the move-zone result onto the Board.
+   */
+  adoptHidden(ref: ObjectRef, battlefieldId: string, controller: PlayerId): void {
+    const object = this.objectMap.get(ref.id);
+    if (!object || object.ref.zoneEntryId !== ref.zoneEntryId || object.controller !== controller ||
+        (object.zone as string) !== "battlefield" || object.location?.type !== "battlefield" ||
+        object.location.id !== battlefieldId) throw new Error("Hidden card is not at its Battlefield");
+    const zone = this.hidden.zones.get(battlefieldId) ?? {
+      battlefieldId, controller, capacity: 1, cards: new Map<string, HiddenRuntimeCard>(),
+    };
+    this.hidden.zones.set(battlefieldId, {
+      ...zone,
+      controller,
+      cards: new Map([...zone.cards, [refKey(object.ref), {
+        ref: objectRef(object), battlefieldId, hiddenTurn: this.hidden.turn,
+      }]]),
+    });
+    this.removeFromZone(object);
+    this.requirePlayer(object.owner).zones.board.unshift(object.ref.id);
+    object.zone = "board";
+    object.faceDown = true;
+    object.facedownLocation = { type: "battlefield", id: battlefieldId };
+    this.invalidateObjectCache();
+  }
+
   private hasBattlefield(id: string): boolean {
     const current = this.objectMap.get(id);
     if (current?.zone === "board" && current.types.some(type => type.toLowerCase() === "battlefield")) return true;

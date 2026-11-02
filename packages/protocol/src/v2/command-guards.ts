@@ -2,7 +2,7 @@ import {
   V2_ZONES
 } from "./constants.js";
 import type {
-  V2ActivateCommand, V2ChoiceAnswer, V2Command, V2CommandEnvelope,
+  V2ActivateCommand, V2ChoiceAnswer, V2Command, V2CommandEnvelope, V2HideCommand,
   V2ConcedeCommand, V2CostSelection, V2DeclareAttackCommand,
   V2DeclareDefenseCommand, V2MoveCommand, V2MoveDestination, V2MulliganCommand, V2Location,
   V2ObjectRef, V2PassCommand, V2Pick, V2PlayCommand, V2PowerPayment,
@@ -168,6 +168,12 @@ export function isV2ActivateCommand(value: unknown): value is V2ActivateCommand 
     (value.targets === undefined || targets(value.targets)) && (value.picks === undefined || picks(value.picks));
 }
 
+export function isV2HideCommand(value: unknown): value is V2HideCommand {
+  return data(value) && base(value, "hide", ["cardObjectId", "battlefieldId"]) &&
+    exact(value, ["type", "commandId", "stateVersion", "cardObjectId", "battlefieldId"]) &&
+    text(value.cardObjectId) && text(value.battlefieldId);
+}
+
 export function isV2PassCommand(value: unknown): value is V2PassCommand {
   return data(value) && base(value, "pass", []) && exact(value, ["type", "commandId", "stateVersion"]);
 }
@@ -242,6 +248,7 @@ export function isV2Command(value: unknown): value is V2Command {
     case "mulligan": return isV2MulliganCommand(value);
     case "play": return isV2PlayCommand(value);
     case "activate": return isV2ActivateCommand(value);
+    case "hide": return isV2HideCommand(value);
     case "pass": return isV2PassCommand(value);
     case "choose": return isV2ChooseCommand(value);
     case "move": return isV2MoveCommand(value);

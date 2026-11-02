@@ -1139,6 +1139,23 @@ class MatchRuntime implements EngineRuntime {
       match.flow.execute(this.binding.describeActivate(source, playerId, abilityIndex));
       return { accepted: true, objectId: command.sourceObjectId, abilityId: command.abilityId };
     }
+    if (command.type === "hide") {
+      // RIFT-1185: TurnFlow.hide validates the Open State, the trusted Hidden
+      // permission and the controlled Battlefield, and pays the Hide cost
+      // (CR 811.1.c). The host then records the same incarnation as facedown.
+      if (!this.binding) throw new Error("No trusted card-program registry is bound");
+      const source = this.resolveObject(command.cardObjectId);
+      this.assertCanControl(playerId, source.ref);
+      if (source.zone !== "hand") throw new Error("Only a card in Hand can be hidden");
+      const battlefield = match.flow.battlefields.find(field => field.id === command.battlefieldId);
+      if (!battlefield) throw new Error(`Unknown Battlefield ${command.battlefieldId}`);
+      const location = { type: "battlefield" as const, id: battlefield.id };
+      match.flow.hide({ type: "hide", object: source.ref, player: playerId, location });
+      const hidden = this.resolveObject(command.cardObjectId);
+      this.host!.adoptHidden(hidden.ref, battlefield.id, playerId);
+      // The Hide is public; which card was hidden is not (CR 128.4).
+      return { accepted: true, battlefieldId: battlefield.id };
+    }
     if (command.type === "rune-energy" || command.type === "rune-power") {
       return this.executeRuneResource(playerId, command);
     }

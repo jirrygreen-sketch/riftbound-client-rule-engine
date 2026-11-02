@@ -502,7 +502,8 @@ async function runV2DuelInternal(options: V2DuelRunOptions, deadline: number): P
         stateVersion: receipt.stateVersion, command: command.type, rejection: receipt.rejection });
       if (receipt.accepted) {
         if (command.type !== "mulligan" && command.type !== "concede" && command.type !== "choose" &&
-            command.type !== "activate" && command.type !== "declare-attack" && command.type !== "declare-defense") {
+            command.type !== "activate" && command.type !== "hide" && command.type !== "declare-attack" &&
+            command.type !== "declare-defense") {
           coverage[command.type] += 1;
         }
         if (command.type === "play" && (command.targets?.length ?? 0) > 0) coverage["play-target"] += 1;

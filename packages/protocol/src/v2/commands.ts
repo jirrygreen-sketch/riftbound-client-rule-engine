@@ -74,6 +74,17 @@ export interface V2ActivateCommand extends V2CommandBase {
   readonly picks?: readonly V2Pick[];
 }
 
+/**
+ * Hide one Hidden card from Hand face down at a Battlefield the player
+ * controls (CR 811.1.c). The server pays the printed Hide cost; playing it
+ * later is an ordinary `play` of the facedown card.
+ */
+export interface V2HideCommand extends V2CommandBase {
+  readonly type: "hide";
+  readonly cardObjectId: V2ObjectId;
+  readonly battlefieldId: string;
+}
+
 export interface V2PassCommand extends V2CommandBase {
   readonly type: "pass";
 }
@@ -168,6 +179,7 @@ export type V2Command =
   | V2MulliganCommand
   | V2PlayCommand
   | V2ActivateCommand
+  | V2HideCommand
   | V2PassCommand
   | V2ChooseCommand
   | V2MoveCommand

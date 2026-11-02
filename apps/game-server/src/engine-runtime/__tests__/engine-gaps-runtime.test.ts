@@ -235,12 +235,17 @@ describe("RIFT-837 production runtime primitives", () => {
       chain: { items: [], priority: null, focus: null, turnState: "neutral-open", canAct: () => false },
       battlefields: [{ id: field.id, controller: "A", contestedBy: null, staged: "none", cardId: null }],
       victoryScore: 8, scored: () => [], turn: 1, turnPlayer: "A", phase: "main", winner: null, combat: { current: null, active: false },
+      hidden: () => ({ turn: 1, zones: {}, pendingControlLoss: [], playedFromHidden: {} }),
     } as never, events: () => [], result: () => ({ winner: null, turnNumber: 1 }) } as never, state, "m", "A", 0, null);
-    expect(controllerView.objects.find(object => object.zone === "facedown")?.cardId).toBeUndefined();
+    // RIFT-1185: the face is Private to its controller, who may read it (CR 107.3.f, 128.4).
+    expect(controllerView.objects.find(object => object.zone === "facedown")).toMatchObject({
+      faceDown: true, visibility: "owner-only", cardId: consultThePast.canonicalCardId,
+    });
     const fakeFlow = {
       chain: { items: [], priority: null, focus: null, turnState: "neutral-open", canAct: () => false },
       battlefields: [{ id: field.id, controller: null, contestedBy: null, staged: "none", cardId: null }],
       victoryScore: 8, scored: () => [], turn: 1, turnPlayer: "A", phase: "main", winner: null, combat: { current: null, active: false },
+      hidden: () => ({ turn: 1, zones: {}, pendingControlLoss: [], playedFromHidden: {} }),
     } as never;
     const view = projectRuntime({ flow: fakeFlow, events: () => [], result: () => ({ winner: null, turnNumber: 1 }) } as never, state, "m", "B", 0, null);
     expect(view.objects.find(object => object.zone === "facedown")).toMatchObject({ faceDown: true });

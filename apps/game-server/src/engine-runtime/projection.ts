@@ -21,6 +21,8 @@ import { playPermissionAllows, playPermissions } from "../../../../packages/engi
 import { inspectActivations } from "../../../../packages/engine-core/dist/programs/activate.js";
 import { queryTargetCandidates, type TargetRequirement } from "../../../../packages/engine-core/dist/target/target-plan.js";
 import { readEmpowered } from "../../../../packages/engine-core/dist/zones/empower-state.js";
+import { findHiddenCard } from "../../../../packages/engine-core/dist/zones/hidden/state.js";
+import { describeDraftHasHiddenPermission, withHiddenSource } from "../../../../packages/engine-core/dist/programs/play.js";
 import type { EngineRuntimeHost } from "./host.js";
 import { canonicalJson, digest } from "./journal.js";
 
@@ -82,7 +84,15 @@ export function projectObjectForChoice(
   return projectedObject(object, viewer, grants);
 }
 
+/** A card in a Battlefield's Facedown Zone (CR 107.3.a), as the host records it. */
+function inFacedownZone(object: ObjectSnapshot): boolean {
+  return object.faceDown && object.facedownLocation?.type === "battlefield";
+}
+
 function isPublic(object: ObjectSnapshot, viewer: string | null, grants: ReturnType<EngineRuntimeHost["visibility"]>): boolean {
+  // RIFT-1185: the Facedown Zone is public but a facedown card's face is
+  // Private to its controller (CR 107.3.f, 128.4).
+  if (inFacedownZone(object)) return viewer !== null && object.controller === viewer && object.owner === viewer;
   if (object.faceDown) return false;
   if (object.zone !== "hand" && object.zone !== "deck" && object.zone !== "rune-deck") return true;
   if (viewer !== null && object.controller === viewer) return true;
@@ -94,7 +104,8 @@ function projectedObject(object: ObjectSnapshot, viewer: string | null, grants: 
   // A hidden opponent hand card is represented in the protocol's facedown
   // zone. Keeping it in `hand` with public visibility would expose a
   // hand-zone object even though its identity is redacted.
-  const zone = !visible && (object.faceDown || object.zone === "hand") ? "facedown" : v2Zone(object.zone);
+  const zone = inFacedownZone(object) || !visible && (object.faceDown || object.zone === "hand")
+    ? "facedown" : v2Zone(object.zone);
   const hidden = !visible || zone === "deck" || zone === "rune-deck";
   const value: Record<string, unknown> = {
     objectId: hidden ? hiddenId(viewer, object) : object.ref.id,
@@ -189,7 +200,8 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
         engine: match.flow.chain,
         registry: binding.registry,
         controller: viewer,
-        sources: objects,
+        // A Facedown Zone card has no public characteristics (CR 107.3.f).
+        sources: objects.filter(object => !inFacedownZone(object)),
         window: "priority",
       }).map(candidate => ({
         sourceObjectId: candidate.source.ref.id,
@@ -226,7 +238,7 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
   if (!semantics.dangerZoneClosedState || ordinaryOpen) {
     for (const object of objects) {
       if (object.controller !== viewer || object.zone !== "board" || !object.types.includes("unit") ||
-          object.exhausted || object.location === null) continue;
+          object.exhausted || object.location === null || inFacedownZone(object)) continue;
       if (object.location.type === "battlefield") {
         moves.push({ objectId: object.ref.id, destination: { kind: "base", playerId: viewer } });
       }
@@ -382,10 +394,10 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
           player: viewer,
           state: {
             ref: { type: "battlefield", id: field.id }, owner: field.id, controller: field.controller,
-            occupied: objects.some(object => object.zone === "board" && object.types.includes("unit") &&
+            occupied: objects.some(object => object.zone === "board" && object.types.includes("unit") && !inFacedownZone(object) &&
               object.location?.type === "battlefield" && object.location.id === field.id),
             contested: field.contestedBy !== null,
-            units: objects.filter(object => object.zone === "board" && object.types.includes("unit") &&
+            units: objects.filter(object => object.zone === "board" && object.types.includes("unit") && !inFacedownZone(object) &&
               object.location?.type === "battlefield" && object.location.id === field.id).map(object => object.ref),
           },
           objects,
@@ -406,11 +418,51 @@ function actionOptions(match: Match, host: EngineRuntimeHost, viewer: string | n
       }
     }
   }
-  return withActivations({ canEndTurn, canAdvance, canPass, moves, plays });
+  // RIFT-1185: Hidden (CR 811). A facedown card the viewer hid on an earlier
+  // turn may be played as a Reaction from its Facedown Zone (811.1.d); the
+  // engine replaces its cost and scopes its targets to that Battlefield, so
+  // the client sends a plain play and targets come back as pending choices.
+  const hiddenState = match.flow.hidden();
+  // The layer view masks a hidden card's identity (TurnFlow), so read the
+  // host's own Facedown Zone cards.
+  for (const source of host.hiddenObjects()) {
+    if (source.controller !== viewer || source.cardId === null) continue;
+    const hidden = findHiddenCard(hiddenState, source.ref);
+    if (hidden === null || hidden.controller !== viewer || hidden.hiddenTurn === hiddenState.turn) continue;
+    if (!waitingForFutureCommand && !chain.canAct(viewer, "reaction", source.ref, source)) continue;
+    const permanent = source.types.some(type => ["unit", "gear"].includes(type.toLowerCase()));
+    plays.push(permanent
+      ? { cardObjectId: source.ref.id, destination: { kind: "battlefield", battlefieldId: hidden.battlefieldId },
+          requiresDestination: true }
+      : { cardObjectId: source.ref.id, destination: { kind: "base", playerId: viewer }, requiresDestination: false });
+  }
+  // Hide is a turn-player Open State action with a fixed one-Power cost
+  // (CR 811.1.c). `payable` tells the client whether that Power is pooled.
+  const hides: NonNullable<V2ActionOptions["hides"]>[number][] = [];
+  const hideDescribe = describePlay ?? binding?.describePlay;
+  if (viewer === match.flow.turnPlayer && ordinaryOpen && hideDescribe !== undefined) {
+    const fields = battlefields.filter(field => field.controller === viewer && (() => {
+      const zone = hiddenState.zones[field.id];
+      return zone === undefined || zone.cards.length < zone.capacity;
+    })());
+    for (const source of fields.length === 0 ? [] : objects) {
+      if (source.controller !== viewer || source.zone !== "hand" || source.cardId === null) continue;
+      let permitted = false;
+      try {
+        permitted = describeDraftHasHiddenPermission(withHiddenSource(match.flow, () =>
+          hideDescribe({ type: "play", object: source.ref, player: viewer }, source)));
+      } catch { permitted = false; }
+      if (!permitted) continue;
+      for (const field of fields) hides.push({ cardObjectId: source.ref.id, battlefieldId: field.id, payable: power.length > 0 });
+    }
+  }
+  const options = withActivations({ canEndTurn, canAdvance, canPass, moves, plays });
+  return hides.length === 0 ? options : { ...options, hides };
 }
 
 function battlefieldProjection(match: Match, host: EngineRuntimeHost): readonly V2BattlefieldSnapshot[] {
-  const units = host.objects().filter(object => object.zone === "board" && object.types.includes("unit"));
+  const units = host.objects().filter(object => object.zone === "board" && object.types.includes("unit") &&
+    !inFacedownZone(object));
   return match.flow.battlefields.map(field => ({
     battlefieldId: field.id,
     controllerPlayerId: field.controller,
@@ -553,7 +605,8 @@ export function projectionSnapshot(match: Match, host: EngineRuntimeHost, matchI
     } as V2Event);
   }
   const battlefieldSource = match.flow.battlefields;
-  const units = objectSource.filter(object => object.zone === "board" && object.types.includes("unit"));
+  const units = objectSource.filter(object => object.zone === "board" && object.types.includes("unit") &&
+    !inFacedownZone(object));
   const battlefields = battlefieldSource.map(field => ({
     battlefieldId: field.id, controllerPlayerId: field.controller, contestedByPlayerId: field.contestedBy,
     staged: field.staged,
@@ -584,7 +637,9 @@ export function projectionSnapshot(match: Match, host: EngineRuntimeHost, matchI
   const zoneObjects = Object.fromEntries(playerIds.map(playerId => [playerId, Object.fromEntries(
     zoneNames.map(zone => [zone, Object.freeze(objectSource.filter(object => object.owner === playerId &&
       (zone === "facedown" ? hiddenObjectSource.some(hidden => objectRefKey(hidden) === objectRefKey(object)) :
-        v2Zone(object.zone) === zone)))]) as [V2Zone, readonly ObjectSnapshot[]][],
+        // RIFT-1185: a hidden card sits at its Battlefield in the host but
+        // belongs only to the Facedown Zone snapshot.
+        v2Zone(object.zone) === zone && !hiddenObjectSource.some(hidden => objectRefKey(hidden) === objectRefKey(object)))))]) as [V2Zone, readonly ObjectSnapshot[]][],
   )]));
   return {
     matchId, stateVersion,

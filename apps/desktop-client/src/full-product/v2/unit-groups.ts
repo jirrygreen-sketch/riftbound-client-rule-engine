@@ -82,7 +82,8 @@ export function v2GroupUnits(objects: readonly V2ProjectedObject[]): readonly V2
 
 /** Total projected Might of one player's units at a battlefield. */
 export function v2MightAt(projection: V2Projection, battlefieldId: string, playerId: string): number {
-  return projection.objects.filter(object => object.location?.kind === "battlefield" &&
+  // RIFT-1185: a hidden card is not a unit at the Battlefield until it is played.
+  return projection.objects.filter(object => object.location?.kind === "battlefield" && object.zone !== "facedown" &&
     object.location.battlefieldId === battlefieldId && controllerOf(object) === playerId && object.might !== undefined)
     .reduce((sum, object) => sum + (object.might ?? 0), 0);
 }

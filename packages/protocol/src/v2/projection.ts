@@ -151,6 +151,15 @@ export interface V2ActionOptions {
   readonly plays: readonly V2PlayOption[];
   /** Activated abilities the viewer can currently begin, keyed for `activate`. */
   readonly activations?: readonly V2ActivationOption[];
+  /** Hidden cards the viewer may Hide now, one entry per legal Battlefield (CR 811.1.c). */
+  readonly hides?: readonly V2HideOption[];
+}
+
+/** One server-authorized Hide; `payable: false` means the Hide cost is not in the pool yet. */
+export interface V2HideOption {
+  readonly cardObjectId: V2ObjectId;
+  readonly battlefieldId: string;
+  readonly payable: boolean;
 }
 
 /** One server-authorized activated ability source and engine ability index. */
@@ -274,8 +283,11 @@ function object(value: unknown, viewer: string | null): value is V2ProjectedObje
   for (const key of ["damage", "might"] as const) if (value[key] !== undefined && !count(value[key])) return false;
   if (value.counters !== undefined && !map(value.counters)) return false;
   if (value.attachedToObjectId !== undefined && !text(value.attachedToObjectId)) return false;
-  if (value.faceDown && value.cardId !== undefined) return false;
-  if ((value.zone === "deck" || value.zone === "rune-deck" || value.zone === "facedown") &&
+  // RIFT-1185: a Facedown Zone card's face is Private to its controller
+  // (CR 107.3.f, 128.4); only that owner's own view may carry its identity.
+  const ownFacedown = value.zone === "facedown" && value.faceDown && value.visibility === "owner-only";
+  if (value.faceDown && value.cardId !== undefined && !ownFacedown) return false;
+  if ((value.zone === "deck" || value.zone === "rune-deck" || value.zone === "facedown" && !ownFacedown) &&
       (value.cardId !== undefined || value.name !== undefined)) return false;
   if (value.visibility === "owner-only" && value.ownerPlayerId !== viewer) return false;
   if (value.visibility === "public" && value.zone === "hand" && value.ownerPlayerId !== viewer) return false;
@@ -384,13 +396,18 @@ function activationOption(value: unknown): boolean {
     text(value.sourceObjectId) && text(value.abilityId) && text(value.label) &&
     (value.reaction === undefined || typeof value.reaction === "boolean");
 }
+function hideOption(value: unknown): boolean {
+  return data(value) && exact(value, ["cardObjectId", "battlefieldId", "payable"]) &&
+    text(value.cardObjectId) && text(value.battlefieldId) && typeof value.payable === "boolean";
+}
 function actionOptions(value: unknown): boolean {
-  return data(value) && exact(value, ["canEndTurn", "moves", "plays"], ["canAdvance", "canPass", "activations"]) &&
+  return data(value) && exact(value, ["canEndTurn", "moves", "plays"], ["canAdvance", "canPass", "activations", "hides"]) &&
     typeof value.canEndTurn === "boolean" && (value.canAdvance === undefined || typeof value.canAdvance === "boolean") &&
     (value.canPass === undefined || typeof value.canPass === "boolean") &&
     Array.isArray(value.moves) && value.moves.every(moveOption) &&
     Array.isArray(value.plays) && value.plays.every(playOption) &&
-    (value.activations === undefined || Array.isArray(value.activations) && value.activations.every(activationOption));
+    (value.activations === undefined || Array.isArray(value.activations) && value.activations.every(activationOption)) &&
+    (value.hides === undefined || Array.isArray(value.hides) && value.hides.every(hideOption));
 }
 function pendingChoice(value: unknown, viewer: string | null): boolean {
   if (!data(value) || !text(value.status, 32)) return false;
