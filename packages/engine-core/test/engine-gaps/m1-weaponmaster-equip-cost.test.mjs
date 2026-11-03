@@ -4,6 +4,7 @@ import test from 'node:test';
 import veteranPoro from '../../../card-dsl/dist/cards/sfd/veteran-poro.js';
 import { bindResolveContext, createActionPipelineHost } from '../../dist/events/action-adapter.js';
 import { ChainEngine } from '../../dist/chain/engine.js';
+import { AwaitChoice } from '../../dist/effects/contract.js';
 import { createProgramBinding } from '../../dist/programs/index.js';
 import { world } from '../../dist/effects/testing/index.js';
 
@@ -42,8 +43,13 @@ function runtime({ energy = 10, power = ['Fury'], equipPower = 'any', equipAmoun
   build?.(builder);
   const kernel = builder.build();
   const requests = [];
+  const answers = new Map();
   const choose = request => {
     requests.push(request);
+    if (request.type === 'mode' && request.options.includes('支付') && request.options.includes('放弃装配')) {
+      if (!answers.has(request.id)) throw new AwaitChoice(request);
+      return answers.get(request.id);
+    }
     if (request.type === 'select-objects' && request.id === 'target:weaponmaster-equipment') {
       return request.options.filter(ref => ref.id === 'equipment');
     }
@@ -77,7 +83,7 @@ function runtime({ energy = 10, power = ['Fury'], equipPower = 'any', equipAmoun
     engine.execute(binding.describePlay({ type: 'play', player: 'A', object: source.ref }, source));
     settle();
   };
-  return { kernel, engine, requests, play };
+  return { kernel, engine, requests, answers, play, settle };
 }
 
 test('Weaponmaster pays the selected Equipment printed [A] Equip cost and attaches it', () => {
@@ -107,13 +113,21 @@ test('Weaponmaster with no selectable Equipment declines without extra payment o
   assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === 'object-attached'), false);
 });
 
-test('Weaponmaster aborts atomically when the discounted Equip cost is unpayable', () => {
+// RIFT-1187: CR 821.1.c.5/.6 — an unpayable Equip cost asks to pay or decline
+// (as for Lucian since RIFT-1006); declining attaches nothing and the Chain
+// continues instead of the trigger throwing out of Resolve.
+test('Weaponmaster attaches nothing when the discounted Equip cost is unpayable and the Chain continues', () => {
   const f = runtime({ energy: 2, power: [] });
   const beforeUnit = f.kernel.getObject('poro');
   const beforeEquipment = f.kernel.getObject('equipment');
-  const beforeLinks = f.kernel.linkedSnapshot();
-  assert.throws(f.play, /insufficient matching Power/i);
-  assert.deepEqual(f.kernel.linkedSnapshot(), beforeLinks, 'the failed trigger leaves no finalized cost or payment link');
+  let request;
+  assert.throws(f.play, error => { request = error?.request; return error instanceof AwaitChoice; });
+  assert.deepEqual(request.options, ['支付', '放弃装配']);
+  f.answers.set(request.id, '放弃装配');
+  f.settle();
+  assert.deepEqual(f.engine.items, []);
+  assert.equal(f.kernel.linked('weaponmaster-choice/weaponmaster-pay.payment'), undefined,
+    'the declined payment leaves no payment link');
   assert.equal(f.kernel.player('A').energy, 0, 'the successful unit play remains paid');
   assert.deepEqual(f.kernel.player('A').power, []);
   assert.equal(f.kernel.getObject('equipment').zone, beforeEquipment.zone);
@@ -159,13 +173,16 @@ test('Weaponmaster reduces only the original [A] component of a mixed Equip cost
   assert.deepEqual(f.kernel.getObject('equipment').attachedTo, f.kernel.getObject('poro').ref);
 });
 
-test('Weaponmaster rejects a selected Equipment with no Equip ability without side effects', () => {
+// RIFT-1187: CR 821.1.c.4 — a selected Equipment without an Equip cost is a
+// legal selection that cannot be paid, so nothing attaches and Resolve completes
+// (as for Lucian since RIFT-1006).
+test('Weaponmaster attaches nothing to a selected Equipment with no Equip ability and Resolve completes', () => {
   const f = runtime({ energy: 2, power: [] });
   f.kernel.addObject({ ...f.kernel.getObject('equipment'), keywords: [] }, 'board');
   const beforeEquipment = f.kernel.getObject('equipment');
-  const beforeLinks = f.kernel.linkedSnapshot();
-  assert.throws(f.play, error => /821\.1\.c\.4.*no Equip cost|missing authoritative Equip-cost binding/i.test(String(error?.message)));
-  assert.deepEqual(f.kernel.linkedSnapshot(), beforeLinks);
+  f.play();
+  assert.deepEqual(f.engine.items, []);
+  assert.equal(f.kernel.linked('weaponmaster-choice/weaponmaster-pay.payment'), undefined);
   assert.equal(f.kernel.player('A').energy, 0);
   assert.deepEqual(f.kernel.player('A').power, []);
   assert.deepEqual(f.kernel.getObject('equipment').ref, beforeEquipment.ref);
