@@ -19,6 +19,7 @@ import { CardText, isOfficialLocalizedStatus } from "../duel/card-text";
 import type { CardTextData } from "../duel/card-text";
 import { projectedObjectCardName, type CardNameIndex } from "./card-names";
 import { v2RuneCanAddEnergy, v2RuneCanAddPower } from "./playmat-interactions";
+import { V2_HIDDEN_LABEL } from "./hidden";
 import { v2GroupUnits, v2MightAt, type V2UnitGroup } from "./unit-groups";
 import "../DuelMatchBoard.css";
 
@@ -202,28 +203,33 @@ function UnitFace({ object, cards, allocation }: {
   readonly allocation: V2UnitAllocation | null;
 }) {
   const name = cards.objectName(object);
-  const image = object.cardId !== undefined && !object.faceDown ? cards.image(object.cardId) : null;
+  // RIFT-1185: a hidden card's face reaches only its owner's projection (CR 128.4).
+  const hidden = object.zone === "facedown";
+  const ownHidden = hidden && object.cardId !== undefined;
+  const image = object.cardId !== undefined && (!object.faceDown || ownHidden) ? cards.image(object.cardId) : null;
   // RIFT-1176: the badge compares the projected current Might with the printed one.
   const printedMight = object.cardId === undefined ? null : cards.card(object.cardId)?.might ?? null;
   const mightDelta = object.might !== undefined && printedMight !== null ? object.might - printedMight : 0;
   // RIFT-1175: an effect-created token has no catalog card and no official art.
   const token = object.cardId === undefined && !object.faceDown;
   return (
-    <span className={`v2m-face${object.exhausted === true ? " is-exhausted" : ""}`}>
-      {object.faceDown ? <span className="full-product-duel-card-back v2m-art" aria-hidden="true" /> :
+    <span className={`v2m-face${object.exhausted === true ? " is-exhausted" : ""}${hidden ? " is-hidden" : ""}`}>
+      {object.faceDown && !ownHidden ? <span className="full-product-duel-card-back v2m-art" aria-hidden="true" /> :
         image !== null ? <img className="v2m-art" src={image} alt={name} draggable={false} /> :
           token ? <span className="v2m-art is-missing is-token" title={`${name}（衍生物，官方图库没有卡图）`}>
             <b>{name}</b><small>衍生物</small>{object.might !== undefined ? <small>战力 {object.might}</small> : null}
           </span> :
             <span className="v2m-art is-missing" aria-hidden="true" />}
-      <span className="v2m-name">{object.faceDown ? "牌面朝下" : name}</span>
-      <span className="v2m-state">
+      <span className="v2m-name">{ownHidden ? name : hidden ? `${V2_HIDDEN_LABEL}牌` : object.faceDown ? "牌面朝下" : name}</span>
+      {hidden ? <span className="v2m-hidden-chip" title={ownHidden ? `${V2_HIDDEN_LABEL}：正面朝下，只有你能看到牌面` : `${V2_HIDDEN_LABEL}：对手正面朝下放置的牌`}>
+        {ownHidden ? `${V2_HIDDEN_LABEL} · 仅你可见` : V2_HIDDEN_LABEL}</span> : null}
+      {hidden ? null : <span className="v2m-state">
         <span className="v2m-readied">{object.exhausted === true ? V2_EXHAUSTED_LABEL : DUEL_READY_LABEL}</span>
         {object.might !== undefined ? <span className={`v2m-might${mightDelta > 0 ? " is-up" : mightDelta < 0 ? " is-down" : ""}`}
           title={mightDelta === 0 ? undefined : `印刷战力 ${printedMight}，当前 ${object.might}`}>
           战力 {object.might}{mightDelta === 0 ? null : <em>{mightDelta > 0 ? `+${mightDelta}` : mightDelta}</em>}</span> : null}
         {object.damage !== undefined && object.damage > 0 ? <span className="v2m-damage">伤害 {object.damage}</span> : null}
-      </span>
+      </span>}
       {allocation !== null && allocation.amount > 0 ? (
         <span className={`v2m-alloc${allocation.lethal ? " is-lethal" : ""}`}>
           {allocation.order !== null ? <b>{allocation.order}</b> : null}{allocation.amount}{allocation.lethal ? " · 将阵亡" : ""}
@@ -264,7 +270,7 @@ function UnitStack({ group, cards, onInspect, interaction }: {
   const click = (members: readonly V2ProjectedObject[], multi = false, anchor?: V2MenuAnchor): void => {
     if (interaction?.onObjectClick?.(members, multi, anchor) === true) return;
     if (members.length > 1) interaction?.onExpand?.(expanded ? null : group.key);
-    else if (members[0]?.cardId !== undefined && !members[0].faceDown && count === 1) onInspect(members[0].cardId, members[0].objectId);
+    else if (members[0]?.cardId !== undefined && (!members[0].faceDown || members[0].zone === "facedown") && count === 1) onInspect(members[0].cardId, members[0].objectId);
   };
   const context = (event: MouseEvent<HTMLElement>, members: readonly V2ProjectedObject[]): void => {
     if (interaction?.onObjectContext?.(members) === true) event.preventDefault();
@@ -277,7 +283,7 @@ function UnitStack({ group, cards, onInspect, interaction }: {
       data-controller-player-id={controllerOf(first)} data-readied={first.exhausted === true ? "false" : "true"}
       {...(mark === null ? {} : { "data-mark": mark })}>
       <span role="button" tabIndex={0} className="v2m-hit"
-        {...v2HoverProps(interaction?.onHover, first.faceDown ? null : first.cardId, first)}
+        {...v2HoverProps(interaction?.onHover, first.faceDown && first.zone !== "facedown" ? null : first.cardId, first)}
         aria-label={count > 1 ? `${name} ×${count}` : name}
         title={onDragStart ? `${name}：拖动到其他位置即可移动；按住 Shift 点选多个单位可一起移动` : name}
         {...(onDragStart ? { onPointerDown: onDragStart } : {})}
@@ -291,7 +297,7 @@ function UnitStack({ group, cards, onInspect, interaction }: {
           <span className="v2m-alloc is-group">{groupAllocation.amount} 点 · {totals.lethal}/{count} 将阵亡</span>
         ) : null}
       </span>
-      {first.cardId !== undefined && !first.faceDown ? (
+      {first.cardId !== undefined && (!first.faceDown || first.zone === "facedown") ? (
         <button type="button" className="v2m-zoom" aria-label={`查看大图：${name}`} title="查看大图"
           onClick={() => onInspect(first.cardId!, first.objectId)}>⤢</button>
       ) : null}

@@ -11,6 +11,7 @@ import type {
   V2ChoiceOption,
   V2CommandReceipt,
   V2EventPayload,
+  V2HideOption,
   V2MoveOption,
   V2PendingChoice,
   V2PlayOption,
@@ -61,6 +62,13 @@ import {
   v2ActivationsFor,
   v2ActivationSourceIds
 } from "./activations";
+import {
+  buildV2HideCommand,
+  V2_HIDDEN_LABEL,
+  v2HideOptionsFor,
+  v2IsHiddenAtBattlefield,
+  v2IsOwnHidden
+} from "./hidden";
 import {
   v2AssignDamage,
   v2ChainKindLabel,
@@ -586,14 +594,15 @@ export function V2MatchBoard({
   // Permanents sit in the "board" zone wherever they are; where they are comes
   // from `location`, so units and gear in a base must not be listed as being on
   // a battlefield (found in a real two-browser M1 run, RIFT-1055).
+  // RIFT-1185: a hidden card sits at its Battlefield in the Facedown Zone.
   const boardObjects = [...visibleV2Objects(projection, "base"), ...visibleV2Objects(projection, "battlefield"),
-    ...visibleV2Objects(projection, "board")];
+    ...visibleV2Objects(projection, "board"), ...visibleV2Objects(projection, "facedown").filter(v2IsHiddenAtBattlefield)];
   const baseObjects = boardObjects.filter(object => baseOwnerOf(object) !== null);
   const battlefieldObjects = boardObjects.filter(object => object.location?.kind === "battlefield");
   const battlefieldPanels = projectedBattlefieldPanels(projection, cardNames, boardObjects);
   const runeObjects = visibleV2Objects(projection, "rune-zone");
   const ownRunes = runeObjects.filter(object => object.ownerPlayerId === projection.viewerPlayerId);
-  const ownUnits = [...baseObjects, ...battlefieldObjects].filter(object =>
+  const ownUnits = [...baseObjects, ...battlefieldObjects].filter(object => object.zone !== "facedown" &&
     (object.controllerPlayerId ?? object.ownerPlayerId) === projection.viewerPlayerId);
   const objectById = (objectId: string): V2ProjectedObject | undefined =>
     projection.objects.find(candidate => candidate.objectId === objectId);
@@ -714,8 +723,11 @@ export function V2MatchBoard({
   const waitingForOpponentDamage = projection.combat?.status === "active" &&
     projection.combat.step === "damage" && projection.combat.damage !== undefined &&
     projection.combat.damage.expectedPlayerId !== projection.viewerPlayerId;
+  const playableIds = new Set((projection.actionOptions?.plays ?? []).map(option => option.cardObjectId));
+  const ownHidden = battlefieldObjects.filter(object => v2IsOwnHidden(object, projection.viewerPlayerId));
   const selectedCard = ownHand.find(card => card.objectId === selectedCardId) ??
-    (ownChampion !== null && ownChampion.objectId === selectedCardId ? ownChampion : null);
+    (ownChampion !== null && ownChampion.objectId === selectedCardId ? ownChampion : null) ??
+    ownHidden.find(object => object.objectId === selectedCardId) ?? null;
   const selectedTarget = targetCandidates.find(object => object.objectId === selectedTargetId) ?? null;
   const winner = projection.winnerPlayerId === null ? null :
     projection.players.find(player => player.playerId === projection.winnerPlayerId) ?? null;
@@ -827,7 +839,8 @@ export function V2MatchBoard({
       onPower: rune => submit(buildV2RuneCommand("rune-power", rune))
     },
     operable: object => !setup && canAct && combatDamage === null && targetingRequirements.length === 0 &&
-      (movableIds.has(object.objectId) || canActivate && activationSourceIds.has(object.objectId)),
+      (movableIds.has(object.objectId) || canActivate && activationSourceIds.has(object.objectId) ||
+        canPlay && v2IsOwnHidden(object, viewerId) && playableIds.has(object.objectId)),
     markFor,
     onObjectClick: (objects, multi, anchor) => {
       if (consumeDragClick()) return true;
@@ -861,6 +874,13 @@ export function V2MatchBoard({
       // Shift/Ctrl/⌘ click picks own units to move together; a plain click still opens the card.
       if (multi === true && !setup && canAct && combatDamage === null && objects.some(object => movableIds.has(object.objectId))) {
         setMoveGroup(v2ToggleMoveGroup(projection, activeMoveGroup, objects));
+        return true;
+      }
+      // RIFT-1185: a plain click on your own hidden card offers to play it from facedown.
+      const hiddenPlay = canPlay && combatDamage === null && targetingRequirements.length === 0 && anchor !== undefined
+        ? objects.find(object => v2IsOwnHidden(object, viewerId) && playableIds.has(object.objectId)) : undefined;
+      if (hiddenPlay !== undefined && anchor !== undefined) {
+        selectPlayCard(hiddenPlay.objectId, anchor);
         return true;
       }
       // RIFT-1183: a plain click on a permanent with a listed ability opens its ability menu;
@@ -947,7 +967,6 @@ export function V2MatchBoard({
   const activeCombatFieldId = projection.combat?.status === "active" ? projection.combat.battlefieldId ?? null : null;
   const activeCombatField = activeCombatFieldId === null ? undefined : objectById(activeCombatFieldId);
   const combatFieldName = activeCombatField === undefined ? activeCombatFieldId ?? "" : objectLabel(activeCombatField);
-  const playableIds = new Set((projection.actionOptions?.plays ?? []).map(option => option.cardObjectId));
   const playableCount = canPlay ? ownHand.filter(card => playableIds.has(card.objectId)).length : 0;
   const nameOrYou = (playerId: string | null | undefined): string =>
     playerId === viewerId ? "你" : v2PlayerName(projection, playerId);
@@ -1029,11 +1048,12 @@ export function V2MatchBoard({
           {ownHand.length === 0 ? <p className="v2-muted">手牌为空</p> : (
             <div className="v2-card-row">{ownHand.map(card => {
               const playable = !setup && canPlay && v2PlayDropTargets(projection, card.objectId).size > 0;
-              const dim = !setup && !playable;
+              const hideable = !setup && canPlay && v2HideOptionsFor(projection, card.objectId).length > 0;
+              const dim = !setup && !playable && !hideable;
               const reason = dim ? (!canAct ? "现在不能操作" : !hasPriority ? "现在没有优先权" : !choiceOpen ? "请先完成选择请求" :
                 topChain !== null || showdown ? "当前时点不能打出这张牌" : "现在没有这张牌的打出选项（费用、时机或目标不满足）") : null;
               const selected = selectedMulliganIds.includes(card.objectId) || selectedCardId === card.objectId;
-              return <div key={card.objectId} className={`v2-hand-slot${playable ? " v2-operable" : ""}${dim ? " is-dim" : ""}`}
+              return <div key={card.objectId} className={`v2-hand-slot${playable || hideable ? " v2-operable" : ""}${dim ? " is-dim" : ""}`}
                 {...(reason === null ? {} : { title: reason })} {...v2HoverProps(hoverHandler, card.cardId, card)}><button type="button"
               className={`v2-card${selected ? " is-selected" : ""}${playable ? " v2-draggable" : ""}`}
               disabled={setup ? !canChooseMulligan : !canPlay}
@@ -1068,9 +1088,13 @@ export function V2MatchBoard({
   );
   const selectedPlays = selectedCard !== null && canPlay && targetingRequirements.length === 0
     ? projection.actionOptions.plays.filter(option => option.cardObjectId === selectedCard.objectId) : [];
-  const playMenu = selectedCard !== null && selectedPlays.length > 0 && menuAnchor !== null ? (
+  const selectedHides = selectedCard !== null && canPlay && targetingRequirements.length === 0
+    ? v2HideOptionsFor(projection, selectedCard.objectId) : [];
+  const playMenu = selectedCard !== null && (selectedPlays.length > 0 || selectedHides.length > 0) && menuAnchor !== null ? (
     <PlayMenu card={selectedCard} plays={selectedPlays} label={objectLabel(selectedCard)} disabled={!canPlay} anchor={menuAnchor}
       destinationLabel={destination => locationLabel(projection, cardNames, destination)}
+      hides={selectedHides} fromHidden={v2IsOwnHidden(selectedCard, projection.viewerPlayerId)}
+      onHide={option => submit(buildV2HideCommand(option))}
       onPlay={option => {
         if (v2PlayNeedsSelection(option)) {
           if (option.requiresDestination !== false) setSelectedPlayDestination(v2LocationKey(option.destination));
@@ -1437,7 +1461,7 @@ export function v2CombatResult(
 }
 
 /** One hand card's play choices, shown above it when selected (Master Duel style). */
-function PlayMenu({ card, plays, label, disabled, anchor, destinationLabel, onPlay }: {
+export function PlayMenu({ card, plays, label, disabled, anchor, destinationLabel, onPlay, hides = [], fromHidden = false, onHide }: {
   readonly card: V2ProjectedObject;
   readonly anchor: { readonly x: number; readonly y: number };
   readonly plays: readonly V2PlayOption[];
@@ -1445,6 +1469,11 @@ function PlayMenu({ card, plays, label, disabled, anchor, destinationLabel, onPl
   readonly disabled: boolean;
   readonly destinationLabel: (destination: V2PlayOption["destination"]) => string;
   readonly onPlay: (option: V2PlayOption) => void;
+  /** RIFT-1185: where this hand card may be hidden; unpayable ones explain the one-Power cost. */
+  readonly hides?: readonly V2HideOption[];
+  /** The card is the viewer's own hidden card, played from facedown. */
+  readonly fromHidden?: boolean;
+  readonly onHide?: (option: V2HideOption) => void;
 }) {
   const unique = new Map<string, V2PlayOption>();
   for (const option of plays) {
@@ -1457,9 +1486,20 @@ function PlayMenu({ card, plays, label, disabled, anchor, destinationLabel, onPl
       {[...unique.values()].map(option => (
         <button key={option.requiresDestination === false ? "none" : v2LocationKey(option.destination)} type="button" role="menuitem"
           disabled={disabled} onClick={() => onPlay(option)}>
-          {v2PlayNeedsSelection(option) ? "选择目标" : "打出"}{option.requiresDestination === false ? "" : ` · ${destinationLabel(option.destination)}`}
+          {v2PlayNeedsSelection(option) ? "选择目标" : fromHidden ? `从${V2_HIDDEN_LABEL}打出` : "打出"}{option.requiresDestination === false ? "" : ` · ${destinationLabel(option.destination)}`}
         </button>
       ))}
+      {hides.map(option => {
+        const hint = option.payable ? undefined : `${V2_HIDDEN_LABEL}需支付 1 点任意符能：先右键一枚符文回收取符能`;
+        return (
+          <button key={`hide:${option.battlefieldId}`} type="button" role="menuitem"
+            disabled={disabled || !option.payable} {...(hint === undefined ? {} : { title: hint })}
+            onClick={() => onHide?.(option)}>
+            {V2_HIDDEN_LABEL} · {destinationLabel({ kind: "battlefield", battlefieldId: option.battlefieldId })}
+            {hint === undefined ? null : <small>（需 1 点符能）</small>}
+          </button>
+        );
+      })}
     </div>
   );
 }

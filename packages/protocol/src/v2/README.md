@@ -21,6 +21,7 @@ The version and contract tags are `PROTOCOL_V2_VERSION` (`2.0.0`),
 | `V2MulliganCommand` | `mulligan` with selected object/UID ids | owner-only hand identity |
 | `V2PlayCommand` | `play` with a card object, optional cost plan, `targets`, and `picks` | target/pick choices are sent only when legal for the viewer |
 | `V2ActivateCommand` | `activate` with ability id, source, cost, targets, and picks | source and choices are owner-only when hidden |
+| `V2HideCommand` | `hide` with one hand card and one controlled Battlefield (CR 811.1.c); the server pays the Hide cost, and a later `play` of the facedown card plays it from Hidden | the card is owner-only; other viewers see only a facedown card at that Battlefield |
 | `V2PassCommand` | `pass` | public action receipt |
 | `V2ChooseCommand` | `choose` answering a suspended choice request | owner-only; the answer is replayed by `choiceId` |
 | `V2MoveCommand` | `move` with object, optional `additionalObjectIds` moving together as one Standard Move, and destination | only visible object identities may be named; the whole group is accepted or rejected together |

@@ -28,6 +28,7 @@ test("v2 admits every engine command with idempotency and state version", () => 
       targets: [{ kind: "object", objectId: "a-unit-1", zoneEntryId: 2 }] },
     { ...base, type: "activate", sourceObjectId: "a-gear-1", abilityId: "equip",
       cost: { power: [{ domains: ["Fury"], amount: 1 }] } },
+    { ...base, type: "hide", cardObjectId: "a-hand-4", battlefieldId: "field-1" },
     { ...base, type: "pass" },
     { ...base, type: "choose", choiceId: "choice-1", answer: ["a-hand-1", true] },
     { ...base, type: "move", objectId: "a-unit-1", to: { zone: "battlefield", locationId: "field-1" } },
@@ -45,6 +46,19 @@ test("v2 admits every engine command with idempotency and state version", () => 
   ];
   for (const command of commands) assert.equal(isV2Command(command), true, command.type);
   assert.equal(isV2CommandEnvelope({ contract: PROTOCOL_V2_COMMAND_CONTRACT, command: commands[1] }), true);
+});
+
+test("RIFT-1185 hide names exactly one hand card and one Battlefield", () => {
+  const hide = { ...base, type: "hide", cardObjectId: "a-hand-4", battlefieldId: "field-1" };
+  assert.equal(isV2Command(hide), true);
+  for (const value of [
+    { ...hide, cardObjectId: "" },
+    { ...hide, battlefieldId: "" },
+    { ...hide, destination: { kind: "battlefield", battlefieldId: "field-1" } },
+    { ...hide, cost: { hidden: true } },
+    { ...hide, playerId: "alice" },
+    (({ battlefieldId, ...rest }) => rest)(hide)
+  ]) assert.equal(isV2Command(value), false, JSON.stringify(value));
 });
 
 test("v2 rejects stale, actor-bearing, malformed, and null-cost commands", () => {
@@ -166,6 +180,24 @@ test("projections preserve owner privacy and never expose hidden zone order", ()
   const facedownLeak = projection("alice");
   facedownLeak.objects.push({ objectId: "secret", zone: "facedown", ownerPlayerId: "alice", cardId: "secret.card", faceDown: true, visibility: "public" });
   assert.equal(isV2Projection(facedownLeak), false);
+  // RIFT-1185: a Facedown Zone card is readable only in its owner's own view (CR 128.4).
+  const ownHidden = { objectId: "a-hidden-1", zone: "facedown", ownerPlayerId: "alice", cardId: "card.hidden",
+    name: "Hidden", faceDown: true, visibility: "owner-only", location: { kind: "battlefield", battlefieldId: "field-1" } };
+  const ownFacedown = projection("alice");
+  ownFacedown.objects.push(ownHidden);
+  assert.equal(isV2Projection(ownFacedown), true);
+  const foreignFacedown = projection("bob");
+  foreignFacedown.objects.push(ownHidden);
+  assert.equal(isV2Projection(foreignFacedown), false);
+  const spectatorFacedown = projection(null);
+  spectatorFacedown.objects.push(ownHidden);
+  assert.equal(isV2Projection(spectatorFacedown), false);
+  const faceUpFacedown = projection("alice");
+  faceUpFacedown.objects.push({ ...ownHidden, faceDown: false });
+  assert.equal(isV2Projection(faceUpFacedown), false);
+  const ownDeckCard = projection("alice");
+  ownDeckCard.objects.push({ ...ownHidden, zone: "deck" });
+  assert.equal(isV2Projection(ownDeckCard), false);
   const deckObjectLeak = projection("alice");
   deckObjectLeak.objects.push({ objectId: "deck-secret", zone: "deck", ownerPlayerId: "alice", cardId: "secret.card", faceDown: false, visibility: "public" });
   assert.equal(isV2Projection(deckObjectLeak), false);
@@ -218,6 +250,21 @@ test("object choice candidates require complete object refs and remain chooser-o
   const opponent = projection("bob");
   opponent.pendingChoice.options = objectChoice.pendingChoice.options;
   assert.equal(isV2Projection(opponent), false);
+});
+
+test("RIFT-1185 hide options name a card, a Battlefield and whether the cost is in the pool", () => {
+  const value = projection("alice");
+  value.actionOptions.hides = [{ cardObjectId: "a-hand-1", battlefieldId: "field-1", payable: false }];
+  assert.equal(isV2Projection(value), true);
+  for (const hide of [
+    { cardObjectId: "a-hand-1", battlefieldId: "field-1" },
+    { cardObjectId: "", battlefieldId: "field-1", payable: true },
+    { cardObjectId: "a-hand-1", battlefieldId: "", payable: true },
+    { cardObjectId: "a-hand-1", battlefieldId: "field-1", payable: "yes" },
+    { cardObjectId: "a-hand-1", battlefieldId: "field-1", payable: true, cost: 1 }
+  ]) {
+    assert.equal(isV2Projection({ ...value, actionOptions: { ...value.actionOptions, hides: [hide] } }), false, JSON.stringify(hide));
+  }
 });
 
 test("play options may publish complete, chooser-visible target requirements", () => {

@@ -10,6 +10,8 @@
  * - Deflect → 法盾: sfd-071-221 疾驰机械 "[Deflect] and [Ganking]" / "[法盾]和[游走]".
  * - Reaction → 反应, Repeat → 回响: sfd-182-221 危险温度 "[Reaction] … [Repeat]" / "[反应] … [回响]".
  * - Quick-Draw → 灵便, Equip → 装配: sfd-022-221 长剑 "[Quick-Draw] … [Equip]" / "[灵便] … [装配]".
+ * - Hidden → 待命: sfd-070-221 痛苦之酬 "[Hidden] (Hide now for :rb_rune_rainbow: to react with later…)" /
+ *   "[待命]（支付:rb_rune_rainbow:正面朝下放置此牌，之后可支付:rb_energy_0:将其当作反应牌打出。）" (gallery updated 2026-10-28).
  *
  * Any other keyword stays in English rather than being translated here.
  */
@@ -22,7 +24,8 @@ const OFFICIAL_KEYWORD_NAMES: Readonly<Record<string, string>> = Object.freeze({
   reaction: "反应",
   repeat: "回响",
   "quick-draw": "灵便",
-  equip: "装配"
+  equip: "装配",
+  hidden: "待命"
 });
 
 export function officialKeywordName(keyword: string): string | undefined {

@@ -168,6 +168,10 @@
 .v2m-face.is-exhausted .v2m-readied { color: #9fd0ff; }
 .v2m-name { position: absolute; left: 0; right: 0; bottom: 0; padding: .05rem .2rem; font-size: .55rem; line-height: 1.25; background: rgba(4, 10, 11, .72);
   border-radius: 0 0 .28rem .28rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* RIFT-1185: a hidden card at a Battlefield; its own face is dimmed and badged. */
+.v2m-face.is-hidden .v2m-art { filter: saturate(.55) brightness(.8); }
+.v2m-hidden-chip { position: absolute; left: .1rem; top: .1rem; padding: 0 .25rem; border-radius: .2rem; font-size: .5rem; line-height: 1.3;
+  font-weight: 700; color: #f3e7c4; background: rgba(76, 52, 110, .9); }
 .v2m-state { position: absolute; left: .1rem; right: .1rem; top: .1rem; display: flex; flex-wrap: wrap; justify-content: space-between; gap: .1rem; font-size: .5rem; line-height: 1.2; }
 .v2m-state > span { padding: 0 .2rem; border-radius: .2rem; background: rgba(4, 10, 11, .78); }
 .v2m-readied { color: var(--v2t-muted); }

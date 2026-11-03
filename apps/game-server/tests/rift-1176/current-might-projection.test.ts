@@ -31,6 +31,7 @@ function fakeMatch(current: readonly ObjectSnapshot[]) {
       },
       combat: { current: null, active: false, battlefields: [] },
       battlefields: [], scored: () => [], victoryScore: 8,
+      hidden: () => ({ turn: 1, zones: {}, pendingControlLoss: [], playedFromHidden: {} }),
     },
     result: () => ({ winner: null, turnNumber: 1 }), events: () => [],
     setup: { battlefields: [] }, turnOrder: ["A", "B"], firstPlayer: "A",
