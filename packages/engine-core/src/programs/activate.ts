@@ -1,6 +1,6 @@
 import type { ActivatedAbility, CardProgram, Condition, Instruction, Restriction } from '@riftbound/card-dsl';
 import type { ChainDraft, ChainEngine } from '../chain/engine.js';
-import type { ObjectSnapshot, PlayerId } from '../effects/contract.js';
+import type { ChoiceRequest, ObjectSnapshot, PlayerId } from '../effects/contract.js';
 import goldTokenProgram from '../../../card-dsl/dist/cards/sfd/gold.js';
 import { assessCostPayment } from '../cost/payment.js';
 import { finalizeCostPlan, type CostDiscountSources } from '../cost/discounts/index.js';
@@ -149,6 +149,22 @@ class ProjectionChoiceRequired extends Error {
   readonly name = 'ProjectionChoiceRequired';
 }
 
+/**
+ * RIFT-1186: a cost that picks objects (e.g. Assembly Rig's "Recycle a unit
+ * from your trash") asks during Finalize. For the read-only availability check,
+ * any legal pick proves the cost can be paid, so answer with the first `min`
+ * offered objects; the real Finalize still asks the player. Every other
+ * question, and a pick with too few candidates, stays unanswerable, so this
+ * can only reveal an ability whose cost really is payable.
+ */
+function previewCostChoice<T>(request: ChoiceRequest<T>): T {
+  if (request.type === 'select-objects' && Number.isSafeInteger(request.min) && request.min >= 0 &&
+      request.min <= request.max && request.options.length >= request.min) {
+    return request.options.slice(0, request.min) as unknown as T;
+  }
+  throw new ProjectionChoiceRequired('Projection cannot answer Finalize choices');
+}
+
 function hasAddPrimitive(body: readonly Instruction[]): boolean {
   for (const instruction of body) {
     if (instruction.op === 'effect.resources') return true;
@@ -220,7 +236,7 @@ function activationCostAvailable(engine: ChainEngine, source: ObjectSnapshot, dr
   return engine.withStableLayers(() => {
     const raw = engine.pipeline.host.context(source, controller, 'chain-item-finalize');
     const context = new Proxy(raw, { get(target, key) {
-      if (key === 'choose') return (): never => { throw new ProjectionChoiceRequired('Projection cannot answer Finalize choices'); };
+      if (key === 'choose') return previewCostChoice;
       const value = Reflect.get(target, key);
       return typeof value === 'function' ? value.bind(target) : value;
     } });
