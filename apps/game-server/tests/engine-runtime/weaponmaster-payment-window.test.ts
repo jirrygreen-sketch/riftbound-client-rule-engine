@@ -251,7 +251,7 @@ describe("RIFT-1150 real Weaponmaster payment window", () => {
     view = runtime.projectFor("A");
     expect(view.pendingChoice).toMatchObject({
       status: "pending", kind: "mode", ownerPlayerId: "A",
-      prompt: expect.stringMatching(/^B\.F\. Sword的装配费用：1 点序理符能，当前不足。可先横置或回收符文补足，再选择支付；或放弃装配。$/u),
+      prompt: expect.stringMatching(/^所选装备的装配费用：1 点序理符能，当前不足。可先横置或回收符文补足，再选择支付；或放弃装配。$/u),
       options: [
         { id: "支付", label: "支付", value: "支付" },
         { id: "放弃装配", label: "放弃装配", value: "放弃装配" },

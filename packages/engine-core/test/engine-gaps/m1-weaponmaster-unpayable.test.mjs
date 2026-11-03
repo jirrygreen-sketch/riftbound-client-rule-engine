@@ -138,7 +138,7 @@ test('core-1.5 / CR 821.1.c.5: an unpayable Equip cost preserves resources and t
   assert.equal(paymentChoice.chooser, 'A');
   assert.deepEqual(paymentChoice.options, ['支付', '放弃装配']);
   assert.match(paymentChoice.prompt,
-    /^equipment的装配费用：1 点摧破符能，当前不足。可先横置或回收符文补足，再选择支付；或放弃装配。$/u);
+    /^所选装备的装配费用：1 点摧破符能，当前不足。可先横置或回收符文补足，再选择支付；或放弃装配。$/u);
   assert.equal(f.kernel.player('A').energy, 0, 'the pending choice leaves only the Unit play cost paid');
   assert.deepEqual(f.kernel.player('A').power, ['Fury'], 'the pending choice has not paid the Equip cost');
   assert.deepEqual(f.kernel.getObject('equipment').attachedTo, oldHost,

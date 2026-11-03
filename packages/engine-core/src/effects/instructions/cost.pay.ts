@@ -96,11 +96,9 @@ function weaponmasterPayChoice(
   plan: CostPlan,
   attempt: number
 ): typeof WEAPONMASTER_PAY | typeof WEAPONMASTER_DECLINE {
-  const target = ctx.targets("weaponmaster-equipment");
-  const equipment = target.length === 1 ? ctx.object(target[0]!) : null;
-  const equipmentName = equipment !== null && equipment.name.trim().length > 0
-    ? equipment.name
-    : "所选装备";
+  // RIFT-1187: the object name is the English printed name; card names may
+  // only be shown in official Chinese, which the client draws from the card.
+  const equipmentName = "所选装备";
   const finalCost = weaponmasterCostText(plan);
   const prompt = finalCost === "无需支付费用"
     ? `${equipmentName}的装配费用：无需支付。请选择支付完成装配，或放弃装配。`
