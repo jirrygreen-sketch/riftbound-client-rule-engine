@@ -127,7 +127,7 @@ test('RIFT-1150: unpayable Weaponmaster asks before preserving the unpaid Equipm
   assert.equal(request.type, 'mode');
   assert.deepEqual(request.options, ['支付', '放弃装配']);
   assert.equal(request.chooser, 'A');
-  assert.match(request.prompt, /^暴风大剑的装配费用：1 点序理符能，当前不足。可先横置或回收符文补足，再选择支付；或放弃装配。$/u);
+  assert.match(request.prompt, /^所选装备的装配费用：1 点序理符能，当前不足。可先横置或回收符文补足，再选择支付；或放弃装配。$/u);
   assert.deepEqual(f.kernel.player('A').power, []);
   assert.equal(f.kernel.getObject('bf-sword').attachedTo, null);
   assert.equal(f.engine.items.length, 1, 'the finalized trigger remains while the choice is pending');

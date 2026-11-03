@@ -405,9 +405,16 @@ function isUnpayableFinalizeMayCost(item: ChainItem, error: unknown): boolean {
     error.message === 'Cost choice cannot be completed from the current zone';
 }
 
+/**
+ * The Weaponmaster keyword expansion (effects/keywords/Weaponmaster.ts) is the
+ * same for every card with the keyword, so it is recognised by that expanded
+ * body, not by one card. RIFT-1187: binding it only to Lucian left Yone's
+ * unpayable Equip cost (CR 821.1.c.5) to throw out of Resolve, so no player
+ * could pass and the game stopped.
+ */
 function isWeaponmasterResolveShape(item: ChainItem): boolean {
-  if (item.source.cardId !== 'card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef' ||
-      item.kind !== 'triggered' || item.body.length !== 1 || item.body[0]?.op !== 'sequence' ||
+  if (item.kind !== 'triggered' || item.body.length !== 1 || item.body[0]?.op !== 'sequence' ||
+      item.body[0].id !== 'weaponmaster-choice' ||
       !item.targetPlans.some(plan => plan.requirement.id === 'weaponmaster-equipment' && plan.selected.length === 1)) {
     return false;
   }
